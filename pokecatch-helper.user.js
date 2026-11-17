@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      3.4.0
+// @version      3.4.1
 // @description  图鉴与刷闪、自动收蛋、免费等级进化、进化潜力配队、刷钱练级、糖果工厂、对战塔、资源预算和任务队列；等级不足先补练、跨地区开局与刷新续跑。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '3.4.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '3.4.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     let startupPhase='正在载入数据',startupError='';
     function revealHost(host){
         if(!host)return false;
@@ -385,13 +385,13 @@
         }
         return false;
     }
-    function backgroundBlockReason(s,e,now=Date.now()){
+    function backgroundBlockReason(s,e,now=Date.now(),service=''){
         if(!e.running||e.suspended)return '助手未运行，原生计时仍独立继续';
         if(e.manual)return '手动控制中，等待归还页面';
         if(typeof document!=='undefined'&&document.hidden)return '标签页在后台，等待回到游戏';
         const a=s?.adv||{},d=e.driver||{},auto=e.automation||{},flow=auto.state||{};
         if(a.paused)return '游戏已暂停';
-        if(a.battle||a.pending)return '等待当前战斗或选择结束';
+        if(a.pending||a.battle&&service!=='eggs')return '等待当前战斗或选择结束';
         if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
         if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
         if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
@@ -411,7 +411,7 @@
         const mainComplete=mainGoalReached(s,e,now),blocked={},ready=[];
         const common=backgroundBlockReason(s,e,now),manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
         for(const id of ['eggs','underground','evolution']){
-            let reason=common;
+            let reason=id==='eggs'?backgroundBlockReason(s,e,now,'eggs'):common;
             if(id==='eggs'&&(!c.autoEggs||c.mode==='breed'))reason=c.mode==='breed'?'由当前繁殖任务管理':'自动收蛋已关闭';
             if(id==='underground'&&(!c.autoUnderCollect||c.mode==='underground'))reason=c.mode==='underground'?'由当前地下任务管理':'后台归队领取已关闭';
             if(id==='evolution'&&!c.autoEvolve)reason='自动免费进化已关闭';
@@ -422,7 +422,8 @@
             if(reason)blocked[id]=reason;
             else if(id==='eggs'?eggs.length:id==='underground'?under.ready.length:!['breed','resource'].includes(c.mode))ready.push(id);
         }
-        ready.sort((a,b)=>a==='evolution'?1:b==='evolution'?-1:(services.lastStarted?.[a]||0)-(services.lastStarted?.[b]||0)||a.localeCompare(b));
+        // Mature eggs free incubator capacity first; finish any existing transaction
+        // before starting this ordered list: eggs, underground receipts, evolution.
         return{active,ready,blocked,mainComplete,pendingCount:Number(eggs.length>0)+Number(under.ready.length>0)};
     }
     function taskExecutionState(s,e,now=Date.now()){
@@ -445,6 +446,7 @@
             else if(managed){state='waiting';text+='；由当前主任务管理';}
             else if(task){state=e.running&&!e.manual&&!e.suspended?'running':'waiting';text+='；'+(state==='running'?'正在领取并归还页面':'事务保留，等待恢复核对');}
             else if(count&&plan.blocked[id]){state=/手动队伍/.test(plan.blocked[id])?'blocked':'waiting';text+='；'+plan.blocked[id];}
+            else if(count&&id==='eggs')text+='；成熟蛋优先，可在普通战斗期间领取';
             entries.push({id,label:id==='eggs'?'培育屋 / 孵蛋':'地下派遣',state,detail:text,nextAt:Number.isFinite(nextAt)?nextAt:null});
         };
         const residents=(s?.pension?.mons||[]).map(slot=>slot.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>mon.id!==132&&DATA.automation.breed[mon.id]?.can);
@@ -2014,10 +2016,9 @@
                 this.lastService=now;
                 if(!e.settings.autoEggs||e.settings.mode==='breed'||this.state.eggRetryAt>now)return false;
                 if(e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
-                // Do not interrupt native battles, launches, member cards or charged actions.
-                if(s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||
-                    e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||this.owner||this.buddyTask||this.buffUI||
-                    e.preparation?.candyTx||this.state.evolution||this.state.resourceTx||this.state.autoBuffTx||this.state.resourceBuffTx||this.state.towerLaunch||this.state.candyLaunch||this.state.underLaunch||this.state.underCollect||this.state.candyRun&&!s.candy?.run||this.state.waitUntil>now)return false;
+                // Native ordinary adventure battles keep running on the daycare screen.
+                // Hatching does not reset that battle; real choices and owned UI still wait.
+                if(backgroundBlockReason(s,e,now,'eggs')||this.state.evolution||visible($('#modal-root.open'))||visible($('#evt-pick')))return false;
                 if(!eggs.length)return false;
                 if($$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
                 // The native ready control wins over wall-clock estimates when already visible.
@@ -2041,7 +2042,7 @@
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
             const due=eggs.some(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now)||
                 $$('#pen-eggs .pen-egg.ready[data-egg]').some(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
-            if(!e.settings.autoEggs||!due||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!e.settings.autoEggs||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
                 const ready=$$('#pen-eggs .pen-egg.ready[data-egg]').find(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
@@ -2056,7 +2057,7 @@
                 if(eggs.length)this.state.eggRetryAt=now+60000;
                 task.returning=true;
             }
-            const tab=$(`#tabs [data-screen="${task.returnScreen}"]`),screen=tab&&!tab.classList.contains('locked')&&!tab.classList.contains('hold')?task.returnScreen:'adventure';
+            const tab=$(`#tabs [data-screen="${task.returnScreen}"]`),screen=!s.adv.pending&&tab&&!tab.classList.contains('locked')&&!tab.classList.contains('hold')?task.returnScreen:'adventure';
             if(!this.page(screen))return true;
             delete this.state.eggService;this.lastService=now;
             // Exclude this side service from map measurements and preparation UI deadlines.
@@ -3819,7 +3820,7 @@
             <div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric"><b id="money-value">0</b>本次金币净增</div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
-            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>已配置寄养 / 孵蛋 / 地下派遣</td><td>原生计时可与前台任务并行</td></tr><tr><td>收蛋 / 领取地下归队 / 进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。后台服务只收取已有成熟蛋和已返回地下队伍，不自动寄养换人或新派遣。</div></details>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>已配置寄养 / 孵蛋 / 地下派遣</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。后台服务只收取已有成熟蛋和已返回地下队伍，不自动寄养换人或新派遣。</div></details>
             <div class="target hidden" id="prepare-info"><b>↑ 正在补练</b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
             <div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>

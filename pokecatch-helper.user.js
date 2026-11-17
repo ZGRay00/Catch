@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      3.3.1
+// @version      3.3.2
 // @description  图鉴与刷闪、自动收蛋、免费等级进化、进化潜力配队、刷钱练级、糖果工厂、对战塔、资源预算和任务队列；等级不足先补练、跨地区开局与刷新续跑。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '3.3.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '3.3.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     let startupPhase='正在载入数据',startupError='';
     function revealHost(host){
         if(!host)return false;
@@ -1854,7 +1854,10 @@
                 if(this.evolutionFX&&this.evolutionFX.node!==fx){this.e.stop('进化动画发生变化，请确认后继续');return true;}
                 this.evolutionFX??={node:fx,started:now};
                 if(now-this.evolutionFX.started>120000){this.e.stop('进化动画长时间未结束，请检查游戏后继续');return true;}
-                if(visible($('#modal-root.open'))||visible($('#evt-pick'))){this.e.status='自动进化 · 等待前方弹窗处理完毕';return true;}
+                if(visible($('#modal-root.open'))||visible($('#evt-pick'))){
+                    if(d.dismissInformation?.(s)||d.receipt())return true;
+                    this.e.status='自动进化 · 等待前方弹窗处理完毕';return true;
+                }
                 d.click([...fx.querySelectorAll('.fx-skip:not([data-gone]),.rc-tap')].find(enabled),'继续本次免费进化动画',true);this.e.lastProgress=now;return true;
             }
             this.evolutionFX=null;
@@ -1947,7 +1950,10 @@
                 if(this.eggFX&&this.eggFX.node!==fx){this.e.stop('孵蛋界面发生变化，请确认后继续');return true;}
                 this.eggFX??={node:fx,started:now};
                 if(now-this.eggFX.started>120000){this.e.stop('孵蛋动画长时间未结束，请检查游戏后继续');return true;}
-                if(visible($('#modal-root.open'))||visible($('#evt-pick'))){this.e.status='自动收蛋 · 等待前方弹窗处理完毕';return true;}
+                if(visible($('#modal-root.open'))||visible($('#evt-pick'))){
+                    if(d.dismissInformation?.(s)||d.receipt())return true;
+                    this.e.status='自动收蛋 · 等待前方弹窗处理完毕';return true;
+                }
                 d.click([...fx.querySelectorAll('.fx-skip:not([data-gone]),.rc-tap,.hx-tap')].find(enabled),'领取孵蛋结果',true);this.e.lastProgress=now;return true;
             }
             if(this.eggFX)this.state.eggReceiptUntil=now+15000;
@@ -2579,7 +2585,7 @@
                     const same=plan.uids.length===(s.team||[]).length&&plan.uids.every((uid,i)=>s.team[i]===uid),roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid));
                     if(!same){
                         e.telemetry.sample=null;e.lastProgress=now;
-                        if(s.adv.battle||s.adv.pending){e.status='当前队伍无需额外补练，等待安全节点安排出战';return true;}
+                        if(s.adv.battle||s.adv.pending){e.status='当前队伍无需额外补练，等待安全节点安排出战';e.driver.nav('adventure');return true;}
                         if(now<e.teamRetryAt){e.status='可直接挑战的队伍等待原生配队重试';e.driver.nav('adventure');return true;}
                         e.driver.teamTask={chapter:s.adv.chapter,members:[s.adv.chapter],uids:plan.uids,started:now,attempts:0,preparationReady:true};
                         e.status=`使用现有战力挑战${context.label}，准备队伍上阵`;return true;
@@ -3248,6 +3254,10 @@
             if(this.hiddenAt==null)return;
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;this.lastProgress=now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
+            if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
+            if(this.legendProbe?.started!=null)this.legendProbe.started+=duration;
+            if(this.driver.ownedDialog?.pending?.at!=null)this.driver.ownedDialog.pending.at+=duration;
+            if(this.automation.state.worldResultAt!=null)this.automation.state.worldResultAt+=duration;
             if(this.services.underground){this.services.underground.started+=duration;if(this.services.underground.tx)this.services.underground.tx.at+=duration;}
             for(const task of [this.driver.pendingMap,this.driver.teamTask,this.driver.ownedDialog,this.automation.owner,this.automation.buddyTask,this.automation.buffUI,this.automation.eggFX,this.automation.evolutionFX,this.automation.state.evolution])if(task?.started)task.started+=duration;
             if(this.automation.state.evolution){this.automation.state.evolution.at+=duration;if(this.automation.state.evolution.clickedAt)this.automation.state.evolution.clickedAt+=duration;}
@@ -3442,8 +3452,8 @@
                 if(shinyOwned(s,this.settings.shinyId)){this.completeTask('指定野生异色目标已捕获');return;}
                 const rows=shinyRanking(s,this.settings,this.cooldowns,now),current=rows.find(row=>row.key===this.target?.key);
                 if(safeBoundary&&rows.length&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                if(current&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${MONS.get(this.settings.shinyId)?.name} · ${current.name}`;this.driver.nav('adventure');return;}
-                if(!safeBoundary)return;if(!rows.length){
+                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${MONS.get(this.settings.shinyId)?.name} · ${current.name}`;this.driver.nav('adventure');return;}
+                if(!safeBoundary){this.driver.nav('adventure');return;}if(!rows.length){
                     const eligible=shinyRanking(s,this.settings,{},now);
                     if(eligible.length){this.waitForFarm('刷闪地图暂时退避，等待后重试',now);return;}
                     const phases=[8,10,20].map(hour=>{const at=new Date(now);at.setHours(hour,0,0,0);if(at.getTime()<=now)at.setDate(at.getDate()+1);return at.getTime();});
@@ -3461,12 +3471,12 @@
                 }
                 const rows = dexRanking(s, this.settings, this.cooldowns, now);
                 const stillNeeded = rows.find(r => r.key === this.target?.key);
-                if (this.target && stillNeeded && this.visit && now - this.visit.started < this.settings.rotateMinutes * 60000) {
+                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && now - this.visit.started < this.settings.rotateMinutes * 60000) {
                     if(safeBoundary&&stillNeeded.targets.some(m=>!m.gift&&!m.special)&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     this.status = `补图鉴 · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}`; this.driver.nav('adventure'); return;
                 }
-                if (!safeBoundary) return;
-                if (this.target && stillNeeded && this.visit && now - this.visit.started >= this.settings.rotateMinutes * 60000) {
+                if (!safeBoundary) {this.driver.nav('adventure');return;}
+                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && now - this.visit.started >= this.settings.rotateMinutes * 60000) {
                     this.cooldowns[this.target.key] = now + 5 * 60000; this.log('目标地图达到轮换时间，尝试其他缺失进化链');
                 }
                 const next = dexRanking(s, this.settings, this.cooldowns, now)[0];
@@ -3592,7 +3602,7 @@
             if (mode==='item' && current && current.members.includes(s.adv.chapter) && elapsed < 30 * 60000 && (elapsed < this.settings.sampleMinutes * 60000 || !current.measured)) {
                 this.status = `${label} · ${current.name}`; this.driver.nav('adventure'); return;
             }
-            if (!safe) return;
+            if (!safe) {this.driver.nav('adventure');return;}
             let next=rows[0];
             if(mode==='item'){
                 const unsampled=rows.filter(row=>!row.measured&&row.key!==current?.key);
@@ -3673,7 +3683,7 @@
             if (current && this.target.members.includes(s.adv.chapter) && (elapsed < this.settings.sampleMinutes * 60000 || !current.measured) && elapsed < 30 * 60000) {
                 this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
             }
-            if (s.adv.battle || s.adv.pending) return;
+            if (s.adv.battle || s.adv.pending) {this.driver.nav('adventure');return;}
             // Rotate all eligible maps over time, reserving most visits for the current winner.
             const unsampled = rows.filter(row => !row.measured && row.key !== current?.key);
             const next = unsampled.length && (!this.lastExplore || now - this.lastExplore > 2 * this.settings.sampleMinutes * 60000) ? unsampled[0] : rows[0];
@@ -3941,7 +3951,7 @@
             const execution=renderExecution(s,now);if(execution.pendingCount)query('#mini-state').textContent+=` · 待办 ${execution.pendingCount}`;
             query('#resume').classList.toggle('hidden', !resumable); query('#start').classList.toggle('hidden', resumable);
             query('#resume').textContent=engine.manual&&s?.adv?.event?.raid?'接管当前团体战':engine.suspended?'继续原任务':'立即恢复';
-            query('#action').textContent = wait?.detail||(engine.nextWake>now?`预计等待 ${Math.max(1,Math.ceil((engine.nextWake-now)/60000))} 分钟 · ${engine.action||'按游戏时间结算'}`:engine.action || '选择任务与目标后开始');
+            query('#action').textContent = wait?.detail||(engine.nextWake>now?`预计等待 ${Math.max(1,Math.ceil((engine.nextWake-now)/60000))} 分钟 · ${engine.action||'按游戏时间结算'}`:engine.action || (engine.running?'助手已接管，按当前任务执行':'选择任务与目标后开始'));
             query('#start').disabled = locked; query('#stop').disabled = !locked;
             query('#start').textContent = s?.adv?.event?.raid ? '接管当前团体战' : s?.adv?.zone ? '接管当前传说战' : '开始当前任务';
             query('#queue-count').textContent=engine.queue.filter(job=>job.status!=='done').length;

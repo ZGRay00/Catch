@@ -1,0 +1,348 @@
+{
+  "build": "0a26d39c19",
+  "bundle": "app.6e45170313.js",
+  "multi": {
+    "odds": [
+      0.35,
+      0.35,
+      0.15,
+      0.15
+    ],
+    "moves": {
+      "double-kick": 2,
+      "bonemerang": 2,
+      "twineedle": 2,
+      "double-hit": 2,
+      "dual-chop": 2,
+      "gear-grind": 2,
+      "twin-beam": 2,
+      "double-iron-bash": 2,
+      "dragon-darts": 2,
+      "dual-wingbeat": 2,
+      "surging-strikes": 3,
+      "triple-dive": 3,
+      "triple-kick": [
+        10,
+        20,
+        30
+      ],
+      "triple-axel": [
+        20,
+        40,
+        60
+      ],
+      "fury-attack": "2-5",
+      "fury-swipes": "2-5",
+      "pin-missile": "2-5",
+      "bullet-seed": "2-5",
+      "icicle-spear": "2-5",
+      "rock-blast": "2-5",
+      "arm-thrust": "2-5",
+      "bone-rush": "2-5",
+      "double-slap": "2-5",
+      "comet-punch": "2-5",
+      "spike-cannon": "2-5",
+      "barrage": "2-5",
+      "tail-slap": "2-5",
+      "water-shuriken": "2-5",
+      "scale-shot": "2-5"
+    }
+  },
+  "multiBase": {
+    "double-kick": 30,
+    "bonemerang": 50,
+    "twineedle": 25,
+    "double-hit": 35,
+    "dual-chop": 40,
+    "gear-grind": 50,
+    "twin-beam": 40,
+    "dual-wingbeat": 40,
+    "triple-kick": 10,
+    "triple-axel": 20,
+    "fury-attack": 15,
+    "fury-swipes": 18,
+    "pin-missile": 25,
+    "bullet-seed": 25,
+    "icicle-spear": 25,
+    "rock-blast": 25,
+    "arm-thrust": 15,
+    "bone-rush": 25,
+    "double-slap": 15,
+    "comet-punch": 18,
+    "spike-cannon": 20,
+    "barrage": 15,
+    "tail-slap": 25,
+    "scale-shot": 25
+  },
+  "misses": [
+    true,
+    false,
+    true,
+    false
+  ],
+  "duels": [
+    {
+      "mon": {
+        "id": 106,
+        "uid": "sample",
+        "level": 5
+      },
+      "foe": {
+        "id": 19,
+        "uid": "foe",
+        "level": 5
+      },
+      "weather": null,
+      "move": {
+        "key": "double-kick",
+        "name": "Double Pied",
+        "type": "fighting",
+        "cat": "phys",
+        "power": 60,
+        "acc": 96.36363636363636
+      },
+      "hit": 38.44189453125,
+      "rawCombined": 33
+    },
+    {
+      "mon": {
+        "id": 106,
+        "uid": "sample",
+        "level": 10
+      },
+      "foe": {
+        "id": 19,
+        "uid": "foe",
+        "level": 10
+      },
+      "weather": null,
+      "move": {
+        "key": "double-kick",
+        "name": "Double Pied",
+        "type": "fighting",
+        "cat": "phys",
+        "power": 60,
+        "acc": 96.36363636363636
+      },
+      "hit": 58.361328125,
+      "rawCombined": 53
+    },
+    {
+      "mon": {
+        "id": 214,
+        "uid": "sample",
+        "level": 10
+      },
+      "foe": {
+        "id": 19,
+        "uid": "foe",
+        "level": 10
+      },
+      "weather": null,
+      "move": {
+        "key": "arm-thrust",
+        "name": "Cogne",
+        "type": "fighting",
+        "cat": "phys",
+        "power": 46.49999999999999,
+        "acc": 98.81818181818181
+      },
+      "hit": 54.369580078125,
+      "rawCombined": 44
+    },
+    {
+      "mon": {
+        "id": 214,
+        "uid": "sample",
+        "level": 20
+      },
+      "foe": {
+        "id": 19,
+        "uid": "foe",
+        "level": 20
+      },
+      "weather": null,
+      "move": {
+        "key": "arm-thrust",
+        "name": "Cogne",
+        "type": "fighting",
+        "cat": "phys",
+        "power": 46.49999999999999,
+        "acc": 98.81818181818181
+      },
+      "hit": 90.31853027343749,
+      "rawCombined": 80
+    },
+    {
+      "mon": {
+        "id": 573,
+        "uid": "sample",
+        "level": 20
+      },
+      "foe": {
+        "id": 19,
+        "uid": "foe",
+        "level": 20
+      },
+      "weather": null,
+      "move": {
+        "key": "double-slap",
+        "name": "Torgnoles",
+        "type": "normal",
+        "cat": "phys",
+        "power": 46.49999999999999,
+        "acc": 98.81818181818181
+      },
+      "hit": 36.245629882812494,
+      "rawCombined": 31
+    },
+    {
+      "mon": {
+        "id": 91,
+        "uid": "sample",
+        "level": 37
+      },
+      "foe": {
+        "id": 19,
+        "uid": "foe",
+        "level": 37
+      },
+      "weather": null,
+      "move": {
+        "key": "icicle-spear",
+        "name": "Stalactite",
+        "type": "ice",
+        "cat": "phys",
+        "power": 77.49999999999999,
+        "acc": 93.18181818181819
+      },
+      "hit": 97.38813476562498,
+      "rawCombined": 93
+    },
+    {
+      "mon": {
+        "id": 237,
+        "uid": "sample",
+        "level": 21
+      },
+      "foe": {
+        "id": 19,
+        "uid": "foe",
+        "level": 21
+      },
+      "weather": null,
+      "move": {
+        "key": "triple-kick",
+        "name": "Triple Pied",
+        "type": "fighting",
+        "cat": "phys",
+        "power": 60,
+        "acc": 96.36363636363636
+      },
+      "hit": 95.351806640625,
+      "rawCombined": 85
+    },
+    {
+      "mon": {
+        "id": 65,
+        "uid": "sample",
+        "level": 50
+      },
+      "foe": {
+        "id": 81,
+        "uid": "foe",
+        "level": 50
+      },
+      "weather": null,
+      "move": {
+        "key": "psychic",
+        "name": "Psyko",
+        "type": "psychic",
+        "cat": "spec",
+        "power": 90,
+        "acc": 90.9090909090909
+      },
+      "hit": 64.99072265625,
+      "rawCombined": 65
+    },
+    {
+      "mon": {
+        "id": 132,
+        "uid": "sample",
+        "level": 50
+      },
+      "foe": {
+        "id": 6,
+        "uid": "foe",
+        "level": 50
+      },
+      "weather": null,
+      "move": {
+        "key": "air-slash",
+        "name": "Lame d’Air",
+        "type": "flying",
+        "cat": "spec",
+        "power": 75,
+        "acc": 93.63636363636364
+      },
+      "hit": 60.276611328125,
+      "rawCombined": 60
+    },
+    {
+      "mon": {
+        "id": 6,
+        "uid": "sample",
+        "level": 50
+      },
+      "foe": {
+        "id": 9,
+        "uid": "foe",
+        "level": 50
+      },
+      "weather": {
+        "fire": 1.5,
+        "water": 0.5
+      },
+      "move": {
+        "key": "air-slash",
+        "name": "Lame d’Air",
+        "type": "flying",
+        "cat": "spec",
+        "power": 75,
+        "acc": 93.63636363636364
+      },
+      "hit": 49.732421875,
+      "rawCombined": 50
+    },
+    {
+      "mon": {
+        "id": 9,
+        "uid": "sample",
+        "level": 50
+      },
+      "foe": {
+        "id": 6,
+        "uid": "foe",
+        "level": 50
+      },
+      "weather": {
+        "fire": 0.5,
+        "water": 1.5
+      },
+      "move": {
+        "key": "aqua-tail",
+        "name": "Hydro-Queue",
+        "type": "water",
+        "cat": "phys",
+        "power": 90,
+        "acc": 90.9090909090909
+      },
+      "hit": 182.587890625,
+      "rawCombined": 183
+    }
+  ],
+  "checks": 9762,
+  "damagingLearnDifferences": 0,
+  "moveDifferences": 0,
+  "selectedMoves": 2888
+}

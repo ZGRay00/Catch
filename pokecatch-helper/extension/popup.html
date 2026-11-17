@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PokéCatch 保持激活</title><link rel="stylesheet" href="popup.css"></head>
+<body><header><span class="icon">ϟ</span><div><h1>PokéCatch 保持激活</h1><p>可选后台支持 · 默认关闭</p></div></header>
+<main><label class="switch"><span>启用后台支持<small>仅作用于两个游戏站点</small></span><input id="enabled" type="checkbox"></label>
+<div id="status" role="status">正在读取状态…</div>
+<label class="power"><input id="power" type="checkbox"><span>同时防止系统自动休眠<small>可选，首次开启会申请 power 权限</small></span></label>
+<p class="hint">启用后保持游戏的可见性状态，降低标签页被自动丢弃的概率。关闭后恢复浏览器原生可见性与自动丢弃设置。</p>
+<p class="hint">不会自动刷新、切换焦点、登录或改动游戏数值。系统休眠、断网、强制冻结和手动关闭标签页时仍可能停止运行。</p></main>
+<script src="popup.js"></script></body></html>

@@ -1,13 +1,13 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **3.5.0**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **4.0.0**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [使用说明](./使用说明.txt)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v4.0.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
 
 ## 安装和更新
 
 1. 在浏览器中启用 Tampermonkey，打开上面的脚本链接并确认安装。
-2. 进入游戏或刷新游戏页，确认助手面板显示 `3.5.0`。
+2. 进入游戏或刷新游戏页，确认助手面板显示 `4.0.0`。
 3. 后续点击面板顶部“在线更新”。发现新版后再次点击“安装新版”，在油猴确认安装，完成后刷新游戏。
 
 从旧版手动复制安装的用户，需要先安装这一次新版。脚本也配置了油猴原生 `@updateURL` 和 `@downloadURL`。
@@ -22,6 +22,19 @@
 - 指定游荡捕获：追踪原生地图位置，已生成的目标节点优先，错过或捕获失败后从原生入口重新进入。
 - 地下通道配队、派遣、等待归队、领取确认与按预算开启晶洞。
 - 自动收蛋、繁殖、对战塔、糖果工厂、世界首领、资源预算及任务队列。
+
+## 4.0.0：模型核验、天气规划与模块化工程
+
+- 按原生规则重算多段伤害和未命中后必中的攻击节奏，改善配队、刷取、练级与推图评估；原有正确招式数据继续保留。
+- 天气、时段、季节与每日热点分别建模，补图鉴和野闪优先选择当前真实可遇目标，缺少出没窗口时等待；野生异色出现后保护当前战斗。
+- 新增配置导入导出，以及野外、蛋、地下化石的异色概率说明。基础进化链进度和游戏完整图鉴加成分别展示。
+- 可选保活扩展默认关闭，用户明确启用后才提供后台支持；关闭恢复原标签设置。原生离线收益与后台在线运行分别处理。
+- 拆分源码、游戏与天气 JSON，提供零依赖构建、一致性检查和 ZIP 工具；油猴仍然安装完整单文件。
+- 完整对照、没有移植的功能和机制限制见 [4.0 升级审查](./pokecatch-helper/docs/UPGRADE-4.0.md)。
+
+压缩包解压后，安装 `pokecatch-helper/dist/pokecatch-helper.user.js` 并刷新游戏。开发者修改 `pokecatch-helper/src/` 与 `data/` 后执行 `npm run build`；普通用户无需安装 Node 或配套扩展。
+
+938 项离线逻辑与工程回归、四套隔离浏览器回归通过。发布包在全新目录解压后，重新构建、测试和打包均通过，ZIP 字节一致。
 
 ## 3.5.0：神奥后台地下探险
 

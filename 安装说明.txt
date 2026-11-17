@@ -1,0 +1,3 @@
+安装 pokecatch-helper/dist/pokecatch-helper.user.js 到 Tampermonkey。
+源码与开发命令见 pokecatch-helper/README.md。
+无需运行 Node 或安装扩展即可使用脚本。

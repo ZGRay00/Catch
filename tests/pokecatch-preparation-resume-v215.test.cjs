@@ -1,0 +1,130 @@
+const test=require('node:test'),assert=require('node:assert/strict'),H=require('../Pokecatch自动助手.user.js');
+const species=[289,282,257,319,310,365];
+function fixture(t,levels=species.map(()=>92),settings={}){
+    const before=global.document;global.document={hidden:false,querySelector:()=>null,querySelectorAll:()=>[]};
+    t.after(()=>{if(before===undefined)delete global.document;else global.document=before;});
+    const now=Date.now(),s={trainer:{id:'preparation-resume-v215'},money:100000,mons:species.map((id,i)=>({uid:'m'+i,id,level:levels[i],reg:'hoenn',xp:0})),team:[],road:[],dex:{},items:{},stats:{},
+        travel:{to:['johto','hoenn']},link:{from:'kanto',to:'hoenn',side:'to'},adv:{layout:H.DATA.layout,chapter:42,unlocked:46,node:0,runs:0,speed:4,loops:[42],badges:[],gifts:{},deaths:{}}};
+    s.team=s.mons.map(mon=>mon.uid);s.road=[...s.team];
+    const data=new Map([['pokecatch-tab','prep-resume-tab']]),storage={getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,String(value)),removeItem:key=>data.delete(key)};
+    const save=()=>storage.setItem('gachamon-save-v1',JSON.stringify(s));save();
+    const e=new H.Engine(storage,{mode:'progress',progressUntil:65,autoTeam:true,autoPrepare:true,progressCandy:false,raids:false,trainBuddy:false,trainBuff:false,...settings});
+    e.loadAccount(s);e.running=true;e.started=now;e.tabToken='prep-resume-tab';e.schedule=()=>{};e.read();e.budget.spent=123;e.budget.used=2;
+    const route={...H.DATA.chapters[42],key:'42',members:[42]},context=H.battleContext(s,'progress',{row:{...H.DATA.chapters[46],members:[43,44,45,46,47]}});
+    const p={mode:'progress',context:{...context},resume:{},targets:s.mons.map(mon=>({uid:mon.uid,id:mon.id,level:mon.level,goal:95})),uids:[...s.team],originalTeam:[...s.team],originalLocation:route,
+        phase:'train',phaseAt:now,started:now,lastTick:now,lastGrowth:now,frontier:46,avoid:{},route,visit:{at:now,deaths:0},routeCheck:now,routeProfile:'old'};
+    delete p.context.foes;e.preparation=p;
+    const actions=[];e.driver.nav=screen=>{actions.push(screen);return true;};e.driver.map=()=>false;
+    t.after(()=>e.stop());return{s,e,p,context,now,save,storage,actions};
+}
+
+test('a capable below-cap party ends ordinary preparation without levelling every member to 95',t=>{
+    const {s,e,p,context,now}=fixture(t),started=e.started;e.coach.step(s,now);
+    assert.equal(e.preparation,null);assert.equal(e.coach.ready.trial,true);assert.ok(e.coach.ready.targets.every(target=>target.goal===92));
+    assert.equal(e.budget.spent,123);assert.equal(e.budget.used,2);assert.equal(e.started,started);assert.equal(e.settings.progressUntil,65);assert.equal(p.targets.at(-1).goal,95);
+    assert.ok(s.mons.every(mon=>mon.level===92));assert.equal(e.ensurePrepared(s,context,{},now+1200),false);assert.equal(e.preparation,null);
+});
+
+for(const blocker of ['battle','choice','road','candy','owner','buddy','buff'])test(`early return waits for the native ${blocker} boundary`,t=>{
+    const {s,e,p,now}=fixture(t);
+    if(blocker==='battle')s.adv.battle={steps:1};if(blocker==='choice')s.adv.pending={type:'gift'};if(blocker==='road')s.road=['m0'];
+    if(blocker==='candy')p.candyTx={kind:'use',uid:'m0',id:'exp-candy-m',at:now};if(blocker==='owner')e.automation.owner={kind:'buddy'};
+    if(blocker==='buddy')e.automation.buddyTask={uid:'m0',started:now};if(blocker==='buff')e.automation.state.autoBuffTx={id:'pinap-berry',at:now};
+    e.coach.step(s,now);assert.equal(e.preparation,p);assert.notEqual(p.phase,'restore');assert.equal(e.coach.ready,null);
+});
+
+test('a failed early attempt restores training and needs real growth before another early return',t=>{
+    const {s,e,context,now}=fixture(t);e.coach.step(s,now);assert.equal(e.coach.ready.trial,true);
+    s.adv.deaths[46]=1;assert.equal(e.ensurePrepared(s,context,{},now+1200),true);const p=e.preparation;
+    assert.ok(p?.targets.length);assert.ok(p.trialFailure);Object.assign(p,{phase:'train',route:{...H.DATA.chapters[42],key:'42',members:[42]}});
+    s.team=[...p.uids];s.road=[...s.team];e.coach.step(s,now+2400);assert.equal(e.preparation,p,'same losing roster cannot immediately retry');
+    for(const mon of s.mons)mon.xp=10000;e.coach.step(s,now+3600);assert.equal(e.preparation,p,'XP ticks without a level change do not unlock a retry');
+    for(const mon of s.mons)mon.level=93;e.coach.step(s,now+4800);assert.equal(e.preparation,p,'a single level is below the retry improvement floor');
+    for(const mon of s.mons)mon.level=94;e.coach.step(s,now+6000);assert.equal(e.preparation,null);assert.equal(e.coach.ready.trial,true);
+});
+
+test('a ready roster in the PC is configured and actually applied before skipping preparation',t=>{
+    const {s,e,context,now}=fixture(t,species.map(()=>5));
+    e.preparation=null;
+    s.mons.push(...species.map((id,i)=>({uid:'ready'+i,id,level:95,reg:'hoenn'})));
+    assert.equal(e.ensurePrepared(s,context,{},now),true);const task=e.driver.teamTask;assert.ok(task?.preparationReady);assert.equal(e.coach.ready,null);
+    assert.equal(e.ensurePrepared(s,context,{},now+1200),false,'queued ready-team edit must reach the native PC driver');
+    s.team=[...task.uids];e.driver.teamTask=null;assert.equal(e.ensurePrepared(s,context,{},now+2400),true);assert.equal(e.coach.ready,null,'road still contains the weak roster');
+    s.road=[...s.team];assert.equal(e.ensurePrepared(s,context,{},now+3600),false);assert.equal(e.coach.ready.trial,true);assert.equal(e.preparation,null);
+});
+
+test('legacy all-pinned preparation can switch to a ready new roster without resetting its original task or budget',t=>{
+    const {s,e,p,now}=fixture(t,[91,88,93,83,83,73]),targets=p.targets,resume=p.resume,original=p.originalTeam;
+    s.mons.push(...species.map((id,i)=>({uid:'ready'+i,id,level:95,reg:'hoenn'})));
+    e.coach.step(s,now);assert.equal(e.preparation,p);assert.notEqual(p.targets,targets);assert.equal(p.targets.length,0);assert.equal(p.resumeReady,true);
+    assert.equal(p.resume,resume);assert.equal(p.originalTeam,original);assert.equal(e.budget.spent,123);assert.equal(e.budget.used,2);assert.equal(e.coach.ready,null);
+    e.coach.step(s,now+1200);assert.ok(e.driver.teamTask);assert.equal(e.preparation,p);
+    s.team=[...p.uids];e.driver.teamTask=null;e.coach.step(s,now+2400);assert.equal(e.preparation,p,'native road application remains mandatory');
+    s.road=[...s.team];e.coach.step(s,now+3600);assert.equal(e.preparation,null);assert.equal(e.coach.ready.trial,true);
+});
+
+test('ordinary manual teams and special activity preparation retain their explicit level targets',t=>{
+    const {s,e,p,now}=fixture(t,undefined,{autoTeam:false});e.coach.step(s,now);assert.equal(e.preparation,p);assert.ok(p.targets.every(target=>target.goal===95));
+    e.settings.autoTeam=true;p.context.kind='raid';p.context.id=68;e.coach.step(s,now+1200);assert.equal(e.preparation,p);assert.ok(!p.earlyReady);
+});
+
+test('trial readiness survives a refresh checkpoint and validates its actual roster profile',t=>{
+    const {s,e,context,now,storage,save}=fixture(t);e.coach.step(s,now);save();e.suspend();
+    const next=new H.Engine(storage);next.loadAccount(s);next.schedule=()=>{};next.start(true);t.after(()=>next.stop());
+    assert.equal(next.coach.ready?.trial,true);assert.equal(next.ensurePrepared(s,context,{},now+1200),false);assert.equal(next.preparation,null);
+    s.autoSwitch=false;assert.notEqual(next.coach.ready.profile,next.coach.partyProfile(s));
+});
+
+test('a pending candy purchase is acknowledged before completed preparation can disappear',t=>{
+    const {s,e,p,now}=fixture(t,species.map(()=>95));p.candyTx={kind:'buy',uid:'m0',id:'exp-candy-m',at:now,stock:0,counter:0,xp:0};
+    e.coach.step(s,now);assert.equal(e.preparation,p);assert.ok(p.candyTx);
+    s.items['exp-candy-m']=1;e.coach.step(s,now+1200);assert.equal(p.candyTx,undefined);assert.equal(e.preparation,null);assert.equal(e.budget.spent,123);
+});
+
+test('a zero-XP replacement after a failed trial cannot skip native roster application',t=>{
+    const {s,e,context,now}=fixture(t);e.coach.step(s,now);s.adv.deaths[46]=1;e.ensurePrepared(s,context,{},now+1200);const p=e.preparation;
+    assert.ok(p?.trialFailure);Object.assign(p,{phase:'train',route:{...H.DATA.chapters[42],key:'42',members:[42]}});s.team=[...p.uids];s.road=[...s.team];
+    s.mons.push(...species.map((id,i)=>({uid:'replacement'+i,id,level:95,reg:'hoenn'})));e.coach.step(s,now+2400);
+    assert.equal(e.preparation,p);assert.equal(p.targets.length,0);assert.equal(p.resumeReady,true);
+    e.coach.step(s,now+3600);assert.ok(e.driver.teamTask);assert.equal(e.preparation,p);
+    s.team=[...p.uids];e.driver.teamTask=null;e.coach.step(s,now+4800);assert.equal(e.preparation,p);
+    s.road=[...s.team];e.coach.step(s,now+6000);assert.equal(e.preparation,null);assert.equal(e.coach.ready.trial,true);
+});
+
+for(const unavailable of ['removed','locked-region'])test(`an ${unavailable} member does not freeze a pending ready roster`,t=>{
+    const {s,e,p,now}=fixture(t,[91,88,93,83,83,73]);
+    s.mons.push(...species.map((id,i)=>({uid:'ready'+i,id,level:95,reg:'hoenn'})));e.coach.step(s,now);
+    assert.equal(p.resumeReady,true);const uid=p.uids[0];
+    if(unavailable==='removed')s.mons=s.mons.filter(mon=>mon.uid!==uid);else s.mons.find(mon=>mon.uid===uid).reg='kanto';
+    e.coach.step(s,now+1200);assert.equal(e.preparation,p);assert.ok(!p.uids.includes(uid));
+    assert.ok(p.uids.every(id=>{const mon=s.mons.find(mon=>mon.uid===id);return mon&&H.teamEligible(s,mon,'hoenn');}));
+});
+
+test('waiting for a ready PC roster to apply does not recompute the whole candidate pool every tick',t=>{
+    const {s,e,context,now}=fixture(t,species.map(()=>20));e.preparation=null;
+    s.mons.push(...species.map((id,i)=>({uid:'ready'+i,id,level:95,reg:'hoenn'})));
+    assert.equal(e.ensurePrepared(s,context,{},now),true);const task=e.driver.teamTask;assert.ok(task?.preparationReady);
+    s.team=[...task.uids];e.driver.teamTask=null;
+    assert.equal(e.ensurePrepared(s,context,{},now+1200),true);const cached=e.coach.planReview,hits=H.teamCacheStats().hits;
+    assert.equal(e.ensurePrepared(s,context,{},now+2400),true);assert.equal(e.coach.planReview,cached);assert.equal(H.teamCacheStats().hits,hits);
+    s.road=[...s.team];assert.equal(e.ensurePrepared(s,context,{},now+3600),false);assert.equal(e.coach.ready.trial,true);
+});
+
+test('a failed trial growth floor survives a reload checkpoint instead of reviving its old readiness',t=>{
+    const {s,e,context,now,storage,save}=fixture(t);e.coach.step(s,now);s.adv.deaths[46]=1;e.ensurePrepared(s,context,{},now+1200);const p=e.preparation;
+    Object.assign(p,{phase:'train',route:{...H.DATA.chapters[42],key:'42',members:[42]}});s.team=[...p.uids];s.road=[...s.team];save();const floor=structuredClone(p.trialFailure.floor);e.suspend();
+    const next=new H.Engine(storage);next.loadAccount(s);next.schedule=()=>{};next.start(true);t.after(()=>next.stop());
+    assert.ok(next.preparation);assert.deepEqual(next.preparation.trialFailure.floor,floor);assert.equal(next.coach.ready,null);assert.equal(next.budget.spent,123);
+    next.driver.nav=()=>true;next.coach.step(s,now+2400);assert.ok(next.preparation,'reloading does not grant a fresh model-only trial');
+    assert.match(next.preparation.assessment.reason,/上次试打战败/);assert.equal(next.preparation.assessment.ready,false);
+    for(const mon of s.mons)mon.level=94;next.coach.step(s,now+3600);assert.equal(next.preparation,null);assert.equal(next.coach.ready.trial,true);
+});
+
+test('queue Stop and Resume preserve a failed trial floor and its existing budget',t=>{
+    const {s,e,context,now,save}=fixture(t);e.coach.step(s,now);s.adv.deaths[46]=1;e.ensurePrepared(s,context,{},now+1200);const p=e.preparation;
+    Object.assign(p,{phase:'train',route:{...H.DATA.chapters[42],key:'42',members:[42]}});s.team=[...p.uids];s.road=[...s.team];save();
+    e.queue=H.normalizeJobs([{id:'trial-floor',title:'Continue story',settings:e.settings,status:'running'}]);e.queueRunning=true;e.queueIndex=0;
+    const floor=structuredClone(p.trialFailure.floor);e.stop('fixture pause');assert.deepEqual(e.queue[0].progress.preparation.trialFailure.floor,floor);
+    e.startQueue();assert.equal(e.running,true,e.status);assert.deepEqual(e.preparation.trialFailure.floor,floor);assert.equal(e.coach.ready,null);assert.equal(e.budget.spent,123);assert.equal(e.budget.used,2);
+    e.coach.step(s,now+2400);assert.ok(e.preparation);assert.equal(e.preparation.assessment.ready,false);
+});

@@ -1,0 +1,128 @@
+{
+  "schema": 1,
+  "version": "4.0.0",
+  "scriptSha256": "f600df85553c79191d83ce6a099a2b1cbe20783ae4899d18e76e6d4b018f58dc",
+  "metadataSha256": "eb293ca6bae86564124fa60e69ff3bba1454ac9da51789f28cd027556d67951b",
+  "inputs": [
+    {
+      "file": "package.json",
+      "sha256": "9da71ebb85dcc2899e0e4f83d1859ff7a30164bae200a2620568697dadab0ed7"
+    },
+    {
+      "file": "build.manifest.json",
+      "sha256": "0ebb4ffb61e2ec3deca180583997fd309aaef573959d8f8c94fea59810937f31"
+    },
+    {
+      "file": "userscript.header.txt",
+      "sha256": "fb215bbf3e0a9375b792fe39485b65ebc5ca4f4625060a0c118ef456aada18f6"
+    },
+    {
+      "file": "src/00-bootstrap.js",
+      "sha256": "acf196462832cb765dc1d581c992f46ab4cacc0bf0a6f780a0f4b33e9c489273"
+    },
+    {
+      "file": "src/core/updates.js",
+      "sha256": "a68fe482c043b8e9d1beebabb4721aeaaf9fc2b25a590af51488bd6ba48084bf"
+    },
+    {
+      "file": "data/game.json",
+      "sha256": "d5f93f4b9b87a292c9c38614ca6b7a4a95bc8a62fd4754cb46dca3e99b6c0e1f"
+    },
+    {
+      "file": "src/data/game-after.js",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "file": "src/core/catalog.js",
+      "sha256": "ef95853e541ae07259d760c74597495dcd3f416c4022a9d93adafb73a86015ea"
+    },
+    {
+      "file": "src/data/candy.js",
+      "sha256": "aa8509c97712239920979eb6483eb2468ecf16d3bda77b7d4af3b3d59a16b408"
+    },
+    {
+      "file": "src/core/settings-save.js",
+      "sha256": "ca17b2277ab8fcf11e410fb7061a2a1789bffb9393a2ab30011971e1084dba64"
+    },
+    {
+      "file": "src/models/facilities.js",
+      "sha256": "d9c1e1010d6ba8ae6be5711da9abe809ba60b69eba57bcbe38ded57138e86205"
+    },
+    {
+      "file": "src/services/background.js",
+      "sha256": "80b2e2d679d55e47f5dde8d6e189961bb99555b210a3ca06c66cdb9ef5b341e4"
+    },
+    {
+      "file": "src/models/farming.js",
+      "sha256": "7d7c5446625119ca7d13b2940c3f9fc1fe4bb753a0ffc00473659d73def5e838"
+    },
+    {
+      "file": "data/weather.json",
+      "sha256": "dbd22097a12cc710a0c5bd17c49fbdc877ccb81e2109d086ac42d5f0ce728762"
+    },
+    {
+      "file": "src/data/weather-after.js",
+      "sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b"
+    },
+    {
+      "file": "src/models/weather.js",
+      "sha256": "bdea7285d08a9353998d76418dd95a27484f31d7d903fae3734cf6fbcbd3d795"
+    },
+    {
+      "file": "src/models/roster.js",
+      "sha256": "7c84b90da6ba8b5f69a807b4763f09e127f8dd4e039dbd69156832bdfdafcfbf"
+    },
+    {
+      "file": "data/evolution.json",
+      "sha256": "f2874f8758719947984e7c2aab7f162f0589cebd7351d077bde87c7c20a00292"
+    },
+    {
+      "file": "src/data/evolution-after.js",
+      "sha256": "75a11da44c802486bc6f65640aa48a730f0f684c5c07a42ba3cd1735eb3fb070"
+    },
+    {
+      "file": "src/models/evolution.js",
+      "sha256": "8b2fbfcfbbf897e7591ca6f65e977ac2c7a194f40d9998d166fe5b61262f4a98"
+    },
+    {
+      "file": "src/models/combat-team.js",
+      "sha256": "3684766eb531acd6fc5730ceb8b061157c6896f1ed045c755fba5f6a1521d068"
+    },
+    {
+      "file": "src/models/routes-training.js",
+      "sha256": "33c6c974d955060bdc099e1770b331a655bc09ecbdf79787f2f2676163e3bbe6"
+    },
+    {
+      "file": "src/models/collection.js",
+      "sha256": "d2efe13f7f83087a15c31459e1cf348b9a80d331c2cd7d0b995f85edf7737c66"
+    },
+    {
+      "file": "src/core/telemetry.js",
+      "sha256": "5841967f6c24ce0edf3af895ad117e99081279e5b538617ee93879f8aea4f2a7"
+    },
+    {
+      "file": "src/runtime/dom-driver.js",
+      "sha256": "592ac9ec0cde22f65738662b8c4a726040ae9e0382d9a46b22ca0dfe5449cb73"
+    },
+    {
+      "file": "src/runtime/automation.js",
+      "sha256": "5de054773883a9e69198780eb0c090b2cdb20a51533b58a4b67799e24b7be102"
+    },
+    {
+      "file": "src/runtime/level-coach.js",
+      "sha256": "e65f495abe9f81c240ae00c0cb8a69ad6fbe134ee6b856542f42c2e194d04b83"
+    },
+    {
+      "file": "src/runtime/engine.js",
+      "sha256": "19707b918359ca42a2c9c17878ded1707109dbb1c2a16df412bcb4353eebbbb5"
+    },
+    {
+      "file": "src/runtime/node-exports.js",
+      "sha256": "e8cfefb8e5db26b68d038e2ed15da495ffa992eb87b8f95652eafaa88907ea3b"
+    },
+    {
+      "file": "src/ui/mount.js",
+      "sha256": "329b4860c96ea1e4f04c5bdcbb6e8ceec47f5558211947cf6b312468d18a72e7"
+    }
+  ]
+}

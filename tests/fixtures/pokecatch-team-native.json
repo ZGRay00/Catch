@@ -1,0 +1,765 @@
+{
+  "build": "b05c8cc201",
+  "hpBoost": 1.1,
+  "tastes": {
+    "MAX": 25,
+    "CAP": 0.2,
+    "LIN": 0.4,
+    "LIKE0": 0.1,
+    "DIS0": 0.2,
+    "RAISED": 2,
+    "FLAVORS": {
+      "atk": "spicy",
+      "def": "sour",
+      "spa": "dry",
+      "spd": "bitter",
+      "spe": "sweet"
+    }
+  },
+  "samples": [
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 87,
+        "atk": 38,
+        "def": 36,
+        "spa": 48,
+        "spd": 39,
+        "spe": 45
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 87,
+        "atk": 45,
+        "def": 28,
+        "spa": 48,
+        "spd": 39,
+        "spe": 45
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 87,
+        "atk": 30,
+        "def": 36,
+        "spa": 54,
+        "spd": 39,
+        "spe": 45
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 87,
+        "atk": 38,
+        "def": 39,
+        "spa": 48,
+        "spd": 39,
+        "spe": 36
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 125,
+        "atk": 55,
+        "def": 52,
+        "spa": 69,
+        "spd": 56,
+        "spe": 65
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 125,
+        "atk": 66,
+        "def": 41,
+        "spa": 69,
+        "spd": 56,
+        "spe": 65
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 125,
+        "atk": 44,
+        "def": 52,
+        "spa": 78,
+        "spd": 56,
+        "spe": 66
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 125,
+        "atk": 55,
+        "def": 56,
+        "spa": 69,
+        "spd": 56,
+        "spe": 52
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 731,
+        "atk": 173,
+        "def": 161,
+        "spa": 223,
+        "spd": 175,
+        "spe": 205
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 731,
+        "atk": 207,
+        "def": 128,
+        "spa": 223,
+        "spd": 175,
+        "spe": 205
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 731,
+        "atk": 138,
+        "def": 161,
+        "spa": 251,
+        "spd": 175,
+        "spe": 207
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 731,
+        "atk": 173,
+        "def": 175,
+        "spa": 223,
+        "spd": 175,
+        "spe": 164
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 1061,
+        "atk": 251,
+        "def": 234,
+        "spa": 324,
+        "spd": 254,
+        "spe": 298
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 1061,
+        "atk": 302,
+        "def": 187,
+        "spa": 324,
+        "spd": 254,
+        "spe": 298
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 1061,
+        "atk": 201,
+        "def": 234,
+        "spa": 366,
+        "spd": 254,
+        "spe": 301
+      }
+    },
+    {
+      "mon": {
+        "id": 6,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 1061,
+        "atk": 251,
+        "def": 254,
+        "spa": 324,
+        "spd": 254,
+        "spe": 238
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 70,
+        "atk": 24,
+        "def": 24,
+        "spa": 24,
+        "spd": 24,
+        "spe": 24
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 70,
+        "atk": 28,
+        "def": 19,
+        "spa": 24,
+        "spd": 24,
+        "spe": 24
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 70,
+        "atk": 19,
+        "def": 24,
+        "spa": 27,
+        "spd": 24,
+        "spe": 24
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 70,
+        "atk": 24,
+        "def": 26,
+        "spa": 24,
+        "spd": 24,
+        "spe": 19
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 101,
+        "atk": 34,
+        "def": 34,
+        "spa": 34,
+        "spd": 34,
+        "spe": 34
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 101,
+        "atk": 41,
+        "def": 27,
+        "spa": 34,
+        "spd": 34,
+        "spe": 34
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 101,
+        "atk": 27,
+        "def": 34,
+        "spa": 39,
+        "spd": 34,
+        "spe": 35
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 20,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 101,
+        "atk": 34,
+        "def": 37,
+        "spa": 34,
+        "spd": 34,
+        "spe": 27
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 566,
+        "atk": 101,
+        "def": 101,
+        "spa": 101,
+        "spd": 101,
+        "spe": 101
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 566,
+        "atk": 121,
+        "def": 80,
+        "spa": 101,
+        "spd": 101,
+        "spe": 101
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 566,
+        "atk": 80,
+        "def": 101,
+        "spa": 114,
+        "spd": 101,
+        "spe": 102
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 0,
+        "shiny": false,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 566,
+        "atk": 101,
+        "def": 109,
+        "spa": 101,
+        "spd": 101,
+        "spe": 80
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native"
+      },
+      "stats": {
+        "hp": 822,
+        "atk": 146,
+        "def": 146,
+        "spa": 146,
+        "spd": 146,
+        "spe": 146
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "def",
+          "up": {
+            "atk": 25
+          },
+          "n": 25,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 822,
+        "atk": 176,
+        "def": 117,
+        "spa": 146,
+        "spd": 146,
+        "spe": 146
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "atk",
+          "up": {
+            "spa": 12.345678,
+            "spe": 1
+          },
+          "n": 20,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 822,
+        "atk": 117,
+        "def": 146,
+        "spa": 165,
+        "spd": 146,
+        "spe": 148
+      }
+    },
+    {
+      "mon": {
+        "id": 132,
+        "level": 100,
+        "rank": 2,
+        "shiny": true,
+        "uid": "native",
+        "taste": {
+          "h": "spe",
+          "up": {
+            "def": 7.800794
+          },
+          "n": 0,
+          "sw": {}
+        }
+      },
+      "stats": {
+        "hp": 822,
+        "atk": 146,
+        "def": 159,
+        "spa": 146,
+        "spd": 146,
+        "spe": 117
+      }
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "pokecatch-auto-helper",
+  "version": "4.0.0",
+  "private": true,
+  "description": "PokéCatch helper source, deterministic userscript build and offline regression tools",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "node tools/build.cjs",
+    "check": "node tools/build.cjs --check",
+    "test": "node tools/test.cjs",
+    "test:build": "node --test tests/build.test.cjs tests/extension.test.cjs",
+    "test:browser": "node ../tests/pokecatch-helper-browser.cjs",
+    "package": "node tools/package.cjs"
+  }
+}

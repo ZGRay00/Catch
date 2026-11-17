@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "header": "userscript.header.txt",
+  "entries": [
+    {
+      "kind": "source",
+      "file": "src/00-bootstrap.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/core/updates.js"
+    },
+    {
+      "kind": "json",
+      "file": "data/game.json",
+      "constant": "DATA"
+    },
+    {
+      "kind": "source",
+      "file": "src/data/game-after.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/core/catalog.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/data/candy.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/core/settings-save.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/facilities.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/services/background.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/farming.js"
+    },
+    {
+      "kind": "json",
+      "file": "data/weather.json",
+      "constant": "WEATHER_DATA"
+    },
+    {
+      "kind": "source",
+      "file": "src/data/weather-after.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/weather.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/roster.js"
+    },
+    {
+      "kind": "json",
+      "file": "data/evolution.json",
+      "constant": "EVOLUTION_DATA"
+    },
+    {
+      "kind": "source",
+      "file": "src/data/evolution-after.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/evolution.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/combat-team.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/routes-training.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/collection.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/core/telemetry.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/runtime/dom-driver.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/runtime/automation.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/runtime/level-coach.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/runtime/engine.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/runtime/node-exports.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/mount.js"
+    }
+  ]
+}

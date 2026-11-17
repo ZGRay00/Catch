@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      3.3.0
+// @version      3.3.1
 // @description  图鉴与刷闪、自动收蛋、免费等级进化、进化潜力配队、刷钱练级、糖果工厂、对战塔、资源预算和任务队列；等级不足先补练、跨地区开局与刷新续跑。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '3.3.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '3.3.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     let startupPhase='正在载入数据',startupError='';
     function revealHost(host){
         if(!host)return false;
@@ -1441,6 +1441,13 @@
             if (visible($(`#screen-${screen}.active`))) return true;
             const tab = $(`#tabs [data-screen="${screen}"]`);
             if (tab?.classList.contains('locked') || tab?.classList.contains('hold')) {this.e.status=tab.dataset.why||'目标页面尚未开放，请满足游戏解锁条件';this.e.lastProgress=Date.now();return false;}
+            // Desktop hides the adventure tab; the visible chapter card forwards its
+            // native click to that tab. On adventure itself the card opens the map,
+            // so never use it while the adventure screen is already active.
+            if(screen==='adventure'&&!visible(tab)&&!$('#screen-adventure.active')){
+                const chapter=$('#side-chapter');
+                if(enabled(chapter)){this.click(chapter,'返回冒险，继续当前任务');return false;}
+            }
             const group=tab?.closest('.nav-grp'),header=group?.querySelector('.nav-grp-h');
             if(header?.getAttribute('aria-expanded')==='false'||tab?.closest('[inert]')){this.click(header,'展开游戏活动导航');return false;}
             this.click(tab, `打开${{ map: '进度', adventure: '冒险', raid: '团体战',pension:'培育屋',underground:'地下通道',shop:'商店' }[screen] || screen}`); return false;

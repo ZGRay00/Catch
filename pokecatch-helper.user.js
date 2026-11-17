@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      3.2.0
+// @version      3.3.0
 // @description  图鉴与刷闪、自动收蛋、免费等级进化、进化潜力配队、刷钱练级、糖果工厂、对战塔、资源预算和任务队列；等级不足先补练、跨地区开局与刷新续跑。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '3.2.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '3.3.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     let startupPhase='正在载入数据',startupError='';
     function revealHost(host){
         if(!host)return false;
@@ -235,7 +235,7 @@
         autoPrepare:true,prepareMargin:2,prepareGap:3,prepareIdleMinutes:5,progressCandy:true,
         legendId: 145, legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
         trainUid: 'team', trainLevel: 100,
-        breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,
+        breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
         underRuns:1,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
@@ -340,6 +340,119 @@
     function undergroundMembers(s,now=Date.now()){
         const used=s.under?.day===parisDay(now)?s.under.used||{}:{},candy=new Set((s.candy?.run?.mons||[]).map(m=>m.src));
         return(s.mons||[]).filter(m=>teamEligible(s,m,'sinnoh')&&!used[m.uid]&&!candy.has(m.uid));
+    }
+    // Native timers can overlap; page actions and the single adventure route cannot.
+    // Checked against public build 690d382390, 2026-11-17.
+    function normalizeServiceState(raw){
+        const out={underground:null,underClaimed:0,lastStarted:{},lastCompleted:{},retryAt:{}};
+        if(!raw||typeof raw!=='object'||Array.isArray(raw))return out;
+        out.underClaimed=Math.floor(clamp(raw.underClaimed,0,1e9,0));
+        for(const key of ['lastStarted','lastCompleted','retryAt'])for(const id of ['eggs','underground','evolution']){
+            const value=Number(raw[key]?.[id]);if(Number.isFinite(value)&&value>=0)out[key][id]=value;
+        }
+        const task=raw.underground;
+        if(task&&typeof task==='object'&&Number.isFinite(task.started)&&task.started>=0){
+            out.underground={started:task.started,returnScreen:/^[a-z][\w-]{0,40}$/.test(task.returnScreen||'')?task.returnScreen:'adventure',returning:!!task.returning};
+            const tx=task.tx,uids=Array.isArray(tx?.uids)?[...new Set(tx.uids.filter(uid=>typeof uid==='string'&&uid.length>0&&uid.length<=120))].slice(0,6):[];
+            if(tx&&tx.id!=null&&String(tx.id).length<=120&&uids.length&&Number.isFinite(tx.at)&&tx.at>=0)out.underground.tx={id:String(tx.id),uids,at:tx.at};
+        }
+        return out;
+    }
+    function mainGoalReached(s,e,now=Date.now()){
+        if(!s?.adv)return false;
+        const c=e.settings||{},mode=c.mode,flow=e.automation?.state||{};
+        if(mode==='money')return c.moneyTarget>0&&s.money>=c.moneyTarget;
+        if(mode==='item')return Number.isFinite(e.startItems)&&itemCounter(s,c.itemId)-e.startItems>=c.itemQuantity;
+        if(mode==='shiny')return shinyOwned(s,c.shinyId);
+        if(mode==='dex')return(c.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,c).missing.length;
+        if(mode==='progress')return!!e.progressReached?.(s);
+        if(mode==='legend')return!!legendProgress(s,c).done;
+        if(mode==='roam')return roamingProgress(s,c,now).done;
+        if(mode==='train'){const status=trainingStatus(s,c,e.trainProtected);return status.complete||status.capped||status.missing;}
+        if(mode==='breed')return c.breedShiny?shinyOwned(s,c.breedId):(flow.hatched||0)>=c.breedGoal;
+        if(mode==='underground')return(flow.underDone||0)>=c.underRuns;
+        if(mode==='resource'){
+            const id=c.resourceItem,n=c.resourceAction==='buy'?Math.max(0,itemCounter(s,id)-(flow.resourceIn??itemCounter(s,id))):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));
+            return n>=c.resourceQuantity;
+        }
+        if(mode==='candy')return!s.candy?.run&&!s.adv.tower&&(flow.candyDone||0)>=c.candyRuns;
+        if(mode==='elite'){const reg=c.eliteRegion==='current'?currentRegion(s):c.eliteRegion;return!s.adv.league&&(s.eliteLeague?.[reg]?.t||0)>=c.eliteTier;}
+        if(mode==='tower'){const p=towerProgress(s,now);return!s.adv.tower&&!p.run&&(p.best>=c.towerFloor||!!flow.towerReached);}
+        if(mode==='world'){
+            const edition=s.wb?.tryEd||s.wb?.ed;if(c.worldCapture)return!!edition&&s.wb?.caught===edition;
+            const day=String(s.wb?.ed)+'|'+s.wb?.day,base=flow.worldDay&&flow.worldDay!==day?0:flow.worldBase||0;
+            return(flow.worldDone||0)+Math.max(0,(Number(s.wb?.n)||0)-base)>=c.worldActions;
+        }
+        return false;
+    }
+    function backgroundBlockReason(s,e,now=Date.now()){
+        if(!e.running||e.suspended)return '助手未运行，原生计时仍独立继续';
+        if(e.manual)return '手动控制中，等待归还页面';
+        if(typeof document!=='undefined'&&document.hidden)return '标签页在后台，等待回到游戏';
+        const a=s?.adv||{},d=e.driver||{},auto=e.automation||{},flow=auto.state||{};
+        if(a.paused)return '游戏已暂停';
+        if(a.battle||a.pending)return '等待当前战斗或选择结束';
+        if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
+        if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
+        if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
+        if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
+        if(flow.worldResultAt!=null&&now-flow.worldResultAt<3000||typeof document!=='undefined'&&$$('#raid-root .wb-skip,.wb-recap,#raid-root .wb-spill').some(visible))return '等待世界首领攻击结算';
+        return '';
+    }
+    function readyBackgroundEggs(s,now=Date.now()){
+        const eggs=s?.pension?.eggs||[],native=new Set(typeof document==='undefined'?[]:$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled).map(el=>String(el.dataset.egg)));
+        return eggs.filter(egg=>native.has(String(egg.uid))||Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now);
+    }
+    function parallelPlan(s,e,now=Date.now()){
+        const flow=e.automation?.state||{},services=e.services||normalizeServiceState(),c=e.settings||{};
+        const active=services.underground?'underground':flow.eggService?'eggs':flow.evolution?'evolution':null;
+        const eggs=readyBackgroundEggs(s,now);
+        const under=s?.under?undergroundStatus(s,now):{ready:[]};
+        const mainComplete=mainGoalReached(s,e,now),blocked={},ready=[];
+        const common=backgroundBlockReason(s,e,now),manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
+        for(const id of ['eggs','underground','evolution']){
+            let reason=common;
+            if(id==='eggs'&&(!c.autoEggs||c.mode==='breed'))reason=c.mode==='breed'?'由当前繁殖任务管理':'自动收蛋已关闭';
+            if(id==='underground'&&(!c.autoUnderCollect||c.mode==='underground'))reason=c.mode==='underground'?'由当前地下任务管理':'后台归队领取已关闭';
+            if(id==='evolution'&&!c.autoEvolve)reason='自动免费进化已关闭';
+            if(mainComplete&&!active)reason='主任务已达标，先完成或切换队列';
+            if(!reason&&id!=='evolution'&&manualParty)reason='手动队伍未满六人，原生领取可能自动入队';
+            const retry=id==='eggs'?Math.max(flow.eggRetryAt||0,services.retryAt?.eggs||0):id==='evolution'?flow.evolutionRetryAt||0:services.retryAt?.underground||0;
+            if(!reason&&retry>now)reason='等待服务重试时间';
+            if(reason)blocked[id]=reason;
+            else if(id==='eggs'?eggs.length:id==='underground'?under.ready.length:!['breed','resource'].includes(c.mode))ready.push(id);
+        }
+        ready.sort((a,b)=>a==='evolution'?1:b==='evolution'?-1:(services.lastStarted?.[a]||0)-(services.lastStarted?.[b]||0)||a.localeCompare(b));
+        return{active,ready,blocked,mainComplete,pendingCount:Number(eggs.length>0)+Number(under.ready.length>0)};
+    }
+    function taskExecutionState(s,e,now=Date.now()){
+        const c=e.settings||{},a=s?.adv||{},flow=e.automation?.state||{},plan=parallelPlan(s,e,now),services=e.services||{};
+        const planned=MODE_NAMES[c.mode]||'主任务';let label=planned,detail='同一冒险路线的规划按顺序执行';
+        if(a.event?.raid)label='团体战';else if(a.zone)label=a.zone.elite?'精英传说战':'传说捕获';else if(a.league)label='精英联盟';else if(a.tower)label=a.tower.kind==='candy'?'糖果工厂':'对战塔';else if(a.event)label='游戏活动';
+        if(label!==planned)detail=`实际前台：${label} · 原任务：${planned}`;
+        if(e.preparation){label='补练 → '+planned;detail='使用目标队伍补练，完成后返回原任务';}
+        if(!s?.adv){label='未进入游戏';detail='进入游戏后显示实际任务和后台计时';}
+        else if(!e.running&&!e.suspended){label='未启动主任务';detail=(a.event||a.zone||a.tower||a.league)?`游戏原生${label===planned?planned:a.event?.raid?'团体战':a.zone?'传说战':a.tower?'塔/工厂':'活动'}仍可能继续；助手未接管`:'助手已停止；游戏原生冒险和后台计时仍可能继续';}
+        else if(e.manual||e.suspended)detail='助手已让出控制，原生计时不因此暂停';
+        else if(e.nextWake>now)detail=`主任务等待结算 · 后台可在安全节点领取`;
+        let uiOwner=plan.active==='underground'?'地下归队领取':plan.active==='eggs'?'成熟蛋领取':plan.active==='evolution'?'免费进化':e.driver?.ownedDialog?'特殊队伍/盟友弹窗':e.driver?.teamTask?'队伍调整':e.automation?.owner?'游戏弹窗确认':e.automation?.buffUI?'树果操作':e.preparation?.candyTx?'升级糖果确认':e.driver?.pendingMap?'地图切换':a.battle?'游戏原生战斗':'空闲';
+        if(e.manual||e.suspended)uiOwner='手动控制 / 等待恢复';else if(!e.running)uiOwner=plan.active?'已停止，原事务待核对':'助手未操作页面';
+        const entries=[];
+        const nativeEggs=s?.pension?.eggs||[],due=readyBackgroundEggs(s,now),nextEgg=Math.min(...nativeEggs.filter(egg=>!due.includes(egg)).map(egg=>Number(egg.hatchAt)).filter(at=>at>now));
+        const make=(id,enabled,configured,count,nextAt,task,managed,base)=>{
+            let state=!configured?'unconfigured':count?'ready':'timing',text=base;
+            if(!enabled){state='disabled';text+=(configured?'；原生计时/成熟状态保留，自动领取已关闭':'；未配置');}
+            else if(managed){state='waiting';text+='；由当前主任务管理';}
+            else if(task){state=e.running&&!e.manual&&!e.suspended?'running':'waiting';text+='；'+(state==='running'?'正在领取并归还页面':'事务保留，等待恢复核对');}
+            else if(count&&plan.blocked[id]){state=/手动队伍/.test(plan.blocked[id])?'blocked':'waiting';text+='；'+plan.blocked[id];}
+            entries.push({id,label:id==='eggs'?'培育屋 / 孵蛋':'地下派遣',state,detail:text,nextAt:Number.isFinite(nextAt)?nextAt:null});
+        };
+        const residents=(s?.pension?.mons||[]).map(slot=>slot.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>mon.id!==132&&DATA.automation.breed[mon.id]?.can);
+        make('eggs',c.autoEggs!==false,nativeEggs.length||residents.length,due.length,nextEgg,flow.eggService,c.mode==='breed',nativeEggs.length?`孵化中 ${nativeEggs.length-due.length} · 已成熟 ${due.length}`:breeding?'已配置寄养亲本，产糖 / 产蛋计时中':residents.length?'寄养产糖计时中，尚未配置可产蛋组合':'未配置蛋或寄养亲本');
+        const under=s?.under?undergroundStatus(s,now):{slots:[],ready:[],running:[],nextReturn:null};
+        const nextUnder=Math.min(...under.running.map(slot=>Number(slot.end)).filter(at=>Number.isFinite(at)&&at>now));
+        make('underground',c.autoUnderCollect!==false,under.slots.length,under.ready.length,nextUnder,services.underground,c.mode==='underground',under.slots.length?`计时中 ${under.running.length} · 已返回 ${under.ready.length}`:'未派遣队伍；后台服务不自动派遣');
+        return{foreground:{label,detail,state:e.manual||e.suspended?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount};
     }
     function undergroundStatus(s,now=Date.now()){
         const under=s.under||{},day=parisDay(now),extra=Math.min(3,Math.max(0,Math.floor(Number(under.extra)||0))),slots=Array.isArray(under.slots)?under.slots:[];
@@ -1845,6 +1958,7 @@
             if(!task){
                 this.lastService=now;
                 if(!e.settings.autoEggs||e.settings.mode==='breed'||this.state.eggRetryAt>now)return false;
+                if(e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
                 // Do not interrupt native battles, launches, member cards or charged actions.
                 if(s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||
                     e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||this.owner||this.buddyTask||this.buffUI||
@@ -1872,7 +1986,7 @@
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
             const due=eggs.some(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now)||
                 $$('#pen-eggs .pen-egg.ready[data-egg]').some(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
-            if(!e.settings.autoEggs||!due||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)task.returning=true;
+            if(!e.settings.autoEggs||!due||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
                 const ready=$$('#pen-eggs .pen-egg.ready[data-egg]').find(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
@@ -1894,6 +2008,50 @@
             const duration=Math.max(0,now-task.started),p=e.preparation;
             if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
             e.telemetry.sample=null;e.status='自动收蛋完成，继续原任务';e.persist();return true;
+        }
+        serviceUnderground(s,now){
+            const e=this.e,d=e.driver;let task=e.services.underground;
+            if(!e.running||e.manual||document.hidden)return false;
+            if(!task){
+                if(e.settings.mode==='underground'||!e.settings.autoUnderCollect||backgroundBlockReason(s,e,now)||e.services.retryAt.underground>now)return false;
+                if(e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
+                const status=undergroundStatus(s,now),tab=$('#tabs [data-screen="underground"]');
+                if(!status.ready.length||!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
+                const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
+                task=e.services.underground={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
+                e.telemetry.sample=null;e.log('地下队伍已归队，后台领取后继续原任务');e.persist();
+            }
+            e.lastProgress=now;e.status='后台地下归队 · 领取确认后返回原任务';
+            const tx=task.tx;
+            if(tx){
+                const exists=(s.under?.slots||[]).some(slot=>String(slot.id)===String(tx.id)),returned=tx.uids.every(uid=>(s.mons||[]).some(mon=>mon.uid===uid));
+                if(!exists&&returned){
+                    e.services.underClaimed++;delete task.tx;task.returning=true;e.log(`后台地下领取已确认 · 累计 ${e.services.underClaimed} 队`);e.persist();
+                }else if(now-tx.at<15000){e.status='后台地下归队 · 等待原队员与奖励存档确认';return true;}
+                else{delete task.tx;task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台地下领取未获完整确认，暂缓一分钟后重新核对，期间不重复点击');e.persist();}
+            }
+            if(now-task.started>90000){task.returning=true;e.services.retryAt.underground=now+60000;}
+            if(!e.settings.autoUnderCollect||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!task.returning){
+                if(!this.page('underground'))return true;
+                const exp=$('#ug-tabs [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开地下派遣归队页');return true;}
+                const status=undergroundStatus(s,now),take=$$('#ug-root [data-ug-take]').find(el=>enabled(el)&&status.ready.includes(undergroundBay(s,el.dataset.ugTake)));
+                if(take){
+                    const job=undergroundBay(s,take.dataset.ugTake),uids=(job.mons||[]).map(mon=>mon.uid).filter(Boolean);
+                    if(!job.id||!uids.length){task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台归队记录无法核对，保留给手动或地下主任务处理');}
+                    else{
+                        task.tx={id:String(job.id),uids,at:now};e.persist();
+                        if(d.click(take,'后台领取地下归队与奖励'))this.own('receipt','.ug-back');else delete task.tx;
+                        e.persist();return true;
+                    }
+                }else if(status.ready.length&&now-task.started<15000){e.status='后台地下归队 · 等待原生领取按钮刷新';return true;}
+                else{task.returning=true;if(status.ready.length)e.services.retryAt.underground=now+60000;}
+            }
+            const tab=$(`#tabs [data-screen="${task.returnScreen}"]`),screen=tab&&!tab.classList.contains('locked')&&!tab.classList.contains('hold')?task.returnScreen:'adventure';
+            if(!this.page(screen))return true;
+            const duration=Math.max(0,now-task.started),p=e.preparation;
+            if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
+            e.services.underground=null;e.services.lastCompleted.underground=now;e.telemetry.sample=null;e.status='后台归队处理完成，继续原任务';e.persist();return true;
         }
         breed(s,now){
             const e=this.e,cfg=e.settings,d=e.driver,p=s.pension||{},eggs=p.eggs||[];
@@ -2747,7 +2905,7 @@
             this.manual = null; this.inputHeld = false; this.restoring = false;this.suspended=null;
             this.legendProbe=null;this.farmWait=null;
             this.teamCheck = null; this.teamRetryAt = 0;
-            this.automation=new Automation(this);this.budget=new Budget(this);this.queue=[];this.queueIndex=0;this.queueRunning=false;this.checkpoint=null;this.nextWake=null;
+            this.automation=new Automation(this);this.services=normalizeServiceState();this.backgroundYield=false;this.budget=new Budget(this);this.queue=[];this.queueIndex=0;this.queueRunning=false;this.checkpoint=null;this.nextWake=null;
             this.coach=new LevelCoach(this);this.preparation=null;this.raidPreparation=null;
         }
         log(text) { this.logs.unshift({ time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), text }); this.logs.length = Math.min(60, this.logs.length); }
@@ -2759,14 +2917,15 @@
         }
         loadAccount(s) {
             this.account = accountId(s);
-            try { const saved = JSON.parse(this.storage.getItem(PREFIX + this.account) || '{}'); this.metrics = saved.metrics || {}; this.settings = normalizeSettings({ ...this.settings, ...saved.settings });this.queue=normalizeJobs(saved.queue);this.queueIndex=Math.max(0,Math.min(this.queue.length,Number(saved.queueIndex)||0));this.checkpoint=saved.resume?.wanted?saved.resume:null; } catch {}
+            try { const saved = JSON.parse(this.storage.getItem(PREFIX + this.account) || '{}'); this.metrics = saved.metrics || {}; this.settings = normalizeSettings({ ...this.settings, ...saved.settings });this.queue=normalizeJobs(saved.queue);this.queueIndex=Math.max(0,Math.min(this.queue.length,Number(saved.queueIndex)||0));this.checkpoint=saved.resume?.wanted?saved.resume:null;this.services=normalizeServiceState(saved.services); } catch {this.services=normalizeServiceState();}
             this.telemetry = new Telemetry(this.metrics);
         }
         progressSnapshot(){
             const session={};for(const key of SESSION_FIELDS)if(this[key]!==undefined)session[key]=this[key];
             const raid=this.driver.raid;
             const special=this.driver.ownedDialog;
-            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner:this.automation.snapshotOwner(),specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...special.type==='factoryTeam'?{uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
+            const flowOwner=this.services.underground&&this.automation.owner?.kind==='receipt'&&this.automation.owner.selector==='.ug-back'?null:this.automation.snapshotOwner();
+            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...special.type==='factoryTeam'?{uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
                 activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null},
                 budget:{spent:this.budget.spent,used:this.budget.used}};
         }
@@ -2793,7 +2952,7 @@
             for(const key of Object.keys(this.metrics))if(!retained.has(key))delete this.metrics[key];
             const snapshot=this.progressSnapshot();if(captureJob)this.saveJobProgress(snapshot);
             const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex}:null;
-            this.storage.setItem(PREFIX + this.account, JSON.stringify({ settings: this.settings, metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume }));
+            this.storage.setItem(PREFIX + this.account, JSON.stringify({ settings: this.settings, metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services }));
         }
         startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(job=>job.status!=='done');if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=normalizeSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
         completeTask(reason){
@@ -3073,7 +3232,7 @@
         nextDelay(now=Date.now()){
             if(document.hidden)return 6000;
             if(this.manual){const left=Number(this.manual.until)-now;return left>0?Math.min(1200,Math.max(50,left)):1200;}
-            if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution)return 1200;
+            if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution||this.services.underground)return 1200;
             if(this.farmWait?.mode===this.settings.mode)return 6000;
             if(FLOW_MODES.has(this.settings.mode)&&this.nextWake>now)return Math.min(6000,Math.max(1200,this.nextWake-now));
             return 1200;
@@ -3082,6 +3241,7 @@
             if(this.hiddenAt==null)return;
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;this.lastProgress=now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
+            if(this.services.underground){this.services.underground.started+=duration;if(this.services.underground.tx)this.services.underground.tx.at+=duration;}
             for(const task of [this.driver.pendingMap,this.driver.teamTask,this.driver.ownedDialog,this.automation.owner,this.automation.buddyTask,this.automation.buffUI,this.automation.eggFX,this.automation.evolutionFX,this.automation.state.evolution])if(task?.started)task.started+=duration;
             if(this.automation.state.evolution){this.automation.state.evolution.at+=duration;if(this.automation.state.evolution.clickedAt)this.automation.state.evolution.clickedAt+=duration;}
             if(this.automation.buddyTask?.clickedAt!=null)this.automation.buddyTask.clickedAt+=duration;
@@ -3097,6 +3257,22 @@
             if(this.modalWaitSince!=null)this.modalWaitSince+=duration;
             const p=this.preparation;
             if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;if(p.candyTx)p.candyTx.at+=duration;p.lastTick=now;}
+        }
+        serviceBackground(s,now=Date.now()){
+            if(!this.running||this.manual||document.hidden)return false;
+            const plan=parallelPlan(s,this,now),a=this.automation;
+            if(plan.active){
+                const handled=plan.active==='underground'?a.serviceUnderground(s,now):plan.active==='eggs'?a.serviceEggs(s,now):a.evolution(s,now);
+                if(handled&&!parallelPlan(s,this,now).active){this.services.lastCompleted[plan.active]=now;this.backgroundYield=true;}
+                return handled;
+            }
+            if(plan.mainComplete)return false;
+            if(this.backgroundYield){this.backgroundYield=false;return false;}
+            for(const id of plan.ready){
+                const handled=id==='eggs'?a.serviceEggs(s,now):id==='underground'?a.serviceUnderground(s,now):a.evolution(s,now);
+                if(handled){this.services.lastStarted[id]=now;this.persist();return true;}
+            }
+            return false;
         }
         async step(now = Date.now()) {
             if (!this.running) return;
@@ -3121,6 +3297,7 @@
             const signature = JSON.stringify([s.adv.chapter, s.adv.node, s.adv.runs, s.stats?.battles, s.stats?.wins, s.stats?.caught, s.adv.event?.loops, s.adv.battle?.steps, s.adv.battle?.enemies?.map(m => m.hp)]);
             if (signature !== this.progressSignature) { this.progressSignature = signature; this.lastProgress = now; }
             if(!this.automation.owner&&this.automation.state.evolution?.stage==='open'&&visible($('#modal-root.open .mon-modal')))this.automation.restoreOwner({kind:'evolution',selector:'.mon-modal',uid:this.automation.state.evolution.uid});
+            if(!this.automation.owner&&this.services.underground?.tx&&visible($('#modal-root.open .ug-back')))this.automation.own('receipt','.ug-back');
             if(!this.automation.owner&&FLOW_MODES.has(this.settings.mode)){
                 const selector={breed:'.dexcard-modal:has(.dc-new)',underground:'.ug-back',tower:'.tw-back',candy:'.cr-back:not(.tw-back)',elite:'.lgp-modal'}[this.settings.mode];
                 if(selector&&visible($('#modal-root.open '+selector)))this.automation.own(this.settings.mode==='elite'?'gem':'receipt',selector);
@@ -3141,7 +3318,7 @@
                 this.status='游戏已暂停，等待你在游戏内继续';return;
             }
             if(!this.adoptManualPreparation(s,now))return;
-            if(this.automation.evolution(s,now)||this.automation.serviceEggs(s,now))return;
+            if(this.serviceBackground(s,now))return;
             if(this.settings.mode==='candy'&&s.adv.tower?.kind==='candy'&&this.preparation?.context.kind==='candy'){
                 // A user may launch the daily run while preflight training is handed off.
                 // Its cloned roster is now fixed; restore the old party after settlement.
@@ -3530,6 +3707,7 @@
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution});
         Object.assign(module.exports,{VERSION,UPDATE_RELEASE,allowedUpdateURL,compareUpdateVersions,parseUpdateScript,requestUpdateResource,UpdateChecker});
         Object.assign(module.exports,{ROAMING_DATA,roamingProgress,roamingPlan,undergroundStatus,undergroundBay});
+        Object.assign(module.exports,{normalizeServiceState,parallelPlan,taskExecutionState});
         return;
     }
     if (window.top !== window.self) return;
@@ -3569,7 +3747,8 @@
             .caption{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#91a8c1;margin:9px 0 6px}.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.modes button{text-align:left;padding:9px;font-size:11px;background:#182438;line-height:1.4}.modes button span{display:block;font-size:15px;margin-bottom:3px;color:#a9bfd8}.modes button.on{background:#203d3e;border-color:#79dcba;color:#b5f5de}.modes button.on span{color:#79dcba}
             .target{padding:10px;border:1px solid #33455c;border-radius:11px;background:#162236;margin:9px 0}.field{display:flex;gap:9px;align-items:center;margin:6px 0}.field>span,.field>label{flex:0 0 82px;color:#b6c8df;font-size:12px}.field select{flex:1;width:0}.field input{flex:1;width:0}select,input[type=number],input[type=search]{min-width:0;width:100%;border:1px solid #3d506a;background:#0e192a;color:#edf4ff;border-radius:7px;padding:7px}input[type=number]{font-variant-numeric:tabular-nums}.hint{font-size:11px;color:#8fa7c2;line-height:1.65;margin:6px 0 0}.warn{color:#e6be7a}.goal{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#b9cde4;margin-top:9px}.bar{height:4px;overflow:hidden;border-radius:3px;background:#30415a;margin-top:5px}.bar i{display:block;height:100%;width:0;background:#79dcba;transition:width .3s ease}.row{display:flex;gap:7px;margin:10px 0}.row button{flex:1;padding:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px}.checks label{display:flex;align-items:flex-start;gap:5px;color:#becce0}input[type=checkbox]{accent-color:#79dcba;margin:3px 0 0}
             details{margin:10px 0;border-top:1px solid #2c3b51;padding-top:8px}summary{font-size:11px;color:#9fb7d4}.setting{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;font-size:11px}.setting input[type=number],.setting select{width:125px}.setting input[type=checkbox]{margin-right:5px}.tabs{display:flex;border-bottom:1px solid #34465c;gap:4px;margin:12px 0 0}.tabs button{flex:1;border:none;border-radius:7px 7px 0 0;background:transparent;color:#8da7c6;font-size:11px;padding:8px 4px}.tabs button.on{background:#22334a;color:#a3f0d3;box-shadow:inset 0 -2px #79dcba}.list{max-height:185px;overflow:auto;scrollbar-width:thin;min-height:44px;padding:4px 0}table{width:100%;border-collapse:collapse;font-size:11px}th,td{padding:7px 4px;border-bottom:1px solid #28394f;text-align:left}th{font-weight:400;color:#8ca4c0;position:sticky;top:0;background:#111a29}td:last-child,th:last-child{text-align:right}tr.active td{color:#8ce8c7}.missing{display:flex;gap:5px;flex-wrap:wrap;padding:6px 0}.chip{padding:3px 6px;background:#23344b;border-radius:6px;font-size:11px}.log{font-size:11px;padding:5px 0;border-bottom:1px solid #25364b;overflow-wrap:anywhere}.log time{color:#859dbb;margin-right:6px}.empty{padding:15px 8px;color:#93abc7;font-size:11px}.actions{display:flex;gap:5px;padding-top:8px;border-top:1px solid #2e3f55}.actions button{flex:1;font-size:10px;padding:5px}.mini{border-radius:30px;box-shadow:0 4px 24px #0008;background:#1e3346;padding:10px 15px;border-color:#79dcba;display:flex;align-items:center;gap:8px}.mini.running::before{content:'';width:6px;height:6px;border-radius:50%;background:#79dcba}.hidden{display:none!important}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-            .mini{touch-action:none;user-select:none;cursor:grab}.mini:active{cursor:grabbing}.status.manual{border-color:#8b713f}.manual .dot{background:#e6be7a;box-shadow:none}.manual .live{color:#e6be7a}.mini.manual{border-color:#e6be7a}.mini.manual::before{background:#e6be7a}
+            .mini{touch-action:none;user-select:none;cursor:grab;max-width:calc(100vw - 20px)}.mini:active{cursor:grabbing}#mini-state{min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status.manual{border-color:#8b713f}.manual .dot{background:#e6be7a;box-shadow:none}.manual .live{color:#e6be7a}.mini.manual{border-color:#e6be7a}.mini.manual::before{background:#e6be7a}
+            .execution-card{padding:10px;border:1px solid #344b5c;border-radius:11px;background:#142431;margin:10px 0}.execution-top{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#9ab8c7;margin-bottom:5px}#ui-owner{max-width:68%;text-align:right;overflow-wrap:anywhere;color:#9bd9c4}#foreground-task{font-size:12px;color:#e1f2f3}#foreground-detail{font-size:10px;color:#9bb3c4;line-height:1.5;margin:3px 0 7px;overflow-wrap:anywhere}.service-row{display:grid;grid-template-columns:78px auto 1fr;gap:6px;align-items:start;margin:5px 0;font-size:10px}.service-label{color:#bed2de}.service-state{white-space:nowrap;padding:1px 5px;border-radius:4px;background:#283b4a;color:#b7c8d6}.service-detail{min-width:0;color:#91aabd;overflow-wrap:anywhere}.service-row[data-state=ready] .service-state,.service-row[data-state=running] .service-state{color:#b6f0d7;background:#235045}.service-row[data-state=waiting] .service-state,.service-row[data-state=blocked] .service-state{color:#f0d29d;background:#4d4030}#concurrency-note{border-top:1px solid #2d4655;padding-top:6px;margin-top:7px;font-size:10px;color:#8faeba;line-height:1.5}#parallel-rules{margin:6px 0 10px}#parallel-rules table{font-size:10px}#parallel-rules td:first-child{width:48%}#parallel-rules td:last-child{text-align:left;color:#a8d3c1}.background-toggles{margin:7px 0;font-size:11px}.background-toggles label{align-items:flex-start}.queue-note{padding:6px 3px;font-size:10px;line-height:1.5;color:#94aebb}
             @media(max-width:450px){.panel{width:360px;border-radius:14px}.content{max-height:calc(100dvh - 90px);padding:10px}header{padding:10px 12px}.metric b{font-size:16px}.list{max-height:155px}.modes button{padding:7px}.field>span,.field>label{flex-basis:74px}}
             @media(prefers-reduced-motion:reduce){*{transition:none!important}}
             .categories{display:flex;gap:4px;padding:3px;background:#0b1423;border-radius:9px;margin-bottom:7px}.categories button{flex:1;border:0;background:transparent;color:#93abc7;font-size:11px;padding:6px 3px}.categories .on{color:#b5f5de;background:#23403e}.modes{grid-template-columns:repeat(2,1fr)}.modes button span{display:inline-block;width:22px;margin:0 4px 0 0;vertical-align:middle}.queue-tools{display:flex;gap:6px;margin:8px 0}.queue-tools button{flex:1;font-size:11px;padding:7px}.queue-tools #queue-count{display:inline-block;min-width:17px;background:#102138;border-radius:10px;margin-left:3px}.job{padding:9px 7px;border-bottom:1px solid #2d4058}.job.active{border-left:2px solid #79dcba;background:#1c303a}.job-head{display:flex;justify-content:space-between;gap:8px;font-size:12px}.job-state{color:#8be5c3;font-size:10px;white-space:nowrap}.job-actions{display:flex;gap:4px;margin-top:6px}.job-actions button{font-size:10px;padding:3px 6px}.job .sub{white-space:normal}#budget-summary{float:right;color:#91d2ba;font-size:10px}.wait-time{color:#e6be7a;font-variant-numeric:tabular-nums}.flow-list{display:grid;gap:6px;padding:6px 0}.flow-list .step{padding:8px;background:#1a293c;border-radius:8px;font-size:11px;color:#b8cce3}.flow-list .step b{color:#87e3c3;margin-right:7px}
@@ -3578,6 +3757,8 @@
             <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手<small>ADVENTURE COMPANION</small></b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
             <div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric"><b id="money-value">0</b>本次金币净增</div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
+            <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>已配置寄养 / 孵蛋 / 地下派遣</td><td>原生计时可与前台任务并行</td></tr><tr><td>收蛋 / 领取地下归队 / 进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。后台服务只收取已有成熟蛋和已返回地下队伍，不自动寄养换人或新派遣。</div></details>
             <div class="target hidden" id="prepare-info"><b>↑ 正在补练</b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
             <div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
@@ -3603,14 +3784,14 @@
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
-            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label><label title="成熟蛋自动孵化领取；领取后返回原任务"><input type="checkbox" data-setting="autoEggs">自动收蛋（成熟后孵化）</label></div>
+            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="caption">后台服务 · 助手运行时处理</div><div class="checks background-toggles"><label title="安全节点领取成熟蛋，完成后返回原任务"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="仅领取已经派出并归队的地下队伍；不自动派遣或开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
             <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">培养规划考虑可达免费进化形态；实际进化并确认存档后再按新形态配队。道具与分支进化留待手动。</div>
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
             <div class="row"><button id="start" class="primary">开始当前任务</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
-            <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="start-queue">运行队列 <span id="queue-count">0</span></button></div>
+            <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="start-queue" title="按顺序执行一个主任务；后台计时独立">串行队列 <span id="queue-count">0</span></button></div>
             <details><summary>资源预算 <span id="budget-summary"></span></summary><label class="setting">本次金币支出（0 禁止）<input data-setting="spendBudget" type="number" min="0"></label><label class="setting">每日支出上限（0 不另限）<input data-setting="dailySpendBudget" type="number" min="0"></label><label class="setting">至少保留金币<input data-setting="moneyReserve" type="number" min="0"></label><label class="setting">本次道具使用上限<input data-setting="useBudget" type="number" min="0" max="99999"></label><label class="setting"><span><input type="checkbox" data-setting="trainBuddy">练级 / 补练自动选择搭档 Buddy</span></label><label class="setting"><span><input type="checkbox" data-setting="trainBuff">练级 / 补练自动吃经验树果</span></label><label class="setting"><span><input type="checkbox" data-setting="moneyBuff">刷钱自动吃金币树果</span></label><label class="setting"><span><input type="checkbox" data-setting="autoBuff">补图鉴 / 刷闪 / 游荡自动吃对应树果</span></label><div class="hint">仅使用库存树果；游荡使用停留果与捕获果，同类有效增益不重复吃，不自动补购。树果计入道具使用上限，用尽后继续普通练级或刷钱。</div><div class="hint">采购和寄养扩容共用金币预算；主动使用道具共用份数上限。队列累计计费，每项设置同时生效。普通战斗的游戏扣款不计入采购预算。</div></details>
             <details><summary>运行设置与自动停止</summary>
                 <label class="setting">游戏速度<select data-setting="speed"><option value="1">×1</option><option value="2">×2</option><option value="4">×3（最高档）</option></select></label>
@@ -3668,6 +3849,16 @@
             else host.style.top = innerWidth <= 450 ? '12px' : '86px';
         }
         function fold(value) { const wasFolded=!!ui.folded;ui.folded = value; query('.panel').classList.toggle('hidden', value); query('.mini').classList.toggle('hidden', !value); saveUI();if(!value&&wasFolded)render();place(); }
+        function renderExecution(s,now){
+            const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
+            query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
+            const list=query('#background-services');list.replaceChildren();
+            for(const service of model.services){const row=document.createElement('div');row.className='service-row';row.dataset.service=service.id;row.dataset.state=service.state;
+                const label=document.createElement('span');label.className='service-label';label.textContent=service.label;
+                const state=document.createElement('span');state.className='service-state';state.textContent=states[service.state]||service.state;
+                const detail=document.createElement('span');detail.className='service-detail';const minutes=service.nextAt>now?Math.max(1,Math.ceil((service.nextAt-now)/60000)):0;detail.textContent=service.detail+(minutes?` · 约${minutes>=60?Math.floor(minutes/60)+'时'+(minutes%60?minutes%60+'分':''):minutes+'分钟'}`:'');row.append(label,state,detail);list.appendChild(row);}
+            return model;
+        }
         helperAPI.show=()=>{
             revealHost(host);delete ui.panel;
             fold(false);render();place();return true;
@@ -3740,6 +3931,7 @@
             const queueStep=engine.queueRunning&&engine.running?`${engine.queueIndex+1}/${engine.queue.length}`:'';
             query('#run-state').textContent = engine.suspended?'PAUSED · 页面已挂起':engine.manual ? 'PAUSED · 手动控制' : engine.running ? queueStep?`队列 ${queueStep} · 运行中`:'RUNNING · 运行中' : 'READY · 已停止';
             query('#mini-state').textContent = wait ? `${engine.suspended?'挂起':'手动'} · ${wait.mini}` : engine.running ? (engine.preparation?'补练 → ':'')+MODE_NAMES[engine.settings.mode]+(queueStep?' '+queueStep:'') : '待命';
+            const execution=renderExecution(s,now);if(execution.pendingCount)query('#mini-state').textContent+=` · 待办 ${execution.pendingCount}`;
             query('#resume').classList.toggle('hidden', !resumable); query('#start').classList.toggle('hidden', resumable);
             query('#resume').textContent=engine.manual&&s?.adv?.event?.raid?'接管当前团体战':engine.suspended?'继续原任务':'立即恢复';
             query('#action').textContent = wait?.detail||(engine.nextWake>now?`预计等待 ${Math.max(1,Math.ceil((engine.nextWake-now)/60000))} 分钟 · ${engine.action||'按游戏时间结算'}`:engine.action || '选择任务与目标后开始');
@@ -3844,6 +4036,7 @@
                     view.appendChild(table); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '当前范围没有可规划地图，请检查解锁、来源条件或目标。'; view.appendChild(empty); }
                 }
             } else if(tab==='queue'){
+                const note=document.createElement('div');note.className='queue-note';note.textContent='主任务按顺序执行；已配置的寄养、孵蛋和地下计时可并行，后台领取不占队列项。';view.appendChild(note);
                 for(const [index,job]of engine.queue.entries()){
                     const active=engine.running&&engine.queueRunning&&index===engine.queueIndex;
                     const el=document.createElement('div');el.className='job'+(active?' active':'');
@@ -3920,7 +4113,7 @@
         query('#resume').onclick=()=>{engine.resumeManual();render();};
         query('#reset').onclick=()=>{if(engine.running||engine.suspended)return;engine.metrics={};engine.telemetry=new Telemetry(engine.metrics);engine.persist();engine.log('已清除金币、经验与道具采样');render();};
         query('#export').onclick=()=>{
-            const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logs};
+            const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logs};
             const blob=new Blob([JSON.stringify(diagnostic,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pokecatch-helper-diagnostic.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
         };
 

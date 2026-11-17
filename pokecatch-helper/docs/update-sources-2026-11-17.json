@@ -1,0 +1,122 @@
+{
+  "https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 1688,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 1422,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://cdn.jsdelivr.net/gh/ZGRay00/Catch@a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 4953,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://cdn.jsdelivr.net/gh/ZGRay00/Catch@a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 4266,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.meta.js": {
+    "status": 200,
+    "durationMs": 1532,
+    "version": "3.5.0",
+    "bodySha256": "4a865286bc4880e15d00ac1431b6d1b3ef59f0de2982054fb008bea99413d67c"
+  },
+  "https://fastly.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 2500,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://fastly.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 4656,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://fastly.jsdelivr.net/gh/ZGRay00/Catch@a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 2703,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://fastly.jsdelivr.net/gh/ZGRay00/Catch@a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 3031,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://fastly.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.meta.js": {
+    "status": 200,
+    "durationMs": 1813,
+    "version": "3.5.0",
+    "bodySha256": "4a865286bc4880e15d00ac1431b6d1b3ef59f0de2982054fb008bea99413d67c"
+  },
+  "https://gcore.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 1343,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://gcore.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 3000,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://gcore.jsdelivr.net/gh/ZGRay00/Catch@a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 2547,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://gcore.jsdelivr.net/gh/ZGRay00/Catch@a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 3266,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://gcore.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.meta.js": {
+    "status": 200,
+    "durationMs": 1469,
+    "version": "3.5.0",
+    "bodySha256": "4a865286bc4880e15d00ac1431b6d1b3ef59f0de2982054fb008bea99413d67c"
+  },
+  "https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 1485,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 3360,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://raw.githubusercontent.com/ZGRay00/Catch/a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js": {
+    "status": 200,
+    "durationMs": 1906,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://raw.githubusercontent.com/ZGRay00/Catch/a6bda480d912c20102871d6616a7a85f27f06330/pokecatch-helper.user.js?_pokecatch_check=1794930014312": {
+    "status": 200,
+    "durationMs": 1828,
+    "version": "3.5.0",
+    "bodySha256": "106ceb611185781ca67023e211d76420b4175429553b0845fddddb4eaedf0fce"
+  },
+  "https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.meta.js": {
+    "status": 200,
+    "durationMs": 1375,
+    "version": "3.5.0",
+    "bodySha256": "4a865286bc4880e15d00ac1431b6d1b3ef59f0de2982054fb008bea99413d67c"
+  }
+}

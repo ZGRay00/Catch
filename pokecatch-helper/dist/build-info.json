@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "4.0.0",
-  "scriptSha256": "f600df85553c79191d83ce6a099a2b1cbe20783ae4899d18e76e6d4b018f58dc",
-  "metadataSha256": "eb293ca6bae86564124fa60e69ff3bba1454ac9da51789f28cd027556d67951b",
+  "version": "4.0.1",
+  "scriptSha256": "ea6aea1c75c3997b40e9620bc77e694dbe1ede8e2bb9f0ccc7a776a0df59aa1b",
+  "metadataSha256": "9a7ec431b34690d479e613cea0e699c0be68e54792ea93851e906852900b48f4",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "9da71ebb85dcc2899e0e4f83d1859ff7a30164bae200a2620568697dadab0ed7"
+      "sha256": "973a33afabc748be4c53729e45ac873c51f04377da3738d8908fa1c8ab1b09ff"
     },
     {
       "file": "build.manifest.json",
@@ -14,7 +14,7 @@
     },
     {
       "file": "userscript.header.txt",
-      "sha256": "fb215bbf3e0a9375b792fe39485b65ebc5ca4f4625060a0c118ef456aada18f6"
+      "sha256": "5e0f0374cbe7185760c1f3f60e53734b344b55decb0cfab93ce6e83323ff49d2"
     },
     {
       "file": "src/00-bootstrap.js",
@@ -22,7 +22,7 @@
     },
     {
       "file": "src/core/updates.js",
-      "sha256": "a68fe482c043b8e9d1beebabb4721aeaaf9fc2b25a590af51488bd6ba48084bf"
+      "sha256": "2ecd9222ab9f81913e246740c970bba80309a9fabc5a9d715dba90c6c8703e0c"
     },
     {
       "file": "data/game.json",
@@ -118,11 +118,11 @@
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "e8cfefb8e5db26b68d038e2ed15da495ffa992eb87b8f95652eafaa88907ea3b"
+      "sha256": "5815a49f319a15994c2c27ff1c860ca51e4fac238c7b3951e7ae34db484614ec"
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "329b4860c96ea1e4f04c5bdcbb6e8ceec47f5558211947cf6b312468d18a72e7"
+      "sha256": "023951324520978622c2f15bdb0f9c35a03d5756d0612860ca10d3beced970c6"
     }
   ]
 }

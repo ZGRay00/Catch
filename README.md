@@ -1,13 +1,13 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **4.0.0**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **4.0.1**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v4.0.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v4.0.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
 
 ## 安装和更新
 
 1. 在浏览器中启用 Tampermonkey，打开上面的脚本链接并确认安装。
-2. 进入游戏或刷新游戏页，确认助手面板显示 `4.0.0`。
+2. 进入游戏或刷新游戏页，确认助手面板显示 `4.0.1`。
 3. 后续点击面板顶部“在线更新”。发现新版后再次点击“安装新版”，在油猴确认安装，完成后刷新游戏。
 
 从旧版手动复制安装的用户，需要先安装这一次新版。脚本也配置了油猴原生 `@updateURL` 和 `@downloadURL`。
@@ -22,6 +22,14 @@
 - 指定游荡捕获：追踪原生地图位置，已生成的目标节点优先，错过或捕获失败后从原生入口重新进入。
 - 地下通道配队、派遣、等待归队、领取确认与按预算开启晶洞。
 - 自动收蛋、繁殖、对战塔、糖果工厂、世界首领、资源预算及任务队列。
+
+## 4.0.1：四源在线更新
+
+- GitHub Raw、jsDelivr、Fastly、GCore 四源并行检查与容错，支持手动选源及查看版本、耗时和错误。
+- 优先核对同一最新提交；API不可用时比较多个分支版本，明确提示缓存状态；固定提交来源内容冲突时拒绝误报最新。
+- 检查中可取消，迟到响应不会覆盖新结果。安装页打不开时可下载本次已验证的 `.user.js`，再通过油猴导入。
+- 原生 `@updateURL/@downloadURL` 保留 Raw，多源由面板实现；旧单源版本需先手动安装本次脚本并刷新。
+- [更新修复说明与来源](./pokecatch-helper/docs/UPDATE-4.0.1.md) · [实际连接检查报告](./pokecatch-helper/docs/update-sources-2026-11-17.json)
 
 ## 4.0.0：模型核验、天气规划与模块化工程
 

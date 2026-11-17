@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      3.3.2
+// @version      3.4.0
 // @description  图鉴与刷闪、自动收蛋、免费等级进化、进化潜力配队、刷钱练级、糖果工厂、对战塔、资源预算和任务队列；等级不足先补练、跨地区开局与刷新续跑。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '3.3.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '3.4.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     let startupPhase='正在载入数据',startupError='';
     function revealHost(host){
         if(!host)return false;
@@ -393,7 +393,7 @@
         if(a.paused)return '游戏已暂停';
         if(a.battle||a.pending)return '等待当前战斗或选择结束';
         if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
-        if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
+        if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
         if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
         if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
         if(flow.worldResultAt!=null&&now-flow.worldResultAt<3000||typeof document!=='undefined'&&$$('#raid-root .wb-skip,.wb-recap,#raid-root .wb-spill').some(visible))return '等待世界首领攻击结算';
@@ -435,7 +435,7 @@
         else if(!e.running&&!e.suspended){label='未启动主任务';detail=(a.event||a.zone||a.tower||a.league)?`游戏原生${label===planned?planned:a.event?.raid?'团体战':a.zone?'传说战':a.tower?'塔/工厂':'活动'}仍可能继续；助手未接管`:'助手已停止；游戏原生冒险和后台计时仍可能继续';}
         else if(e.manual||e.suspended)detail='助手已让出控制，原生计时不因此暂停';
         else if(e.nextWake>now)detail=`主任务等待结算 · 后台可在安全节点领取`;
-        let uiOwner=plan.active==='underground'?'地下归队领取':plan.active==='eggs'?'成熟蛋领取':plan.active==='evolution'?'免费进化':e.driver?.ownedDialog?'特殊队伍/盟友弹窗':e.driver?.teamTask?'队伍调整':e.automation?.owner?'游戏弹窗确认':e.automation?.buffUI?'树果操作':e.preparation?.candyTx?'升级糖果确认':e.driver?.pendingMap?'地图切换':a.battle?'游戏原生战斗':'空闲';
+        let uiOwner=plan.active==='underground'?'地下归队领取':plan.active==='eggs'?'成熟蛋领取':plan.active==='evolution'?'免费进化':e.driver?.ownedDialog?'特殊队伍/盟友弹窗':e.driver?.teamTask?'队伍调整':e.automation?.owner?'游戏弹窗确认':e.automation?.buffUI?'树果操作':e.preparation?.candyTx?'升级糖果确认':e.driver?.pendingMap?'地图切换':e.driver?.navigation?'页面切换':a.battle?'游戏原生战斗':'空闲';
         if(e.manual||e.suspended)uiOwner='手动控制 / 等待恢复';else if(!e.running)uiOwner=plan.active?'已停止，原事务待核对':'助手未操作页面';
         const entries=[];
         const nativeEggs=s?.pension?.eggs||[],due=readyBackgroundEggs(s,now),nextEgg=Math.min(...nativeEggs.filter(egg=>!due.includes(egg)).map(egg=>Number(egg.hatchAt)).filter(at=>at>now));
@@ -452,7 +452,30 @@
         const under=s?.under?undergroundStatus(s,now):{slots:[],ready:[],running:[],nextReturn:null};
         const nextUnder=Math.min(...under.running.map(slot=>Number(slot.end)).filter(at=>Number.isFinite(at)&&at>now));
         make('underground',c.autoUnderCollect!==false,under.slots.length,under.ready.length,nextUnder,services.underground,c.mode==='underground',under.slots.length?`计时中 ${under.running.length} · 已返回 ${under.ready.length}`:'未派遣队伍；后台服务不自动派遣');
-        return{foreground:{label,detail,state:e.manual||e.suspended?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount};
+        return{foreground:{label,detail,state:e.manual||e.suspended?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
+    }
+    function executionDecision(s,e){
+        if(!s?.adv)return{route:'进入游戏后显示实际路线',team:'进入游戏后显示配队状态',reason:''};
+        const a=s.adv,d=e.driver||{},p=e.preparation,c=e.settings||{},current=CHAPTERS.get(a.chapter),destination=d.pendingMap?.row||p?.route||e.target;
+        const region=DATA.regions.find(region=>region.key===current?.reg)?.name||'',active=!!(a.event||a.zone||a.tower||a.league);
+        let route=`${active?'主线位置':'实际路线'}：${region} · ${current?.name||'未知章节'}`;
+        if(destination&&!destination.members?.includes(a.chapter))route+=`；目标：${destination.name||CHAPTERS.get(destination.id)?.name||'待切换地图'}`;
+        if(p?.context?.label)route+=`；补练后返回：${p.context.label}`;
+        if(d.navigation)route+=`；正在打开${d.navigation.name||d.navigation.screen}（已尝试 ${d.navigation.attempts||0} 次）`;
+        if(active)return{route,team:'独立战斗使用游戏对应的专属队伍',reason:c.optimizeRaid?'特殊队伍按对应活动单独优化':'特殊队伍由你手动配置'};
+        const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon]));
+        const describe=uids=>uids.map(uid=>{const mon=index.get(uid);return mon?`${MONS.get(mon.id)?.name||mon.id} Lv.${mon.level}`:'成员已离开PC';}).join('、')||'未配置';
+        const task=d.teamTask,road=Array.isArray(s.road)&&s.road.length?s.road:s.team||[],pending=road.length!==(s.team||[]).length||road.some((uid,i)=>uid!==s.team[i]);
+        const stage=task?.pending?'等待拖放存档确认':task?'正在调整队伍':pending?'等待治疗点应用新队伍':c.autoTeam===false?'保留手动队伍':'当前冒险队伍';
+        let team=`${stage}：${describe(task?.uids||s.team||[])}`;
+        if(pending)team+=`；当前行进阵容：${describe(road)}`;
+        let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':'按当前路线评估打点、回合数和生存能力';
+        const check=e.teamCheck,key=String(destination?.key??current?.loop);
+        if(!p&&c.autoTeam!==false&&check?.mode===c.mode&&check.key===key&&check.reason){
+            reason=check.reason+(check.opponents?` · 覆盖 ${check.opponents} 组对手`: '');
+            if(task&&check.gain>0)reason+=` · 模型评分 +${Math.round(check.gain*100)}%`;
+        }
+        return{route,team,reason};
     }
     function undergroundStatus(s,now=Date.now()){
         const under=s.under||{},day=parisDay(now),extra=Math.min(3,Math.max(0,Math.floor(Number(under.extra)||0))),slots=Array.isArray(under.slots)?under.slots:[];
@@ -1429,7 +1452,7 @@
     }
 
     class DOMDriver {
-        constructor(engine) { this.e = engine; this.lastClick = 0; this.ownedDialog = null; this.pendingMap = null; this.raid = null; this.recent = new Map(); this.teamTask = null; }
+        constructor(engine) { this.e = engine; this.lastClick = 0; this.ownedDialog = null; this.pendingMap = null; this.raid = null; this.recent = new Map(); this.teamTask = null; this.navigation = null; }
         click(el, label, pointer = false, resuming = false) {
             const handoff=this.e.manual;
             if (!enabled(el) || !this.e.running || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || document.hidden || Date.now() - this.lastClick < 700) return false;
@@ -1438,19 +1461,30 @@
             el.click(); this.e.action = label; return true;
         }
         nav(screen) {
-            if (visible($(`#screen-${screen}.active`))) return true;
+            if (visible($(`#screen-${screen}.active`))) {this.navigation=null;return true;}
             const tab = $(`#tabs [data-screen="${screen}"]`);
-            if (tab?.classList.contains('locked') || tab?.classList.contains('hold')) {this.e.status=tab.dataset.why||'目标页面尚未开放，请满足游戏解锁条件';this.e.lastProgress=Date.now();return false;}
+            if (tab?.classList.contains('locked') || tab?.classList.contains('hold')) {this.navigation=null;this.e.status=tab.dataset.why||'目标页面尚未开放，请满足游戏解锁条件';this.e.lastProgress=Date.now();return false;}
+            if(!this.e.running||this.e.manual||document.hidden)return false;
+            const now=Date.now(),name={map:'进度',adventure:'冒险',raid:'团体战',team:'队伍 / PC',pension:'培育屋',underground:'地下通道',shop:'商店'}[screen]||screen;
+            if(this.navigation?.screen!==screen)this.navigation={screen,name,started:now,attempts:0,nextAt:now};
+            const task=this.navigation;
+            if(now-task.started>=60000){this.navigation=null;this.e.failTask(`无法打开${name}页面：入口缺失或切换未响应，请检查游戏页面后继续`);return false;}
+            if(now<task.nextAt){this.e.status=`正在打开${name}，等待游戏页面响应`;return false;}
+            const navigate=control=>{
+                if(!enabled(control)){this.e.status=`${name}入口暂未显示，等待游戏页面恢复`;return false;}
+                if(this.click(control,`打开${name}`)){task.attempts++;task.nextAt=now+Math.min(6000,1200*2**Math.min(3,task.attempts-1));}
+                return false;
+            };
             // Desktop hides the adventure tab; the visible chapter card forwards its
             // native click to that tab. On adventure itself the card opens the map,
             // so never use it while the adventure screen is already active.
             if(screen==='adventure'&&!visible(tab)&&!$('#screen-adventure.active')){
                 const chapter=$('#side-chapter');
-                if(enabled(chapter)){this.click(chapter,'返回冒险，继续当前任务');return false;}
+                if(enabled(chapter))return navigate(chapter);
             }
             const group=tab?.closest('.nav-grp'),header=group?.querySelector('.nav-grp-h');
             if(header?.getAttribute('aria-expanded')==='false'||tab?.closest('[inert]')){this.click(header,'展开游戏活动导航');return false;}
-            this.click(tab, `打开${{ map: '进度', adventure: '冒险', raid: '团体战',pension:'培育屋',underground:'地下通道',shop:'商店' }[screen] || screen}`); return false;
+            return navigate(tab);
         }
         input(el, value, label) {
             if (!enabled(el) || !this.e.running || this.e.manual || document.hidden || Date.now()-this.lastClick<700) return false;
@@ -1469,10 +1503,15 @@
         }
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
-            const fail=reason=>{this.e.log(`自动配队暂缓：${reason}`);this.e.teamRetryAt=now+5*60000;this.teamTask=null;};
+            const fail=reason=>{this.e.log(`自动配队暂缓：${reason}`);this.e.teamRetryAt=now+5*60000;this.e.teamCheck=null;this.teamTask=null;this.nav('adventure');};
             if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){this.teamTask=null;this.e.teamCheck=null;return false;}
             if(now-task.started>90000){fail('队伍页面操作超时，继续当前任务');return false;}
             if(task.uids.some(uid=>!(s.mons||[]).some(m=>m.uid===uid))){this.teamTask=null;this.e.teamCheck=null;return false;}
+            const signature=s.team.join('|');
+            if(task.pending){
+                if(signature===task.pending.before&&now-task.pending.at<10000){this.e.status='冒险配队 · 等待游戏确认上一次拖放';this.e.lastProgress=now;return true;}
+                delete task.pending;
+            }
             const same=task.uids.length===s.team.length&&task.uids.every((uid,i)=>s.team[i]===uid);
             if(same){
                 const search=$('#screen-team.active #pc-search');
@@ -1486,14 +1525,17 @@
             if(!this.nav('team'))return true;
             if(task.searchBefore===undefined)task.searchBefore=$('#pc-search')?.value||'';
             this.e.status=`适配冒险队伍 · ${task.uids.filter((uid,i)=>s.team[i]===uid).length}/${task.uids.length}`;
-            const signature=s.team.join('|');
             if(task.signature!==signature){task.signature=signature;task.attempts=0;}
             if(task.attempts>=3){fail('游戏未接受拖放，请检查队伍地区限制');return false;}
+            const move=(source,target,label)=>{
+                if(this.drag(source,target,label)){task.attempts++;task.pending={before:signature,at:now};}
+                return true;
+            };
             const slotNodes=()=>{const mini=$('#team-mini.show');return [...(mini?.children||$('#team-slots')?.children||[])];};
             const mismatch=task.uids.findIndex((uid,i)=>s.team[i]!==uid);
             if(mismatch>=0){
                 const uid=task.uids[mismatch],oldIndex=s.team.indexOf(uid),mon=s.mons.find(m=>m.uid===uid);
-                if(oldIndex>=0){const slots=slotNodes();if(this.drag(slots[oldIndex],slots[mismatch],'调整冒险队伍顺序'))task.attempts++;return true;}
+                if(oldIndex>=0){const slots=slotNodes();return move(slots[oldIndex],slots[mismatch],'调整冒险队伍顺序');}
                 const filters=$$('#pc-active [data-clear]').filter(enabled),other=filters.find(el=>el.dataset.clear!=='q');
                 if(other){this.click(filters.find(el=>el.dataset.clear==='all')||other,'清除PC筛选以配置队伍');return true;}
                 const search=$('#pc-search');if(!search){fail('找不到PC搜索框');return false;}
@@ -1502,10 +1544,10 @@
                 if(!card){this.e.status='等待PC列表显示配队成员';return true;}
                 const rect=card.getBoundingClientRect();
                 if(rect.top<0||rect.bottom>innerHeight){card.scrollIntoView({block:'center'});return true;}
-                if(this.drag(card,slotNodes()[mismatch],`派出${MONS.get(mon.id)?.name}`))task.attempts++;
+                return move(card,slotNodes()[mismatch],`派出${MONS.get(mon.id)?.name}`);
             }else{
                 const index=s.team.findIndex(uid=>!task.uids.includes(uid));
-                if(index>=0&&this.drag(slotNodes()[index],$('#pc-grid'),'移出多余冒险队员'))task.attempts++;
+                if(index>=0)return move(slotNodes()[index],$('#pc-grid'),'移出多余冒险队员');
             }
             return true;
         }
@@ -2977,7 +3019,7 @@
             this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=normalizeSettings(next.settings);
             const s=this.read();this.startItems=itemCounter(s,this.settings.itemId);this.sessionItemId=this.settings.itemId;
             this.trainProtected=this.settings.mode==='train'?(this.settings.trainUid==='team'?[...s.team]:[this.settings.trainUid]):[];this.trainingSelection=this.settings.trainUid;this.startTrainingXp=this.settings.mode==='train'?experienceTotal(s,this.trainProtected):null;
-            this.target=null;this.visit=null;this.telemetry.sample=null;this.teamCheck=null;this.driver.pendingMap=null;this.driver.teamTask=null;this.driver.ownedDialog=null;this.automation.begin(s);this.lastProgress=Date.now();this.nextRaid=0;
+            this.target=null;this.visit=null;this.telemetry.sample=null;this.teamCheck=null;this.driver.pendingMap=null;this.driver.teamTask=null;this.driver.ownedDialog=null;this.driver.navigation=null;this.automation.begin(s);this.lastProgress=Date.now();this.nextRaid=0;
             this.driver.raid=null;this.raidProbe=false;this.raidReturn=null;this.zoneId=null;this.zoneStarted=null;this.teamRetryAt=0;this.nextLegend=0;
             this.preparation=null;this.raidPreparation=null;this.coach.checked=null;this.coach.ready=null;this.coach.combat=null;
             this.nextWake=null;this.modalWaitSince=null;
@@ -3076,7 +3118,7 @@
                 this.trainingSelection=this.settings.trainUid;this.startTrainingXp=this.settings.mode==='train'?experienceTotal(s,this.trainProtected):null;
                 this.teamCheck=null;this.teamRetryAt=0;this.driver.teamTask=null;
                 this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
-                this.target = null; this.visit = null; this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.raid = null; this.nextLegend = 0;
+                this.target = null; this.visit = null; this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.raid = null; this.driver.navigation=null; this.nextLegend = 0;
                 this.zoneId = null; this.zoneStarted = null;
                 this.driver.ownedDialog = null; this.raidProbe = false; this.raidReturn=null; this.nextRaid = 0; this.errors = 0;this.lastCheckpoint=0;this.modalWaitSince=null;this.nextWake=null;
                 this.budget=new Budget(this);this.automation.begin(s);this.checkpoint=null;
@@ -3116,7 +3158,7 @@
             this.legendProbe=null;this.farmWait=null;
             this.checkpoint=null;this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;this.nextWake=null;this.modalWaitSince=null;
             this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.ownedDialog = null;
-            this.driver.teamTask=null;
+            this.driver.teamTask=null;this.driver.navigation=null;
             this.status = reason; this.log(reason); this.release();
             try { if(save)this.persist(false,false); } catch {}
         }
@@ -3139,7 +3181,7 @@
                 // Keep session goals and the original loop backup, discard interrupted UI work.
                 this.target = null; this.visit = null; this.telemetry.sample = null;
                 this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
-                this.driver.teamTask=null;this.teamCheck=null;
+                this.driver.teamTask=null;this.driver.navigation=null;this.teamCheck=null;
                 this.driver.recent?.clear();
                 this.coach.checked=null;this.coach.ready=null;
                 this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;
@@ -3245,7 +3287,7 @@
         nextDelay(now=Date.now()){
             if(document.hidden)return 6000;
             if(this.manual){const left=Number(this.manual.until)-now;return left>0?Math.min(1200,Math.max(50,left)):1200;}
-            if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution||this.services.underground)return 1200;
+            if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.driver.navigation||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution||this.services.underground)return 1200;
             if(this.farmWait?.mode===this.settings.mode)return 6000;
             if(FLOW_MODES.has(this.settings.mode)&&this.nextWake>now)return Math.min(6000,Math.max(1200,this.nextWake-now));
             return 1200;
@@ -3256,7 +3298,8 @@
             if(this.roamStarted!=null)this.roamStarted+=duration;
             if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
             if(this.legendProbe?.started!=null)this.legendProbe.started+=duration;
-            if(this.driver.ownedDialog?.pending?.at!=null)this.driver.ownedDialog.pending.at+=duration;
+            for(const task of [this.driver.ownedDialog,this.driver.teamTask])if(task?.pending?.at!=null)task.pending.at+=duration;
+            if(this.driver.navigation){this.driver.navigation.started+=duration;this.driver.navigation.nextAt+=duration;}
             if(this.automation.state.worldResultAt!=null)this.automation.state.worldResultAt+=duration;
             if(this.services.underground){this.services.underground.started+=duration;if(this.services.underground.tx)this.services.underground.tx.at+=duration;}
             for(const task of [this.driver.pendingMap,this.driver.teamTask,this.driver.ownedDialog,this.automation.owner,this.automation.buddyTask,this.automation.buffUI,this.automation.eggFX,this.automation.evolutionFX,this.automation.state.evolution])if(task?.started)task.started+=duration;
@@ -3510,7 +3553,8 @@
             const pinned=this.settings.mode==='train'?(this.trainProtected||(this.settings.trainUid==='team'?s.team:[this.settings.trainUid])):[];
             const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).flatMap(id=>chapterFoes(s,CHAPTERS.get(id))).map(([id,level,weight])=>({id,level,weight}));
             const plan=planAdventureTeam(s,this.settings,pinned,{reg:row.reg||c.reg,foes,objective});
-            this.teamCheck={key,objective,autoSwitch,roster,party:s.team.join('|'),at:now,deaths};
+            this.teamCheck={key,objective,autoSwitch,roster,party:s.team.join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+                reason:plan.changed?plan.reason:'当前阵容收益接近建议，保留现有队伍',gain:plan.gain,opponents:plan.opponents};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
             this.log(`配队评估：${plan.reason}${plan.gain>0?` · 综合评分 +${Math.round(plan.gain*100)}%`:''}`);
@@ -3774,7 +3818,7 @@
             <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手<small>ADVENTURE COMPANION</small></b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
             <div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric"><b id="money-value">0</b>本次金币净增</div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
-            <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
+            <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>已配置寄养 / 孵蛋 / 地下派遣</td><td>原生计时可与前台任务并行</td></tr><tr><td>收蛋 / 领取地下归队 / 进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。后台服务只收取已有成熟蛋和已返回地下队伍，不自动寄养换人或新派遣。</div></details>
             <div class="target hidden" id="prepare-info"><b>↑ 正在补练</b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
             <div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
@@ -3869,6 +3913,7 @@
         function renderExecution(s,now){
             const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
+            query('#execution-route').textContent=model.decision.route;query('#execution-team').textContent=model.decision.team;query('#execution-reason').textContent=model.decision.reason;
             const list=query('#background-services');list.replaceChildren();
             for(const service of model.services){const row=document.createElement('div');row.className='service-row';row.dataset.service=service.id;row.dataset.state=service.state;
                 const label=document.createElement('span');label.className='service-label';label.textContent=service.label;

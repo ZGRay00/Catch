@@ -10,19 +10,21 @@
             this.legendProbe=null;this.farmWait=null;
             this.teamCheck = null; this.teamRetryAt = 0;
             this.automation=new Automation(this);this.services=normalizeServiceState();this.backgroundYield=false;this.budget=new Budget(this);this.queue=[];this.queueIndex=0;this.queueRunning=false;this.checkpoint=null;this.nextWake=null;
+            this.nurseryMonitor=new NurseryMonitor(this);
             this.coach=new LevelCoach(this);this.preparation=null;this.raidPreparation=null;
         }
         log(text) { this.logs.unshift({ time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), text }); this.logs.length = Math.min(60, this.logs.length); }
         read() {
             const raw = this.storage.getItem(SAVE_KEY);
             if (!raw) return null;
-            if (raw !== this.raw) { const state = decodeSave(JSON.parse(raw)); if (!state || !Array.isArray(state.mons) || !state.dex || typeof state.dex !== 'object') throw new Error('无法识别游戏存档'); this.state = state; this.raw = raw; }
+            if (raw !== this.raw) { const state = decodeSave(JSON.parse(raw)); if (!state || !Array.isArray(state.mons) || !state.dex || typeof state.dex !== 'object') throw new Error('无法识别游戏存档'); this.state = state; this.raw = raw;this.nurseryMonitor.observe(state); }
             return this.state;
         }
         loadAccount(s) {
             this.account = accountId(s);
             try { const saved = JSON.parse(this.storage.getItem(PREFIX + this.account) || '{}'); this.metrics = saved.metrics || {}; this.settings = normalizeSettings({ ...this.settings, ...saved.settings });this.queue=normalizeJobs(saved.queue);this.queueIndex=Math.max(0,Math.min(this.queue.length,Number(saved.queueIndex)||0));this.checkpoint=saved.resume?.wanted?saved.resume:null;this.services=normalizeServiceState(saved.services); } catch {this.services=normalizeServiceState();}
             this.telemetry = new Telemetry(this.metrics);
+            this.nurseryMonitor.load(s);
         }
         progressSnapshot(){
             const session={};for(const key of SESSION_FIELDS)if(this[key]!==undefined)session[key]=this[key];

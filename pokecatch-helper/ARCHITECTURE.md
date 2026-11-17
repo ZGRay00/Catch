@@ -19,6 +19,10 @@
 | `src/models/facilities.js` | 对战塔、地下通道及活动候选模型 |
 | `src/services/background.js` | 并行服务排程与地下探险事务规划 |
 | `src/models/farming.js` | 普通刷闪、地图候选与基础目标选择 |
+| `src/models/nursery-model.js` | 只读蛋判定、实际亲本池和条件下闪预测 |
+| `src/models/nursery-ledger.js` | 有界观测台账、原生孵化增量、刷新和回档分段 |
+| `src/services/nursery-monitor.js` | 账号独立存储、最新存档检查和多标签写前核对 |
+| `src/ui/nursery-panel.js` | 闪蛋卡片、成熟倒计时、原生可选标记和统计导出 |
 | `data/weather.json` | 每小时天气规则、季节与昼夜遭遇池快照 |
 | `src/models/weather.js` | 当前真实天气池、天气上下文与缓存 |
 | `src/models/roster.js` | 队伍成员索引、能力与基础匹配 |

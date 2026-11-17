@@ -131,6 +131,7 @@
         // Version 1.1.0 used a single position; migrate it only to the expanded panel.
         if (!ui.panel && Number.isFinite(ui.x) && Number.isFinite(ui.y)) ui.panel = { x: ui.x, y: ui.y };
         function saveUI() { try { localStorage.setItem(PREFIX + 'ui', JSON.stringify(ui)); } catch {} }
+        const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
         function place() {
             const position = ui.folded ? ui.mini : ui.panel;
             host.style.left = 'auto'; host.style.right = '14px'; host.style.bottom = 'auto';
@@ -151,7 +152,7 @@
                 const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;
                 const rates=[...new Set(eggs.map(egg=>shinyOdds(s||{},{kind:'egg',egg},now).rate))];
-                query('#probability-eggs').textContent=`孵化器 ${eggs.length} 枚 · 已成熟 ${s?readyBackgroundEggs(s,now).length:0}；${rates.length?'现有蛋概率档：'+rates.map(format).join('、'):'普通亲代1/512，新异色亲代1/16；旧sp:1为10%，靛莓果另乘2'}`;
+                query('#probability-eggs').textContent=`${rates.length?'现有蛋的理论档：'+rates.map(format).join('、'):'普通亲代1/512，新异色亲代1/16；旧sp:1为10%，靛莓果另乘2'}；确定结果与下闪条件见培育屋计数。`;
             }
             const list=query('#background-services');list.replaceChildren();
             for(const service of model.services){const row=document.createElement('div');row.className='service-row';row.dataset.service=service.id;row.dataset.state=service.state;
@@ -233,6 +234,7 @@
             query('#run-state').textContent = engine.suspended?'PAUSED · 页面已挂起':engine.manual ? 'PAUSED · 手动控制' : engine.running ? queueStep?`队列 ${queueStep} · 运行中`:'RUNNING · 运行中' : 'READY · 已停止';
             query('#mini-state').textContent = wait ? `${engine.suspended?'挂起':'手动'} · ${wait.mini}` : engine.running ? (engine.preparation?'补练 → ':'')+MODE_NAMES[engine.settings.mode]+(queueStep?' '+queueStep:'') : '待命';
             const execution=renderExecution(s,now);if(execution.pendingCount)query('#mini-state').textContent+=` · 待办 ${execution.pendingCount}`;
+            const nursery=nurseryPanel.render(s,now);if(nursery?.counts.shiny)query('#mini-state').textContent+=` · ✦蛋${nursery.counts.shiny}`;
             query('#resume').classList.toggle('hidden', !resumable); query('#start').classList.toggle('hidden', resumable);
             query('#resume').textContent=engine.manual&&s?.adv?.event?.raid?'接管当前团体战':engine.suspended?'继续原任务':'立即恢复';
             query('#action').textContent = wait?.detail||(engine.nextWake>now?`预计等待 ${Math.max(1,Math.ceil((engine.nextWake-now)/60000))} 分钟 · ${engine.action||'按游戏时间结算'}`:engine.action || (engine.running?'助手已接管，按当前任务执行':'选择任务与目标后开始'));

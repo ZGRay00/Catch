@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "version": "4.0.1",
-  "scriptSha256": "ea6aea1c75c3997b40e9620bc77e694dbe1ede8e2bb9f0ccc7a776a0df59aa1b",
-  "metadataSha256": "9a7ec431b34690d479e613cea0e699c0be68e54792ea93851e906852900b48f4",
+  "version": "4.1.0",
+  "scriptSha256": "f57550a490ed7659af9b6034f33d29f84bddb3fad91d3295e35c4d615970a583",
+  "metadataSha256": "1be8201aa79e74e116c5de82495a789cfefa3936e2056818669377e017ce2d3b",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "973a33afabc748be4c53729e45ac873c51f04377da3738d8908fa1c8ab1b09ff"
+      "sha256": "c91d4bc2d76ad97d7b5a1f15328048d1bc92eae2a4de0db5a55882299f008e64"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "0ebb4ffb61e2ec3deca180583997fd309aaef573959d8f8c94fea59810937f31"
+      "sha256": "789719ac4b098b597782f97bcb8f359395c549faf2ca8c060b2cee1c30f4e3f0"
     },
     {
       "file": "userscript.header.txt",
-      "sha256": "5e0f0374cbe7185760c1f3f60e53734b344b55decb0cfab93ce6e83323ff49d2"
+      "sha256": "56265f7c7df2cd8d3969320593f7d565db7c1cc45feb82cf5e23fd71755e3c16"
     },
     {
       "file": "src/00-bootstrap.js",
@@ -55,6 +55,18 @@
     {
       "file": "src/models/farming.js",
       "sha256": "7d7c5446625119ca7d13b2940c3f9fc1fe4bb753a0ffc00473659d73def5e838"
+    },
+    {
+      "file": "src/models/nursery-model.js",
+      "sha256": "5b4a365e8472d5c4a8b2f4a51dbd2c5134d8df808311c3e637663c6a3c868bd8"
+    },
+    {
+      "file": "src/models/nursery-ledger.js",
+      "sha256": "975a4e4095ba82dbbbd5eeefd2fbf5d136604298a30aa5469f0178f7b78e441b"
+    },
+    {
+      "file": "src/services/nursery-monitor.js",
+      "sha256": "f8a66be66443d825d20f49d6a5b864def102c925a2ef7c05e6b5cd83382e90d8"
     },
     {
       "file": "data/weather.json",
@@ -114,15 +126,19 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "19707b918359ca42a2c9c17878ded1707109dbb1c2a16df412bcb4353eebbbb5"
+      "sha256": "84f47453e125a48a319b2943bb8cd32847a4bef745f8362d798e56de9977bb3c"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "5815a49f319a15994c2c27ff1c860ca51e4fac238c7b3951e7ae34db484614ec"
+      "sha256": "f5db23e059bd1ac94a4e43761475267bea478df14f4cc28f0553975a97691dbf"
+    },
+    {
+      "file": "src/ui/nursery-panel.js",
+      "sha256": "dfdd003a0e6a896e0f50eff474fb6de7b327d106e925f4826db02f3c39a41b80"
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "023951324520978622c2f15bdb0f9c35a03d5756d0612860ca10d3beced970c6"
+      "sha256": "2f90c7b1cf88567bdba7d3007d4f0f25805f4a613774a72014b2eb017d8416fe"
     }
   ]
 }

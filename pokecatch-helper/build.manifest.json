@@ -43,6 +43,9 @@
       "kind": "source",
       "file": "src/models/farming.js"
     },
+    {"kind":"source","file":"src/models/nursery-model.js"},
+    {"kind":"source","file":"src/models/nursery-ledger.js"},
+    {"kind":"source","file":"src/services/nursery-monitor.js"},
     {
       "kind": "json",
       "file": "data/weather.json",
@@ -109,6 +112,7 @@
       "kind": "source",
       "file": "src/runtime/node-exports.js"
     },
+    {"kind":"source","file":"src/ui/nursery-panel.js"},
     {
       "kind": "source",
       "file": "src/ui/mount.js"

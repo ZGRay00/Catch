@@ -8,5 +8,6 @@
         Object.assign(module.exports,{VERSION,UPDATE_RELEASE,UPDATE_SOURCES,updateSourceURL,allowedUpdateURL,allowedUpdateRedirect,compareUpdateVersions,parseUpdateScript,requestUpdateResource,downloadUpdateScript,UpdateChecker});
         Object.assign(module.exports,{ROAMING_DATA,roamingProgress,roamingPlan,undergroundStatus,undergroundBay});
         Object.assign(module.exports,{normalizeServiceState,parallelPlan,taskExecutionState,undergroundBackgroundUnlocked,undergroundIdleMembers,configurationProfile,parseConfigurationProfile,importConfigurationProfile,shinyOdds,backgroundKeepalive,pageHidden});
+        Object.assign(module.exports,{NURSERY_RULES,NURSERY_LINEAGE,nurseryHash,nurserySeed,nurseryFixedRoll,nurseryEggRate,nurseryEggKey,eggOutcome,nurseryParentPool,nurseryOffspringId,nurseryForecast,nurserySnapshot,NURSERY_LEDGER_LIMITS,NurseryLedger,NURSERY_STORE_PREFIX,nurseryRuntimeOptions,NurseryMonitor});
         return;
     }

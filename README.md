@@ -1,13 +1,13 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **4.0.1**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **4.1.0**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v4.0.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v4.1.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
 
 ## 安装和更新
 
 1. 在浏览器中启用 Tampermonkey，打开上面的脚本链接并确认安装。
-2. 进入游戏或刷新游戏页，确认助手面板显示 `4.0.1`。
+2. 进入游戏或刷新游戏页，确认助手面板显示 `4.1.0`。
 3. 后续点击面板顶部“在线更新”。发现新版后再次点击“安装新版”，在油猴确认安装，完成后刷新游戏。
 
 从旧版手动复制安装的用户，需要先安装这一次新版。脚本也配置了油猴原生 `@updateURL` 和 `@downloadURL`。
@@ -22,6 +22,14 @@
 - 指定游荡捕获：追踪原生地图位置，已生成的目标节点优先，错过或捕获失败后从原生入口重新进入。
 - 地下通道配队、派遣、等待归队、领取确认与按预算开启晶洞。
 - 自动收蛋、繁殖、对战塔、糖果工厂、世界首领、资源预算及任务队列。
+
+## 4.1.0：闪光蛋计数与培育屋整合
+
+- 当前闪蛋、成熟倒计时、原生累计孵化、本段观测及已确认闪孵分别展示；未知结果不算普通，也不从图鉴反推历史。
+- 按实际亲本池、全局共享蛋序号、一次性靛莓果预测下一自然蛋及条件下闪。假设亲本情景单列，不冒充当前结果或保底。
+- 停机、手动和刷新后持续观测；账号隔离、本地清空与导出不改游戏存档、队列或续跑。增加孵化器金色标记和最近记录。
+- 987 项离线回归及五套隔离浏览器回归通过；最新和旧版公开游戏各 3,154 项蛋机制差分、最新原生 FMT2 核验通过。
+- [培育屋说明](./pokecatch-helper/docs/NURSERY-4.1.md)，4.0.1 四源在线更新功能全部保留。
 
 ## 4.0.1：四源在线更新
 

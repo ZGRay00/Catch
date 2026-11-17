@@ -1,6 +1,8 @@
-# PokéCatch 自动助手 4.0.1
+# PokéCatch 自动助手 4.1.0
 
 普通用户只需把 `dist/pokecatch-helper.user.js` 安装到 Tampermonkey。模块目录是可维护的源码，不需要上传到游戏页面，也不需要安装 Node 才能使用助手。
+
+4.1.0 新增独立“培育屋 · 闪蛋计数”卡片：当前闪蛋、成熟倒计时、原生累计孵化、本段观测与已确认闪孵分别展示。按真实亲本池、共享蛋序号和一次性靛莓果显示下一自然蛋及条件下闪序列，支持原生孵化器标记、最近记录、导出和本地清零。停止助手和手动孵蛋时也可观测；详见 [4.1 培育屋说明](docs/NURSERY-4.1.md)。
 
 面板“在线更新”支持 GitHub Raw、jsDelivr、Fastly 与 GCore 四个固定来源，自动切换或手动指定。展开“更新源与连接状态”查看失败原因、版本与耗时；检查中再次点击可取消。取得最新提交时优先使用固定提交链接；只能访问分支缓存时会明确提示，多个源比较版本后再判断。
 
@@ -29,7 +31,7 @@ npm run package
 - `build` 校验模块、数据和 JavaScript 语法，然后生成工作区根目录 `Pokecatch自动助手.user.js`，以及 `dist/` 中的安装脚本、更新元数据和构建哈希。
 - `check` 重新计算全部产物并检查是否与当前文件一致，不会改写文件。
 - `test` 先检查构建产物，再运行本工程的构建测试和工作区 `tests/pokecatch*.test.cjs` 离线回归。
-- `package` 构建并检查产物，生成 `dist/pokecatch-helper-v4.0.1.zip`。相同源码、Node 版本与 zlib 版本会生成相同字节的 ZIP。
+- `package` 构建并检查产物，生成 `dist/pokecatch-helper-v4.1.0.zip`。相同源码、Node 版本与 zlib 版本会生成相同字节的 ZIP。
 - `test:build` 只测试构建、数据校验和打包工具；`test:browser` 运行浏览器集成回归，需要本机具有测试脚本所支持的 Chrome 或 Edge。
 
 **修改 `src/` 和 `data/` 后再构建。根目录和 `dist/` 的 `.user.js`、`.meta.js` 及 `build-info.json` 都是生成文件，请勿手工修改。** 生成文件的改动会被下次构建覆盖，`npm run check` 会报告漂移。

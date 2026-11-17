@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      3.4.1
-// @description  图鉴与刷闪、自动收蛋、免费等级进化、进化潜力配队、刷钱练级、糖果工厂、对战塔、资源预算和任务队列；等级不足先补练、跨地区开局与刷新续跑。
+// @version      3.5.0
+// @description  图鉴与刷闪、自动收蛋与后台地下派遣、免费等级进化、进化潜力配队、刷钱练级、糖果工厂、对战塔、资源预算和任务队列；等级不足先补练、跨地区开局与刷新续跑。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
 // @grant        GM_registerMenuCommand
@@ -20,7 +20,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '3.4.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '3.5.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     let startupPhase='正在载入数据',startupError='';
     function revealHost(host){
         if(!host)return false;
@@ -235,7 +235,7 @@
         autoPrepare:true,prepareMargin:2,prepareGap:3,prepareIdleMinutes:5,progressCandy:true,
         legendId: 145, legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
         trainUid: 'team', trainLevel: 100,
-        breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,
+        breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
         underRuns:1,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
@@ -341,18 +341,64 @@
         const used=s.under?.day===parisDay(now)?s.under.used||{}:{},candy=new Set((s.candy?.run?.mons||[]).map(m=>m.src));
         return(s.mons||[]).filter(m=>teamEligible(s,m,'sinnoh')&&!used[m.uid]&&!candy.has(m.uid));
     }
+    function undergroundBackgroundUnlocked(s){
+        if(!s?.adv)return false;
+        return currentRegion(s)==='sinnoh'||(s.travel?.to||[]).includes('sinnoh')||s.link?.from==='sinnoh'||s.link?.to==='sinnoh'&&s.link?.side==='to';
+    }
+    function undergroundIdleMembers(s,e,now=Date.now()){
+        if(!s?.adv)return[];
+        const protectedUids=new Set([...(s.team||[]),...(s.road||[]),...(e.trainProtected||[]),...(e.driver?.teamTask?.uids||[])]);
+        const keep=uid=>{if(typeof uid==='string'&&uid)protectedUids.add(uid);};
+        keep(s.buddy?.uid);keep(e.automation?.buddyTask?.uid);keep(e.automation?.state?.evolution?.uid);keep(e.automation?.owner?.uid);keep(e.preparation?.candy?.uid);
+        if(e.settings?.mode==='train'&&e.settings.trainUid!=='team')keep(e.settings.trainUid);
+        if(e.settings?.mode==='resource')keep(e.settings.useUid);
+        for(const p of [e.preparation,e.raidPreparation])if(p){for(const key of ['uids','originalTeam'])for(const uid of p[key]||[])keep(uid);for(const target of p.targets||[])keep(target.uid);}
+        for(const target of e.coach?.ready?.targets||[])keep(target.uid);
+        for(const uid of e.coach?.planReview?.plan?.uids||[])keep(uid);
+        const status=undergroundStatus(s,now),ownBay=e.services?.underground?.bay??Array.from({length:status.capacity},(_,i)=>i).find(bay=>!undergroundBay(s,bay,status));
+        for(const [key,uids]of Object.entries(s.eventTeams||{}))if(key!==`under:${ownBay}`&&Array.isArray(uids))uids.forEach(keep);
+        for(const slot of s.under?.slots||[]){(slot.team||[]).forEach(keep);for(const mon of slot.mons||[])keep(mon.uid);}
+        for(const run of [s.tower?.run,s.candy?.run,s.adv?.league]){for(const mon of run?.mons||[]){keep(mon.src);keep(mon.uid);}for(const uid of run?.team||[])keep(uid);}
+        if(e.settings?.mode==='breed')for(const mon of pensionPlan(s,e.settings.breedId).desired)keep(mon.uid);
+        const seen=new Set();
+        return undergroundMembers(s,now).filter(mon=>!protectedUids.has(mon.uid)&&!seen.has(mon.uid)&&seen.add(mon.uid));
+    }
+    function undergroundDispatchReason(s,e,now=Date.now()){
+        if(!e.settings.autoUnderDispatch)return '后台自动派遣已关闭';
+        if(!undergroundBackgroundUnlocked(s))return '进入神奥后自动启用后台派遣';
+        if(!s.adv.badges?.includes('Forêt'))return '神奥森林徽章后开放地下探险';
+        if(['exit','team','restore','travel','travelFirst'].includes(e.preparation?.phase))return '先完成补练队伍与原任务的切换';
+        const status=undergroundStatus(s,now);
+        if(!status.left)return '今日派遣额度已用完，等待次日';
+        if(status.slots.length>=status.capacity)return '派遣位置已满，等待归队';
+        const idle=undergroundIdleMembers(s,e,now);
+        if(idle.length<DATA.automation.under.team||new Set(idle.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size<DATA.automation.under.team)return '空闲成员不足三只可同时出战的宝可梦，保留主队、Buddy及任务阵容';
+        const tab=typeof document==='undefined'?null:$('#tabs [data-screen="underground"]');
+        if(tab&&(tab.classList.contains('locked')||tab.classList.contains('hold')))return tab.dataset.why||'地下通道入口尚未开放';
+        return '';
+    }
     // Native timers can overlap; page actions and the single adventure route cannot.
-    // Checked against public build 690d382390, 2026-11-17.
+    // Underground dispatch rechecked against public build cafff21174, 2026-11-17.
     function normalizeServiceState(raw){
-        const out={underground:null,underClaimed:0,lastStarted:{},lastCompleted:{},retryAt:{}};
+        const out={underground:null,underClaimed:0,underDispatched:0,lastStarted:{},lastCompleted:{},retryAt:{}};
         if(!raw||typeof raw!=='object'||Array.isArray(raw))return out;
         out.underClaimed=Math.floor(clamp(raw.underClaimed,0,1e9,0));
+        out.underDispatched=Math.floor(clamp(raw.underDispatched,0,1e9,0));
         for(const key of ['lastStarted','lastCompleted','retryAt'])for(const id of ['eggs','underground','evolution']){
             const value=Number(raw[key]?.[id]);if(Number.isFinite(value)&&value>=0)out[key][id]=value;
         }
         const task=raw.underground;
         if(task&&typeof task==='object'&&Number.isFinite(task.started)&&task.started>=0){
             out.underground={started:task.started,returnScreen:/^[a-z][\w-]{0,40}$/.test(task.returnScreen||'')?task.returnScreen:'adventure',returning:!!task.returning};
+            if(task.action==='dispatch'){
+                const ids=Array.isArray(task.uids)?[...new Set(task.uids.filter(uid=>typeof uid==='string'&&uid.length>0&&uid.length<=120))].slice(0,3):[];
+                Object.assign(out.underground,{action:'dispatch',uids:ids,editorOpen:!!task.editorOpen,teamReady:!!task.teamReady});
+                if(Number.isInteger(task.bay)&&task.bay>=0&&task.bay<4)out.underground.bay=task.bay;
+                const launch=task.launch;
+                if(launch&&Number.isInteger(launch.bay)&&launch.bay>=0&&launch.bay<4&&Array.isArray(launch.uids)&&launch.uids.length===3&&new Set(launch.uids).size===3&&launch.uids.every(uid=>typeof uid==='string'&&uid.length<=120)&&Number.isFinite(launch.at)&&launch.at>=0){
+                    out.underground.launch={bay:launch.bay,uids:[...launch.uids],ids:(Array.isArray(launch.ids)?launch.ids:[]).map(String).slice(0,8),at:launch.at};
+                }
+            }
             const tx=task.tx,uids=Array.isArray(tx?.uids)?[...new Set(tx.uids.filter(uid=>typeof uid==='string'&&uid.length>0&&uid.length<=120))].slice(0,6):[];
             if(tx&&tx.id!=null&&String(tx.id).length<=120&&uids.length&&Number.isFinite(tx.at)&&tx.at>=0)out.underground.tx={id:String(tx.id),uids,at:tx.at};
         }
@@ -391,7 +437,7 @@
         if(typeof document!=='undefined'&&document.hidden)return '标签页在后台，等待回到游戏';
         const a=s?.adv||{},d=e.driver||{},auto=e.automation||{},flow=auto.state||{};
         if(a.paused)return '游戏已暂停';
-        if(a.pending||a.battle&&service!=='eggs')return '等待当前战斗或选择结束';
+        if(a.pending||a.battle&&!['eggs','underDispatch'].includes(service))return '等待当前战斗或选择结束';
         if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
         if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
         if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
@@ -408,19 +454,24 @@
         const active=services.underground?'underground':flow.eggService?'eggs':flow.evolution?'evolution':null;
         const eggs=readyBackgroundEggs(s,now);
         const under=s?.under?undergroundStatus(s,now):{ready:[]};
+        const underDispatch=!(c.autoUnderCollect&&under.ready.length)&&c.mode!=='underground';
         const mainComplete=mainGoalReached(s,e,now),blocked={},ready=[];
         const common=backgroundBlockReason(s,e,now),manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
         for(const id of ['eggs','underground','evolution']){
-            let reason=id==='eggs'?backgroundBlockReason(s,e,now,'eggs'):common;
+            let reason=id==='eggs'?backgroundBlockReason(s,e,now,'eggs'):id==='underground'&&underDispatch?backgroundBlockReason(s,e,now,'underDispatch'):common;
             if(id==='eggs'&&(!c.autoEggs||c.mode==='breed'))reason=c.mode==='breed'?'由当前繁殖任务管理':'自动收蛋已关闭';
-            if(id==='underground'&&(!c.autoUnderCollect||c.mode==='underground'))reason=c.mode==='underground'?'由当前地下任务管理':'后台归队领取已关闭';
+            if(id==='underground'){
+                if(c.mode==='underground')reason='由当前地下任务管理';
+                else if(underDispatch)reason=reason||undergroundDispatchReason(s,e,now);
+                else if(!c.autoUnderCollect)reason='后台归队领取已关闭';
+            }
             if(id==='evolution'&&!c.autoEvolve)reason='自动免费进化已关闭';
             if(mainComplete&&!active)reason='主任务已达标，先完成或切换队列';
-            if(!reason&&id!=='evolution'&&manualParty)reason='手动队伍未满六人，原生领取可能自动入队';
+            if(!reason&&(id==='eggs'||id==='underground'&&!underDispatch)&&manualParty)reason='手动队伍未满六人，原生领取可能自动入队';
             const retry=id==='eggs'?Math.max(flow.eggRetryAt||0,services.retryAt?.eggs||0):id==='evolution'?flow.evolutionRetryAt||0:services.retryAt?.underground||0;
             if(!reason&&retry>now)reason='等待服务重试时间';
             if(reason)blocked[id]=reason;
-            else if(id==='eggs'?eggs.length:id==='underground'?under.ready.length:!['breed','resource'].includes(c.mode))ready.push(id);
+            else if(id==='eggs'?eggs.length:id==='underground'?underDispatch||under.ready.length:!['breed','resource'].includes(c.mode))ready.push(id);
         }
         // Mature eggs free incubator capacity first; finish any existing transaction
         // before starting this ordered list: eggs, underground receipts, evolution.
@@ -435,8 +486,8 @@
         if(!s?.adv){label='未进入游戏';detail='进入游戏后显示实际任务和后台计时';}
         else if(!e.running&&!e.suspended){label='未启动主任务';detail=(a.event||a.zone||a.tower||a.league)?`游戏原生${label===planned?planned:a.event?.raid?'团体战':a.zone?'传说战':a.tower?'塔/工厂':'活动'}仍可能继续；助手未接管`:'助手已停止；游戏原生冒险和后台计时仍可能继续';}
         else if(e.manual||e.suspended)detail='助手已让出控制，原生计时不因此暂停';
-        else if(e.nextWake>now)detail=`主任务等待结算 · 后台可在安全节点领取`;
-        let uiOwner=plan.active==='underground'?'地下归队领取':plan.active==='eggs'?'成熟蛋领取':plan.active==='evolution'?'免费进化':e.driver?.ownedDialog?'特殊队伍/盟友弹窗':e.driver?.teamTask?'队伍调整':e.automation?.owner?'游戏弹窗确认':e.automation?.buffUI?'树果操作':e.preparation?.candyTx?'升级糖果确认':e.driver?.pendingMap?'地图切换':e.driver?.navigation?'页面切换':a.battle?'游戏原生战斗':'空闲';
+        else if(e.nextWake>now)detail=`主任务等待结算 · 后台可处理安全派遣与领取`;
+        let uiOwner=plan.active==='underground'?(services.underground?.action==='dispatch'?'地下自动派遣':'地下归队领取'):plan.active==='eggs'?'成熟蛋领取':plan.active==='evolution'?'免费进化':e.driver?.ownedDialog?'特殊队伍/盟友弹窗':e.driver?.teamTask?'队伍调整':e.automation?.owner?'游戏弹窗确认':e.automation?.buffUI?'树果操作':e.preparation?.candyTx?'升级糖果确认':e.driver?.pendingMap?'地图切换':e.driver?.navigation?'页面切换':a.battle?'游戏原生战斗':'空闲';
         if(e.manual||e.suspended)uiOwner='手动控制 / 等待恢复';else if(!e.running)uiOwner=plan.active?'已停止，原事务待核对':'助手未操作页面';
         const entries=[];
         const nativeEggs=s?.pension?.eggs||[],due=readyBackgroundEggs(s,now),nextEgg=Math.min(...nativeEggs.filter(egg=>!due.includes(egg)).map(egg=>Number(egg.hatchAt)).filter(at=>at>now));
@@ -451,9 +502,36 @@
         };
         const residents=(s?.pension?.mons||[]).map(slot=>slot.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>mon.id!==132&&DATA.automation.breed[mon.id]?.can);
         make('eggs',c.autoEggs!==false,nativeEggs.length||residents.length,due.length,nextEgg,flow.eggService,c.mode==='breed',nativeEggs.length?`孵化中 ${nativeEggs.length-due.length} · 已成熟 ${due.length}`:breeding?'已配置寄养亲本，产糖 / 产蛋计时中':residents.length?'寄养产糖计时中，尚未配置可产蛋组合':'未配置蛋或寄养亲本');
-        const under=s?.under?undergroundStatus(s,now):{slots:[],ready:[],running:[],nextReturn:null};
+        const under=undergroundStatus(s||{},now);
         const nextUnder=Math.min(...under.running.map(slot=>Number(slot.end)).filter(at=>Number.isFinite(at)&&at>now));
-        make('underground',c.autoUnderCollect!==false,under.slots.length,under.ready.length,nextUnder,services.underground,c.mode==='underground',under.slots.length?`计时中 ${under.running.length} · 已返回 ${under.ready.length}`:'未派遣队伍；后台服务不自动派遣');
+        const dispatchOn=c.autoUnderDispatch!==false,collectOn=c.autoUnderCollect!==false,underTask=services.underground,unlocked=undergroundBackgroundUnlocked(s);
+        let underState=under.slots.length?(under.ready.length?'ready':'timing'):'unconfigured',underLabel='',underAt=Number.isFinite(nextUnder)?nextUnder:null;
+        let underText=`计时中 ${under.running.length} · 已返回 ${under.ready.length} · 自动派遣${dispatchOn?'开':'关'} / 领取${collectOn?'开':'关'}`;
+        if(services.underDispatched||services.underClaimed)underText+=` · 已派 ${services.underDispatched||0} / 已领 ${services.underClaimed||0} 队`;
+        if(underTask){
+            underState=e.running&&!e.manual&&!e.suspended?'running':'waiting';
+            underLabel=underState==='running'?(underTask.action==='dispatch'?'派遣中':'领取中'):'等待恢复';
+            underText+='；'+(underState==='running'?(underTask.action==='dispatch'?'仅用空闲队员派遣，确认后返回原任务':'领取归队奖励，确认后返回原任务'):'事务保留，恢复后先核对存档');
+        }else if(c.mode==='underground'){
+            underState='waiting';underLabel='主任务管理';underText+='；由地下主任务管理配队、派遣和领取';
+        }else if(under.ready.length&&collectOn){
+            const why=plan.blocked.underground;
+            underState=why?(/手动队伍/.test(why)?'blocked':'waiting'):'ready';underLabel=why?'等待领取':'待领取';underText+='；'+(why||'归队奖励优先领取后再派遣');
+        }else if(dispatchOn){
+            if(!unlocked){underState=under.slots.length?'timing':'waiting';underLabel=under.slots.length?'探险中':'待神奥';underText+='；进入神奥后自动派遣';}
+            else if(under.slots.length>=under.capacity&&under.slots.length){underState=under.ready.length?'waiting':'timing';underLabel=under.ready.length?'待归队领取':'探险中';underText+='；派遣位已占用，等待归队'+(under.ready.length&&!collectOn?'或手动领取':'');}
+            else if(!under.left){underState=under.running.length?'timing':'waiting';underLabel=under.running.length?'探险中':'等待次日';underText+='；今日派遣额度已用完，等待巴黎次日';if(!underAt&&under.nextReset>now)underAt=under.nextReset;}
+            else{
+                const idle=undergroundIdleMembers(s,e,now).length,required=DATA.automation.under.team||3,why=plan.blocked.underground;
+                if(why){underState=/手动队伍/.test(why)?'blocked':'waiting';underLabel=/不足|空闲.*队员/.test(why)?'等空闲队员':'等待前台';underText+=`；空闲可派遣 ${idle} 只，${why}`;}
+                else if(idle<required){underState=under.slots.length?'timing':'waiting';underLabel='等空闲队员';underText+=`；空闲可派遣 ${idle}/${required}，保护主队、Buddy及培养对象`;}
+                else{underState='ready';underLabel='待派遣';underText+=`；空闲可派遣 ${idle} 只，等待自动组队派遣`;}
+            }
+        }else{
+            underState=!collectOn?'disabled':under.slots.length?under.ready.length?'disabled':'timing':'unconfigured';
+            underText+='；'+(!collectOn?'后台派遣和领取均已关闭，原生计时保留':under.slots.length?'只领取已派出队伍':'尚无派遣队伍，可开启神奥后自动派遣');
+        }
+        entries.push({id:'underground',label:'地下探险',state:underState,...underLabel?{stateLabel:underLabel}:{},detail:underText,nextAt:underAt});
         return{foreground:{label,detail,state:e.manual||e.suspended?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
     }
     function executionDecision(s,e){
@@ -486,8 +564,8 @@
         const ends=running.map(slot=>Number(slot.end)).filter(end=>Number.isFinite(end)&&end>now);
         return{day,slots,ready,running,perDay,sent,left:Math.max(0,perDay-sent),capacity:Math.max(1+extra,slots.length),nextReturn:ends.length?Math.min(...ends):now+60000,nextReset:nextParisReset(now)};
     }
-    function undergroundBay(s,bay){
-        const {slots,capacity}=undergroundStatus(s),index=Number(bay);if(!Number.isInteger(index)||index<0||index>=capacity)return null;
+    function undergroundBay(s,bay,status=undergroundStatus(s)){
+        const {slots,capacity}=status,index=Number(bay);if(!Number.isInteger(index)||index<0||index>=capacity)return null;
         // Native expeditions from older saves can have no bay or duplicate bay numbers.
         // Match the visible bay allocator instead of treating the bay as an array index.
         const direct=slots.find(slot=>slot.bay===index);if(direct)return direct;
@@ -1693,6 +1771,10 @@
         dialog(s) {
             const own = this.ownedDialog;
             if (!own) return false;
+            if(own.type==='backgroundUnderTeam'){
+                if(!visible($('#evt-pick'))){const task=this.e.services.underground;if(task)task.editorOpen=false;this.ownedDialog=null;return false;}
+                own.started??=Date.now();return this.factoryTeam(s,own);
+            }
             if(['team','factoryTeam'].includes(own.type)&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
             const ownedRoot=['team','factoryTeam'].includes(own.type)?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
             if(!visible(ownedRoot)){this.ownedDialog=null;return false;}
@@ -1732,17 +1814,37 @@
             return false;
         }
         factoryTeam(s,own){
-            const now=Date.now(),desired=own.uids||[],current=s.eventTeams?.candy||[],search=$('#evt-search'),grid=$('#evt-pc'),sort=$('#evt-sort'),eff=$('#evt-eff');
-            if(!desired.length||desired.some(uid=>!(s.mons||[]).some(m=>m.uid===uid))){this.e.failTask('工厂配队目标已离开PC，请重新规划');return true;}
+            const now=Date.now(),background=own.type==='backgroundUnderTeam',desired=own.uids||[],teamKey=background?own.teamKey:'candy',current=s.eventTeams?.[teamKey]||[],search=$('#evt-search'),grid=$('#evt-pc'),sort=$('#evt-sort'),eff=$('#evt-eff');
+            const fail=reason=>{
+                if(!background){this.e.failTask(reason);return true;}
+                const task=this.e.services.underground;
+                if(task){task.returning=true;task.teamReady=false;}
+                if(!own.cancelled){own.cancelled=reason;this.e.log('后台地下配队暂缓：'+reason);}
+                const close=$('#evt-pick [data-evt-close]');
+                if(this.click(close,'关闭本次后台地下配队')){if(task)task.editorOpen=false;this.ownedDialog=null;this.e.persist();}
+                return true;
+            };
+            if(background){
+                own.started??=now;
+                const task=this.e.services.underground,allowed=new Set(undergroundIdleMembers(s,this.e,now).map(mon=>mon.uid));
+                if(own.cancelled)return fail(own.cancelled);
+                if(!task||task.action!=='dispatch'||teamKey!==`under:${task.bay}`||desired.length!==3||new Set(desired).size!==3||desired.some((uid,i)=>!allowed.has(uid)||uid!==task.uids?.[i])||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)return fail('目标队员已被前台任务占用，保留主队后重新规划');
+                if(now-own.started>90000)return fail('后台选队页面操作超时');
+            }
+            if(!desired.length||desired.some(uid=>!(s.mons||[]).some(m=>m.uid===uid)))return fail('工厂配队目标已离开PC，请重新规划');
             own.searchBefore??=search?.value||'';own.sortBefore??=sort?.value||'best';own.effBefore??=eff?.classList.contains('on')||false;
             const signature=current.join('|');
-            if(own.pending){if(signature===own.pending.before){if(now-own.pending.at>10000)this.e.failTask('工厂拖放配队未获存档确认，请检查游戏窗口');return true;}delete own.pending;own.started=now;own.lookup=null;}
+            if(own.pending){if(signature===own.pending.before){if(now-own.pending.at>10000)return fail(background?'后台地下拖放未获存档确认':'工厂拖放配队未获存档确认，请检查游戏窗口');return true;}delete own.pending;if(!background)own.started=now;own.lookup=null;}
             const same=current.length===desired.length&&current.every((uid,i)=>uid===desired[i]);
             if(same){
-                if(search&&search.value!==own.searchBefore){this.input(search,own.searchBefore,'恢复工厂配队搜索');return true;}
+                if(search&&search.value!==own.searchBefore){this.input(search,own.searchBefore,background?'恢复地下配队搜索':'恢复工厂配队搜索');return true;}
                 if(sort&&sort.value!==own.sortBefore){sort.value=own.sortBefore;sort.dispatchEvent(new Event('change',{bubbles:true}));return true;}
-                if(eff&&eff.classList.contains('on')!==own.effBefore){this.click(eff,'恢复工厂配队筛选');return true;}
-                if(this.click($('#evt-pick [data-evt-close]'),'保存糖果工厂专属队伍')){this.recent.set(own.key,now);this.ownedDialog=null;this.e.log('糖果工厂队伍已按今日主题调整');}return true;
+                if(eff&&eff.classList.contains('on')!==own.effBefore){this.click(eff,background?'恢复地下配队筛选':'恢复工厂配队筛选');return true;}
+                if(this.click($('#evt-pick [data-evt-close]'),background?'保存后台地下空闲队伍':'保存糖果工厂专属队伍')){
+                    this.ownedDialog=null;
+                    if(background){const task=this.e.services.underground;task.teamReady=true;task.editorOpen=false;this.e.log('后台地下安全队伍已配置，派遣前再次核对占用');this.e.persist();}
+                    else{this.recent.set(own.key,now);this.e.log('糖果工厂队伍已按今日主题调整');}
+                }return true;
             }
             const slots=$$('#evt-team .slot[data-slot]'),index=desired.findIndex((uid,i)=>current[i]!==uid),uid=index>=0?desired[index]:current[desired.length];
             const target=index>=0?slots.find(el=>+el.dataset.slot===index):grid;
@@ -1750,17 +1852,17 @@
             if(source&&target){
                 const rect=source.getBoundingClientRect();if(rect.top<0||rect.bottom>innerHeight){source.scrollIntoView({block:'nearest'});return true;}
                 own.pending={before:signature,at:now};
-                if(!this.drag(source,target,'配置糖果工厂出战成员'))delete own.pending;return true;
+                if(!this.drag(source,target,background?'配置后台地下空闲成员':'配置糖果工厂出战成员'))delete own.pending;return true;
             }
             // EventTeam search only accepts the current display language. Scan its native
             // virtualised PC with filters cleared, so French/English/Chinese all work.
-            if(search?.value){this.input(search,'','清除工厂配队搜索');return true;}
-            if(eff?.classList.contains('on')){this.click(eff,'显示所有工厂候选成员');return true;}
+            if(search?.value){this.input(search,'',background?'清除地下配队搜索':'清除工厂配队搜索');return true;}
+            if(eff?.classList.contains('on')){this.click(eff,background?'显示所有地下候选成员':'显示所有工厂候选成员');return true;}
             if(sort&&sort.value!=='level'){sort.value='level';sort.dispatchEvent(new Event('change',{bubbles:true}));return true;}
-            if(!grid){this.e.failTask('找不到工厂专属PC，请重新打开配队窗口');return true;}
+            if(!grid)return fail(background?'找不到后台地下选队PC':'找不到工厂专属PC，请重新打开配队窗口');
             if(own.lookup?.uid!==uid){own.lookup={uid,scanned:0};grid.scrollTop=0;grid.dispatchEvent(new Event('scroll',{bubbles:true}));return true;}
             const next=Math.min(grid.scrollHeight-grid.clientHeight,grid.scrollTop+Math.max(100,grid.clientHeight*.8));
-            if(next<=grid.scrollTop+1){this.e.failTask('工厂候选成员未出现在可用PC中，请检查地区和收藏');return true;}
+            if(next<=grid.scrollTop+1)return fail(background?'安全空闲成员未出现在原生地下候选列表':'工厂候选成员未出现在可用PC中，请检查地区和收藏');
             grid.scrollTop=next;grid.dispatchEvent(new Event('scroll',{bubbles:true}));own.lookup.scanned++;return true;
         }
         raidStep(s) {
@@ -2069,14 +2171,17 @@
             const e=this.e,d=e.driver;let task=e.services.underground;
             if(!e.running||e.manual||document.hidden)return false;
             if(!task){
-                if(e.settings.mode==='underground'||!e.settings.autoUnderCollect||backgroundBlockReason(s,e,now)||e.services.retryAt.underground>now)return false;
-                if(e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
+                if(e.settings.mode==='underground'||e.services.retryAt.underground>now)return false;
                 const status=undergroundStatus(s,now),tab=$('#tabs [data-screen="underground"]');
-                if(!status.ready.length||!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
+                const collect=e.settings.autoUnderCollect&&status.ready.length;
+                if(backgroundBlockReason(s,e,now,collect?'':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now))return false;
+                if(collect&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
+                if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
-                task=e.services.underground={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
-                e.telemetry.sample=null;e.log('地下队伍已归队，后台领取后继续原任务');e.persist();
+                task=e.services.underground={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure',...collect?{}:{action:'dispatch'}};
+                e.telemetry.sample=null;e.log(collect?'地下队伍已归队，后台领取后继续原任务':'使用空闲成员安排地下探险，保留前台队伍');e.persist();
             }
+            if(task.action==='dispatch')return this.dispatchUnderground(s,now,task);
             e.lastProgress=now;e.status='后台地下归队 · 领取确认后返回原任务';
             const tx=task.tx;
             if(tx){
@@ -2090,7 +2195,7 @@
             if(!e.settings.autoUnderCollect||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('underground'))return true;
-                const exp=$('#ug-tabs [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开地下派遣归队页');return true;}
+                const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开地下派遣归队页');return true;}
                 const status=undergroundStatus(s,now),take=$$('#ug-root [data-ug-take]').find(el=>enabled(el)&&status.ready.includes(undergroundBay(s,el.dataset.ugTake)));
                 if(take){
                     const job=undergroundBay(s,take.dataset.ugTake),uids=(job.mons||[]).map(mon=>mon.uid).filter(Boolean);
@@ -2108,6 +2213,71 @@
             const duration=Math.max(0,now-task.started),p=e.preparation;
             if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
             e.services.underground=null;e.services.lastCompleted.underground=now;e.telemetry.sample=null;e.status='后台归队处理完成，继续原任务';e.persist();return true;
+        }
+        dispatchUnderground(s,now,task){
+            const e=this.e,d=e.driver,status=undergroundStatus(s,now);
+            e.lastProgress=now;e.telemetry.sample=null;e.status='后台地下派遣 · 仅使用空闲成员';
+            const launch=task.launch;
+            if(launch){
+                const job=status.slots.find(job=>!launch.ids.includes(String(job.id))&&Number(job.bay)===launch.bay&&launch.uids.every(uid=>(job.team||[]).includes(uid)||(job.mons||[]).some(mon=>mon.uid===uid)));
+                if(job&&launch.uids.every(uid=>!(s.mons||[]).some(mon=>mon.uid===uid))){e.services.underDispatched++;delete task.launch;task.returning=true;e.log('后台地下派遣已确认，继续原任务');e.persist();}
+                else if(now-launch.at<120000){e.status='后台地下派遣 · 等待原生准备与存档确认';return true;}
+                else{
+                    // A late async native launch must never be reissued after a timeout.
+                    e.status='地下派遣尚未获确认；保留记录，继续核对原生结果';task.returning=true;
+                    e.services.retryAt.underground=now+60000;
+                }
+            }
+            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||mainGoalReached(s,e,now)))task.returning=true;
+            if(!task.returning){
+                if(!d.nav('underground'))return true;
+                const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开后台地下探险页');return true;}
+                if(!status.left||status.slots.length>=status.capacity){task.returning=true;}
+                else{
+                    const controls=$$('#ug-root [data-ug-go]');
+                    if(task.bay==null){
+                        const free=controls.find(el=>!undergroundBay(s,Number(el.dataset.ugGo),status));
+                        if(!free){e.services.retryAt.underground=now+60000;task.returning=true;}
+                        else{task.bay=Number(free.dataset.ugGo);e.persist();}
+                    }
+                    if(!task.returning){
+                        const idle=undergroundIdleMembers(s,e,now);
+                        if(!task.uids?.length){
+                            const context=battleContext(s,'under',{level:DATA.automation.levels.underMax});
+                            const plan=planAdventureTeam(s,e.settings,[],{...context,pool:idle,force:true,size:DATA.automation.under.team});
+                            task.uids=plan.uids;task.teamReady=false;e.persist();
+                        }
+                        const allowed=new Set(idle.map(mon=>mon.uid));
+                        if(task.uids.length!==DATA.automation.under.team||task.uids.some(uid=>!allowed.has(uid))){task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台地下派遣暂缓：空闲成员不足或已被前台任务使用');}
+                        else{
+                            const configured=s.eventTeams?.[`under:${task.bay}`]||[],same=configured.length===task.uids.length&&configured.every((uid,i)=>uid===task.uids[i]);
+                            if(!same){
+                                const edit=$$('[data-ug-slot]').find(el=>Number(el.dataset.ugSlot?.split('.')[0])===task.bay&&enabled(el));
+                                if(enabled(edit)&&d.click(edit,'为地下探险选择空闲队员')){task.editorOpen=true;d.ownedDialog={type:'backgroundUnderTeam',teamKey:`under:${task.bay}`,uids:[...task.uids],started:now};e.persist();}
+                                return true;
+                            }
+                            const from=$(`#ug-root [data-ug-from="${task.bay}"]`);
+                            if(from){const choices=[...from.options].map(option=>+option.value).filter(value=>Number.isFinite(value)&&value<=e.settings.underFrom),floor=Math.max(1,...choices);if(+from.value!==floor){from.value=String(floor);from.dispatchEvent(new Event('change',{bubbles:true}));return true;}}
+                            const go=controls.find(el=>Number(el.dataset.ugGo)===task.bay);
+                            if(enabled(go)){
+                                // Re-read immediately before the irreversible native send.
+                                const latest=e.read(),valid=new Set(undergroundIdleMembers(latest,e,now).map(mon=>mon.uid)),actual=latest.eventTeams?.[`under:${task.bay}`]||[];
+                                if(actual.length!==task.uids.length||actual.some((uid,i)=>uid!==task.uids[i]||!valid.has(uid))||latest.adv.pending||latest.adv.event||latest.adv.zone||latest.adv.tower||latest.adv.league){task.returning=true;return true;}
+                                task.launch={bay:task.bay,uids:[...task.uids],ids:status.slots.map(job=>String(job.id)),at:now};e.persist();
+                                if(!d.click(go,'后台派遣地下空闲队伍'))delete task.launch;
+                                e.persist();return true;
+                            }
+                            e.status='后台地下派遣 · 等待原生出发按钮就绪';return true;
+                        }
+                    }
+                }
+            }
+            const tab=$(`#tabs [data-screen="${task.returnScreen}"]`),screen=!s.adv.pending&&tab&&!tab.classList.contains('locked')&&!tab.classList.contains('hold')?task.returnScreen:'adventure';
+            if(!d.nav(screen))return true;
+            if(task.launch){e.status='原生地下派遣确认超时，记录已保留；请检查后继续';e.failTask(e.status);return true;}
+            const duration=Math.max(0,now-task.started),p=e.preparation;
+            if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
+            e.services.underground=null;e.services.lastCompleted.underground=now;e.status='后台派遣处理完成，继续原任务';e.persist();return true;
         }
         breed(s,now){
             const e=this.e,cfg=e.settings,d=e.driver,p=s.pension||{},eggs=p.eggs||[];
@@ -3183,6 +3353,7 @@
                 this.target = null; this.visit = null; this.telemetry.sample = null;
                 this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
                 this.driver.teamTask=null;this.driver.navigation=null;this.teamCheck=null;
+                if(this.services.underground?.action==='dispatch'&&!this.services.underground.launch)this.services.underground.returning=true;
                 this.driver.recent?.clear();
                 this.coach.checked=null;this.coach.ready=null;
                 this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;
@@ -3302,7 +3473,7 @@
             for(const task of [this.driver.ownedDialog,this.driver.teamTask])if(task?.pending?.at!=null)task.pending.at+=duration;
             if(this.driver.navigation){this.driver.navigation.started+=duration;this.driver.navigation.nextAt+=duration;}
             if(this.automation.state.worldResultAt!=null)this.automation.state.worldResultAt+=duration;
-            if(this.services.underground){this.services.underground.started+=duration;if(this.services.underground.tx)this.services.underground.tx.at+=duration;}
+            if(this.services.underground){this.services.underground.started+=duration;if(this.services.underground.tx)this.services.underground.tx.at+=duration;if(this.services.underground.launch)this.services.underground.launch.at+=duration;}
             for(const task of [this.driver.pendingMap,this.driver.teamTask,this.driver.ownedDialog,this.automation.owner,this.automation.buddyTask,this.automation.buffUI,this.automation.eggFX,this.automation.evolutionFX,this.automation.state.evolution])if(task?.started)task.started+=duration;
             if(this.automation.state.evolution){this.automation.state.evolution.at+=duration;if(this.automation.state.evolution.clickedAt)this.automation.state.evolution.clickedAt+=duration;}
             if(this.automation.buddyTask?.clickedAt!=null)this.automation.buddyTask.clickedAt+=duration;
@@ -3359,6 +3530,11 @@
             if (signature !== this.progressSignature) { this.progressSignature = signature; this.lastProgress = now; }
             if(!this.automation.owner&&this.automation.state.evolution?.stage==='open'&&visible($('#modal-root.open .mon-modal')))this.automation.restoreOwner({kind:'evolution',selector:'.mon-modal',uid:this.automation.state.evolution.uid});
             if(!this.automation.owner&&this.services.underground?.tx&&visible($('#modal-root.open .ug-back')))this.automation.own('receipt','.ug-back');
+            const backgroundUnder=this.services.underground;
+            if(backgroundUnder?.action==='dispatch'&&backgroundUnder.editorOpen&&!this.driver.ownedDialog){
+                if(visible($('#evt-pick'))){this.driver.ownedDialog={type:'backgroundUnderTeam',teamKey:`under:${backgroundUnder.bay}`,uids:backgroundUnder.uids||[],started:now,cancelled:'页面恢复后先关闭旧队伍窗口，重新核对成员'};backgroundUnder.returning=true;}
+                else backgroundUnder.editorOpen=false;
+            }
             if(!this.automation.owner&&FLOW_MODES.has(this.settings.mode)){
                 const selector={breed:'.dexcard-modal:has(.dc-new)',underground:'.ug-back',tower:'.tw-back',candy:'.cr-back:not(.tw-back)',elite:'.lgp-modal'}[this.settings.mode];
                 if(selector&&visible($('#modal-root.open '+selector)))this.automation.own(this.settings.mode==='elite'?'gem':'receipt',selector);
@@ -3769,7 +3945,7 @@
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution});
         Object.assign(module.exports,{VERSION,UPDATE_RELEASE,allowedUpdateURL,compareUpdateVersions,parseUpdateScript,requestUpdateResource,UpdateChecker});
         Object.assign(module.exports,{ROAMING_DATA,roamingProgress,roamingPlan,undergroundStatus,undergroundBay});
-        Object.assign(module.exports,{normalizeServiceState,parallelPlan,taskExecutionState});
+        Object.assign(module.exports,{normalizeServiceState,parallelPlan,taskExecutionState,undergroundBackgroundUnlocked,undergroundIdleMembers});
         return;
     }
     if (window.top !== window.self) return;
@@ -3820,7 +3996,7 @@
             <div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric"><b id="money-value">0</b>本次金币净增</div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
-            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>已配置寄养 / 孵蛋 / 地下派遣</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。后台服务只收取已有成熟蛋和已返回地下队伍，不自动寄养换人或新派遣。</div></details>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <div class="target hidden" id="prepare-info"><b>↑ 正在补练</b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
             <div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
@@ -3846,7 +4022,7 @@
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
-            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="caption">后台服务 · 助手运行时处理</div><div class="checks background-toggles"><label title="安全节点领取成熟蛋，完成后返回原任务"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="仅领取已经派出并归队的地下队伍；不自动派遣或开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
+            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="caption">后台服务 · 不替换当前任务</div><div class="checks background-toggles"><label title="优先领取成熟蛋，可在普通战斗期间处理，完成后返回原任务"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="进入神奥后仅用空闲队员自动组队派遣；保护主队、Buddy、培养对象与活动队员"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
@@ -3918,7 +4094,7 @@
             const list=query('#background-services');list.replaceChildren();
             for(const service of model.services){const row=document.createElement('div');row.className='service-row';row.dataset.service=service.id;row.dataset.state=service.state;
                 const label=document.createElement('span');label.className='service-label';label.textContent=service.label;
-                const state=document.createElement('span');state.className='service-state';state.textContent=states[service.state]||service.state;
+                const state=document.createElement('span');state.className='service-state';state.textContent=service.stateLabel||states[service.state]||service.state;
                 const detail=document.createElement('span');detail.className='service-detail';const minutes=service.nextAt>now?Math.max(1,Math.ceil((service.nextAt-now)/60000)):0;detail.textContent=service.detail+(minutes?` · 约${minutes>=60?Math.floor(minutes/60)+'时'+(minutes%60?minutes%60+'分':''):minutes+'分钟'}`:'');row.append(label,state,detail);list.appendChild(row);}
             return model;
         }

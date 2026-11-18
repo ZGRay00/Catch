@@ -18,6 +18,13 @@ test('incomplete seeds, unsafe counter values and unsupported builds never produ
  assert.equal(N.eggOutcome(state(),{k:1},{build:'unverified'}).known,false);assert.equal(N.eggOutcome(state(),{shiny:false},{build:'unverified'}).known,true);
  assert.equal(N.eggOutcome(s,{}).known,false);
 });
+test('egg 49 has a labelled projection on a future build without confirming incubator colours',()=>{
+ const s=state();s.pension.laid=49;
+ const options={build:'future',estimateUnverified:true}, projected=N.nurseryForecast(s,options),current=N.nurseryForecast(s);
+ assert.equal(projected.estimated,true);assert.equal(projected.known,false);assert.equal(projected.nextEgg.k,49);
+ assert.deepEqual(projected.nextShiny,current.nextShiny);assert.equal(N.eggOutcome(s,{k:49},options).known,false);
+ delete s.trainer.since;assert.equal(N.nurseryForecast(s,options).nextEgg,null);
+});
 test('native parent order, true slots, noEgg and special legendary breeders are preserved',()=>{
  const s=state();s.pension.mons.push({mon:{id:490,uid:'manaphy',shiny:false}},{mon:{id:479,uid:'rotom'}},{mon:{id:4,uid:'blocked',noEgg:true}});
  const pool=N.nurseryParentPool(s);assert.equal(pool.known,true);assert.equal(pool.hasDitto,true);assert.deepEqual(plain(pool.parents.map(p=>[p.id,p.slot])),[[6,1],[9,3],[490,4]]);

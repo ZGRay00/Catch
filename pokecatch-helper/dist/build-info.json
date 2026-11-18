@@ -1,20 +1,20 @@
 {
   "schema": 1,
-  "version": "4.1.0",
-  "scriptSha256": "f57550a490ed7659af9b6034f33d29f84bddb3fad91d3295e35c4d615970a583",
-  "metadataSha256": "1be8201aa79e74e116c5de82495a789cfefa3936e2056818669377e017ce2d3b",
+  "version": "4.2.3",
+  "scriptSha256": "c3ef7dec5bcdcc1228e38c6c176fe71738c49a1ae57c569b000fbc465342f89b",
+  "metadataSha256": "016e7146068844d3ba0aae80c252a0ed5cecd75155d72ec281f18ca677fafa34",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "c91d4bc2d76ad97d7b5a1f15328048d1bc92eae2a4de0db5a55882299f008e64"
+      "sha256": "cbdc8358c81ddcea0e7a8750076745c89896f7502b9da1066ffd85c72c30e2a0"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "789719ac4b098b597782f97bcb8f359395c549faf2ca8c060b2cee1c30f4e3f0"
+      "sha256": "d7a45340fd50763eb7e149666b36fc748c810b96718c2a0ba111985534f05a37"
     },
     {
       "file": "userscript.header.txt",
-      "sha256": "56265f7c7df2cd8d3969320593f7d565db7c1cc45feb82cf5e23fd71755e3c16"
+      "sha256": "db39c142c3511bd0d5f2cfaecf82793433d8b5a39c628d1ec8a4104995b01673"
     },
     {
       "file": "src/00-bootstrap.js",
@@ -22,7 +22,7 @@
     },
     {
       "file": "src/core/updates.js",
-      "sha256": "2ecd9222ab9f81913e246740c970bba80309a9fabc5a9d715dba90c6c8703e0c"
+      "sha256": "3b040f969bbbfef6fe3b50cb44b43f6c0cfb12b40e733afe86ed698483392da0"
     },
     {
       "file": "data/game.json",
@@ -50,15 +50,15 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "80b2e2d679d55e47f5dde8d6e189961bb99555b210a3ca06c66cdb9ef5b341e4"
+      "sha256": "c7090eade2989770c2cd31190c46ebbf8d7e70a56d140cd2d958e9a3c85e3d3d"
     },
     {
       "file": "src/models/farming.js",
-      "sha256": "7d7c5446625119ca7d13b2940c3f9fc1fe4bb753a0ffc00473659d73def5e838"
+      "sha256": "6ffe0b047dff4dba998de84feff206772630999d39a25eb79a72f6e101732d9d"
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "5b4a365e8472d5c4a8b2f4a51dbd2c5134d8df808311c3e637663c6a3c868bd8"
+      "sha256": "a4cf79b451cd855d7ab457bc47517a436549e7a3b36ff53b4be5cffd050eba7b"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/nursery-monitor.js",
-      "sha256": "f8a66be66443d825d20f49d6a5b864def102c925a2ef7c05e6b5cd83382e90d8"
+      "sha256": "0f9b25a3c32c97393ec557e17adc87975d73e68abc520c983f3f1e0d167258d9"
     },
     {
       "file": "data/weather.json",
@@ -110,15 +110,15 @@
     },
     {
       "file": "src/core/telemetry.js",
-      "sha256": "5841967f6c24ce0edf3af895ad117e99081279e5b538617ee93879f8aea4f2a7"
+      "sha256": "b9dda0dbbcfa21fdb727589ca539e9939c2cf1551958859da1193131584de063"
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "592ac9ec0cde22f65738662b8c4a726040ae9e0382d9a46b22ca0dfe5449cb73"
+      "sha256": "3f370e2ab907dac852988e68006eced3ad5a4c4b0e5b0fec37b14d84a6f7ccb1"
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "5de054773883a9e69198780eb0c090b2cdb20a51533b58a4b67799e24b7be102"
+      "sha256": "8e12148259fcfb73f8c5604353b01d81d451e25763b77e137e49d77c1b9cfd13"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -126,19 +126,23 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "84f47453e125a48a319b2943bb8cd32847a4bef745f8362d798e56de9977bb3c"
+      "sha256": "c022687f821055ae59f212767369c6c19dcc06716b669fec7e5800867dd6d0ff"
     },
     {
       "file": "src/runtime/node-exports.js",
       "sha256": "f5db23e059bd1ac94a4e43761475267bea478df14f4cc28f0553975a97691dbf"
     },
     {
+      "file": "src/ui/panel-style.js",
+      "sha256": "8dc7b237932757181f9a1a5be31fc97e880d653ab5061e64b266dee541b5b1cb"
+    },
+    {
       "file": "src/ui/nursery-panel.js",
-      "sha256": "dfdd003a0e6a896e0f50eff474fb6de7b327d106e925f4826db02f3c39a41b80"
+      "sha256": "f1a99659075612a2ed4917b974b8445c0017d01bce8230d46cac7b0e94d914f0"
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "2f90c7b1cf88567bdba7d3007d4f0f25805f4a613774a72014b2eb017d8416fe"
+      "sha256": "31957fa02d2ec8e73b7be88afc0e2d244f3162309bb32c44cf9d0cc8e1f22396"
     }
   ]
 }

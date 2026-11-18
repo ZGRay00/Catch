@@ -10,7 +10,7 @@ function fixture(t,settings={}){
         under:{day:H.parisDay(now),sent:0,used:{},slots:[],geodes:[0,0,0,0]},
         adv:{layout:H.DATA.layout,chapter:48,unlocked:60,node:0,runs:0,speed:4,loops:[],badges:['Forêt'],gifts:{},deaths:{}}};
     const data=new Map([['gachamon-save-v1',JSON.stringify(s)],['pokecatch-tab','ui-tab']]),storage={getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,String(value)),removeItem:key=>data.delete(key)};
-    const e=new H.Engine(storage,{mode:'money',autoPrepare:false,autoTeam:true,autoEggs:false,autoEvolve:false,raids:false,moneyBuff:false,...settings});
+    const e=new H.Engine(storage,{mode:'money',autoPrepare:false,autoTeam:false,autoEggs:false,autoEvolve:false,raids:false,moneyBuff:false,...settings});
     e.loadAccount(s);e.read();e.running=true;e.started=now;e.tabToken='ui-tab';e.schedule=()=>{};
     const row=()=>H.taskExecutionState(s,e,now).services.find(service=>service.id==='underground');
     const job=(end=now+60000)=>({id:'run',bay:0,start:now-1000,end,mons:[{uid:'u0',id:74,level:40},{uid:'u1',id:95,level:40},{uid:'u2',id:112,level:40}],team:['u0','u1','u2']});

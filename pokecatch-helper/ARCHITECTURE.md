@@ -23,6 +23,7 @@
 | `src/models/nursery-ledger.js` | 有界观测台账、原生孵化增量、刷新和回档分段 |
 | `src/services/nursery-monitor.js` | 账号独立存储、最新存档检查和多标签写前核对 |
 | `src/ui/nursery-panel.js` | 闪蛋卡片、成熟倒计时、原生可选标记和统计导出 |
+| `src/ui/panel-style.js` | 面板导航、任务控件、移动布局与底部命令栏的样式 |
 | `data/weather.json` | 每小时天气规则、季节与昼夜遭遇池快照 |
 | `src/models/weather.js` | 当前真实天气池、天气上下文与缓存 |
 | `src/models/roster.js` | 队伍成员索引、能力与基础匹配 |

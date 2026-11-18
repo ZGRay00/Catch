@@ -112,6 +112,7 @@
       "kind": "source",
       "file": "src/runtime/node-exports.js"
     },
+    {"kind":"source","file":"src/ui/panel-style.js"},
     {"kind":"source","file":"src/ui/nursery-panel.js"},
     {
       "kind": "source",

@@ -19,7 +19,7 @@ function fixture(t,settings={}){
     const data=new Map([['pokecatch-tab','under-bg-tab']]),writes=[];
     const storage={getItem:key=>data.get(key)??null,setItem:(key,value)=>{writes.push([key,String(value)]);data.set(key,String(value));},removeItem:key=>data.delete(key)};
     const save=()=>storage.setItem('gachamon-save-v1',JSON.stringify(s));save();writes.length=0;
-    const e=new H.Engine(storage,{mode:'money',autoEggs:false,autoEvolve:false,autoUnderCollect:true,autoUnderDispatch:true,autoTeam:true,
+    const e=new H.Engine(storage,{mode:'money',autoEggs:false,autoEvolve:false,autoUnderCollect:true,autoUnderDispatch:true,autoTeam:false,
         autoPrepare:false,raids:false,moneyBuff:false,trainBuddy:false,trainBuff:false,...settings});
     e.loadAccount(s);e.read();e.running=true;e.started=clock;e.tabToken='under-bg-tab';e.nextRaid=Infinity;e.schedule=()=>{};e.automation.begin(s);
     const add=(uid,id=74)=>{const mon={uid,id,level:80,reg:'sinnoh'};s.mons.push(mon);return mon;};
@@ -61,6 +61,23 @@ function fixture(t,settings={}){
 test('automatic background dispatch is on by default and has an explicit saved opt-out',()=>{
     assert.equal(H.DEFAULTS.autoUnderDispatch,true);assert.equal(H.normalizeSettings({}).autoUnderDispatch,true);
     assert.equal(H.normalizeSettings({autoUnderDispatch:false}).autoUnderDispatch,false);
+});
+
+test('auto fitting gets first choice of PC members, then dispatch can use the remaining squad',async t=>{
+    const f=fixture(t,{autoTeam:true}),{s,e}=f;
+    s.mons.slice(0,6).forEach(mon=>mon.level=5);
+    f.save();
+    assert.match(f.plan().blocked.underground,/先适配冒险阵容/);
+    await e.step(f.now());
+    assert.equal(e.services.underground,null);
+    const chosen=e.driver.teamTask?.uids;
+    assert.ok(chosen?.some(uid=>uid.startsWith('idle-')),'the adventure plan can take a strong former reserve');
+    s.team=[...chosen];e.driver.teamTask=null;
+    assert.match(f.plan().blocked.underground,/治疗点/);
+    s.road=[...s.team];f.save();
+    assert.ok(f.plan().ready.includes('underground'));
+    assert.ok(H.undergroundIdleMembers(s,e,f.now()).every(mon=>!chosen.includes(mon.uid)));
+    f.add('new-carry',445);assert.match(f.plan().blocked.underground,/先适配/);
 });
 
 test('entering Sinnoh enables scheduling but the native Forest badge requirement still applies',t=>{

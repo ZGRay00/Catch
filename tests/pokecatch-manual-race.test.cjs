@@ -78,6 +78,21 @@ test('a save read failure during explicit resume produces a visible stop reason 
     assert.equal(e.running,false);assert.match(e.status,/恢复任务时无法读取游戏存档/);assert.equal(gameWrites(),0);
 });
 
+test('a replaced ally dialog waits for the user, and explicit resume cancels only that picker',t=>{
+    const {e,now}=runtime(t),previous=global.getComputedStyle;
+    t.after(()=>{if(previous===undefined)delete global.getComputedStyle;else global.getComputedStyle=previous;});
+    global.getComputedStyle=()=>({display:'block',visibility:'visible',opacity:'1'});
+    const node=()=>({isConnected:true,closest:()=>null,getClientRects:()=>[{}],getAttribute:()=>null});
+    let picker=node(),closed=0;const close=node();
+    close.click=()=>{closed++;picker=null;};
+    global.document.querySelector=k=>k==='#modal-root.open'||k==='#modal-root.open .raid-dlg'?picker:null;
+    e.raidProbe=true;e.driver.raid={reg:'kanto',boss:35,date:H.parisDay(now)};e.driver.ownedDialog={type:'ally'};
+    e.manualInput(now);picker=node();picker.querySelector=k=>k==='.dc-x'?close:null;
+    assert.equal(e.manualStep(e.state,now+20000),true);assert.ok(e.manual);assert.equal(closed,0);
+    e.resumeManual();assert.equal(closed,1);assert.equal(e.driver.ownedDialog,null);
+    e.manualStep(e.state,Date.now()+100);assert.equal(e.manual,null);e.stop();
+});
+
 test('explicit resume validates the latest account before adopting its raid',t=>{
     const {e,state,now,save,gameWrites}=runtime(t);e.manualInput(now);state.trainer.id='different-account';state.adv.event={raid:true,id:35,reg:'kanto'};save();e.resumeManual(now+1000);
     assert.equal(e.running,false);assert.equal(e.driver.raid,null);assert.match(e.status,/账号或游戏版本/);assert.equal(gameWrites(),0);

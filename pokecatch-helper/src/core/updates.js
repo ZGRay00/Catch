@@ -5,12 +5,16 @@
         {id:'github',name:'GitHub Raw',base:'https://raw.githubusercontent.com/ZGRay00/Catch/'},
         {id:'jsdelivr',name:'jsDelivr',base:'https://cdn.jsdelivr.net/gh/ZGRay00/Catch@'},
         {id:'fastly',name:'jsDelivr Fastly',base:'https://fastly.jsdelivr.net/gh/ZGRay00/Catch@'},
-        {id:'gcore',name:'jsDelivr Gcore',base:'https://gcore.jsdelivr.net/gh/ZGRay00/Catch@'}
+        {id:'gcore',name:'jsDelivr Gcore',base:'https://gcore.jsdelivr.net/gh/ZGRay00/Catch@'},
+        {id:'contents',name:'GitHub 文件 API',base:'https://api.github.com/repos/ZGRay00/Catch/contents/pokecatch-helper.user.js'}
     ].map(source=>Object.freeze(source)));
     function updateSourceURL(sourceId,ref='main',fresh=null){
         const source=UPDATE_SOURCES.find(row=>row.id===sourceId);
         if(!source||!/^(?:main|[a-f0-9]{40})$/.test(ref))throw new Error('未知更新来源或提交');
-        return source.base+ref+'/'+UPDATE_RELEASE.file+(fresh==null?'':'?_pokecatch_check='+encodeURIComponent(String(fresh)));
+        const url=new URL(source.id==='contents'?source.base:source.base+ref+'/'+UPDATE_RELEASE.file);
+        if(source.id==='contents')url.searchParams.set('ref',ref);
+        if(fresh!=null)url.searchParams.set('_pokecatch_check',String(fresh));
+        return url.href;
     }
     function updateVersionParts(value){
         const text=String(value??'').trim(),match=/^(\d+(?:\.\d+){0,7})(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(text);
@@ -35,12 +39,13 @@
         const api=url.hostname==='api.github.com'&&url.pathname==='/repos/ZGRay00/Catch/git/ref/heads/main';
         const raw=url.hostname==='raw.githubusercontent.com'&&/^\/ZGRay00\/Catch\/(?:main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.test(url.pathname);
         const cdn=['cdn.jsdelivr.net','fastly.jsdelivr.net','gcore.jsdelivr.net'].includes(url.hostname)&&/^\/gh\/ZGRay00\/Catch@(?:main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.test(url.pathname);
-        if(url.protocol!=='https:'||url.port||url.username||url.password||!api&&!raw&&!cdn)throw new Error('更新请求仅允许指定 Catch 仓库的 HTTPS 地址');
+        const contents=url.origin+url.pathname===UPDATE_SOURCES.find(source=>source.id==='contents').base&&url.searchParams.getAll('ref').length===1&&/^(?:main|[a-f0-9]{40})$/.test(url.searchParams.get('ref'))&&[...url.searchParams.keys()].every(key=>['ref','_pokecatch_check'].includes(key));
+        if(url.protocol!=='https:'||url.port||url.username||url.password||!api&&!raw&&!cdn&&!contents)throw new Error('更新请求仅允许指定 Catch 仓库的 HTTPS 地址');
         url.hash='';return url.href;
     }
     function allowedUpdateRedirect(requested,actual){
         const from=new URL(allowedUpdateURL(requested)),to=new URL(allowedUpdateURL(actual));
-        const identity=url=>url.hostname==='api.github.com'?'head':/\/(?:Catch\/|Catch@)(main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.exec(url.pathname)?.[1];
+        const identity=url=>url.hostname==='api.github.com'?(url.pathname.includes('/contents/')?url.searchParams.get('ref'):'head'):/\/(?:Catch\/|Catch@)(main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.exec(url.pathname)?.[1];
         if(identity(from)!==identity(to))throw new Error('更新响应跳转到了不同提交或文件');
         return to.href;
     }
@@ -83,11 +88,12 @@
                 finish(null,{text:result.text,url:result.url||url});
             }catch(error){finish(error);}};
             try{
-                if(typeof GM_xmlhttpRequest==='function')handle=GM_xmlhttpRequest({method:'GET',url,anonymous:true,timeout:ms,responseType:'text',headers:{'Cache-Control':'no-cache'},
+                const headers=url.startsWith(UPDATE_SOURCES.find(source=>source.id==='contents').base)?{Accept:'application/vnd.github.raw+json'}:{};
+                if(typeof GM_xmlhttpRequest==='function')handle=GM_xmlhttpRequest({method:'GET',url,anonymous:true,timeout:ms,responseType:'text',headers:{...headers,'Cache-Control':'no-cache'},
                     onload:result=>loaded({status:result.status,text:result.responseText,url:result.finalUrl}),
                     onerror:()=>finish(new Error('无法连接更新源，请检查网络或油猴域名授权')),
                     ontimeout:()=>{const error=new Error('连接更新源超时');error.name='TimeoutError';finish(error);},onabort:()=>finish(updateAbortError())});
-                else{controller=new AbortController();fetch(url,{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal})
+                else{controller=new AbortController();fetch(url,{headers,cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal})
                     .then(async result=>loaded({status:result.status,text:await result.text(),url:result.url})).catch(()=>finish(new Error('连接更新源失败，请在油猴中运行并允许访问 GitHub')));}
             }catch(error){finish(error);}
         });
@@ -149,6 +155,11 @@
                     this.phase=phase;this.message=ref==='main'?'正在并行比对更新来源，跳过过期缓存':'正在并行核验同一 GitHub 提交';this.changed();
                     const results=await Promise.all(sources.map(async source=>{
                         const started=this.now(),url=updateSourceURL(source.id,ref,ref==='main'?fresh:null);progress(source.id,{state:'checking',version:'',error:'',phase,ms:0});
+                        const cached=this.pinnedCache;
+                        if(sourceId==='auto'&&phase==='pinned'&&cached?.commit===ref&&cached.urls.has(source.id)){
+                            progress(source.id,{state:'success',version:cached.version,cached:true});
+                            return {...cached.script,sourceId:source.id,url:cached.urls.get(source.id)};
+                        }
                         try{
                             const response=await updateRequestWithDeadline(this.request,url,{signal,timeout:this.sourceTimeout});
                             if(!current())return null;
@@ -162,6 +173,7 @@
                 };
                 let results=commit?await batch(commit,'pinned'):[];
                 if(current()&&commit&&results.length>1&&results.some(result=>result.version!==results[0].version||result.text!==results[0].text)){
+                    this.pinnedCache=null;
                     const detail=results.map(result=>`${result.sourceId}: v${result.version}`).join('、');
                     for(const result of results)progress(result.sourceId,{state:'conflict',error:'同一固定提交的版本或正文不一致'});
                     throw new Error(`同一提交的更新来源内容冲突（${detail}）；请手动选择可信来源核对后重试`);
@@ -170,10 +182,15 @@
                 if(!current())return null;
                 if(!results.length)throw new Error('所有更新来源均未返回有效脚本；可切换来源后重试');
                 const latest=results[0],comparison=compareUpdateVersions(latest.version,this.currentVersion);
+                if(latest.commit&&comparison<=0){
+                    const urls=this.pinnedCache?.commit===latest.commit&&this.pinnedCache.script.text===latest.text?this.pinnedCache.urls:new Map();
+                    for(const result of results)urls.set(result.sourceId,result.url);
+                    this.pinnedCache={commit:latest.commit,version:latest.version,script:{...latest},urls};
+                }else this.pinnedCache=null;
                 this.checkedAt=this.now();
                 this.phase='complete';
                 if(comparison>0){this.pending=latest;this.message=`发现 v${latest.version} · ${UPDATE_SOURCES.find(source=>source.id===latest.sourceId).name}；${latest.commit?'已固定最新提交，可安装新版':'分支缓存尚未确认最新提交，可下载已验证快照避免安装缓存变化'}`;}
-                else this.message=comparison===0?(latest.commit?`已核对最新提交，当前为 v${this.currentVersion}`:`已比对 ${results.length} 个有效来源，与当前 v${this.currentVersion} 一致（最新提交暂未确认，CDN可能缓存）`):`有效来源最高为 v${latest.version}，本地 v${this.currentVersion} 较新`;
+                else this.message=comparison===0?(latest.commit?`已核对最新提交，当前为 v${this.currentVersion}`:`已比对 ${results.length} 个有效来源，与当前 v${this.currentVersion} 一致（最新提交暂未确认，CDN可能缓存）`):latest.commit?`仓库 main（${latest.commit.slice(0,7)}）发布的是 v${latest.version}，当前运行 v${this.currentVersion}，无需降级。`:`分支来源最高返回 v${latest.version}，当前运行 v${this.currentVersion}。最新提交尚未核实，镜像可能仍有缓存。`;
                 return latest;
             }catch(error){if(current()){this.phase='error';this.message='检查失败：'+(error?.message||error);}return null;}
             finally{if(epoch===this.epoch){this.busy=false;this.controller=null;this.changed();}}
@@ -194,7 +211,8 @@
         }
         install(){
             if(this.busy||!this.pending)return false;
-            try{const pending=this.verifiedPending();if(this.open(pending.url)===false)throw new Error('浏览器阻止了更新页，请允许弹出窗口后重试');this.message=`已打开 v${pending.version} 安装确认页，完成后刷新游戏${pending.commit?'':'；分支地址可能变化，也可下载本次已验证快照'}`;this.changed();return true;}
+            try{const pending=this.verifiedPending();if(new URL(pending.url).hostname==='api.github.com')return this.download();
+                if(this.open(pending.url)===false)throw new Error('浏览器阻止了更新页，请允许弹出窗口后重试');this.message=`已打开 v${pending.version} 安装确认页，完成后刷新游戏${pending.commit?'':'；分支地址可能变化，也可下载本次已验证快照'}`;this.changed();return true;}
             catch(error){this.message='打开更新页失败：'+(error?.message||error);this.changed();return false;}
         }
         download(){

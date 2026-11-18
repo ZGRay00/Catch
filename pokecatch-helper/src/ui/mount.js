@@ -23,33 +23,14 @@
         const host = document.createElement('div'); host.id = 'pokecatch-auto-helper';
         host.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;position:fixed;right:14px;top:86px;z-index:2147483000;max-width:calc(100vw - 20px);';
         const root = host.attachShadow({ mode: 'open' });
-        root.innerHTML = `<style>
-            :host{font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;color:#e6edf8;color-scheme:dark}
-            *{box-sizing:border-box}button,input,select{font:inherit}button,select,summary{cursor:pointer}button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #79dcba;outline-offset:2px}
-            .panel{width:408px;max-width:calc(100vw - 20px);border:1px solid #39465c;border-radius:18px;background:#111a29f5;box-shadow:0 16px 55px #0007;overflow:hidden;backdrop-filter:blur(18px)}
-            header{display:flex;align-items:center;gap:7px;padding:13px 14px;background:linear-gradient(115deg,#21364a,#1b263d);cursor:move;touch-action:none;user-select:none}header b{font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}header small{display:block;font-size:8px;font-weight:400;letter-spacing:.6px;color:#90a8bd}.logo{background:#79dcba;color:#102d29;border-radius:10px;padding:5px 9px;font-weight:900;font-size:19px}.tag{font:10px ui-monospace,monospace;color:#9aaec4}header button{padding:3px 10px}
-            #check-update{font-size:10px;padding:5px 7px;white-space:nowrap}#check-update.available{border-color:#79dcba;color:#a3f0d3}.update-notice{padding:8px 10px;margin-bottom:8px;border:1px solid #45627b;border-radius:9px;background:#192c40;font-size:11px;overflow-wrap:anywhere}.update-notice.available{border-color:#79dcba;color:#a3f0d3}.update-source a{color:#9cded1}.update-source-row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid #2b3e51;font-size:11px}.update-source-row span:last-child{min-width:0;text-align:right;overflow-wrap:anywhere}.update-source-row[data-state=error]{color:#e9b9a3}#update-tools .row{margin:7px 0}#update-tools .hint{margin-bottom:8px}
-            button{border:1px solid #3d4b62;border-radius:9px;padding:7px 10px;background:#223048;color:#e8f0fb}button:hover:enabled{background:#304361}button.primary{background:#79dcba;border-color:#79dcba;color:#102d29;font-weight:750}button.primary:hover:enabled{background:#9be9ce}.danger{border-color:#754350;color:#ffc5cf;background:#422a39}
-            .content{padding:12px;max-height:calc(100dvh - 160px);overflow:auto;scrollbar-width:thin;scrollbar-color:#465971 transparent}.status{padding:11px 12px;border:1px solid #33435b;background:#0b1423;border-radius:12px;overflow-wrap:anywhere}.live{display:flex;align-items:center;gap:6px;color:#93a8c2;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}.dot{width:6px;height:6px;border-radius:50%;background:#8191a8}.running .dot{background:#79dcba;box-shadow:0 0 9px #79dcba80}.running .live{color:#79dcba}#status{font-size:12px}.sub{font-size:11px;color:#95a9c2;margin-top:4px}#action{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-            .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:9px 0 12px}.metric{padding:9px 4px;text-align:center;background:#1b293d;border:1px solid #2b3b53;border-radius:10px;font-size:10px;color:#99aec7}.metric b{display:block;font-size:18px;letter-spacing:-.5px;color:#d7e7f9;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.metric:first-child b{color:#87e3c3}
-            .caption{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#91a8c1;margin:9px 0 6px}.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.modes button{text-align:left;padding:9px;font-size:11px;background:#182438;line-height:1.4}.modes button span{display:block;font-size:15px;margin-bottom:3px;color:#a9bfd8}.modes button.on{background:#203d3e;border-color:#79dcba;color:#b5f5de}.modes button.on span{color:#79dcba}
-            .target{padding:10px;border:1px solid #33455c;border-radius:11px;background:#162236;margin:9px 0}.field{display:flex;gap:9px;align-items:center;margin:6px 0}.field>span,.field>label{flex:0 0 82px;color:#b6c8df;font-size:12px}.field select{flex:1;width:0}.field input{flex:1;width:0}select,input[type=number],input[type=search]{min-width:0;width:100%;border:1px solid #3d506a;background:#0e192a;color:#edf4ff;border-radius:7px;padding:7px}input[type=number]{font-variant-numeric:tabular-nums}.hint{font-size:11px;color:#8fa7c2;line-height:1.65;margin:6px 0 0}.warn{color:#e6be7a}.goal{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#b9cde4;margin-top:9px}.bar{height:4px;overflow:hidden;border-radius:3px;background:#30415a;margin-top:5px}.bar i{display:block;height:100%;width:0;background:#79dcba;transition:width .3s ease}.row{display:flex;gap:7px;margin:10px 0}.row button{flex:1;padding:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px}.checks label{display:flex;align-items:flex-start;gap:5px;color:#becce0}input[type=checkbox]{accent-color:#79dcba;margin:3px 0 0}
-            details{margin:10px 0;border-top:1px solid #2c3b51;padding-top:8px}summary{font-size:11px;color:#9fb7d4}.setting{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;font-size:11px}.setting input[type=number],.setting select{width:125px}.setting input[type=checkbox]{margin-right:5px}.tabs{display:flex;border-bottom:1px solid #34465c;gap:4px;margin:12px 0 0}.tabs button{flex:1;border:none;border-radius:7px 7px 0 0;background:transparent;color:#8da7c6;font-size:11px;padding:8px 4px}.tabs button.on{background:#22334a;color:#a3f0d3;box-shadow:inset 0 -2px #79dcba}.list{max-height:185px;overflow:auto;scrollbar-width:thin;min-height:44px;padding:4px 0}table{width:100%;border-collapse:collapse;font-size:11px}th,td{padding:7px 4px;border-bottom:1px solid #28394f;text-align:left}th{font-weight:400;color:#8ca4c0;position:sticky;top:0;background:#111a29}td:last-child,th:last-child{text-align:right}tr.active td{color:#8ce8c7}.missing{display:flex;gap:5px;flex-wrap:wrap;padding:6px 0}.chip{padding:3px 6px;background:#23344b;border-radius:6px;font-size:11px}.log{font-size:11px;padding:5px 0;border-bottom:1px solid #25364b;overflow-wrap:anywhere}.log time{color:#859dbb;margin-right:6px}.empty{padding:15px 8px;color:#93abc7;font-size:11px}.actions{display:flex;gap:5px;padding-top:8px;border-top:1px solid #2e3f55}.actions button{flex:1;font-size:10px;padding:5px}.mini{border-radius:30px;box-shadow:0 4px 24px #0008;background:#1e3346;padding:10px 15px;border-color:#79dcba;display:flex;align-items:center;gap:8px}.mini.running::before{content:'';width:6px;height:6px;border-radius:50%;background:#79dcba}.hidden{display:none!important}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-            .mini{touch-action:none;user-select:none;cursor:grab;max-width:calc(100vw - 20px)}.mini:active{cursor:grabbing}#mini-state{min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status.manual{border-color:#8b713f}.manual .dot{background:#e6be7a;box-shadow:none}.manual .live{color:#e6be7a}.mini.manual{border-color:#e6be7a}.mini.manual::before{background:#e6be7a}
-            .execution-card{padding:10px;border:1px solid #344b5c;border-radius:11px;background:#142431;margin:10px 0}.execution-top{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#9ab8c7;margin-bottom:5px}#ui-owner{max-width:68%;text-align:right;overflow-wrap:anywhere;color:#9bd9c4}#foreground-task{font-size:12px;color:#e1f2f3}#foreground-detail{font-size:10px;color:#9bb3c4;line-height:1.5;margin:3px 0 7px;overflow-wrap:anywhere}.service-row{display:grid;grid-template-columns:78px auto 1fr;gap:6px;align-items:start;margin:5px 0;font-size:10px}.service-label{color:#bed2de}.service-state{white-space:nowrap;padding:1px 5px;border-radius:4px;background:#283b4a;color:#b7c8d6}.service-detail{min-width:0;color:#91aabd;overflow-wrap:anywhere}.service-row[data-state=ready] .service-state,.service-row[data-state=running] .service-state{color:#b6f0d7;background:#235045}.service-row[data-state=waiting] .service-state,.service-row[data-state=blocked] .service-state{color:#f0d29d;background:#4d4030}#concurrency-note{border-top:1px solid #2d4655;padding-top:6px;margin-top:7px;font-size:10px;color:#8faeba;line-height:1.5}#parallel-rules{margin:6px 0 10px}#parallel-rules table{font-size:10px}#parallel-rules td:first-child{width:48%}#parallel-rules td:last-child{text-align:left;color:#a8d3c1}.background-toggles{margin:7px 0;font-size:11px}.background-toggles label{align-items:flex-start}.queue-note{padding:6px 3px;font-size:10px;line-height:1.5;color:#94aebb}
-            @media(max-width:450px){.panel{width:360px;border-radius:14px}.content{max-height:calc(100dvh - 90px);padding:10px}header{padding:10px 12px}.metric b{font-size:16px}.list{max-height:155px}.modes button{padding:7px}.field>span,.field>label{flex-basis:74px}}
-            @media(prefers-reduced-motion:reduce){*{transition:none!important}}
-            .categories{display:flex;gap:4px;padding:3px;background:#0b1423;border-radius:9px;margin-bottom:7px}.categories button{flex:1;border:0;background:transparent;color:#93abc7;font-size:11px;padding:6px 3px}.categories .on{color:#b5f5de;background:#23403e}.modes{grid-template-columns:repeat(2,1fr)}.modes button span{display:inline-block;width:22px;margin:0 4px 0 0;vertical-align:middle}.queue-tools{display:flex;gap:6px;margin:8px 0}.queue-tools button{flex:1;font-size:11px;padding:7px}.queue-tools #queue-count{display:inline-block;min-width:17px;background:#102138;border-radius:10px;margin-left:3px}.job{padding:9px 7px;border-bottom:1px solid #2d4058}.job.active{border-left:2px solid #79dcba;background:#1c303a}.job-head{display:flex;justify-content:space-between;gap:8px;font-size:12px}.job-state{color:#8be5c3;font-size:10px;white-space:nowrap}.job-actions{display:flex;gap:4px;margin-top:6px}.job-actions button{font-size:10px;padding:3px 6px}.job .sub{white-space:normal}#budget-summary{float:right;color:#91d2ba;font-size:10px}.wait-time{color:#e6be7a;font-variant-numeric:tabular-nums}.flow-list{display:grid;gap:6px;padding:6px 0}.flow-list .step{padding:8px;background:#1a293c;border-radius:8px;font-size:11px;color:#b8cce3}.flow-list .step b{color:#87e3c3;margin-right:7px}
-            .content{max-height:calc(100dvh - 270px)}.commandbar{padding:9px 12px;background:#172337;border-top:1px solid #34465c}.commandbar .row{margin:0}.commandbar .queue-tools{margin:6px 0 0}.job-head>span:first-child{min-width:0;overflow-wrap:anywhere}@media(max-width:450px){.content{max-height:calc(100dvh - 190px)}.commandbar{padding:8px 10px}}
-        </style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
-            <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手<small>ADVENTURE COMPANION</small></b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
-            <div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
+        root.innerHTML = `<style>${PANEL_STYLE}</style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
+            <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
+            <nav class="workspace-nav" aria-label="助手面板">
+                <button data-workspace="tasks" aria-controls="pane-tasks">任务</button><button data-workspace="activity" aria-controls="pane-activity">运行实况</button><button data-workspace="settings" aria-controls="pane-settings">设置</button>
+            </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric"><b id="money-value">0</b>本次金币净增</div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
-            <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
-            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
-            <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <div class="target hidden" id="prepare-info"><b>↑ 正在补练</b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
-            <div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
+            <section id="pane-tasks" aria-label="任务"><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
             <div class="target">
@@ -70,6 +51,15 @@
                 <div data-fields="money" class="hidden"><div class="field"><span>目标金币</span><input data-setting="moneyTarget" type="number" min="0" placeholder="0 为持续执行"></div></div>
                 <div class="hint" id="target-hint"></div><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
+            </section>
+            <section id="pane-activity" aria-label="运行实况" hidden>
+            <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
+            <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
+            <div class="tabs"><button data-tab="maps" class="on">目标与收益</button><button data-tab="queue">任务队列</button><button data-tab="dex">图鉴</button><button data-tab="logs">日志</button></div><div id="view" class="list"></div>
+            </section>
+            <section id="pane-settings" aria-label="设置" hidden>
+            <h3>配队与自动化</h3>
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
@@ -106,22 +96,22 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="tabs"><button data-tab="maps" class="on">目标与收益</button><button data-tab="queue">任务队列</button><button data-tab="dex">图鉴</button><button data-tab="logs">日志</button></div><div id="view" class="list"></div>
-            <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></div></section>`;
+            <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', partyKey = '', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null;
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
         const updater=new UpdateChecker({onChange:renderUpdate});let updateTouched=false;
         function renderUpdate(){
             const button=query('#check-update'),notice=query('#update-notice');
-            button.disabled=false;button.textContent=updater.busy?'取消检查':updater.pending?'安装新版':'在线更新';
+            const downloadOnly=updater.pending&&new URL(updater.pending.url).hostname==='api.github.com';
+            button.disabled=false;button.textContent=updater.busy?'取消检查':downloadOnly?'下载新版':updater.pending?'安装新版':'在线更新';
             button.title=updater.pending?`安装 v${updater.pending.version} · 当前 v${VERSION}`:'检查 Catch 仓库的在线更新';button.classList.toggle('available',!!updater.pending);
             notice.textContent=updater.message;notice.classList.toggle('hidden',!updateTouched);notice.classList.toggle('available',!!updater.pending);
             query('#update-tools').classList.toggle('hidden',!updateTouched);query('#update-source').disabled=updater.busy;query('#recheck-update').disabled=updater.busy;query('#download-update').disabled=updater.busy||!updater.pending?.text;
             const list=query('#update-source-list'),labels={checking:'连接中',pending:'等待中',waiting:'等待中',ok:'可用',success:'可用',skipped:'未选用',error:'失败',conflict:'内容冲突',cancelled:'已取消',timeout:'超时'};list.replaceChildren();
-            for(const source of updater.sourceResults||[]){const row=document.createElement('div');row.className='update-source-row';row.dataset.state=source.state;const name=document.createElement('span'),status=document.createElement('span');name.textContent=source.name;status.textContent=[labels[source.state]||source.state,source.phase==='pinned'?'固定提交':source.phase==='branch'?'分支缓存':'',source.version?`v${source.version}`:'',Number.isFinite(source.ms)?`${source.ms}ms`:'',source.error||''].filter(Boolean).join(' · ');row.append(name,status);list.appendChild(row);}
+            for(const source of updater.sourceResults||[]){const row=document.createElement('div');row.className='update-source-row';row.dataset.state=source.state;const name=document.createElement('span'),status=document.createElement('span');name.textContent=source.name;status.textContent=[labels[source.state]||source.state,source.phase==='pinned'?'固定提交':source.phase==='branch'?'分支缓存':'',source.version?`v${source.version}`:'',source.cached?'本页已校验':'',source.commit?source.commit.slice(0,7):'',Number.isFinite(source.ms)?`${source.ms}ms`:'',source.error||''].filter(Boolean).join(' · ');row.append(name,status);list.appendChild(row);}
         }
-        async function runUpdateCheck(){updateTouched=true;return updater.check({sourceId:query('#update-source').value});}
+        async function runUpdateCheck(){updateTouched=true;query('.content').scrollTop=0;return updater.check({sourceId:query('#update-source').value});}
         query('#check-update').onclick=()=>{updateTouched=true;if(updater.busy)updater.cancel();else if(updater.pending)updater.install();else void runUpdateCheck();};
         query('#recheck-update').onclick=()=>void runUpdateCheck();query('#update-source').onchange=()=>void runUpdateCheck();query('#download-update').onclick=()=>updater.download();
         helperAPI.checkUpdate=()=>{helperAPI.show();return runUpdateCheck();};
@@ -131,6 +121,19 @@
         // Version 1.1.0 used a single position; migrate it only to the expanded panel.
         if (!ui.panel && Number.isFinite(ui.x) && Number.isFinite(ui.y)) ui.panel = { x: ui.x, y: ui.y };
         function saveUI() { try { localStorage.setItem(PREFIX + 'ui', JSON.stringify(ui)); } catch {} }
+        const workspaces = [...root.querySelectorAll('[data-workspace]')];
+        function selectWorkspace(name, refresh = true) {
+            const active = workspaces.find(button => button.dataset.workspace === name) || workspaces[0];
+            for (const button of workspaces) {
+                const selected = button === active;
+                button.setAttribute('aria-pressed', String(selected));
+                query('#' + button.getAttribute('aria-controls')).hidden = !selected;
+            }
+            ui.workspace = active.dataset.workspace;
+            if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
+        }
+        for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
+        selectWorkspace(ui.workspace, false);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
         function place() {
             const position = ui.folded ? ui.mini : ui.panel;
@@ -140,9 +143,9 @@
                 host.style.left = `${Math.max(6, Math.min(position.x, innerWidth - box.width - 6))}px`;
                 host.style.top = `${Math.max(6, Math.min(position.y, innerHeight - box.height - 6))}px`;
             } else if (ui.folded) { host.style.top = 'auto'; host.style.bottom = 'max(14px, env(safe-area-inset-bottom))'; }
-            else host.style.top = innerWidth <= 450 ? '12px' : '86px';
+            else host.style.top = innerWidth <= 450 || innerHeight <= 560 ? '12px' : '86px';
         }
-        function fold(value) { const wasFolded=!!ui.folded;ui.folded = value; query('.panel').classList.toggle('hidden', value); query('.mini').classList.toggle('hidden', !value); saveUI();if(!value&&wasFolded)render();place(); }
+        function fold(value) { const changed=!!ui.folded!==value;ui.folded = value; query('.panel').classList.toggle('hidden', value); query('.mini').classList.toggle('hidden', !value); saveUI();if(changed)render();place(); }
         function renderExecution(s,now){
             const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
@@ -176,8 +179,19 @@
         for(const mon of DATA.mons){
             if(!mon.legend&&WILD_SHINY_IDS.has(mon.id))addOption(query('[data-setting="shinyId"]'),mon.id,`#${mon.id} ${mon.name}`);
         }
-        const eggIds=new Set(Object.values(DATA.automation.breed).filter(x=>x.can).map(x=>x.egg));
-        for(const id of [...eggIds].sort((a,b)=>a-b))if(MONS.has(id))addOption(query('[data-setting="breedId"]'),id,`#${id} ${MONS.get(id).name}`);
+        let eggRegionKey = '';
+        function updateBreedingOptions(s) {
+            const target = engine.settings.breedId;
+            const key = JSON.stringify([currentRegion(s), s.travel?.to, s.link?.to, target]);
+            if (key === eggRegionKey) return;
+            eggRegionKey = key;
+            const ids = new Set(DATA.mons.map(mon => breedableOffspring(s, mon)).filter(id => id != null));
+            const select = query('[data-setting="breedId"]');
+            select.replaceChildren();
+            for (const id of [...ids].sort((a,b) => a-b)) addOption(select,id,`#${id} ${MONS.get(id).name}`);
+            if (!ids.has(target)) addOption(select,target,`${MONS.get(target)?.name || target} · 当前地区条件不符`);
+            select.value = String(target);
+        }
         for(const chapter of DATA.chapters)addOption(query('[data-setting="progressUntil"]'),chapter.id,`${DATA.regions.find(r=>r.key===chapter.reg)?.name} · ${chapter.name}`);
         for(const id of RESOURCE_IDS)addOption(query('[data-setting="resourceItem"]'),id,ITEMS.get(id)?.name||DATA.automation.shop.find(x=>x.id===id)?.name||DATA.automation.buffs[id]?.name||id);
         function itemOptions() {
@@ -224,7 +238,10 @@
         }
         function render() {
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
-            let s; try { s = engine.read(); if (s && !engine.account) { engine.loadAccount(s); itemOptions(); syncSettings(); } } catch (err) { engine.status = err.message; }
+            let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
+                engine.loadAccount(s); editingJob = null; partyKey = ''; viewSignature = null;
+                query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
+            } } catch (err) { engine.status = err.message; }
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             if(settingsViewKey!==JSON.stringify(engine.settings))syncSettings();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
@@ -233,7 +250,10 @@
             const queueStep=engine.queueRunning&&engine.running?`${engine.queueIndex+1}/${engine.queue.length}`:'';
             query('#run-state').textContent = engine.suspended?'PAUSED · 页面已挂起':engine.manual ? 'PAUSED · 手动控制' : engine.running ? queueStep?`队列 ${queueStep} · 运行中`:'RUNNING · 运行中' : 'READY · 已停止';
             query('#mini-state').textContent = wait ? `${engine.suspended?'挂起':'手动'} · ${wait.mini}` : engine.running ? (engine.preparation?'补练 → ':'')+MODE_NAMES[engine.settings.mode]+(queueStep?' '+queueStep:'') : '待命';
-            const execution=renderExecution(s,now);if(execution.pendingCount)query('#mini-state').textContent+=` · 待办 ${execution.pendingCount}`;
+            if(ui.folded){
+                const {pendingCount}=parallelPlan(s,engine,now);
+                if(pendingCount)query('#mini-state').textContent+=` · 待办 ${pendingCount}`;
+            }else if(ui.workspace==='activity')renderExecution(s,now);
             const nursery=nurseryPanel.render(s,now);if(nursery?.counts.shiny)query('#mini-state').textContent+=` · ✦蛋${nursery.counts.shiny}`;
             query('#resume').classList.toggle('hidden', !resumable); query('#start').classList.toggle('hidden', resumable);
             query('#resume').textContent=engine.manual&&s?.adv?.event?.raid?'接管当前团体战':engine.suspended?'继续原任务':'立即恢复';
@@ -250,7 +270,7 @@
             if (!s?.adv) { query('#support-info').classList.add('hidden');query('#view').textContent = '等待进入游戏；助手不会自动登录或新建存档。'; return; }
             // Keep commands and the dock current; rebuild hidden details only when visible.
             if(ui.folded||pageHidden())return;
-            partyOptions(s);
+            partyOptions(s); updateBreedingOptions(s);
             const preparation=engine.preparation;query('#prepare-info').classList.toggle('hidden',!preparation||!engine.running);
             if(preparation){
                 const levels=preparation.targets.map(target=>({...target,level:s.mons.find(m=>m.uid===target.uid)?.level||target.level}));
@@ -311,7 +331,7 @@
             query('#goal-label').textContent = goalLabel; query('#goal-value').textContent = goalValue;
             percent = Math.max(0,Math.min(100,percent || 0)); query('#task-progress i').style.width = `${percent}%`; query('#task-progress').setAttribute('aria-valuenow', String(Math.round(percent)));
             query('#build').textContent = window.BUILD && window.BUILD !== DATA.build ? `游戏构建 ${window.BUILD} 与数据快照 ${DATA.build} 不同，预估可能需要更新。` : '';
-            renderView(s,status);
+            if (ui.workspace === 'activity') renderView(s,status);
         }
         function textCell(row, value) { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); }
         function renderView(s, status) {
@@ -377,7 +397,7 @@
                 if(action==='retry'){job.status='pending';job.result='';delete job.progress;}
                 if(action==='up'&&i>0)[engine.queue[i-1],engine.queue[i]]=[job,engine.queue[i-1]];
                 if(action==='down'&&i<engine.queue.length-1)[engine.queue[i+1],engine.queue[i]]=[job,engine.queue[i+1]];
-                if(action==='edit'){editingJob=job.id;engine.settings=normalizeSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
+                if(action==='edit'){selectWorkspace('tasks');editingJob=job.id;engine.settings=normalizeSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
                 engine.persist(false);render();
             }
         });
@@ -410,7 +430,7 @@
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,shiny:MONS.get(cfg.shinyId)?.name,breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
         function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid','shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil'].map(key=>cfg[key]));}
-        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);tab='queue';root.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('on',el.dataset.tab===tab));engine.status='任务已保存到队列';render();};
+        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);tab='queue';selectWorkspace('activity');root.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('on',el.dataset.tab===tab));engine.status='任务已保存到队列';render();};
         query('#start-queue').onclick=()=>{engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start();engine.sessionItemId=engine.settings.itemId;syncSettings();render();};
         query('#stop').onclick=()=>{engine.stop();syncSettings();render();};
@@ -427,8 +447,8 @@
         };
         query('#import-profile').onclick=()=>query('#profile-file').click();
         query('#profile-file').onchange=async event=>{
-            const file=event.target.files?.[0];event.target.value='';if(!file)return;
-            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');importConfigurationProfile(engine,await file.text());editingJob=null;syncSettings();}
+            const file=event.target.files?.[0], account=engine.account;event.target.value='';if(!file)return;
+            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');const content=await file.text();if(account!==engine.account)throw new Error('读取文件期间账号已切换，请重新选择文件');importConfigurationProfile(engine,content);editingJob=null;syncSettings();}
             catch(err){engine.status='配置导入失败：'+err.message;engine.log(engine.status);}
             render();
         };

@@ -157,7 +157,7 @@
         };
         const tick=async()=>{advanceUnderground();engine.driver.lastClick=0;engine.automation.state.waitUntil=0;await engine.step();};const until=async(predicate,n=20)=>{for(let i=0;i<n&&!predicate();i++)await tick();};
         const adventureWin=amount=>{for(const uid of s.road||[]){const mon=s.mons.find(m=>m.uid===uid);if(!mon)continue;const reg=mon.reg||'kanto',table=__pcTest.DATA.xpThresholds[__pcTest.economicRegion(s)][mon.rank||0],cap=__pcTest.DATA.caps[s.adv.unlocked][reg];mon.xp=(mon.xp||0)+amount;while(mon.level<cap&&mon.xp>=table[mon.level]){mon.xp-=table[mon.level];mon.level++;}if(mon.level>=cap)mon.xp=0;}save();};
-        const information=(classes='dexcard-modal',body='<button class="dc-x">Close</button>')=>{const root=q('#modal-root');root.className='open';root.innerHTML=`<div class="modal ${classes}">${body}</div>`;const close=root.querySelector('.dc-x');if(close)close.onclick=()=>{root.className='';root.replaceChildren();};return root;};
+        const information=(classes='dexcard-modal',body='<div class="dexcard v2"><button class="dc-x">Close</button></div>')=>{const root=q('#modal-root');root.className='open';root.innerHTML=`<div class="modal ${classes}">${body}</div>`;const close=root.querySelector('.dc-x');if(close)close.onclick=()=>{root.className='';root.replaceChildren();};return root;};
         const resetFactory=(settings={},theme='fire')=>{
             reset('candy',{candyFloor:10,candyRuns:1,autoPrepare:false,optimizeRaid:true,...settings});factoryTheme=theme;factoryStarts=0;factoryDrags=0;factoryDeferSave=false;factoryFrom=6;factoryDrag=null;factoryClosedFilters=null;
             s.mons=[6,9,3,65,68,149,19,13].map((id,i)=>({uid:'factory-'+i,id,level:i<6?100:10,reg:'kanto'}));s.team=s.mons.slice(0,6).map(mon=>mon.uid);s.road=[...s.team];s.eventTeams={candy:['factory-7']};
@@ -283,6 +283,11 @@
         assert(s.stats.hatched===1&&engine.settings.mode==='underground'&&s.under.slots[0]?.id==='egg-wait-dispatch'&&engine.automation.state.underDone===0,'independent activity idle time can collect eggs without changing dispatch progress');
         eggPresentation='card';hatchCommit=null;
         reset('money',{dismissInfo:true});information();await tick();assert(!q('#modal-root.open'),'ordinary dex card closes without requiring a new-capture badge');
+        for(const cls of ['ug-dlg','bag-modal','opt-modal']){
+            information('dexcard-modal '+cls,'<button class="dc-x">Close</button><button>Choose</button>');
+            await tick();assert(!!q('#modal-root.open .'+cls),'shared dex styling does not dismiss '+cls);
+            q('#modal-root .dc-x').click();
+        }
         information('dexcard-modal mon-modal','<div class="mon-card"><button class="dc-x">Close</button><button class="dc-candy">Candy</button></div>');engine.automation.own('mon','.mon-modal',{uid:'a'});assert(!engine.driver.dismissInformation(s)&&!!q('#modal-root.open'),'owned item card is protected from information cleanup');
         let coveredUses=0;q('.dc-candy').onclick=()=>coveredUses++;const fx=document.createElement('button');fx.className='fx-skip';fx.textContent='Skip evolution';fx.onclick=()=>fx.remove();document.body.appendChild(fx);await tick();assert(!fx.isConnected&&coveredUses===0&&!!q('#modal-root.open'),'top evolution overlay finishes before using an owned item card');engine.automation.owner=null;q('#modal-root').className='';q('#modal-root').replaceChildren();
         reset('money',{dismissInfo:true,manualPause:true,manualResume:true});engine.read();engine.manualInput();information('dexcard-modal mon-modal');await tick();assert(!!q('#modal-root.open')&&!!engine.manual,'information remains untouched during the manual grace period');engine.manual.until=0;await tick();assert(!q('#modal-root.open')&&!!engine.manual,'idle manual inspection closes its information card');await tick();assert(!engine.manual&&engine.running,'manual inspection resumes the original task automatically');

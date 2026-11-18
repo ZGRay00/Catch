@@ -44,7 +44,7 @@ function fixture() {
       root.querySelector('[data-go]').onclick=()=>{const current=chapters.find(c=>c.id===state.adv.chapter),next=selected==='L'?(current?.reg===region&&current.league?current.id:chapters.find(c=>c.reg===region&&c.league).id):+selected;if(next!==state.adv.chapter||state.adv.event||state.adv.zone){state.adv.node=0;state.adv.battle=null;state.adv.pending=null;state.adv.event=null;state.adv.zone=null;}state.adv.chapter=next;save();actions++;nav('adventure')};
     }
     function team(){const el=document.createElement('div');el.id='evt-pick';el.innerHTML='<div id="evt-team"></div><button id="evt-opt">Optimise</button><button data-evt-close>Close</button>';document.body.appendChild(el);el.querySelector('#evt-opt').onclick=()=>{window.teamOptimizations=(window.teamOptimizations||0)+1;state.eventTeams={'raid:kanto':['a','b']};save();el.querySelector('#evt-team').innerHTML='<div data-uid="a"></div><div data-uid="b"></div>';actions++};el.querySelector('[data-evt-close]').onclick=()=>{el.remove();actions++}}
-    function ally(){const root=document.querySelector('#modal-root');root.className='open';root.innerHTML='<div class="modal raid-dlg"><button data-pick="weak"><span class="rt-mon"><img data-id="10" src="data:,">弱盟友</span></button><button data-pick="strong"><span class="rt-mon"><img data-id="150" src="data:,">强盟友</span></button></div>';root.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{window.lastAlly=b.dataset.pick;allies++;root.className='';root.innerHTML='';actions++;raid()})}
+    function ally(){const root=document.querySelector('#modal-root');root.className='open';root.innerHTML='<div class="modal dexcard-modal raid-dlg"><button class="dc-x">Close</button><button disabled data-pick="disabled">Unavailable</button><button data-pick="weak"><span class="rt-mon"><img data-id="10" src="data:,">弱盟友</span></button><button data-pick="strong"><span class="rt-mon"><img data-id="150" src="data:,">强盟友</span></button></div>';root.querySelector('.dc-x').onclick=()=>{root.className='';root.replaceChildren();window.allyCloses=(window.allyCloses||0)+1};root.querySelectorAll('[data-pick]').forEach(b=>b.onclick=()=>{window.lastAlly=b.dataset.pick;allies++;root.className='';root.innerHTML='';actions++;raid()})}
     function raid(){const root=document.querySelector('#raid-root');if(phase==='home'){root.innerHTML='<button data-raid-page="chroma">Chroma</button>';root.firstChild.onclick=()=>{phase='cards';actions++;raid()};return}root.innerHTML='<div class="rc-card" data-rc="kanto"><h3>怪力</h3><div class="boss"><img data-id="68" src="data:,"></div><button data-raid-edit="kanto">Team</button><button data-raid-go="kanto">Raid</button></div>';if(state.adv.event?.raid){root.insertAdjacentHTML('beforeend','<button data-raid-leave>Leave raid</button>');root.querySelector('[data-raid-leave]').onclick=()=>{state.adv.event=null;save();actions++;nav('adventure')}}root.querySelector('[data-raid-edit]').onclick=team;root.querySelector('[data-raid-go]').onclick=()=>{actions++;if(!state.eventTeams?.['raid:kanto']?.length)return team();if(allies<2)return ally();state.adv.event={raid:true,reg:'kanto',id:68,loops:0};save();nav('adventure')}}
     window.mock={state,save,nav,team,get actions(){return actions}};
     <\/script><script>${fs.readFileSync(path.join(__dirname,'fixtures/pokecatch-automation-browser.js'),'utf8').replace(/<\/script/gi,'<\\/script')}</script><script>${source.replace(/<\/script/gi, '<\\/script')}</script></html>`;
@@ -80,7 +80,21 @@ async function main() {
         assert.equal(await evaluate('mock.state.adv.chapter'), 15);
         assert.deepEqual(await evaluate('mock.state.adv.loops'), [15], 'clear loops in every other region');
         await evaluate(`(()=>{const e=__pcTest.engine;e.target=null;e.raidProbe=true;e.raidProbeStarted=Date.now();e.settings.raids=true;e.driver.lastClick=0;e.onChange()})()`);
-        for (let n = 0; n < 20 && !await evaluate('!!mock.state.adv.event'); n++) { await evaluate('(async()=>{const e=__pcTest.engine;e.driver.lastClick=0;await e.step();e.onChange()})()'); await delay(10); }
+        let handoffs=0;
+        for (let n=0;n<45&&!await evaluate('!!mock.state.adv.event');n++){
+            if(await evaluate("!!document.querySelector('#modal-root.open .raid-dlg')")&&handoffs<2){
+                await evaluate(`(()=>{const e=__pcTest.engine;e.settings.manualResume=true;e.manualInput();e.inputHeld=true;e.onChange()})()`);
+                if(!handoffs){
+                    await evaluate("document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#resume').click()");
+                }else{
+                    await evaluate('__pcTest.engine.inputHeld=false;__pcTest.engine.manual.until=0');
+                }
+                handoffs++;
+            }
+            await evaluate('(async()=>{const e=__pcTest.engine;e.driver.lastClick=0;await e.step();e.onChange()})()');await delay(10);
+        }
+        assert.equal(handoffs,2,'resume button and idle recovery both continue an interrupted ally choice');
+        assert.equal(await evaluate('window.allyCloses||0'),0,'a native ally picker must never be dismissed as a dex information card');
         assert.equal(await evaluate('mock.state.adv.event?.raid'), true, 'raid entry with team and two allies');
         assert.equal(await evaluate('window.lastAlly'), 'strong');
         assert.equal(await evaluate('mock.state.eventTeams["raid:kanto"].length'), 2);

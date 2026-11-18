@@ -1,3 +1,31 @@
+    // Validate each measurement independently. Older profiles can contain XP-only
+    // samples, and a damaged item history should not erase a valid wallet sample.
+    function readRouteMetric(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const positive = n => Number.isFinite(n) && n > 0;
+        const nonnegative = n => Number.isFinite(n) && n >= 0;
+        const money = positive(value.seconds) && positive(value.runs) && Number.isFinite(value.net);
+        const xp = positive(value.xpSeconds) && positive(value.xpRuns) && nonnegative(value.xp);
+        const items = positive(value.itemSeconds) && positive(value.itemRuns) && value.itemCounts &&
+            typeof value.itemCounts === 'object' && !Array.isArray(value.itemCounts);
+        if (!money && !xp && !items) return null;
+        const metric = { net: money ? value.net : 0, seconds: money ? value.seconds : 0,
+            runs: money ? value.runs : 0, deaths: nonnegative(value.deaths) ? value.deaths : 0,
+            at: nonnegative(value.at) ? value.at : 0 };
+        if (xp) Object.assign(metric, { xp: value.xp, xpSeconds: value.xpSeconds, xpRuns: value.xpRuns });
+        if (items) {
+            metric.itemCounts = Object.fromEntries(Object.entries(value.itemCounts)
+                .filter(([id, count]) => ITEMS.has(id) && nonnegative(count)));
+            metric.itemSeconds = value.itemSeconds;
+            metric.itemRuns = value.itemRuns;
+        }
+        return metric;
+    }
+    function readRouteHistory(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        return Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, readRouteMetric(value)])
+            .filter(([, metric]) => metric).sort((a, b) => b[1].at - a[1].at).slice(0, 200));
+    }
     class Telemetry {
         constructor(metrics = {}) { this.metrics = metrics; this.sample = null; }
         begin(s, row, settings, now) {
@@ -21,7 +49,8 @@
             const completeLoop=!row.league||(s.adv.runs||0)-old.run>=row.members.length;
             const result = { valid: valid && !!old.full && completeLoop, seconds, net, deaths: Math.max(0, totalDeaths(s, row) - old.deaths), xp: old.xp != null && currentXp != null ? Math.max(0, currentXp - old.xp) : null };
             if (result.valid) {
-                const m = this.metrics[old.key] || { net: 0, seconds: 0, runs: 0, deaths: 0 };
+                const m = this.metrics[old.key] || { net: 0, seconds: 0, runs: 0 };
+                m.deaths ??= 0;
                 if (m.runs >= 8) { m.net *= .75; m.seconds *= .75; m.runs *= .75; m.deaths *= .75; if (m.xpSeconds) { m.xp *= .75; m.xpSeconds *= .75; m.xpRuns *= .75; } if (m.itemSeconds) { m.itemSeconds *= .75; m.itemRuns *= .75; for (const id of Object.keys(m.itemCounts)) m.itemCounts[id] *= .75; } }
                 m.net += net; m.seconds += seconds; m.runs += 1; m.deaths += result.deaths; m.at = now;
                 if (result.xp != null) { m.xp = (m.xp || 0) + result.xp; m.xpSeconds = (m.xpSeconds || 0) + seconds; m.xpRuns = (m.xpRuns || 0) + 1; }

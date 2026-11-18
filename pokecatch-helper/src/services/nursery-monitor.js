@@ -3,7 +3,7 @@
         if(typeof document==='undefined')return{};
         if(typeof window!=='undefined'&&typeof window.BUILD==='string'&&window.BUILD)return{build:window.BUILD};
         const scripts=[...(document.querySelectorAll?.('script[src]')||[])],bundle=scripts.map(node=>/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).find(Boolean);
-        const builds={'6e45170313':'0a26d39c19','84beed0145':'c9b850cf68'};
+        const builds={'6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690'};
         return{build:bundle?builds[bundle]||'unverified:'+bundle:'unverified:missing'};
     }
     class NurseryMonitor {

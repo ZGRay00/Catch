@@ -9,9 +9,9 @@
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }
     function pensionPlan(s,id){
-        const residents=(s.pension?.mons||[]).map(x=>x.mon),protectedUids=new Set([...(s.team||[]),...(s.road||[])]);
+        const residents=(s.pension?.mons||[]).map(x=>x?.mon).filter(Boolean),protectedUids=new Set([...(s.team||[]),...(s.road||[])]);
         const eligible=(s.mons||[]).filter(m=>!protectedUids.has(m.uid));
-        const singles=new Set(),parents=[...residents,...eligible].filter(m=>!m.noEgg&&DATA.automation.breed[m.id]?.can&&DATA.automation.breed[m.id].egg===id).sort((a,b)=>Number(!!b.shiny)-Number(!!a.shiny)||b.level-a.level).filter(m=>{const key=DATA.combat.singles[m.id];if(!key)return true;if(singles.has(key))return false;singles.add(key);return true;});
+        const singles=new Set(),parents=[...residents,...eligible].filter(m=>breedableOffspring(s,m)===id).sort((a,b)=>Number(!!b.shiny)-Number(!!a.shiny)||b.level-a.level).filter(m=>{const key=DATA.combat.singles[m.id];if(!key)return true;if(singles.has(key))return false;singles.add(key);return true;});
         const ditto=residents.find(m=>m.id===132)||eligible.find(m=>m.id===132);
         return{residents,ditto,parents,desired:ditto&&parents.length?[ditto,...parents.slice(0,3)]:[],missing:!ditto?'需要一只可寄养的百变怪':!parents.length?'没有可寄养的对应亲本；请先从冒险队伍移出亲本':null};
     }
@@ -22,15 +22,28 @@
         const n=factor===1?Number(raw.replace(/[,.]/g,'')):Number(decimalComma?raw.replace(',','.'):raw.replace(/,/g,''));
         return Number.isFinite(n)&&n>=0?Math.ceil(n*factor):null;
     }
-    function normalizeJobs(raw){return(Array.isArray(raw)?raw:[]).slice(0,50).filter(x=>x&&MODE_NAMES[x.settings?.mode]).map((x,i)=>({id:String(x.id||`job-${i}`).slice(0,100),title:String(x.title||MODE_NAMES[x.settings.mode]).slice(0,80),settings:normalizeSettings(x.settings),status:['done','failed','running','pending'].includes(x.status)?x.status:'pending',result:String(x.result||'').slice(0,200),...x.progress&&typeof x.progress==='object'?{progress:x.progress}:{}}));}
+    function normalizeJobs(raw) {
+        const jobs = [], ids = new Set();
+        for (const row of Array.isArray(raw) ? raw.slice(0, 50) : []) {
+            if (!Object.hasOwn(MODE_NAMES, row?.settings?.mode)) continue;
+            let suffix = jobs.length, id = String(row.id || `job-${suffix}`).slice(0,100);
+            while (ids.has(id)) id = `job-${++suffix}`;
+            ids.add(id);
+            jobs.push({id, title:String(row.title || MODE_NAMES[row.settings.mode]).slice(0,80),
+                settings:normalizeSettings(row.settings), status:['done','failed','running','pending'].includes(row.status) ? row.status : 'pending',
+                result:String(row.result || '').slice(0,200),
+                ...(row.progress && typeof row.progress === 'object' && !Array.isArray(row.progress) ? {progress:row.progress} : {})});
+        }
+        return jobs;
+    }
     function configurationProfile(engine){
         return{format:'pokecatch-helper-profile',schema:1,version:VERSION,settings:normalizeSettings(engine.settings),
             queue:normalizeJobs(engine.queue).map(job=>({id:job.id,title:job.title,settings:job.settings,status:'pending',result:''}))};
     }
     function parseConfigurationProfile(input){
         if(typeof input==='string'){if(input.length>2*1024*1024)throw new Error('配置文件超过2MB');input=JSON.parse(input.replace(/^\uFEFF/,''));}
-        if(!input||input.format!=='pokecatch-helper-profile'||input.schema!==1||!input.settings||!MODE_NAMES[input.settings.mode])throw new Error('不是支持的助手配置文件');
-        if(!Array.isArray(input.queue)||input.queue.length>50||input.queue.some(job=>!job||!MODE_NAMES[job.settings?.mode]))throw new Error('任务队列格式无效或超过50项');
+        if(!input||input.format!=='pokecatch-helper-profile'||input.schema!==1||!Object.hasOwn(MODE_NAMES,input.settings?.mode))throw new Error('不是支持的助手配置文件');
+        if(!Array.isArray(input.queue)||input.queue.length>50||input.queue.some(job=>!Object.hasOwn(MODE_NAMES,job?.settings?.mode)))throw new Error('任务队列格式无效或超过50项');
         return configurationProfile({settings:input.settings,queue:input.queue});
     }
     function importConfigurationProfile(engine,input){

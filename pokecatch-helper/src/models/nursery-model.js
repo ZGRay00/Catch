@@ -1,6 +1,6 @@
-    // Verified against public build c9b850cf68 / app.84beed0145.js, 2026-11-18.
+    // Verified against public build a5299b1690 / app.ac708615ae.js.
     // These functions read decoded saves. They never consume a roll, save or game action.
-    const NURSERY_RULES = Object.freeze({build:'c9b850cf68',compatibleBuilds:['0a26d39c19','c9b850cf68'],
+    const NURSERY_RULES = Object.freeze({build:'a5299b1690',compatibleBuilds:['0a26d39c19','c9b850cf68','a5299b1690'],
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
         berryMultiplier:2,berry:'belue-berry',ditto:132,eggMs:14400000,hatchMs:14400000,maxEggs:4,
         noEgg:[137,442,479,47901,47902,47903,47904,47905,556],lays:{489:489,490:489}});
@@ -69,6 +69,11 @@
         }
         return{known:true,shiny:roll<rate,rate,roll,source,key};
     }
+    function breedableOffspring(s, mon) {
+        if (!mon || mon.noEgg || mon.id === NURSERY_RULES.ditto || NURSERY_RULES.noEgg.includes(mon.id) ||
+            !DATA.automation.breed[mon.id]?.can) return null;
+        return nurseryOffspringId(s, mon);
+    }
     function nurseryParentPool(s){
         const rows=s?.pension?.mons;
         if(!Array.isArray(rows))return{known:false,parents:[],hasDitto:false,reason:'培育屋亲本列表不可用'};
@@ -77,8 +82,9 @@
             const mon=rows[index]?.mon,model=mon&&DATA.automation?.breed?.[mon.id];
             if(!mon||!Number.isInteger(mon.id)||!MONS.has(mon.id)||!model||typeof model.can!=='boolean')return{known:false,parents:[],hasDitto,reason:'有亲本不在已核对物种表中'};
             if(mon.id===NURSERY_RULES.ditto){hasDitto=true;continue;}
-            if(mon.noEgg||NURSERY_RULES.noEgg.includes(mon.id)||!model.can)continue;
-            parents.push({id:mon.id,eggId:nurseryOffspringId(s,mon),uid:mon.uid??null,shiny:!!mon.shiny,index,slot:index+1});
+            const eggId = breedableOffspring(s, mon);
+            if (eggId == null) continue;
+            parents.push({id:mon.id,eggId,uid:mon.uid??null,shiny:!!mon.shiny,index,slot:index+1});
         }
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
@@ -90,13 +96,14 @@
             assumptions:['亲本顺序与异色状态保持不变','期间没有赠送蛋等其他来源占用蛋序号','只计现有待用靛莓果，不假设后续自动喂果','距离指自然产蛋次数，不是孵化次数或保底进度'],
             scenarios:{plainParents:{hypothetical:true,nextShiny:null},shinyParents:{hypothetical:true,nextShiny:null},berryNext:{hypothetical:true,nextShiny:null}}};
         const reject=reason=>({...result,reason});
-        if(options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build))return reject('当前游戏构建尚未核对确定性蛋规则');
+        const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
+        if(unverified&&!options.estimateUnverified)return reject('当前游戏构建尚未核对确定性蛋规则');
         if(!pool.known)return reject(pool.reason);
         if(seed===null)return reject('训练家 ID 或创建时间缺失，未使用空种子预测');
         if(result.counter===null)return reject('下一蛋序号缺失或异常，等待游戏自身初始化');
         if(!pool.hasDitto||!pool.parents.length)return reject(pool.reason);
         if(laid>Number.MAX_SAFE_INTEGER-limit)return reject('蛋序号超出安全整数范围');
-        result.known=true;result.active=true;
+        result.known=!unverified;result.estimated=unverified;result.active=true;
         const keep=Number.isFinite(+options.count)?Math.max(1,Math.min(20,Math.floor(+options.count))):3;
         for(let offset=0;offset<limit;offset++){
             const k=laid+offset,roll=nurseryHash(`${seed}|egg|${k}|0`),parentRoll=nurseryHash(`${seed}|egg|${k}|1`);

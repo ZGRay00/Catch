@@ -1,3 +1,6 @@
+    function adventureTeamWeatherKey(s,members,now){
+        return JSON.stringify(members.map(chapter=>combatWeather(s,{chapter},{},now).signature));
+    }
     class Engine {
         constructor(storage, settings = {}) {
             this.storage = storage; this.settings = normalizeSettings(settings); this.running = false;
@@ -21,8 +24,27 @@
             return this.state;
         }
         loadAccount(s) {
-            this.account = accountId(s);
-            try { const saved = JSON.parse(this.storage.getItem(PREFIX + this.account) || '{}'); this.metrics = saved.metrics || {}; this.settings = normalizeSettings({ ...this.settings, ...saved.settings });this.queue=normalizeJobs(saved.queue);this.queueIndex=Math.max(0,Math.min(this.queue.length,Number(saved.queueIndex)||0));this.checkpoint=saved.resume?.wanted?saved.resume:null;this.services=normalizeServiceState(saved.services); } catch {this.services=normalizeServiceState();}
+            const id = accountId(s), switching = this.account !== null && this.account !== id;
+            if (switching) {
+                if (this.running || this.suspended) throw new Error('请先结束上一账号的任务');
+                for (const field of SESSION_FIELDS) delete this[field];
+                this.queueRunning = false;
+                this.tabToken = undefined;
+                this.target = this.visit = this.preparation = this.nextWake = null;
+                this.cooldowns = {}; this.raidCooldown = {}; this.logs = []; this.action = '';
+                this.driver = new DOMDriver(this); this.automation = new Automation(this);
+                this.budget = new Budget(this); this.coach = new LevelCoach(this);
+                this.status = '已切换账号，已载入当前账号的任务配置';
+            }
+            this.account = id;
+            let saved = {};
+            try { saved = JSON.parse(this.storage.getItem(PREFIX + id) || '{}') || {}; } catch {}
+            this.metrics = readRouteHistory(saved.metrics);
+            this.settings = normalizeSettings({ ...(switching ? DEFAULTS : this.settings), ...saved.settings });
+            this.queue = normalizeJobs(saved.queue);
+            this.queueIndex = Number.isInteger(saved.queueIndex) ? Math.max(0, Math.min(this.queue.length, saved.queueIndex)) : 0;
+            this.checkpoint = saved.resume?.wanted ? saved.resume : null;
+            this.services = normalizeServiceState(saved.services);
             this.telemetry = new Telemetry(this.metrics);
             this.nurseryMonitor.load(s);
         }
@@ -161,7 +183,7 @@
                 if (this.settings.mode === 'dex' && ENCOUNTER_DATA_ERRORS.length) throw new Error('图鉴出没数据损坏，请重新安装完整脚本');
                 if (!this.acquire(Date.now())) { controlDenied=true;throw new Error('另一个标签页正在运行助手'); }
                 this.running = true; this.runId++; this.started = Date.now(); this.stoppedAt = null; this.lastProgress = Date.now(); this.progressSignature = '';this.hiddenAt=null;
-                this.manual = null; this.inputHeld = false;this.clearHeldInput?.();
+                this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.legendProbe=null;this.farmWait=null;this.roamStarted=null;this.roamProbeAt=0;this.roamRestartAt=0;
                 this.startMoney = s.money;
                 this.startItems = itemCounter(s, this.settings.itemId); this.sessionItemId = this.settings.itemId; this.lastExplore = 0;
@@ -205,7 +227,7 @@
             this.suspended=null;
             this.saveJobProgress();
             this.running = false; this.runId++; this.stoppedAt = Date.now(); clearTimeout(this.timer); this.timer = null;
-            this.manual = null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
+            this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
             this.legendProbe=null;this.farmWait=null;
             this.checkpoint=null;this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;this.nextWake=null;this.modalWaitSince=null;
             this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.ownedDialog = null;
@@ -227,6 +249,15 @@
                 this.manual = { since: now, until: now, raid: raidIdentity(s),
                     zone: zone ? JSON.stringify([zone.id, zone.foe, zone.elite]) : null,
                     tower:s?.adv?.tower?JSON.stringify(s.adv.tower):null,league:s?.adv?.league?JSON.stringify([s.adv.league.reg,s.adv.league.tier]):null };
+                // Keep a live DOM identity only for the picker this run actually opened.
+                const own=this.driver.ownedDialog;
+                const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
+                this.interruptedPicker=null;
+                if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
+                else if(['team','factoryTeam','backgroundUnderTeam'].includes(own?.type)){
+                    const close=$('#evt-pick [data-evt-close]');
+                    if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
+                }
                 this.log('手动控制中；空闲后自动恢复原任务');
                 // A user can change the selected map, party or dialog while in control.
                 // Keep session goals and the original loop backup, discard interrupted UI work.
@@ -285,11 +316,22 @@
             let wait=this.manualWaitState(s,now);
             if(wait.reason==='input'&&this.releaseIdleGameInput?.())wait=this.manualWaitState(s,now);
             if(wait.reason==='dialog'){
+                const picker=this.interruptedPicker,ally=$('#modal-root.open .raid-dlg');
+                if(picker?.handoff===this.manual&&picker.raid&&picker.node===ally&&visible(ally)&&!s.adv.event&&!s.adv.zone&&!s.adv.tower&&!s.adv.league&&picker.raid.date===parisDay(now)){
+                    this.manual=null;this.interruptedPicker=null;this.raidProbe=true;this.raidProbeStarted=now;
+                    this.driver.raid=picker.raid;this.driver.ownedDialog={type:'ally',started:now};
+                    this.status='继续为当前团体战选择同伴';return false;
+                }
+                if(picker?.handoff===this.manual&&!picker.raid&&visible(picker.node)&&
+                    (picker.node===$('#evt-pick [data-evt-close]')||picker.node===ally?.querySelector('.dc-x'))){
+                    if(this.driver.click(picker.node,'关闭已中断的选择窗口，重新规划',false,true))this.interruptedPicker=null;
+                    return true;
+                }
                 if(this.driver.dismissInformation?.(s,true)){this.status='已关闭信息弹窗，准备恢复原任务';return true;}
             }
             if(wait.reason!=='ready'){this.status=wait.status;return true;}
             const raid = s.adv.event, zone = s.adv.zone;
-            this.manual = null; this.target = null; this.visit = null; this.telemetry.sample = null;
+            this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
             this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
             this.driver.teamTask=null;this.teamCheck=null;
             if(!this.adoptManualPreparation(s,now,true))return true;
@@ -322,6 +364,11 @@
                 this.log(`明确接管当前团体战 · ${MONS.get(raid.id)?.name||reg} · 保留尝试 ${raid.loops||0}/150`);
             }
             this.manual.until = now;
+            const ally=$('#modal-root.open .raid-dlg');
+            if(visible(ally)&&!(this.interruptedPicker?.handoff===this.manual&&this.interruptedPicker.raid?.date===parisDay(now)&&this.interruptedPicker.node===ally)){
+                const close=ally.querySelector('.dc-x');
+                if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
+            }
             this.manualStep(s, now);this.persist();this.schedule(50);
         }
         schedule(ms = 1200) {
@@ -349,6 +396,7 @@
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;this.lastProgress=now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
             if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
+            if(this.driver.ownedDialog?.openingUntil!=null)this.driver.ownedDialog.openingUntil+=duration;
             if(this.legendProbe?.started!=null)this.legendProbe.started+=duration;
             for(const task of [this.driver.ownedDialog,this.driver.teamTask])if(task?.pending?.at!=null)task.pending.at+=duration;
             if(this.driver.navigation){this.driver.navigation.started+=duration;this.driver.navigation.nextAt+=duration;}
@@ -608,13 +656,13 @@
             const objective=this.settings.mode==='train'?'train':['money','item','shiny'].includes(this.settings.mode)||this.settings.mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':'progress';
             const roamId=roam?roamingSettings(this.settings).roamId:undefined;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
-            const weatherKey=JSON.stringify((row.members||[c.id]).map(chapter=>combatWeather(s,{chapter},{},now).signature));
-            if(last&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&last.party===s.team.join('|')&&now-last.at<this.settings.teamMinutes*60000&&
+            const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
+            if(last&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&now-last.at<this.settings.teamMinutes*60000&&
                 last.roster===roster&&last.deaths===deaths)return false;
             const pinned=this.settings.mode==='train'?(this.trainProtected||(this.settings.trainUid==='team'?s.team:[this.settings.trainUid])):[];
             const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
             const plan=planAdventureTeam(s,this.settings,pinned,{reg:row.reg||c.reg,foes,objective,now});
-            this.teamCheck={key,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+            this.teamCheck={key,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
                 reason:plan.changed?plan.reason:'当前阵容收益接近建议，保留现有队伍',gain:plan.gain,opponents:plan.opponents};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;

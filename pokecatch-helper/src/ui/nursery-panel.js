@@ -12,7 +12,14 @@
                 recent:data.recent.map(({id,known,shiny,status,at})=>({id,known,shiny,status,at})),events:data.events};
             const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='pokecatch-egg-statistics.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
         };
-        function duration(ms){if(ms===null)return'时间待确认';const seconds=Math.ceil(ms/1000);return seconds<=0?'成熟待领':seconds<60?seconds+'秒':seconds<3600?Math.ceil(seconds/60)+'分钟':Math.floor(seconds/3600)+'时'+Math.ceil(seconds%3600/60)+'分';}
+        function duration(ms){
+            if(ms===null)return '时间待确认';
+            const seconds=Math.ceil(ms/1000), minutes=Math.ceil(seconds/60);
+            if(seconds<=0)return '成熟待领';
+            if(seconds<60)return seconds+'秒';
+            if(minutes<60)return minutes+'分钟';
+            return Math.floor(minutes/60)+'时'+(minutes%60?minutes%60+'分':'');
+        }
         function name(id){return MONS.get(id)?.name||'未知物种';}
         function hintCards(rows){
             if(typeof document==='undefined')return;
@@ -24,19 +31,24 @@
             }
             if(!document.getElementById('pokecatch-nursery-hints')){const css=document.createElement('style');css.id='pokecatch-nursery-hints';css.textContent='#pen-eggs [data-pch-shiny="1"]{position:relative;outline:2px solid #ffdc79;outline-offset:2px}#pen-eggs [data-pch-nursery-tag]{position:absolute;top:3px;left:3px;right:3px;padding:1px 3px;border-radius:4px;background:#352a14ef;color:#ffe6a0;font:10px/1.3 system-ui;pointer-events:none;white-space:normal;z-index:1}';(document.head||document.documentElement).appendChild(css);}
         }
+        let forecastKey, forecast;
         return{render(s,now=Date.now()){
             box.classList.toggle('hidden',!s?.adv);if(!s?.adv)return null;
             const ledger=engine.nurseryMonitor.observe(s,now),sameAccount=accountId(s)===engine.account;
-            const options={...nurseryRuntimeOptions(),now,forecast:box.open&&!root.querySelector('.panel').classList.contains('hidden')&&!pageHidden()},snap=nurserySnapshot(s,options);
+            const options={...nurseryRuntimeOptions(),now,forecast:false},snap=nurserySnapshot(s,options);
             query('#nursery-summary').textContent=`培育屋 · 闪蛋 ${snap.counts.shiny}/${snap.counts.total} · 待领 ${snap.counts.ready}${snap.counts.unknown?' · 待判 '+snap.counts.unknown:''}`;box.classList.toggle('has-shiny',snap.counts.shiny>0);
             if(!pageHidden())hintCards(snap.eggRows);
-            if(!box.open)return snap;
+            if(!box.open || box.closest('[hidden]') || root.querySelector('.panel').classList.contains('hidden') || pageHidden())return snap;
+            const key=JSON.stringify([options.build,nurserySeed(s),snap.counter,!!s.pension?.bx,nurseryParentPool(s)]);
+            if(key!==forecastKey){forecast=nurseryForecast(s,{...options,estimateUnverified:true});forecastKey=key;}
+            snap.forecast=forecast;
             query('#nursery-shiny').textContent=snap.counts.shiny;query('#nursery-ready').textContent=snap.counts.ready;query('#nursery-native').textContent=snap.hatched??'—';
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
-            query('#nursery-next').textContent=next?`下一编号 K=${next.k} · 自然蛋：${next.shiny?'✦ 闪光':'普通'} · ${name(next.eggId)} · 亲本槽 ${next.parent.slot}${next.bx?' · 已有待用靛莓果':''}`:`下一自然蛋：${f?.reason||'展开时核对'}（蛋序号 ${snap.counter??'未知'}）`;
-            query('#nursery-forecast').textContent=flash?`当前条件下，再产第 ${flash.position} 枚为闪蛋 · ${name(flash.eggId)} · K=${flash.k}`:f?.known?`接下来 ${f.scanned} 枚自然蛋内未找到闪蛋；不是保底倒计时。`:f?.reason||'等待可核对的繁殖状态';
+            const qualifier=f?.estimated?'参考预测 · ':'';
+            query('#nursery-next').textContent=next?`${qualifier}下一编号 K=${next.k} · 自然蛋：${next.shiny?'✦ 闪光':'普通'} · ${name(next.eggId)} · 亲本槽 ${next.parent.slot}${next.bx?' · 已有待用靛莓果':''}`:`下一自然蛋：${f?.reason||'展开时核对'}（蛋序号 ${snap.counter??'未知'}）`;
+            query('#nursery-forecast').textContent=flash?`${qualifier}当前条件下，再产第 ${flash.position} 枚为闪蛋 · ${name(flash.eggId)} · K=${flash.k}`:f?.active?`接下来 ${f.scanned} 枚自然蛋内未找到闪蛋`:'';
             const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
-            query('#nursery-scenarios').textContent=f?.known?`条件对照（非当前实况）：全普通亲代 ${position(scenarios.plainParents)}；全异色亲代 ${position(scenarios.shinyParents)}；下一颗使用靛莓果 ${position(scenarios.berryNext)}。`:'';
+            query('#nursery-scenarios').textContent=f?.estimated?`此构建（${options.build}）尚未核对，按已验证的 ${NURSERY_RULES.build} 规则推算；仅供规划。`:f?.known?`条件对照：全普通亲代 ${position(scenarios.plainParents)}；全异色亲代 ${position(scenarios.shinyParents)}；下一颗使用靛莓果 ${position(scenarios.berryNext)}。`:'';
             const candy=(s.pension?.mons||[]).reduce((total,slot)=>total+(Number(slot.candy)||0),0);
             query('#nursery-condition').textContent=`孵化器 ${snap.counts.total}/${snap.capacity} · 寄养 ${s.pension?.mons?.length||0} 只 · 待领糖果 ${candy}${snap.counts.total>=snap.capacity?'；孵化器已满，先领取才可继续产蛋。':'。'}${f?.known?'预测假设亲本顺序不变且没有赠蛋占号；靛莓果只用于下一自然蛋。':''}`;
             const eggs=query('#nursery-eggs');eggs.replaceChildren();

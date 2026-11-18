@@ -21,7 +21,8 @@ function member(id,level,{shiny=false,rank='',capped=false}={}){
 function pick(t,{boss=130,friends=[],bots=[],own=[],selected=[]}){
     const previous={document:global.document,getComputedStyle:global.getComputedStyle};t.after(()=>{for(const key of Object.keys(previous))if(previous[key]===undefined)delete global[key];else global[key]=previous[key];});
     const choices=[...friends.map(({key,mons})=>({key,members:mons.map(m=>member(m.id,m.level,m))})),...bots.map(bot=>({key:bot.key,members:[]}))].map(({key,members})=>({dataset:{pick:key},querySelectorAll:()=>members}));
-    const root={isConnected:true,hidden:false,closest:()=>null,getClientRects:()=>[{}]};
+    const root={isConnected:true,hidden:false,closest:()=>null,getClientRects:()=>[{}],getAttribute:()=>null};
+    for(const choice of choices)Object.assign(choice,root);
     global.document={querySelector:sel=>sel==='#modal-root.open .raid-dlg'?root:null,querySelectorAll:sel=>sel==='#modal-root.open .raid-dlg [data-pick]'?choices:[]};
     global.getComputedStyle=()=>({display:'block',visibility:'visible',opacity:'1'});
     const state={mons:own.map((m,i)=>({...m,uid:'own'+i})),eventTeams:{'raid:kanto':own.map((m,i)=>'own'+i)},raids:{bots:{kanto:bots},pick:{kanto:selected}}};
@@ -40,4 +41,20 @@ test('friend visible rank is retained when comparing otherwise identical members
 test('ally selection accounts for the player team rather than stacking redundant poison members',t=>{
     assert.ok(H.allyStrength([{id:43,level:100}],130)>H.allyStrength([{id:35,level:100}],130),'a poison ally wins before the existing player roster is considered');
     assert.equal(pick(t,{boss:130,own:[{id:43,level:100},{id:43,level:100}],bots:[{key:'poison',mons:[{id:43,level:100}]},{key:'damage',mons:[{id:35,level:100}]}]}),'damage');
+});
+
+test('a queued native picker can mount on a later tick and an empty roster yields to the main task', t=>{
+    const prev={document:global.document,getComputedStyle:global.getComputedStyle};
+    t.after(()=>{for(const [k,v] of Object.entries(prev))if(v===undefined)delete global[k];else global[k]=v;});
+    let open=false,closes=0;
+    const close={},root={isConnected:true,closest:()=>null,getClientRects:()=>[{}],querySelector:k=>k==='.dc-x'?close:null};
+    global.getComputedStyle=()=>({display:'block',visibility:'visible',opacity:'1'});
+    global.document={querySelector:k=>open&&k==='#modal-root.open .raid-dlg'?root:null,querySelectorAll:()=>[]};
+    const e={raidProbe:true,raidCooldown:{},log:()=>{}},d=new H.DOMDriver(e);
+    d.raid={reg:'kanto',boss:35};d.ownedDialog={type:'ally',openingUntil:Date.now()+5000};
+    d.click=el=>{assert.equal(el,close);closes++;return true;};
+    assert.equal(d.dialog({}),true);assert.ok(d.ownedDialog);open=true;
+    assert.equal(d.dialog({}),true);assert.equal(closes,0);d.ownedDialog.started=Date.now()-11000;
+    assert.equal(d.dialog({}),true);assert.equal(closes,1);assert.equal(e.raidProbe,false);
+    assert.equal(d.ownedDialog,null);assert.ok(e.nextRaid>Date.now());assert.ok(e.raidCooldown[H.parisDay()+'|kanto']>Date.now());
 });

@@ -164,7 +164,8 @@
             if(owner&&['mon','coachCandy','buddy','evolution'].includes(owner.kind)&&modal.matches(owner.selector))return false;
             if(owner?.kind==='receipt'&&modal.matches(owner.selector))return false;
             // Close only native information cards; never infer approval from arbitrary button text.
-            if(modal.matches('.dexcard-modal,.mon-modal')&&!modal.querySelector('.modal-actions button')){
+            // The game shares dexcard-modal with ally pickers, bag, shops and settings.
+            if((modal.matches('.mon-modal')||modal.matches('.dexcard-modal')&&modal.querySelector('.dexcard'))&&!modal.querySelector('.modal-actions button')){
                 const close=modal.querySelector('.dc-x');
                 if(enabled(close))return this.click(close,'关闭图鉴 / 宝可梦信息卡，继续原任务',false,resuming);
             }
@@ -265,7 +266,14 @@
             }
             if(['team','factoryTeam'].includes(own.type)&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
             const ownedRoot=['team','factoryTeam'].includes(own.type)?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
-            if(!visible(ownedRoot)){this.ownedDialog=null;return false;}
+            if(!visible(ownedRoot)){
+                // The native modal queue can mount the picker after the launch click.
+                if(own.openingUntil>Date.now()&&!s.adv?.event?.raid&&!visible($('#modal-root.open .modal'))&&!visible($('#evt-pick')))return true;
+                if(own.type==='ally'&&own.key&&visible($('#evt-pick'))&&this.e.settings.optimizeRaid){
+                    this.ownedDialog={type:'team',key:own.key,optimized:false};return true;
+                }
+                this.ownedDialog=null;return false;
+            }
             own.started ||= Date.now();
             if(Date.now()-own.started>120000){this.ownedDialog=null;this.e.failTask('特殊战配队或盟友弹窗等待超时，请检查页面');return true;}
             if(own.type==='factoryTeam')return this.factoryTeam(s,own);
@@ -284,8 +292,16 @@
                 return true;
             }
             if (own.type === 'ally') {
-                const choices = $$('#modal-root.open .raid-dlg [data-pick]');
-                if (!choices.length) { if (!$('#modal-root.open')) this.ownedDialog = null; return false; }
+                const choices = $$('#modal-root.open .raid-dlg [data-pick]').filter(enabled);
+                if (!choices.length) {
+                    this.e.status='等待可选团体战同伴';
+                    if(Date.now()-own.started>=10000&&this.click(ownedRoot.querySelector('.dc-x'),'暂无可用同伴，返回主任务')){
+                        this.e.raidCooldown[parisDay()+'|'+this.raid?.reg]=Date.now()+10*60000;
+                        this.e.raidProbe=false;this.e.raidReturn=null;this.raid=null;this.ownedDialog=null;
+                        this.e.nextRaid=Date.now()+10*60000;this.e.log('团体战同伴列表为空，10 分钟后再检查');
+                    }
+                    return true;
+                }
                 const bots = s.raids?.bots?.[this.raid?.reg] || [];
                 const offers = Array.isArray(bots) ? bots : Object.values(bots);
                 const available=new Set(choices.map(el=>el.dataset.pick)),index=new Map((s.mons||[]).map(m=>[m.uid,m]));
@@ -384,8 +400,9 @@
             const key = `raid:${parisDay()}|${reg}|${boss}|${rosterFingerprint(s)}`;
             const edit = card.querySelector('[data-raid-edit]');
             if (this.e.settings.optimizeRaid && !this.recent.has(key) && enabled(edit)) {
-                this.ownedDialog = { type: 'team', key, optimized: false };
-                return this.click(edit, '按团体战对手优化队伍');
+                if(!this.click(edit, '按团体战对手优化队伍'))return false;
+                this.ownedDialog = { type: 'team', key, optimized: false, openingUntil:Date.now()+5000 };
+                return true;
             }
             if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},Date.now()))return false;
             const go = card.querySelector('[data-raid-go]');
@@ -395,7 +412,7 @@
                     this.ownedDialog=this.e.settings.optimizeRaid?{type:'team',key,optimized:false}:null;
                     if(!this.e.settings.optimizeRaid)this.e.status='请手动配置团体战队伍，或开启优化特殊战队伍';
                 }
-                else this.ownedDialog = { type: 'ally' };
+                else this.ownedDialog = { type: 'ally',key,openingUntil:Date.now()+5000 };
                 return true;
             }
             return false;

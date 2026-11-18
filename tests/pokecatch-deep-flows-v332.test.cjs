@@ -59,8 +59,8 @@ test('a ready bench squad waiting for a native choice returns to adventure befor
 
 function overlayFixture(t,kind,{information=false,unknown=false}={}){
     const f=fixture(t),button=element({classList:{contains:name=>name==='gold'},click:()=>{f.actions.push({type:'ack'});f.nodes.delete('#modal-root.open');f.nodes.delete('#modal-root.open .modal');f.nodes.delete('#modal-root.open .modal.dexcard-modal:has(.dc-new)');}});
-    const modal=element({matches:selector=>!unknown&&(information?selector==='.dexcard-modal,.mon-modal':selector==='.dexcard-modal:has(.dc-new)'),
-        querySelector:selector=>information&&selector==='.dc-x'?button:null,
+    const modal=element({matches:selector=>!unknown&&(information?selector==='.dexcard-modal':selector==='.dexcard-modal:has(.dc-new)'),
+        querySelector:selector=>information&&selector==='.dexcard'?{}:information&&selector==='.dc-x'?button:null,
         querySelectorAll:selector=>selector==='.modal-actions button'&&!information&&!unknown?[button]:[]});
     f.nodes.set('#modal-root.open',[modal]);f.nodes.set('#modal-root.open .modal',[modal]);
     if(!information&&!unknown)f.nodes.set('#modal-root.open .modal.dexcard-modal:has(.dc-new)',[modal]);

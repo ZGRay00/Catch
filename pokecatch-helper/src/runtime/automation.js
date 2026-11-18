@@ -309,7 +309,7 @@
                     e.services.retryAt.underground=now+60000;
                 }
             }
-            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||mainGoalReached(s,e,now)))task.returning=true;
+            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||mainGoalReached(s,e,now)||adventureDispatchWait(s,e,now)))task.returning=true;
             if(!task.returning){
                 if(!d.nav('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开后台地下探险页');return true;}
@@ -343,7 +343,7 @@
                             if(enabled(go)){
                                 // Re-read immediately before the irreversible native send.
                                 const latest=e.read(),valid=new Set(undergroundIdleMembers(latest,e,now).map(mon=>mon.uid)),actual=latest.eventTeams?.[`under:${task.bay}`]||[];
-                                if(actual.length!==task.uids.length||actual.some((uid,i)=>uid!==task.uids[i]||!valid.has(uid))||latest.adv.pending||latest.adv.event||latest.adv.zone||latest.adv.tower||latest.adv.league){task.returning=true;return true;}
+                                if(actual.length!==task.uids.length||actual.some((uid,i)=>uid!==task.uids[i]||!valid.has(uid))||latest.adv.pending||latest.adv.event||latest.adv.zone||latest.adv.tower||latest.adv.league||adventureDispatchWait(latest,e,now)){task.returning=true;return true;}
                                 task.launch={bay:task.bay,uids:[...task.uids],ids:status.slots.map(job=>String(job.id)),at:now};e.persist();
                                 if(!d.click(go,'后台派遣地下空闲队伍'))delete task.launch;
                                 e.persist();return true;
@@ -368,7 +368,15 @@
                 this.state.hatch=null;this.state.hatchRetryAt=now+60000;this.wait('孵蛋尚未确认，一分钟后重试',this.state.hatchRetryAt);return;
             }
             if(this.state.hatch&&!eggs.some(x=>x.uid===this.state.hatch.uid)){
-                if((s.stats?.hatched||0)>this.state.hatch.before&&this.state.hatch.target)this.state.hatched=(this.state.hatched||0)+1;
+                const tx=this.state.hatch, count=s.stats?.hatched||0;
+                if(tx.target && count===tx.before){
+                    if(tx.disappearedAt==null){tx.disappearedAt=now;e.persist();}
+                    if(now-tx.disappearedAt<NURSERY_LEDGER_LIMITS.windowMs){
+                        this.wait('目标蛋已离开孵化器，等待游戏写入孵化计数');return;
+                    }
+                    e.log('未收到目标蛋的孵化确认，继续等待下一枚目标蛋');
+                }
+                if(count>tx.before&&tx.target)this.state.hatched=(this.state.hatched||0)+1;
                 if(this.owner?.kind==='receipt'&&this.owner.selector==='.dexcard-modal'&&!visible($('#modal-root.open .dexcard-modal')))this.owner=null;
                 this.state.hatch=null;e.persist();
             }
@@ -380,7 +388,9 @@
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
             const plan=pensionPlan(s,cfg.breedId);if(plan.missing){
-                const all=[...(s.mons||[])],parent=all.find(m=>!m.noEgg&&DATA.automation.breed[m.id]?.can&&DATA.automation.breed[m.id].egg===cfg.breedId),ditto=all.find(m=>m.id===132);
+                const all=s.mons||[];
+                const parent=plan.parents.length ? null : all.find(m=>breedableOffspring(s,m)===cfg.breedId);
+                const ditto=plan.ditto ? null : all.find(m=>m.id===132);
                 const remove=[parent?.uid,ditto?.uid].filter(uid=>s.team?.includes(uid));
                 if(remove.length&&!cfg.autoTeam){this.wait('繁殖亲本在手动冒险队伍中，请先手动移出亲本后继续');return;}
                 if(remove.length){const rest=s.team.filter(uid=>!remove.includes(uid)),bench=all.filter(m=>!remove.includes(m.uid)&&!rest.includes(m.uid)&&teamEligible(s,m)).sort((a,b)=>b.level-a.level);while(rest.length<Math.min(6,s.team.length)&&bench.length)rest.push(bench.shift().uid);
@@ -407,7 +417,7 @@
                 }
                 d.click(card,missing.id===132?'寄养百变怪':'寄养目标亲本');return;
             }
-            const unwanted=plan.residents.find(m=>m.id!==132&&(m.noEgg||!DATA.automation.breed[m.id]?.can||DATA.automation.breed[m.id]?.egg!==cfg.breedId));
+            const unwanted=plan.residents.find(m=>m.id!==132&&breedableOffspring(s,m)!==cfg.breedId);
             if(unwanted){const el=$$('#pen-res [data-uid]').find(el=>el.dataset.uid===unwanted.uid);if(d.click(el,'取回不参与目标繁殖的成员'))this.own('confirm','.modal',{match:/(取回|取出|回到|返回|Récupérer|Retrieve|Return)/i});return;}
             const until=eggs.length?Math.min(...eggs.map(x=>x.hatchAt||now+60000)):now+60000;
             this.wait(`繁殖中 · 已孵化 ${this.state.hatched||0}/${cfg.breedShiny?'目标异色':cfg.breedGoal} · 孵化器 ${eggs.length} 枚`,until);

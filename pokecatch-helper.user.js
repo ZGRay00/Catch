@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      4.1.0
-// @description  原生伤害智能配队、天气窗口收集、闪蛋计数与产蛋预测、后台孵蛋地下探险、配置备份与四源在线更新。
+// @version      4.2.3
+// @description  原生伤害智能配队、天气窗口收集、闪蛋计数与产蛋预测、后台孵蛋地下探险、配置备份与五源在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
 // @grant        GM_registerMenuCommand
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '4.1.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '4.2.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -80,12 +80,16 @@
         {id:'github',name:'GitHub Raw',base:'https://raw.githubusercontent.com/ZGRay00/Catch/'},
         {id:'jsdelivr',name:'jsDelivr',base:'https://cdn.jsdelivr.net/gh/ZGRay00/Catch@'},
         {id:'fastly',name:'jsDelivr Fastly',base:'https://fastly.jsdelivr.net/gh/ZGRay00/Catch@'},
-        {id:'gcore',name:'jsDelivr Gcore',base:'https://gcore.jsdelivr.net/gh/ZGRay00/Catch@'}
+        {id:'gcore',name:'jsDelivr Gcore',base:'https://gcore.jsdelivr.net/gh/ZGRay00/Catch@'},
+        {id:'contents',name:'GitHub 文件 API',base:'https://api.github.com/repos/ZGRay00/Catch/contents/pokecatch-helper.user.js'}
     ].map(source=>Object.freeze(source)));
     function updateSourceURL(sourceId,ref='main',fresh=null){
         const source=UPDATE_SOURCES.find(row=>row.id===sourceId);
         if(!source||!/^(?:main|[a-f0-9]{40})$/.test(ref))throw new Error('未知更新来源或提交');
-        return source.base+ref+'/'+UPDATE_RELEASE.file+(fresh==null?'':'?_pokecatch_check='+encodeURIComponent(String(fresh)));
+        const url=new URL(source.id==='contents'?source.base:source.base+ref+'/'+UPDATE_RELEASE.file);
+        if(source.id==='contents')url.searchParams.set('ref',ref);
+        if(fresh!=null)url.searchParams.set('_pokecatch_check',String(fresh));
+        return url.href;
     }
     function updateVersionParts(value){
         const text=String(value??'').trim(),match=/^(\d+(?:\.\d+){0,7})(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(text);
@@ -110,12 +114,13 @@
         const api=url.hostname==='api.github.com'&&url.pathname==='/repos/ZGRay00/Catch/git/ref/heads/main';
         const raw=url.hostname==='raw.githubusercontent.com'&&/^\/ZGRay00\/Catch\/(?:main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.test(url.pathname);
         const cdn=['cdn.jsdelivr.net','fastly.jsdelivr.net','gcore.jsdelivr.net'].includes(url.hostname)&&/^\/gh\/ZGRay00\/Catch@(?:main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.test(url.pathname);
-        if(url.protocol!=='https:'||url.port||url.username||url.password||!api&&!raw&&!cdn)throw new Error('更新请求仅允许指定 Catch 仓库的 HTTPS 地址');
+        const contents=url.origin+url.pathname===UPDATE_SOURCES.find(source=>source.id==='contents').base&&url.searchParams.getAll('ref').length===1&&/^(?:main|[a-f0-9]{40})$/.test(url.searchParams.get('ref'))&&[...url.searchParams.keys()].every(key=>['ref','_pokecatch_check'].includes(key));
+        if(url.protocol!=='https:'||url.port||url.username||url.password||!api&&!raw&&!cdn&&!contents)throw new Error('更新请求仅允许指定 Catch 仓库的 HTTPS 地址');
         url.hash='';return url.href;
     }
     function allowedUpdateRedirect(requested,actual){
         const from=new URL(allowedUpdateURL(requested)),to=new URL(allowedUpdateURL(actual));
-        const identity=url=>url.hostname==='api.github.com'?'head':/\/(?:Catch\/|Catch@)(main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.exec(url.pathname)?.[1];
+        const identity=url=>url.hostname==='api.github.com'?(url.pathname.includes('/contents/')?url.searchParams.get('ref'):'head'):/\/(?:Catch\/|Catch@)(main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.exec(url.pathname)?.[1];
         if(identity(from)!==identity(to))throw new Error('更新响应跳转到了不同提交或文件');
         return to.href;
     }
@@ -158,11 +163,12 @@
                 finish(null,{text:result.text,url:result.url||url});
             }catch(error){finish(error);}};
             try{
-                if(typeof GM_xmlhttpRequest==='function')handle=GM_xmlhttpRequest({method:'GET',url,anonymous:true,timeout:ms,responseType:'text',headers:{'Cache-Control':'no-cache'},
+                const headers=url.startsWith(UPDATE_SOURCES.find(source=>source.id==='contents').base)?{Accept:'application/vnd.github.raw+json'}:{};
+                if(typeof GM_xmlhttpRequest==='function')handle=GM_xmlhttpRequest({method:'GET',url,anonymous:true,timeout:ms,responseType:'text',headers:{...headers,'Cache-Control':'no-cache'},
                     onload:result=>loaded({status:result.status,text:result.responseText,url:result.finalUrl}),
                     onerror:()=>finish(new Error('无法连接更新源，请检查网络或油猴域名授权')),
                     ontimeout:()=>{const error=new Error('连接更新源超时');error.name='TimeoutError';finish(error);},onabort:()=>finish(updateAbortError())});
-                else{controller=new AbortController();fetch(url,{cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal})
+                else{controller=new AbortController();fetch(url,{headers,cache:'no-store',credentials:'omit',redirect:'error',signal:controller.signal})
                     .then(async result=>loaded({status:result.status,text:await result.text(),url:result.url})).catch(()=>finish(new Error('连接更新源失败，请在油猴中运行并允许访问 GitHub')));}
             }catch(error){finish(error);}
         });
@@ -224,6 +230,11 @@
                     this.phase=phase;this.message=ref==='main'?'正在并行比对更新来源，跳过过期缓存':'正在并行核验同一 GitHub 提交';this.changed();
                     const results=await Promise.all(sources.map(async source=>{
                         const started=this.now(),url=updateSourceURL(source.id,ref,ref==='main'?fresh:null);progress(source.id,{state:'checking',version:'',error:'',phase,ms:0});
+                        const cached=this.pinnedCache;
+                        if(sourceId==='auto'&&phase==='pinned'&&cached?.commit===ref&&cached.urls.has(source.id)){
+                            progress(source.id,{state:'success',version:cached.version,cached:true});
+                            return {...cached.script,sourceId:source.id,url:cached.urls.get(source.id)};
+                        }
                         try{
                             const response=await updateRequestWithDeadline(this.request,url,{signal,timeout:this.sourceTimeout});
                             if(!current())return null;
@@ -237,6 +248,7 @@
                 };
                 let results=commit?await batch(commit,'pinned'):[];
                 if(current()&&commit&&results.length>1&&results.some(result=>result.version!==results[0].version||result.text!==results[0].text)){
+                    this.pinnedCache=null;
                     const detail=results.map(result=>`${result.sourceId}: v${result.version}`).join('、');
                     for(const result of results)progress(result.sourceId,{state:'conflict',error:'同一固定提交的版本或正文不一致'});
                     throw new Error(`同一提交的更新来源内容冲突（${detail}）；请手动选择可信来源核对后重试`);
@@ -245,10 +257,15 @@
                 if(!current())return null;
                 if(!results.length)throw new Error('所有更新来源均未返回有效脚本；可切换来源后重试');
                 const latest=results[0],comparison=compareUpdateVersions(latest.version,this.currentVersion);
+                if(latest.commit&&comparison<=0){
+                    const urls=this.pinnedCache?.commit===latest.commit&&this.pinnedCache.script.text===latest.text?this.pinnedCache.urls:new Map();
+                    for(const result of results)urls.set(result.sourceId,result.url);
+                    this.pinnedCache={commit:latest.commit,version:latest.version,script:{...latest},urls};
+                }else this.pinnedCache=null;
                 this.checkedAt=this.now();
                 this.phase='complete';
                 if(comparison>0){this.pending=latest;this.message=`发现 v${latest.version} · ${UPDATE_SOURCES.find(source=>source.id===latest.sourceId).name}；${latest.commit?'已固定最新提交，可安装新版':'分支缓存尚未确认最新提交，可下载已验证快照避免安装缓存变化'}`;}
-                else this.message=comparison===0?(latest.commit?`已核对最新提交，当前为 v${this.currentVersion}`:`已比对 ${results.length} 个有效来源，与当前 v${this.currentVersion} 一致（最新提交暂未确认，CDN可能缓存）`):`有效来源最高为 v${latest.version}，本地 v${this.currentVersion} 较新`;
+                else this.message=comparison===0?(latest.commit?`已核对最新提交，当前为 v${this.currentVersion}`:`已比对 ${results.length} 个有效来源，与当前 v${this.currentVersion} 一致（最新提交暂未确认，CDN可能缓存）`):latest.commit?`仓库 main（${latest.commit.slice(0,7)}）发布的是 v${latest.version}，当前运行 v${this.currentVersion}，无需降级。`:`分支来源最高返回 v${latest.version}，当前运行 v${this.currentVersion}。最新提交尚未核实，镜像可能仍有缓存。`;
                 return latest;
             }catch(error){if(current()){this.phase='error';this.message='检查失败：'+(error?.message||error);}return null;}
             finally{if(epoch===this.epoch){this.busy=false;this.controller=null;this.changed();}}
@@ -269,7 +286,8 @@
         }
         install(){
             if(this.busy||!this.pending)return false;
-            try{const pending=this.verifiedPending();if(this.open(pending.url)===false)throw new Error('浏览器阻止了更新页，请允许弹出窗口后重试');this.message=`已打开 v${pending.version} 安装确认页，完成后刷新游戏${pending.commit?'':'；分支地址可能变化，也可下载本次已验证快照'}`;this.changed();return true;}
+            try{const pending=this.verifiedPending();if(new URL(pending.url).hostname==='api.github.com')return this.download();
+                if(this.open(pending.url)===false)throw new Error('浏览器阻止了更新页，请允许弹出窗口后重试');this.message=`已打开 v${pending.version} 安装确认页，完成后刷新游戏${pending.commit?'':'；分支地址可能变化，也可下载本次已验证快照'}`;this.changed();return true;}
             catch(error){this.message='打开更新页失败：'+(error?.message||error);this.changed();return false;}
         }
         download(){
@@ -476,6 +494,24 @@
         const seen=new Set();
         return undergroundMembers(s,now).filter(mon=>!protectedUids.has(mon.uid)&&!seen.has(mon.uid)&&seen.add(mon.uid));
     }
+    function adventureDispatchWait(s,e,now){
+        if(!e.settings.autoTeam)return '';
+        const p=e.preparation, party=s.team||[], road=s.road||[];
+        const mode=e.settings.mode, roamLegend=mode==='legend'&&!e.settings.legendTier&&DATA.zones.some(z=>z.id===e.settings.legendId&&z.eliteOnly);
+        if(!p&&(FLOW_MODES.has(mode)||mode==='legend'&&!roamLegend))return '';
+        const partyKey=party.join('|');
+        if(p && (p.phase!=='train'||p.uids?.join('|')!==partyKey||!p.route?.members?.includes(s.adv.chapter)))return '等待补练阵容与路线就绪';
+        if(road.length&&road.join('|')!==partyKey)return '等待治疗点应用冒险阵容';
+        if(p)return '';
+        const check=e.teamCheck,chapter=CHAPTERS.get(s.adv.chapter),frontier=mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
+        if((frontier&&chapter?.loop!==frontier.loop)||(e.target&&!e.target.members?.includes(s.adv.chapter)))return '等待目标路线的冒险配队';
+        if(!check||check.chapter!==s.adv.chapter||check.mode!==mode||check.expectedParty!==partyKey||
+            check.roster!==rosterFingerprint(s)||check.autoSwitch!==(s.autoSwitch!==false)||
+            check.deaths!==(Number(s.adv.deaths?.[s.adv.chapter])||0)||now-check.at>=e.settings.teamMinutes*60000||
+            check.weatherKey!==adventureTeamWeatherKey(s,check.members||[s.adv.chapter],now))
+            return '先适配冒险阵容，再派遣空闲队员';
+        return '';
+    }
     function undergroundDispatchReason(s,e,now=Date.now()){
         if(!e.settings.autoUnderDispatch)return '后台自动派遣已关闭';
         if(!undergroundBackgroundUnlocked(s))return '进入神奥后自动启用后台派遣';
@@ -484,6 +520,8 @@
         const status=undergroundStatus(s,now);
         if(!status.left)return '今日派遣额度已用完，等待次日';
         if(status.slots.length>=status.capacity)return '派遣位置已满，等待归队';
+        const wait=adventureDispatchWait(s,e,now);
+        if(wait)return wait;
         const idle=undergroundIdleMembers(s,e,now);
         if(idle.length<DATA.automation.under.team||new Set(idle.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size<DATA.automation.under.team)return '空闲成员不足三只可同时出战的宝可梦，保留主队、Buddy及任务阵容';
         const tab=typeof document==='undefined'?null:$('#tabs [data-screen="underground"]');
@@ -597,7 +635,11 @@
         if(label!==planned)detail=`实际前台：${label} · 原任务：${planned}`;
         if(e.preparation){label='补练 → '+planned;detail='使用目标队伍补练，完成后返回原任务';}
         if(!s?.adv){label='未进入游戏';detail='进入游戏后显示实际任务和后台计时';}
-        else if(!e.running&&!e.suspended){label='未启动主任务';detail=(a.event||a.zone||a.tower||a.league)?`游戏原生${label===planned?planned:a.event?.raid?'团体战':a.zone?'传说战':a.tower?'塔/工厂':'活动'}仍可能继续；助手未接管`:'助手已停止；游戏原生冒险和后台计时仍可能继续';}
+        else if(!e.running&&!e.suspended){
+            const nativeActivity = a.event || a.zone || a.tower || a.league;
+            detail=nativeActivity?`游戏原生${a.event?.raid?'团体战':a.zone?'传说战':a.tower?.kind==='candy'?'糖果工厂':a.tower?'对战塔':a.league?'精英联盟':'活动'}仍可能继续；助手未接管`:'助手已停止；游戏原生冒险和后台计时仍可能继续';
+            label='未启动主任务';
+        }
         else if(e.manual||e.suspended)detail='助手已让出控制，原生计时不因此暂停';
         else if(e.nextWake>now)detail=`主任务等待结算 · 后台可处理安全派遣与领取`;
         let uiOwner=plan.active==='underground'?(services.underground?.action==='dispatch'?'地下自动派遣':'地下归队领取'):plan.active==='eggs'?'成熟蛋领取':plan.active==='evolution'?'免费进化':e.driver?.ownedDialog?'特殊队伍/盟友弹窗':e.driver?.teamTask?'队伍调整':e.automation?.owner?'游戏弹窗确认':e.automation?.buffUI?'树果操作':e.preparation?.candyTx?'升级糖果确认':e.driver?.pendingMap?'地图切换':e.driver?.navigation?'页面切换':a.battle?'游戏原生战斗':'空闲';
@@ -613,7 +655,7 @@
             else if(count&&id==='eggs')text+='；成熟蛋优先，可在普通战斗期间领取';
             entries.push({id,label:id==='eggs'?'培育屋 / 孵蛋':'地下派遣',state,detail:text,nextAt:Number.isFinite(nextAt)?nextAt:null});
         };
-        const residents=(s?.pension?.mons||[]).map(slot=>slot.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>mon.id!==132&&DATA.automation.breed[mon.id]?.can);
+        const residents=(s?.pension?.mons||[]).map(slot=>slot?.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>breedableOffspring(s,mon)!=null);
         make('eggs',c.autoEggs!==false,nativeEggs.length||residents.length,due.length,nextEgg,flow.eggService,c.mode==='breed',nativeEggs.length?`孵化中 ${nativeEggs.length-due.length} · 已成熟 ${due.length}`:breeding?'已配置寄养亲本，产糖 / 产蛋计时中':residents.length?'寄养产糖计时中，尚未配置可产蛋组合':'未配置蛋或寄养亲本');
         const under=undergroundStatus(s||{},now);
         const nextUnder=Math.min(...under.running.map(slot=>Number(slot.end)).filter(at=>Number.isFinite(at)&&at>now));
@@ -636,7 +678,7 @@
             else if(!under.left){underState=under.running.length?'timing':'waiting';underLabel=under.running.length?'探险中':'等待次日';underText+='；今日派遣额度已用完，等待巴黎次日';if(!underAt&&under.nextReset>now)underAt=under.nextReset;}
             else{
                 const idle=undergroundIdleMembers(s,e,now).length,required=DATA.automation.under.team||3,why=plan.blocked.underground;
-                if(why){underState=/手动队伍/.test(why)?'blocked':'waiting';underLabel=/不足|空闲.*队员/.test(why)?'等空闲队员':'等待前台';underText+=`；空闲可派遣 ${idle} 只，${why}`;}
+                if(why){underState=/手动队伍/.test(why)?'blocked':'waiting';underLabel=/冒险阵容|冒险配队|补练阵容/.test(why)?'等待冒险配队':/不足|空闲.*队员/.test(why)?'等空闲队员':'等待前台';underText+=`；空闲可派遣 ${idle} 只，${why}`;}
                 else if(idle<required){underState=under.slots.length?'timing':'waiting';underLabel='等空闲队员';underText+=`；空闲可派遣 ${idle}/${required}，保护主队、Buddy及培养对象`;}
                 else{underState='ready';underLabel='待派遣';underText+=`；空闲可派遣 ${idle} 只，等待自动组队派遣`;}
             }
@@ -697,9 +739,9 @@
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }
     function pensionPlan(s,id){
-        const residents=(s.pension?.mons||[]).map(x=>x.mon),protectedUids=new Set([...(s.team||[]),...(s.road||[])]);
+        const residents=(s.pension?.mons||[]).map(x=>x?.mon).filter(Boolean),protectedUids=new Set([...(s.team||[]),...(s.road||[])]);
         const eligible=(s.mons||[]).filter(m=>!protectedUids.has(m.uid));
-        const singles=new Set(),parents=[...residents,...eligible].filter(m=>!m.noEgg&&DATA.automation.breed[m.id]?.can&&DATA.automation.breed[m.id].egg===id).sort((a,b)=>Number(!!b.shiny)-Number(!!a.shiny)||b.level-a.level).filter(m=>{const key=DATA.combat.singles[m.id];if(!key)return true;if(singles.has(key))return false;singles.add(key);return true;});
+        const singles=new Set(),parents=[...residents,...eligible].filter(m=>breedableOffspring(s,m)===id).sort((a,b)=>Number(!!b.shiny)-Number(!!a.shiny)||b.level-a.level).filter(m=>{const key=DATA.combat.singles[m.id];if(!key)return true;if(singles.has(key))return false;singles.add(key);return true;});
         const ditto=residents.find(m=>m.id===132)||eligible.find(m=>m.id===132);
         return{residents,ditto,parents,desired:ditto&&parents.length?[ditto,...parents.slice(0,3)]:[],missing:!ditto?'需要一只可寄养的百变怪':!parents.length?'没有可寄养的对应亲本；请先从冒险队伍移出亲本':null};
     }
@@ -710,15 +752,28 @@
         const n=factor===1?Number(raw.replace(/[,.]/g,'')):Number(decimalComma?raw.replace(',','.'):raw.replace(/,/g,''));
         return Number.isFinite(n)&&n>=0?Math.ceil(n*factor):null;
     }
-    function normalizeJobs(raw){return(Array.isArray(raw)?raw:[]).slice(0,50).filter(x=>x&&MODE_NAMES[x.settings?.mode]).map((x,i)=>({id:String(x.id||`job-${i}`).slice(0,100),title:String(x.title||MODE_NAMES[x.settings.mode]).slice(0,80),settings:normalizeSettings(x.settings),status:['done','failed','running','pending'].includes(x.status)?x.status:'pending',result:String(x.result||'').slice(0,200),...x.progress&&typeof x.progress==='object'?{progress:x.progress}:{}}));}
+    function normalizeJobs(raw) {
+        const jobs = [], ids = new Set();
+        for (const row of Array.isArray(raw) ? raw.slice(0, 50) : []) {
+            if (!Object.hasOwn(MODE_NAMES, row?.settings?.mode)) continue;
+            let suffix = jobs.length, id = String(row.id || `job-${suffix}`).slice(0,100);
+            while (ids.has(id)) id = `job-${++suffix}`;
+            ids.add(id);
+            jobs.push({id, title:String(row.title || MODE_NAMES[row.settings.mode]).slice(0,80),
+                settings:normalizeSettings(row.settings), status:['done','failed','running','pending'].includes(row.status) ? row.status : 'pending',
+                result:String(row.result || '').slice(0,200),
+                ...(row.progress && typeof row.progress === 'object' && !Array.isArray(row.progress) ? {progress:row.progress} : {})});
+        }
+        return jobs;
+    }
     function configurationProfile(engine){
         return{format:'pokecatch-helper-profile',schema:1,version:VERSION,settings:normalizeSettings(engine.settings),
             queue:normalizeJobs(engine.queue).map(job=>({id:job.id,title:job.title,settings:job.settings,status:'pending',result:''}))};
     }
     function parseConfigurationProfile(input){
         if(typeof input==='string'){if(input.length>2*1024*1024)throw new Error('配置文件超过2MB');input=JSON.parse(input.replace(/^\uFEFF/,''));}
-        if(!input||input.format!=='pokecatch-helper-profile'||input.schema!==1||!input.settings||!MODE_NAMES[input.settings.mode])throw new Error('不是支持的助手配置文件');
-        if(!Array.isArray(input.queue)||input.queue.length>50||input.queue.some(job=>!job||!MODE_NAMES[job.settings?.mode]))throw new Error('任务队列格式无效或超过50项');
+        if(!input||input.format!=='pokecatch-helper-profile'||input.schema!==1||!Object.hasOwn(MODE_NAMES,input.settings?.mode))throw new Error('不是支持的助手配置文件');
+        if(!Array.isArray(input.queue)||input.queue.length>50||input.queue.some(job=>!Object.hasOwn(MODE_NAMES,job?.settings?.mode)))throw new Error('任务队列格式无效或超过50项');
         return configurationProfile({settings:input.settings,queue:input.queue});
     }
     function importConfigurationProfile(engine,input){
@@ -825,9 +880,9 @@
         for(const [candidate,weight]of weights)if((roll-=weight)<=0){key=candidate;break;}
         return{key,known:true,source:'natural',at};
     }
-    // Verified against public build c9b850cf68 / app.84beed0145.js, 2026-11-18.
+    // Verified against public build a5299b1690 / app.ac708615ae.js.
     // These functions read decoded saves. They never consume a roll, save or game action.
-    const NURSERY_RULES = Object.freeze({build:'c9b850cf68',compatibleBuilds:['0a26d39c19','c9b850cf68'],
+    const NURSERY_RULES = Object.freeze({build:'a5299b1690',compatibleBuilds:['0a26d39c19','c9b850cf68','a5299b1690'],
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
         berryMultiplier:2,berry:'belue-berry',ditto:132,eggMs:14400000,hatchMs:14400000,maxEggs:4,
         noEgg:[137,442,479,47901,47902,47903,47904,47905,556],lays:{489:489,490:489}});
@@ -896,6 +951,11 @@
         }
         return{known:true,shiny:roll<rate,rate,roll,source,key};
     }
+    function breedableOffspring(s, mon) {
+        if (!mon || mon.noEgg || mon.id === NURSERY_RULES.ditto || NURSERY_RULES.noEgg.includes(mon.id) ||
+            !DATA.automation.breed[mon.id]?.can) return null;
+        return nurseryOffspringId(s, mon);
+    }
     function nurseryParentPool(s){
         const rows=s?.pension?.mons;
         if(!Array.isArray(rows))return{known:false,parents:[],hasDitto:false,reason:'培育屋亲本列表不可用'};
@@ -904,8 +964,9 @@
             const mon=rows[index]?.mon,model=mon&&DATA.automation?.breed?.[mon.id];
             if(!mon||!Number.isInteger(mon.id)||!MONS.has(mon.id)||!model||typeof model.can!=='boolean')return{known:false,parents:[],hasDitto,reason:'有亲本不在已核对物种表中'};
             if(mon.id===NURSERY_RULES.ditto){hasDitto=true;continue;}
-            if(mon.noEgg||NURSERY_RULES.noEgg.includes(mon.id)||!model.can)continue;
-            parents.push({id:mon.id,eggId:nurseryOffspringId(s,mon),uid:mon.uid??null,shiny:!!mon.shiny,index,slot:index+1});
+            const eggId = breedableOffspring(s, mon);
+            if (eggId == null) continue;
+            parents.push({id:mon.id,eggId,uid:mon.uid??null,shiny:!!mon.shiny,index,slot:index+1});
         }
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
@@ -917,13 +978,14 @@
             assumptions:['亲本顺序与异色状态保持不变','期间没有赠送蛋等其他来源占用蛋序号','只计现有待用靛莓果，不假设后续自动喂果','距离指自然产蛋次数，不是孵化次数或保底进度'],
             scenarios:{plainParents:{hypothetical:true,nextShiny:null},shinyParents:{hypothetical:true,nextShiny:null},berryNext:{hypothetical:true,nextShiny:null}}};
         const reject=reason=>({...result,reason});
-        if(options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build))return reject('当前游戏构建尚未核对确定性蛋规则');
+        const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
+        if(unverified&&!options.estimateUnverified)return reject('当前游戏构建尚未核对确定性蛋规则');
         if(!pool.known)return reject(pool.reason);
         if(seed===null)return reject('训练家 ID 或创建时间缺失，未使用空种子预测');
         if(result.counter===null)return reject('下一蛋序号缺失或异常，等待游戏自身初始化');
         if(!pool.hasDitto||!pool.parents.length)return reject(pool.reason);
         if(laid>Number.MAX_SAFE_INTEGER-limit)return reject('蛋序号超出安全整数范围');
-        result.known=true;result.active=true;
+        result.known=!unverified;result.estimated=unverified;result.active=true;
         const keep=Number.isFinite(+options.count)?Math.max(1,Math.min(20,Math.floor(+options.count))):3;
         for(let offset=0;offset<limit;offset++){
             const k=laid+offset,roll=nurseryHash(`${seed}|egg|${k}|0`),parentRoll=nurseryHash(`${seed}|egg|${k}|1`);
@@ -1108,7 +1170,7 @@
         if(typeof document==='undefined')return{};
         if(typeof window!=='undefined'&&typeof window.BUILD==='string'&&window.BUILD)return{build:window.BUILD};
         const scripts=[...(document.querySelectorAll?.('script[src]')||[])],bundle=scripts.map(node=>/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).find(Boolean);
-        const builds={'6e45170313':'0a26d39c19','84beed0145':'c9b850cf68'};
+        const builds={'6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690'};
         return{build:bundle?builds[bundle]||'unverified:'+bundle:'unverified:missing'};
     }
     class NurseryMonitor {
@@ -2114,6 +2176,34 @@
         return{id:monIdFrom(el),level:clamp(levels?.at(-1),1,100,1),shiny:[...el.querySelectorAll('img')].some(img=>/(?:\/|[-_])shiny(?:\/|[-_.])/i.test(img.getAttribute('src')||'')),rank:Math.max(0,ranks.indexOf(rankText))};
     }
 
+    // Validate each measurement independently. Older profiles can contain XP-only
+    // samples, and a damaged item history should not erase a valid wallet sample.
+    function readRouteMetric(value) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+        const positive = n => Number.isFinite(n) && n > 0;
+        const nonnegative = n => Number.isFinite(n) && n >= 0;
+        const money = positive(value.seconds) && positive(value.runs) && Number.isFinite(value.net);
+        const xp = positive(value.xpSeconds) && positive(value.xpRuns) && nonnegative(value.xp);
+        const items = positive(value.itemSeconds) && positive(value.itemRuns) && value.itemCounts &&
+            typeof value.itemCounts === 'object' && !Array.isArray(value.itemCounts);
+        if (!money && !xp && !items) return null;
+        const metric = { net: money ? value.net : 0, seconds: money ? value.seconds : 0,
+            runs: money ? value.runs : 0, deaths: nonnegative(value.deaths) ? value.deaths : 0,
+            at: nonnegative(value.at) ? value.at : 0 };
+        if (xp) Object.assign(metric, { xp: value.xp, xpSeconds: value.xpSeconds, xpRuns: value.xpRuns });
+        if (items) {
+            metric.itemCounts = Object.fromEntries(Object.entries(value.itemCounts)
+                .filter(([id, count]) => ITEMS.has(id) && nonnegative(count)));
+            metric.itemSeconds = value.itemSeconds;
+            metric.itemRuns = value.itemRuns;
+        }
+        return metric;
+    }
+    function readRouteHistory(raw) {
+        if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+        return Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, readRouteMetric(value)])
+            .filter(([, metric]) => metric).sort((a, b) => b[1].at - a[1].at).slice(0, 200));
+    }
     class Telemetry {
         constructor(metrics = {}) { this.metrics = metrics; this.sample = null; }
         begin(s, row, settings, now) {
@@ -2137,7 +2227,8 @@
             const completeLoop=!row.league||(s.adv.runs||0)-old.run>=row.members.length;
             const result = { valid: valid && !!old.full && completeLoop, seconds, net, deaths: Math.max(0, totalDeaths(s, row) - old.deaths), xp: old.xp != null && currentXp != null ? Math.max(0, currentXp - old.xp) : null };
             if (result.valid) {
-                const m = this.metrics[old.key] || { net: 0, seconds: 0, runs: 0, deaths: 0 };
+                const m = this.metrics[old.key] || { net: 0, seconds: 0, runs: 0 };
+                m.deaths ??= 0;
                 if (m.runs >= 8) { m.net *= .75; m.seconds *= .75; m.runs *= .75; m.deaths *= .75; if (m.xpSeconds) { m.xp *= .75; m.xpSeconds *= .75; m.xpRuns *= .75; } if (m.itemSeconds) { m.itemSeconds *= .75; m.itemRuns *= .75; for (const id of Object.keys(m.itemCounts)) m.itemCounts[id] *= .75; } }
                 m.net += net; m.seconds += seconds; m.runs += 1; m.deaths += result.deaths; m.at = now;
                 if (result.xp != null) { m.xp = (m.xp || 0) + result.xp; m.xpSeconds = (m.xpSeconds || 0) + seconds; m.xpRuns = (m.xpRuns || 0) + 1; }
@@ -2317,7 +2408,8 @@
             if(owner&&['mon','coachCandy','buddy','evolution'].includes(owner.kind)&&modal.matches(owner.selector))return false;
             if(owner?.kind==='receipt'&&modal.matches(owner.selector))return false;
             // Close only native information cards; never infer approval from arbitrary button text.
-            if(modal.matches('.dexcard-modal,.mon-modal')&&!modal.querySelector('.modal-actions button')){
+            // The game shares dexcard-modal with ally pickers, bag, shops and settings.
+            if((modal.matches('.mon-modal')||modal.matches('.dexcard-modal')&&modal.querySelector('.dexcard'))&&!modal.querySelector('.modal-actions button')){
                 const close=modal.querySelector('.dc-x');
                 if(enabled(close))return this.click(close,'关闭图鉴 / 宝可梦信息卡，继续原任务',false,resuming);
             }
@@ -2418,7 +2510,14 @@
             }
             if(['team','factoryTeam'].includes(own.type)&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
             const ownedRoot=['team','factoryTeam'].includes(own.type)?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
-            if(!visible(ownedRoot)){this.ownedDialog=null;return false;}
+            if(!visible(ownedRoot)){
+                // The native modal queue can mount the picker after the launch click.
+                if(own.openingUntil>Date.now()&&!s.adv?.event?.raid&&!visible($('#modal-root.open .modal'))&&!visible($('#evt-pick')))return true;
+                if(own.type==='ally'&&own.key&&visible($('#evt-pick'))&&this.e.settings.optimizeRaid){
+                    this.ownedDialog={type:'team',key:own.key,optimized:false};return true;
+                }
+                this.ownedDialog=null;return false;
+            }
             own.started ||= Date.now();
             if(Date.now()-own.started>120000){this.ownedDialog=null;this.e.failTask('特殊战配队或盟友弹窗等待超时，请检查页面');return true;}
             if(own.type==='factoryTeam')return this.factoryTeam(s,own);
@@ -2437,8 +2536,16 @@
                 return true;
             }
             if (own.type === 'ally') {
-                const choices = $$('#modal-root.open .raid-dlg [data-pick]');
-                if (!choices.length) { if (!$('#modal-root.open')) this.ownedDialog = null; return false; }
+                const choices = $$('#modal-root.open .raid-dlg [data-pick]').filter(enabled);
+                if (!choices.length) {
+                    this.e.status='等待可选团体战同伴';
+                    if(Date.now()-own.started>=10000&&this.click(ownedRoot.querySelector('.dc-x'),'暂无可用同伴，返回主任务')){
+                        this.e.raidCooldown[parisDay()+'|'+this.raid?.reg]=Date.now()+10*60000;
+                        this.e.raidProbe=false;this.e.raidReturn=null;this.raid=null;this.ownedDialog=null;
+                        this.e.nextRaid=Date.now()+10*60000;this.e.log('团体战同伴列表为空，10 分钟后再检查');
+                    }
+                    return true;
+                }
                 const bots = s.raids?.bots?.[this.raid?.reg] || [];
                 const offers = Array.isArray(bots) ? bots : Object.values(bots);
                 const available=new Set(choices.map(el=>el.dataset.pick)),index=new Map((s.mons||[]).map(m=>[m.uid,m]));
@@ -2537,8 +2644,9 @@
             const key = `raid:${parisDay()}|${reg}|${boss}|${rosterFingerprint(s)}`;
             const edit = card.querySelector('[data-raid-edit]');
             if (this.e.settings.optimizeRaid && !this.recent.has(key) && enabled(edit)) {
-                this.ownedDialog = { type: 'team', key, optimized: false };
-                return this.click(edit, '按团体战对手优化队伍');
+                if(!this.click(edit, '按团体战对手优化队伍'))return false;
+                this.ownedDialog = { type: 'team', key, optimized: false, openingUntil:Date.now()+5000 };
+                return true;
             }
             if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},Date.now()))return false;
             const go = card.querySelector('[data-raid-go]');
@@ -2548,7 +2656,7 @@
                     this.ownedDialog=this.e.settings.optimizeRaid?{type:'team',key,optimized:false}:null;
                     if(!this.e.settings.optimizeRaid)this.e.status='请手动配置团体战队伍，或开启优化特殊战队伍';
                 }
-                else this.ownedDialog = { type: 'ally' };
+                else this.ownedDialog = { type: 'ally',key,openingUntil:Date.now()+5000 };
                 return true;
             }
             return false;
@@ -2874,7 +2982,7 @@
                     e.services.retryAt.underground=now+60000;
                 }
             }
-            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||mainGoalReached(s,e,now)))task.returning=true;
+            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||mainGoalReached(s,e,now)||adventureDispatchWait(s,e,now)))task.returning=true;
             if(!task.returning){
                 if(!d.nav('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开后台地下探险页');return true;}
@@ -2908,7 +3016,7 @@
                             if(enabled(go)){
                                 // Re-read immediately before the irreversible native send.
                                 const latest=e.read(),valid=new Set(undergroundIdleMembers(latest,e,now).map(mon=>mon.uid)),actual=latest.eventTeams?.[`under:${task.bay}`]||[];
-                                if(actual.length!==task.uids.length||actual.some((uid,i)=>uid!==task.uids[i]||!valid.has(uid))||latest.adv.pending||latest.adv.event||latest.adv.zone||latest.adv.tower||latest.adv.league){task.returning=true;return true;}
+                                if(actual.length!==task.uids.length||actual.some((uid,i)=>uid!==task.uids[i]||!valid.has(uid))||latest.adv.pending||latest.adv.event||latest.adv.zone||latest.adv.tower||latest.adv.league||adventureDispatchWait(latest,e,now)){task.returning=true;return true;}
                                 task.launch={bay:task.bay,uids:[...task.uids],ids:status.slots.map(job=>String(job.id)),at:now};e.persist();
                                 if(!d.click(go,'后台派遣地下空闲队伍'))delete task.launch;
                                 e.persist();return true;
@@ -2933,7 +3041,15 @@
                 this.state.hatch=null;this.state.hatchRetryAt=now+60000;this.wait('孵蛋尚未确认，一分钟后重试',this.state.hatchRetryAt);return;
             }
             if(this.state.hatch&&!eggs.some(x=>x.uid===this.state.hatch.uid)){
-                if((s.stats?.hatched||0)>this.state.hatch.before&&this.state.hatch.target)this.state.hatched=(this.state.hatched||0)+1;
+                const tx=this.state.hatch, count=s.stats?.hatched||0;
+                if(tx.target && count===tx.before){
+                    if(tx.disappearedAt==null){tx.disappearedAt=now;e.persist();}
+                    if(now-tx.disappearedAt<NURSERY_LEDGER_LIMITS.windowMs){
+                        this.wait('目标蛋已离开孵化器，等待游戏写入孵化计数');return;
+                    }
+                    e.log('未收到目标蛋的孵化确认，继续等待下一枚目标蛋');
+                }
+                if(count>tx.before&&tx.target)this.state.hatched=(this.state.hatched||0)+1;
                 if(this.owner?.kind==='receipt'&&this.owner.selector==='.dexcard-modal'&&!visible($('#modal-root.open .dexcard-modal')))this.owner=null;
                 this.state.hatch=null;e.persist();
             }
@@ -2945,7 +3061,9 @@
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
             const plan=pensionPlan(s,cfg.breedId);if(plan.missing){
-                const all=[...(s.mons||[])],parent=all.find(m=>!m.noEgg&&DATA.automation.breed[m.id]?.can&&DATA.automation.breed[m.id].egg===cfg.breedId),ditto=all.find(m=>m.id===132);
+                const all=s.mons||[];
+                const parent=plan.parents.length ? null : all.find(m=>breedableOffspring(s,m)===cfg.breedId);
+                const ditto=plan.ditto ? null : all.find(m=>m.id===132);
                 const remove=[parent?.uid,ditto?.uid].filter(uid=>s.team?.includes(uid));
                 if(remove.length&&!cfg.autoTeam){this.wait('繁殖亲本在手动冒险队伍中，请先手动移出亲本后继续');return;}
                 if(remove.length){const rest=s.team.filter(uid=>!remove.includes(uid)),bench=all.filter(m=>!remove.includes(m.uid)&&!rest.includes(m.uid)&&teamEligible(s,m)).sort((a,b)=>b.level-a.level);while(rest.length<Math.min(6,s.team.length)&&bench.length)rest.push(bench.shift().uid);
@@ -2972,7 +3090,7 @@
                 }
                 d.click(card,missing.id===132?'寄养百变怪':'寄养目标亲本');return;
             }
-            const unwanted=plan.residents.find(m=>m.id!==132&&(m.noEgg||!DATA.automation.breed[m.id]?.can||DATA.automation.breed[m.id]?.egg!==cfg.breedId));
+            const unwanted=plan.residents.find(m=>m.id!==132&&breedableOffspring(s,m)!==cfg.breedId);
             if(unwanted){const el=$$('#pen-res [data-uid]').find(el=>el.dataset.uid===unwanted.uid);if(d.click(el,'取回不参与目标繁殖的成员'))this.own('confirm','.modal',{match:/(取回|取出|回到|返回|Récupérer|Retrieve|Return)/i});return;}
             const until=eggs.length?Math.min(...eggs.map(x=>x.hatchAt||now+60000)):now+60000;
             this.wait(`繁殖中 · 已孵化 ${this.state.hatched||0}/${cfg.breedShiny?'目标异色':cfg.breedGoal} · 孵化器 ${eggs.length} 枚`,until);
@@ -3766,6 +3884,9 @@
         }
     }
 
+    function adventureTeamWeatherKey(s,members,now){
+        return JSON.stringify(members.map(chapter=>combatWeather(s,{chapter},{},now).signature));
+    }
     class Engine {
         constructor(storage, settings = {}) {
             this.storage = storage; this.settings = normalizeSettings(settings); this.running = false;
@@ -3789,8 +3910,27 @@
             return this.state;
         }
         loadAccount(s) {
-            this.account = accountId(s);
-            try { const saved = JSON.parse(this.storage.getItem(PREFIX + this.account) || '{}'); this.metrics = saved.metrics || {}; this.settings = normalizeSettings({ ...this.settings, ...saved.settings });this.queue=normalizeJobs(saved.queue);this.queueIndex=Math.max(0,Math.min(this.queue.length,Number(saved.queueIndex)||0));this.checkpoint=saved.resume?.wanted?saved.resume:null;this.services=normalizeServiceState(saved.services); } catch {this.services=normalizeServiceState();}
+            const id = accountId(s), switching = this.account !== null && this.account !== id;
+            if (switching) {
+                if (this.running || this.suspended) throw new Error('请先结束上一账号的任务');
+                for (const field of SESSION_FIELDS) delete this[field];
+                this.queueRunning = false;
+                this.tabToken = undefined;
+                this.target = this.visit = this.preparation = this.nextWake = null;
+                this.cooldowns = {}; this.raidCooldown = {}; this.logs = []; this.action = '';
+                this.driver = new DOMDriver(this); this.automation = new Automation(this);
+                this.budget = new Budget(this); this.coach = new LevelCoach(this);
+                this.status = '已切换账号，已载入当前账号的任务配置';
+            }
+            this.account = id;
+            let saved = {};
+            try { saved = JSON.parse(this.storage.getItem(PREFIX + id) || '{}') || {}; } catch {}
+            this.metrics = readRouteHistory(saved.metrics);
+            this.settings = normalizeSettings({ ...(switching ? DEFAULTS : this.settings), ...saved.settings });
+            this.queue = normalizeJobs(saved.queue);
+            this.queueIndex = Number.isInteger(saved.queueIndex) ? Math.max(0, Math.min(this.queue.length, saved.queueIndex)) : 0;
+            this.checkpoint = saved.resume?.wanted ? saved.resume : null;
+            this.services = normalizeServiceState(saved.services);
             this.telemetry = new Telemetry(this.metrics);
             this.nurseryMonitor.load(s);
         }
@@ -3929,7 +4069,7 @@
                 if (this.settings.mode === 'dex' && ENCOUNTER_DATA_ERRORS.length) throw new Error('图鉴出没数据损坏，请重新安装完整脚本');
                 if (!this.acquire(Date.now())) { controlDenied=true;throw new Error('另一个标签页正在运行助手'); }
                 this.running = true; this.runId++; this.started = Date.now(); this.stoppedAt = null; this.lastProgress = Date.now(); this.progressSignature = '';this.hiddenAt=null;
-                this.manual = null; this.inputHeld = false;this.clearHeldInput?.();
+                this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.legendProbe=null;this.farmWait=null;this.roamStarted=null;this.roamProbeAt=0;this.roamRestartAt=0;
                 this.startMoney = s.money;
                 this.startItems = itemCounter(s, this.settings.itemId); this.sessionItemId = this.settings.itemId; this.lastExplore = 0;
@@ -3973,7 +4113,7 @@
             this.suspended=null;
             this.saveJobProgress();
             this.running = false; this.runId++; this.stoppedAt = Date.now(); clearTimeout(this.timer); this.timer = null;
-            this.manual = null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
+            this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
             this.legendProbe=null;this.farmWait=null;
             this.checkpoint=null;this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;this.nextWake=null;this.modalWaitSince=null;
             this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.ownedDialog = null;
@@ -3995,6 +4135,15 @@
                 this.manual = { since: now, until: now, raid: raidIdentity(s),
                     zone: zone ? JSON.stringify([zone.id, zone.foe, zone.elite]) : null,
                     tower:s?.adv?.tower?JSON.stringify(s.adv.tower):null,league:s?.adv?.league?JSON.stringify([s.adv.league.reg,s.adv.league.tier]):null };
+                // Keep a live DOM identity only for the picker this run actually opened.
+                const own=this.driver.ownedDialog;
+                const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
+                this.interruptedPicker=null;
+                if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
+                else if(['team','factoryTeam','backgroundUnderTeam'].includes(own?.type)){
+                    const close=$('#evt-pick [data-evt-close]');
+                    if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
+                }
                 this.log('手动控制中；空闲后自动恢复原任务');
                 // A user can change the selected map, party or dialog while in control.
                 // Keep session goals and the original loop backup, discard interrupted UI work.
@@ -4053,11 +4202,22 @@
             let wait=this.manualWaitState(s,now);
             if(wait.reason==='input'&&this.releaseIdleGameInput?.())wait=this.manualWaitState(s,now);
             if(wait.reason==='dialog'){
+                const picker=this.interruptedPicker,ally=$('#modal-root.open .raid-dlg');
+                if(picker?.handoff===this.manual&&picker.raid&&picker.node===ally&&visible(ally)&&!s.adv.event&&!s.adv.zone&&!s.adv.tower&&!s.adv.league&&picker.raid.date===parisDay(now)){
+                    this.manual=null;this.interruptedPicker=null;this.raidProbe=true;this.raidProbeStarted=now;
+                    this.driver.raid=picker.raid;this.driver.ownedDialog={type:'ally',started:now};
+                    this.status='继续为当前团体战选择同伴';return false;
+                }
+                if(picker?.handoff===this.manual&&!picker.raid&&visible(picker.node)&&
+                    (picker.node===$('#evt-pick [data-evt-close]')||picker.node===ally?.querySelector('.dc-x'))){
+                    if(this.driver.click(picker.node,'关闭已中断的选择窗口，重新规划',false,true))this.interruptedPicker=null;
+                    return true;
+                }
                 if(this.driver.dismissInformation?.(s,true)){this.status='已关闭信息弹窗，准备恢复原任务';return true;}
             }
             if(wait.reason!=='ready'){this.status=wait.status;return true;}
             const raid = s.adv.event, zone = s.adv.zone;
-            this.manual = null; this.target = null; this.visit = null; this.telemetry.sample = null;
+            this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
             this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
             this.driver.teamTask=null;this.teamCheck=null;
             if(!this.adoptManualPreparation(s,now,true))return true;
@@ -4090,6 +4250,11 @@
                 this.log(`明确接管当前团体战 · ${MONS.get(raid.id)?.name||reg} · 保留尝试 ${raid.loops||0}/150`);
             }
             this.manual.until = now;
+            const ally=$('#modal-root.open .raid-dlg');
+            if(visible(ally)&&!(this.interruptedPicker?.handoff===this.manual&&this.interruptedPicker.raid?.date===parisDay(now)&&this.interruptedPicker.node===ally)){
+                const close=ally.querySelector('.dc-x');
+                if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
+            }
             this.manualStep(s, now);this.persist();this.schedule(50);
         }
         schedule(ms = 1200) {
@@ -4117,6 +4282,7 @@
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;this.lastProgress=now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
             if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
+            if(this.driver.ownedDialog?.openingUntil!=null)this.driver.ownedDialog.openingUntil+=duration;
             if(this.legendProbe?.started!=null)this.legendProbe.started+=duration;
             for(const task of [this.driver.ownedDialog,this.driver.teamTask])if(task?.pending?.at!=null)task.pending.at+=duration;
             if(this.driver.navigation){this.driver.navigation.started+=duration;this.driver.navigation.nextAt+=duration;}
@@ -4376,13 +4542,13 @@
             const objective=this.settings.mode==='train'?'train':['money','item','shiny'].includes(this.settings.mode)||this.settings.mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':'progress';
             const roamId=roam?roamingSettings(this.settings).roamId:undefined;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
-            const weatherKey=JSON.stringify((row.members||[c.id]).map(chapter=>combatWeather(s,{chapter},{},now).signature));
-            if(last&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&last.party===s.team.join('|')&&now-last.at<this.settings.teamMinutes*60000&&
+            const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
+            if(last&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&now-last.at<this.settings.teamMinutes*60000&&
                 last.roster===roster&&last.deaths===deaths)return false;
             const pinned=this.settings.mode==='train'?(this.trainProtected||(this.settings.trainUid==='team'?s.team:[this.settings.trainUid])):[];
             const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
             const plan=planAdventureTeam(s,this.settings,pinned,{reg:row.reg||c.reg,foes,objective,now});
-            this.teamCheck={key,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+            this.teamCheck={key,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
                 reason:plan.changed?plan.reason:'当前阵容收益接近建议，保留现有队伍',gain:plan.gain,opponents:plan.opponents};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
@@ -4613,6 +4779,70 @@
         Object.assign(module.exports,{NURSERY_RULES,NURSERY_LINEAGE,nurseryHash,nurserySeed,nurseryFixedRoll,nurseryEggRate,nurseryEggKey,eggOutcome,nurseryParentPool,nurseryOffspringId,nurseryForecast,nurserySnapshot,NURSERY_LEDGER_LIMITS,NurseryLedger,NURSERY_STORE_PREFIX,nurseryRuntimeOptions,NurseryMonitor});
         return;
     }
+    const PANEL_STYLE = `
+:host{font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;color:#e6edf8;color-scheme:dark}
+            *{box-sizing:border-box}button,input,select{font:inherit}button,select,summary{cursor:pointer}button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #79dcba;outline-offset:2px}
+            .panel{width:406px;max-width:calc(100vw - 20px);border:1px solid #39465c;border-radius:18px;background:#111a29f5;box-shadow:0 16px 55px #0007;overflow:hidden;backdrop-filter:blur(18px)}
+            header{display:flex;align-items:center;gap:7px;padding:13px 14px;background:linear-gradient(115deg,#21364a,#1b263d);cursor:move;touch-action:none;user-select:none}header b{font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}header small{display:block;font-size:8px;font-weight:400;letter-spacing:.6px;color:#90a8bd}.logo{background:#79dcba;color:#102d29;border-radius:10px;padding:5px 9px;font-weight:900;font-size:19px}.tag{font:10px ui-monospace,monospace;color:#9aaec4}header button{padding:3px 10px}
+            #check-update{font-size:10px;padding:5px 7px;white-space:nowrap}#check-update.available{border-color:#79dcba;color:#a3f0d3}.update-notice{padding:8px 10px;margin-bottom:8px;border:1px solid #45627b;border-radius:9px;background:#192c40;font-size:11px;overflow-wrap:anywhere}.update-notice.available{border-color:#79dcba;color:#a3f0d3}.update-source a{color:#9cded1}.update-source-row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid #2b3e51;font-size:11px}.update-source-row span:last-child{min-width:0;text-align:right;overflow-wrap:anywhere}.update-source-row[data-state=error]{color:#e9b9a3}#update-tools .row{margin:7px 0}#update-tools .hint{margin-bottom:8px}
+            button{border:1px solid #3d4b62;border-radius:9px;padding:7px 10px;background:#223048;color:#e8f0fb}button:hover:enabled{background:#304361}button.primary{background:#79dcba;border-color:#79dcba;color:#102d29;font-weight:750}button.primary:hover:enabled{background:#9be9ce}.danger{border-color:#754350;color:#ffc5cf;background:#422a39}
+            .content{padding:12px;overflow:auto;scrollbar-width:thin;scrollbar-color:#465971 transparent}.status{padding:11px 12px;border:1px solid #33435b;background:#0b1423;border-radius:12px;overflow-wrap:anywhere}.live{display:flex;align-items:center;gap:6px;color:#93a8c2;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}.dot{width:6px;height:6px;border-radius:50%;background:#8191a8}.running .dot{background:#79dcba;box-shadow:0 0 9px #79dcba80}.running .live{color:#79dcba}#status{font-size:12px}.sub{font-size:11px;color:#95a9c2;margin-top:4px}#action{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+            .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:9px 0 12px}.metric{padding:9px 4px;text-align:center;background:#1b293d;border:1px solid #2b3b53;border-radius:10px;font-size:10px;color:#99aec7}.metric b{display:block;font-size:18px;letter-spacing:-.5px;color:#d7e7f9;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.metric:first-child b{color:#87e3c3}
+            .caption{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#91a8c1;margin:9px 0 6px}.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.modes button{text-align:left;padding:9px;font-size:11px;background:#182438;line-height:1.4}.modes button span{display:block;font-size:15px;margin-bottom:3px;color:#a9bfd8}.modes button.on{background:#203d3e;border-color:#79dcba;color:#b5f5de}.modes button.on span{color:#79dcba}
+            .target{padding:10px;border:1px solid #33455c;border-radius:11px;background:#162236;margin:9px 0}.field{display:flex;gap:9px;align-items:center;margin:6px 0}.field>span,.field>label{flex:0 0 82px;color:#b6c8df;font-size:12px}.field select{flex:1;width:0}.field input{flex:1;width:0}select,input[type=number],input[type=search]{min-width:0;width:100%;border:1px solid #3d506a;background:#0e192a;color:#edf4ff;border-radius:7px;padding:7px}input[type=number]{font-variant-numeric:tabular-nums}.hint{font-size:11px;color:#8fa7c2;line-height:1.65;margin:6px 0 0}.warn{color:#e6be7a}.goal{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#b9cde4;margin-top:9px}.bar{height:4px;overflow:hidden;border-radius:3px;background:#30415a;margin-top:5px}.bar i{display:block;height:100%;width:0;background:#79dcba;transition:width .3s ease}.row{display:flex;gap:7px;margin:10px 0}.row button{flex:1;padding:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px}.checks label{display:flex;align-items:flex-start;gap:5px;color:#becce0}input[type=checkbox]{accent-color:#79dcba;margin:3px 0 0}
+            details{margin:10px 0;border-top:1px solid #2c3b51;padding-top:8px}summary{font-size:11px;color:#9fb7d4}.setting{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;font-size:11px}.setting input[type=number],.setting select{width:125px}.setting input[type=checkbox]{margin-right:5px}.tabs{display:flex;border-bottom:1px solid #34465c;gap:4px;margin:12px 0 0}.tabs button{flex:1;border:none;border-radius:7px 7px 0 0;background:transparent;color:#8da7c6;font-size:11px;padding:8px 4px}.tabs button.on{background:#22334a;color:#a3f0d3;box-shadow:inset 0 -2px #79dcba}.list{max-height:185px;overflow:auto;scrollbar-width:thin;min-height:44px;padding:4px 0}table{width:100%;border-collapse:collapse;font-size:11px}th,td{padding:7px 4px;border-bottom:1px solid #28394f;text-align:left}th{font-weight:400;color:#8ca4c0;position:sticky;top:0;background:#111a29}td:last-child,th:last-child{text-align:right}tr.active td{color:#8ce8c7}.missing{display:flex;gap:5px;flex-wrap:wrap;padding:6px 0}.chip{padding:3px 6px;background:#23344b;border-radius:6px;font-size:11px}.log{font-size:11px;padding:5px 0;border-bottom:1px solid #25364b;overflow-wrap:anywhere}.log time{color:#859dbb;margin-right:6px}.empty{padding:15px 8px;color:#93abc7;font-size:11px}.actions{display:flex;gap:5px;padding-top:8px;border-top:1px solid #2e3f55}.actions button{flex:1;font-size:10px;padding:5px}.mini{border-radius:30px;box-shadow:0 4px 24px #0008;background:#1e3346;padding:10px 15px;border-color:#79dcba;display:flex;align-items:center;gap:8px}.mini.running::before{content:'';width:6px;height:6px;border-radius:50%;background:#79dcba}.hidden{display:none!important}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+            .mini{touch-action:none;user-select:none;cursor:grab;max-width:calc(100vw - 20px)}.mini:active{cursor:grabbing}#mini-state{min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status.manual{border-color:#8b713f}.manual .dot{background:#e6be7a;box-shadow:none}.manual .live{color:#e6be7a}.mini.manual{border-color:#e6be7a}.mini.manual::before{background:#e6be7a}
+            .execution-card{padding:10px;border:1px solid #344b5c;border-radius:11px;background:#142431;margin:10px 0}.execution-top{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#9ab8c7;margin-bottom:5px}#ui-owner{max-width:68%;text-align:right;overflow-wrap:anywhere;color:#9bd9c4}#foreground-task{font-size:12px;color:#e1f2f3}#foreground-detail{font-size:10px;color:#9bb3c4;line-height:1.5;margin:3px 0 7px;overflow-wrap:anywhere}.service-row{display:grid;grid-template-columns:78px auto 1fr;gap:6px;align-items:start;margin:5px 0;font-size:10px}.service-label{color:#bed2de}.service-state{white-space:nowrap;padding:1px 5px;border-radius:4px;background:#283b4a;color:#b7c8d6}.service-detail{min-width:0;color:#91aabd;overflow-wrap:anywhere}.service-row[data-state=ready] .service-state,.service-row[data-state=running] .service-state{color:#b6f0d7;background:#235045}.service-row[data-state=waiting] .service-state,.service-row[data-state=blocked] .service-state{color:#f0d29d;background:#4d4030}#concurrency-note{border-top:1px solid #2d4655;padding-top:6px;margin-top:7px;font-size:10px;color:#8faeba;line-height:1.5}#parallel-rules{margin:6px 0 10px}#parallel-rules table{font-size:10px}#parallel-rules td:first-child{width:48%}#parallel-rules td:last-child{text-align:left;color:#a8d3c1}.background-toggles{margin:7px 0;font-size:11px}.background-toggles label{align-items:flex-start}.queue-note{padding:6px 3px;font-size:10px;line-height:1.5;color:#94aebb}
+            @media(max-width:450px){.panel{width:360px;border-radius:14px}.content{padding:10px}header{padding:10px 12px}.metric b{font-size:16px}.list{max-height:155px}.modes button{padding:7px}.field>span,.field>label{flex-basis:74px}}
+            @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+            .categories{display:flex;gap:4px;padding:3px;background:#0b1423;border-radius:9px;margin-bottom:7px}.categories button{flex:1;border:0;background:transparent;color:#93abc7;font-size:11px;padding:6px 3px}.categories .on{color:#b5f5de;background:#23403e}.modes{grid-template-columns:repeat(2,1fr)}.modes button span{display:inline-block;width:22px;margin:0 4px 0 0;vertical-align:middle}.queue-tools{display:flex;gap:6px;margin:8px 0}.queue-tools button{flex:1;font-size:11px;padding:7px}.queue-tools #queue-count{display:inline-block;min-width:17px;background:#102138;border-radius:10px;margin-left:3px}.job{padding:9px 7px;border-bottom:1px solid #2d4058}.job.active{border-left:2px solid #79dcba;background:#1c303a}.job-head{display:flex;justify-content:space-between;gap:8px;font-size:12px}.job-state{color:#8be5c3;font-size:10px;white-space:nowrap}.job-actions{display:flex;gap:4px;margin-top:6px}.job-actions button{font-size:10px;padding:3px 6px}.job .sub{white-space:normal}#budget-summary{float:right;color:#91d2ba;font-size:10px}.wait-time{color:#e6be7a;font-variant-numeric:tabular-nums}.flow-list{display:grid;gap:6px;padding:6px 0}.flow-list .step{padding:8px;background:#1a293c;border-radius:8px;font-size:11px;color:#b8cce3}.flow-list .step b{color:#87e3c3;margin-right:7px}
+            .commandbar{padding:9px 12px;background:#172337;border-top:1px solid #34465c}.commandbar .row{margin:0}.commandbar .queue-tools{margin:6px 0 0}.job-head>span:first-child{min-width:0;overflow-wrap:anywhere}@media(max-width:450px){.commandbar{padding:8px 10px}}
+
+    .panel {
+        display:flex; flex-direction:column;
+        max-height:calc(100dvh - 100px); background:#101a26;
+        border:1px solid #405467; border-radius:15px;
+        box-shadow:0 16px 48px #040c1873;
+    }
+    header,.commandbar,.workspace-nav { flex:none }
+    header { padding:10px 13px; background:#1b2c3a }
+    header b { font-size:15px }
+    .logo { padding:2px 8px; border-radius:7px }
+    .workspace-nav { display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid #324858 }
+    .workspace-nav button {
+        min-height:37px; border:0; border-radius:0; background:transparent;
+        color:#acbecb; font-weight:600;
+    }
+    .workspace-nav button[aria-pressed=true] { color:#a5f1d8; box-shadow:inset 0 -3px #72d9b8; background:#1a302f }
+    .workspace-nav button:focus-visible { outline-offset:-4px }
+    .content { min-height:0; overflow:auto; overscroll-behavior:contain; padding:11px 13px }
+    .content section[hidden] { display:none }
+    .metrics { gap:0; margin:6px 0 12px; padding:7px 0; background:#172637; border-radius:9px }
+    .metric { background:transparent; border:0; border-radius:0; padding:2px 4px; line-height:1.45 }
+    .metric + .metric { border-left:1px solid #334655 }
+    .metric b { font-size:17px }
+    .status { border-radius:9px; padding:9px 11px }
+    #action { white-space:normal }
+    .categories { margin-bottom:9px }
+    .categories button { padding:7px 2px }
+    .caption, #pane-settings h3 { font-size:12px; font-weight:650; letter-spacing:normal; color:#cbdae6; margin:10px 0 7px }
+    #pane-settings > details, #pane-activity > details {
+        border:1px solid #34495d; background:#152232; border-radius:9px; padding:8px 10px;
+    }
+    summary { font-size:12px; color:#c2d3df }
+    .field,.setting { min-height:28px }
+    .list { max-height:min(38dvh,330px) }
+    .actions { flex-wrap:wrap }
+    .actions button { flex:1 1 26%; min-height:30px; font-size:11px }
+    .commandbar { padding:8px 12px; background:#192b39 }
+    .commandbar .queue-tools button { padding:5px 8px }
+    @media(max-width:450px), (max-height:560px) {
+        .panel { max-height:calc(100dvh - 24px) }
+        .content { padding:8px 10px }
+        .workspace-nav button { min-height:32px }
+        .commandbar { padding:6px 10px }
+    }
+    `;
     function mountNurseryPanel(root,engine,{preferences={},save=()=>{},onChange=()=>{}}={}){
         const box=document.createElement('details');box.id='nursery-info';box.className='nursery-card';
         box.innerHTML='<summary id="nursery-summary">培育屋 · 闪蛋计数</summary><div class="nursery-metrics"><div><b id="nursery-shiny">0</b>当前闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>游戏累计孵化</div></div><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div><div id="nursery-scenarios" class="hint"></div><div id="nursery-condition" class="hint"></div><div id="nursery-eggs"></div><div id="nursery-observed" class="sub"></div><div id="nursery-segment" class="hint"></div><div id="nursery-error" class="hint warn"></div><label class="nursery-preference"><input id="nursery-hints" type="checkbox">标记游戏孵化器中的闪光蛋</label><div class="actions"><button id="nursery-export">导出蛋统计</button><button id="nursery-reset">清空观测统计</button></div><div class="hint">首次只建立基线；历史闪蛋数不从图鉴反推。清空仅影响助手观测统计。预测按当前亲本和待用靛莓果计算，赠蛋会改变序号。</div><details><summary>最近孵化与观测</summary><div id="nursery-recent"></div><div id="nursery-events"></div></details>';
@@ -4627,7 +4857,14 @@
                 recent:data.recent.map(({id,known,shiny,status,at})=>({id,known,shiny,status,at})),events:data.events};
             const url=URL.createObjectURL(new Blob([JSON.stringify(report,null,2)],{type:'application/json'})),a=document.createElement('a');a.href=url;a.download='pokecatch-egg-statistics.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),5000);
         };
-        function duration(ms){if(ms===null)return'时间待确认';const seconds=Math.ceil(ms/1000);return seconds<=0?'成熟待领':seconds<60?seconds+'秒':seconds<3600?Math.ceil(seconds/60)+'分钟':Math.floor(seconds/3600)+'时'+Math.ceil(seconds%3600/60)+'分';}
+        function duration(ms){
+            if(ms===null)return '时间待确认';
+            const seconds=Math.ceil(ms/1000), minutes=Math.ceil(seconds/60);
+            if(seconds<=0)return '成熟待领';
+            if(seconds<60)return seconds+'秒';
+            if(minutes<60)return minutes+'分钟';
+            return Math.floor(minutes/60)+'时'+(minutes%60?minutes%60+'分':'');
+        }
         function name(id){return MONS.get(id)?.name||'未知物种';}
         function hintCards(rows){
             if(typeof document==='undefined')return;
@@ -4639,19 +4876,24 @@
             }
             if(!document.getElementById('pokecatch-nursery-hints')){const css=document.createElement('style');css.id='pokecatch-nursery-hints';css.textContent='#pen-eggs [data-pch-shiny="1"]{position:relative;outline:2px solid #ffdc79;outline-offset:2px}#pen-eggs [data-pch-nursery-tag]{position:absolute;top:3px;left:3px;right:3px;padding:1px 3px;border-radius:4px;background:#352a14ef;color:#ffe6a0;font:10px/1.3 system-ui;pointer-events:none;white-space:normal;z-index:1}';(document.head||document.documentElement).appendChild(css);}
         }
+        let forecastKey, forecast;
         return{render(s,now=Date.now()){
             box.classList.toggle('hidden',!s?.adv);if(!s?.adv)return null;
             const ledger=engine.nurseryMonitor.observe(s,now),sameAccount=accountId(s)===engine.account;
-            const options={...nurseryRuntimeOptions(),now,forecast:box.open&&!root.querySelector('.panel').classList.contains('hidden')&&!pageHidden()},snap=nurserySnapshot(s,options);
+            const options={...nurseryRuntimeOptions(),now,forecast:false},snap=nurserySnapshot(s,options);
             query('#nursery-summary').textContent=`培育屋 · 闪蛋 ${snap.counts.shiny}/${snap.counts.total} · 待领 ${snap.counts.ready}${snap.counts.unknown?' · 待判 '+snap.counts.unknown:''}`;box.classList.toggle('has-shiny',snap.counts.shiny>0);
             if(!pageHidden())hintCards(snap.eggRows);
-            if(!box.open)return snap;
+            if(!box.open || box.closest('[hidden]') || root.querySelector('.panel').classList.contains('hidden') || pageHidden())return snap;
+            const key=JSON.stringify([options.build,nurserySeed(s),snap.counter,!!s.pension?.bx,nurseryParentPool(s)]);
+            if(key!==forecastKey){forecast=nurseryForecast(s,{...options,estimateUnverified:true});forecastKey=key;}
+            snap.forecast=forecast;
             query('#nursery-shiny').textContent=snap.counts.shiny;query('#nursery-ready').textContent=snap.counts.ready;query('#nursery-native').textContent=snap.hatched??'—';
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
-            query('#nursery-next').textContent=next?`下一编号 K=${next.k} · 自然蛋：${next.shiny?'✦ 闪光':'普通'} · ${name(next.eggId)} · 亲本槽 ${next.parent.slot}${next.bx?' · 已有待用靛莓果':''}`:`下一自然蛋：${f?.reason||'展开时核对'}（蛋序号 ${snap.counter??'未知'}）`;
-            query('#nursery-forecast').textContent=flash?`当前条件下，再产第 ${flash.position} 枚为闪蛋 · ${name(flash.eggId)} · K=${flash.k}`:f?.known?`接下来 ${f.scanned} 枚自然蛋内未找到闪蛋；不是保底倒计时。`:f?.reason||'等待可核对的繁殖状态';
+            const qualifier=f?.estimated?'参考预测 · ':'';
+            query('#nursery-next').textContent=next?`${qualifier}下一编号 K=${next.k} · 自然蛋：${next.shiny?'✦ 闪光':'普通'} · ${name(next.eggId)} · 亲本槽 ${next.parent.slot}${next.bx?' · 已有待用靛莓果':''}`:`下一自然蛋：${f?.reason||'展开时核对'}（蛋序号 ${snap.counter??'未知'}）`;
+            query('#nursery-forecast').textContent=flash?`${qualifier}当前条件下，再产第 ${flash.position} 枚为闪蛋 · ${name(flash.eggId)} · K=${flash.k}`:f?.active?`接下来 ${f.scanned} 枚自然蛋内未找到闪蛋`:'';
             const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
-            query('#nursery-scenarios').textContent=f?.known?`条件对照（非当前实况）：全普通亲代 ${position(scenarios.plainParents)}；全异色亲代 ${position(scenarios.shinyParents)}；下一颗使用靛莓果 ${position(scenarios.berryNext)}。`:'';
+            query('#nursery-scenarios').textContent=f?.estimated?`此构建（${options.build}）尚未核对，按已验证的 ${NURSERY_RULES.build} 规则推算；仅供规划。`:f?.known?`条件对照：全普通亲代 ${position(scenarios.plainParents)}；全异色亲代 ${position(scenarios.shinyParents)}；下一颗使用靛莓果 ${position(scenarios.berryNext)}。`:'';
             const candy=(s.pension?.mons||[]).reduce((total,slot)=>total+(Number(slot.candy)||0),0);
             query('#nursery-condition').textContent=`孵化器 ${snap.counts.total}/${snap.capacity} · 寄养 ${s.pension?.mons?.length||0} 只 · 待领糖果 ${candy}${snap.counts.total>=snap.capacity?'；孵化器已满，先领取才可继续产蛋。':'。'}${f?.known?'预测假设亲本顺序不变且没有赠蛋占号；靛莓果只用于下一自然蛋。':''}`;
             const eggs=query('#nursery-eggs');eggs.replaceChildren();
@@ -4689,33 +4931,14 @@
         const host = document.createElement('div'); host.id = 'pokecatch-auto-helper';
         host.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;position:fixed;right:14px;top:86px;z-index:2147483000;max-width:calc(100vw - 20px);';
         const root = host.attachShadow({ mode: 'open' });
-        root.innerHTML = `<style>
-            :host{font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;color:#e6edf8;color-scheme:dark}
-            *{box-sizing:border-box}button,input,select{font:inherit}button,select,summary{cursor:pointer}button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #79dcba;outline-offset:2px}
-            .panel{width:408px;max-width:calc(100vw - 20px);border:1px solid #39465c;border-radius:18px;background:#111a29f5;box-shadow:0 16px 55px #0007;overflow:hidden;backdrop-filter:blur(18px)}
-            header{display:flex;align-items:center;gap:7px;padding:13px 14px;background:linear-gradient(115deg,#21364a,#1b263d);cursor:move;touch-action:none;user-select:none}header b{font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}header small{display:block;font-size:8px;font-weight:400;letter-spacing:.6px;color:#90a8bd}.logo{background:#79dcba;color:#102d29;border-radius:10px;padding:5px 9px;font-weight:900;font-size:19px}.tag{font:10px ui-monospace,monospace;color:#9aaec4}header button{padding:3px 10px}
-            #check-update{font-size:10px;padding:5px 7px;white-space:nowrap}#check-update.available{border-color:#79dcba;color:#a3f0d3}.update-notice{padding:8px 10px;margin-bottom:8px;border:1px solid #45627b;border-radius:9px;background:#192c40;font-size:11px;overflow-wrap:anywhere}.update-notice.available{border-color:#79dcba;color:#a3f0d3}.update-source a{color:#9cded1}.update-source-row{display:flex;justify-content:space-between;gap:8px;padding:5px 0;border-bottom:1px solid #2b3e51;font-size:11px}.update-source-row span:last-child{min-width:0;text-align:right;overflow-wrap:anywhere}.update-source-row[data-state=error]{color:#e9b9a3}#update-tools .row{margin:7px 0}#update-tools .hint{margin-bottom:8px}
-            button{border:1px solid #3d4b62;border-radius:9px;padding:7px 10px;background:#223048;color:#e8f0fb}button:hover:enabled{background:#304361}button.primary{background:#79dcba;border-color:#79dcba;color:#102d29;font-weight:750}button.primary:hover:enabled{background:#9be9ce}.danger{border-color:#754350;color:#ffc5cf;background:#422a39}
-            .content{padding:12px;max-height:calc(100dvh - 160px);overflow:auto;scrollbar-width:thin;scrollbar-color:#465971 transparent}.status{padding:11px 12px;border:1px solid #33435b;background:#0b1423;border-radius:12px;overflow-wrap:anywhere}.live{display:flex;align-items:center;gap:6px;color:#93a8c2;font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:5px}.dot{width:6px;height:6px;border-radius:50%;background:#8191a8}.running .dot{background:#79dcba;box-shadow:0 0 9px #79dcba80}.running .live{color:#79dcba}#status{font-size:12px}.sub{font-size:11px;color:#95a9c2;margin-top:4px}#action{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-            .metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:9px 0 12px}.metric{padding:9px 4px;text-align:center;background:#1b293d;border:1px solid #2b3b53;border-radius:10px;font-size:10px;color:#99aec7}.metric b{display:block;font-size:18px;letter-spacing:-.5px;color:#d7e7f9;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}.metric:first-child b{color:#87e3c3}
-            .caption{font-size:10px;letter-spacing:1px;text-transform:uppercase;color:#91a8c1;margin:9px 0 6px}.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.modes button{text-align:left;padding:9px;font-size:11px;background:#182438;line-height:1.4}.modes button span{display:block;font-size:15px;margin-bottom:3px;color:#a9bfd8}.modes button.on{background:#203d3e;border-color:#79dcba;color:#b5f5de}.modes button.on span{color:#79dcba}
-            .target{padding:10px;border:1px solid #33455c;border-radius:11px;background:#162236;margin:9px 0}.field{display:flex;gap:9px;align-items:center;margin:6px 0}.field>span,.field>label{flex:0 0 82px;color:#b6c8df;font-size:12px}.field select{flex:1;width:0}.field input{flex:1;width:0}select,input[type=number],input[type=search]{min-width:0;width:100%;border:1px solid #3d506a;background:#0e192a;color:#edf4ff;border-radius:7px;padding:7px}input[type=number]{font-variant-numeric:tabular-nums}.hint{font-size:11px;color:#8fa7c2;line-height:1.65;margin:6px 0 0}.warn{color:#e6be7a}.goal{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#b9cde4;margin-top:9px}.bar{height:4px;overflow:hidden;border-radius:3px;background:#30415a;margin-top:5px}.bar i{display:block;height:100%;width:0;background:#79dcba;transition:width .3s ease}.row{display:flex;gap:7px;margin:10px 0}.row button{flex:1;padding:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px}.checks label{display:flex;align-items:flex-start;gap:5px;color:#becce0}input[type=checkbox]{accent-color:#79dcba;margin:3px 0 0}
-            details{margin:10px 0;border-top:1px solid #2c3b51;padding-top:8px}summary{font-size:11px;color:#9fb7d4}.setting{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;font-size:11px}.setting input[type=number],.setting select{width:125px}.setting input[type=checkbox]{margin-right:5px}.tabs{display:flex;border-bottom:1px solid #34465c;gap:4px;margin:12px 0 0}.tabs button{flex:1;border:none;border-radius:7px 7px 0 0;background:transparent;color:#8da7c6;font-size:11px;padding:8px 4px}.tabs button.on{background:#22334a;color:#a3f0d3;box-shadow:inset 0 -2px #79dcba}.list{max-height:185px;overflow:auto;scrollbar-width:thin;min-height:44px;padding:4px 0}table{width:100%;border-collapse:collapse;font-size:11px}th,td{padding:7px 4px;border-bottom:1px solid #28394f;text-align:left}th{font-weight:400;color:#8ca4c0;position:sticky;top:0;background:#111a29}td:last-child,th:last-child{text-align:right}tr.active td{color:#8ce8c7}.missing{display:flex;gap:5px;flex-wrap:wrap;padding:6px 0}.chip{padding:3px 6px;background:#23344b;border-radius:6px;font-size:11px}.log{font-size:11px;padding:5px 0;border-bottom:1px solid #25364b;overflow-wrap:anywhere}.log time{color:#859dbb;margin-right:6px}.empty{padding:15px 8px;color:#93abc7;font-size:11px}.actions{display:flex;gap:5px;padding-top:8px;border-top:1px solid #2e3f55}.actions button{flex:1;font-size:10px;padding:5px}.mini{border-radius:30px;box-shadow:0 4px 24px #0008;background:#1e3346;padding:10px 15px;border-color:#79dcba;display:flex;align-items:center;gap:8px}.mini.running::before{content:'';width:6px;height:6px;border-radius:50%;background:#79dcba}.hidden{display:none!important}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
-            .mini{touch-action:none;user-select:none;cursor:grab;max-width:calc(100vw - 20px)}.mini:active{cursor:grabbing}#mini-state{min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status.manual{border-color:#8b713f}.manual .dot{background:#e6be7a;box-shadow:none}.manual .live{color:#e6be7a}.mini.manual{border-color:#e6be7a}.mini.manual::before{background:#e6be7a}
-            .execution-card{padding:10px;border:1px solid #344b5c;border-radius:11px;background:#142431;margin:10px 0}.execution-top{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#9ab8c7;margin-bottom:5px}#ui-owner{max-width:68%;text-align:right;overflow-wrap:anywhere;color:#9bd9c4}#foreground-task{font-size:12px;color:#e1f2f3}#foreground-detail{font-size:10px;color:#9bb3c4;line-height:1.5;margin:3px 0 7px;overflow-wrap:anywhere}.service-row{display:grid;grid-template-columns:78px auto 1fr;gap:6px;align-items:start;margin:5px 0;font-size:10px}.service-label{color:#bed2de}.service-state{white-space:nowrap;padding:1px 5px;border-radius:4px;background:#283b4a;color:#b7c8d6}.service-detail{min-width:0;color:#91aabd;overflow-wrap:anywhere}.service-row[data-state=ready] .service-state,.service-row[data-state=running] .service-state{color:#b6f0d7;background:#235045}.service-row[data-state=waiting] .service-state,.service-row[data-state=blocked] .service-state{color:#f0d29d;background:#4d4030}#concurrency-note{border-top:1px solid #2d4655;padding-top:6px;margin-top:7px;font-size:10px;color:#8faeba;line-height:1.5}#parallel-rules{margin:6px 0 10px}#parallel-rules table{font-size:10px}#parallel-rules td:first-child{width:48%}#parallel-rules td:last-child{text-align:left;color:#a8d3c1}.background-toggles{margin:7px 0;font-size:11px}.background-toggles label{align-items:flex-start}.queue-note{padding:6px 3px;font-size:10px;line-height:1.5;color:#94aebb}
-            @media(max-width:450px){.panel{width:360px;border-radius:14px}.content{max-height:calc(100dvh - 90px);padding:10px}header{padding:10px 12px}.metric b{font-size:16px}.list{max-height:155px}.modes button{padding:7px}.field>span,.field>label{flex-basis:74px}}
-            @media(prefers-reduced-motion:reduce){*{transition:none!important}}
-            .categories{display:flex;gap:4px;padding:3px;background:#0b1423;border-radius:9px;margin-bottom:7px}.categories button{flex:1;border:0;background:transparent;color:#93abc7;font-size:11px;padding:6px 3px}.categories .on{color:#b5f5de;background:#23403e}.modes{grid-template-columns:repeat(2,1fr)}.modes button span{display:inline-block;width:22px;margin:0 4px 0 0;vertical-align:middle}.queue-tools{display:flex;gap:6px;margin:8px 0}.queue-tools button{flex:1;font-size:11px;padding:7px}.queue-tools #queue-count{display:inline-block;min-width:17px;background:#102138;border-radius:10px;margin-left:3px}.job{padding:9px 7px;border-bottom:1px solid #2d4058}.job.active{border-left:2px solid #79dcba;background:#1c303a}.job-head{display:flex;justify-content:space-between;gap:8px;font-size:12px}.job-state{color:#8be5c3;font-size:10px;white-space:nowrap}.job-actions{display:flex;gap:4px;margin-top:6px}.job-actions button{font-size:10px;padding:3px 6px}.job .sub{white-space:normal}#budget-summary{float:right;color:#91d2ba;font-size:10px}.wait-time{color:#e6be7a;font-variant-numeric:tabular-nums}.flow-list{display:grid;gap:6px;padding:6px 0}.flow-list .step{padding:8px;background:#1a293c;border-radius:8px;font-size:11px;color:#b8cce3}.flow-list .step b{color:#87e3c3;margin-right:7px}
-            .content{max-height:calc(100dvh - 270px)}.commandbar{padding:9px 12px;background:#172337;border-top:1px solid #34465c}.commandbar .row{margin:0}.commandbar .queue-tools{margin:6px 0 0}.job-head>span:first-child{min-width:0;overflow-wrap:anywhere}@media(max-width:450px){.content{max-height:calc(100dvh - 190px)}.commandbar{padding:8px 10px}}
-        </style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
-            <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手<small>ADVENTURE COMPANION</small></b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
-            <div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
+        root.innerHTML = `<style>${PANEL_STYLE}</style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
+            <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
+            <nav class="workspace-nav" aria-label="助手面板">
+                <button data-workspace="tasks" aria-controls="pane-tasks">任务</button><button data-workspace="activity" aria-controls="pane-activity">运行实况</button><button data-workspace="settings" aria-controls="pane-settings">设置</button>
+            </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric"><b id="money-value">0</b>本次金币净增</div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
-            <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
-            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
-            <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <div class="target hidden" id="prepare-info"><b>↑ 正在补练</b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
-            <div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
+            <section id="pane-tasks" aria-label="任务"><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
             <div class="target">
@@ -4736,6 +4959,15 @@
                 <div data-fields="money" class="hidden"><div class="field"><span>目标金币</span><input data-setting="moneyTarget" type="number" min="0" placeholder="0 为持续执行"></div></div>
                 <div class="hint" id="target-hint"></div><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
+            </section>
+            <section id="pane-activity" aria-label="运行实况" hidden>
+            <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
+            <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
+            <div class="tabs"><button data-tab="maps" class="on">目标与收益</button><button data-tab="queue">任务队列</button><button data-tab="dex">图鉴</button><button data-tab="logs">日志</button></div><div id="view" class="list"></div>
+            </section>
+            <section id="pane-settings" aria-label="设置" hidden>
+            <h3>配队与自动化</h3>
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
@@ -4772,22 +5004,22 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="tabs"><button data-tab="maps" class="on">目标与收益</button><button data-tab="queue">任务队列</button><button data-tab="dex">图鉴</button><button data-tab="logs">日志</button></div><div id="view" class="list"></div>
-            <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></div></section>`;
+            <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', partyKey = '', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null;
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
         const updater=new UpdateChecker({onChange:renderUpdate});let updateTouched=false;
         function renderUpdate(){
             const button=query('#check-update'),notice=query('#update-notice');
-            button.disabled=false;button.textContent=updater.busy?'取消检查':updater.pending?'安装新版':'在线更新';
+            const downloadOnly=updater.pending&&new URL(updater.pending.url).hostname==='api.github.com';
+            button.disabled=false;button.textContent=updater.busy?'取消检查':downloadOnly?'下载新版':updater.pending?'安装新版':'在线更新';
             button.title=updater.pending?`安装 v${updater.pending.version} · 当前 v${VERSION}`:'检查 Catch 仓库的在线更新';button.classList.toggle('available',!!updater.pending);
             notice.textContent=updater.message;notice.classList.toggle('hidden',!updateTouched);notice.classList.toggle('available',!!updater.pending);
             query('#update-tools').classList.toggle('hidden',!updateTouched);query('#update-source').disabled=updater.busy;query('#recheck-update').disabled=updater.busy;query('#download-update').disabled=updater.busy||!updater.pending?.text;
             const list=query('#update-source-list'),labels={checking:'连接中',pending:'等待中',waiting:'等待中',ok:'可用',success:'可用',skipped:'未选用',error:'失败',conflict:'内容冲突',cancelled:'已取消',timeout:'超时'};list.replaceChildren();
-            for(const source of updater.sourceResults||[]){const row=document.createElement('div');row.className='update-source-row';row.dataset.state=source.state;const name=document.createElement('span'),status=document.createElement('span');name.textContent=source.name;status.textContent=[labels[source.state]||source.state,source.phase==='pinned'?'固定提交':source.phase==='branch'?'分支缓存':'',source.version?`v${source.version}`:'',Number.isFinite(source.ms)?`${source.ms}ms`:'',source.error||''].filter(Boolean).join(' · ');row.append(name,status);list.appendChild(row);}
+            for(const source of updater.sourceResults||[]){const row=document.createElement('div');row.className='update-source-row';row.dataset.state=source.state;const name=document.createElement('span'),status=document.createElement('span');name.textContent=source.name;status.textContent=[labels[source.state]||source.state,source.phase==='pinned'?'固定提交':source.phase==='branch'?'分支缓存':'',source.version?`v${source.version}`:'',source.cached?'本页已校验':'',source.commit?source.commit.slice(0,7):'',Number.isFinite(source.ms)?`${source.ms}ms`:'',source.error||''].filter(Boolean).join(' · ');row.append(name,status);list.appendChild(row);}
         }
-        async function runUpdateCheck(){updateTouched=true;return updater.check({sourceId:query('#update-source').value});}
+        async function runUpdateCheck(){updateTouched=true;query('.content').scrollTop=0;return updater.check({sourceId:query('#update-source').value});}
         query('#check-update').onclick=()=>{updateTouched=true;if(updater.busy)updater.cancel();else if(updater.pending)updater.install();else void runUpdateCheck();};
         query('#recheck-update').onclick=()=>void runUpdateCheck();query('#update-source').onchange=()=>void runUpdateCheck();query('#download-update').onclick=()=>updater.download();
         helperAPI.checkUpdate=()=>{helperAPI.show();return runUpdateCheck();};
@@ -4797,6 +5029,19 @@
         // Version 1.1.0 used a single position; migrate it only to the expanded panel.
         if (!ui.panel && Number.isFinite(ui.x) && Number.isFinite(ui.y)) ui.panel = { x: ui.x, y: ui.y };
         function saveUI() { try { localStorage.setItem(PREFIX + 'ui', JSON.stringify(ui)); } catch {} }
+        const workspaces = [...root.querySelectorAll('[data-workspace]')];
+        function selectWorkspace(name, refresh = true) {
+            const active = workspaces.find(button => button.dataset.workspace === name) || workspaces[0];
+            for (const button of workspaces) {
+                const selected = button === active;
+                button.setAttribute('aria-pressed', String(selected));
+                query('#' + button.getAttribute('aria-controls')).hidden = !selected;
+            }
+            ui.workspace = active.dataset.workspace;
+            if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
+        }
+        for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
+        selectWorkspace(ui.workspace, false);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
         function place() {
             const position = ui.folded ? ui.mini : ui.panel;
@@ -4806,9 +5051,9 @@
                 host.style.left = `${Math.max(6, Math.min(position.x, innerWidth - box.width - 6))}px`;
                 host.style.top = `${Math.max(6, Math.min(position.y, innerHeight - box.height - 6))}px`;
             } else if (ui.folded) { host.style.top = 'auto'; host.style.bottom = 'max(14px, env(safe-area-inset-bottom))'; }
-            else host.style.top = innerWidth <= 450 ? '12px' : '86px';
+            else host.style.top = innerWidth <= 450 || innerHeight <= 560 ? '12px' : '86px';
         }
-        function fold(value) { const wasFolded=!!ui.folded;ui.folded = value; query('.panel').classList.toggle('hidden', value); query('.mini').classList.toggle('hidden', !value); saveUI();if(!value&&wasFolded)render();place(); }
+        function fold(value) { const changed=!!ui.folded!==value;ui.folded = value; query('.panel').classList.toggle('hidden', value); query('.mini').classList.toggle('hidden', !value); saveUI();if(changed)render();place(); }
         function renderExecution(s,now){
             const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
@@ -4842,8 +5087,19 @@
         for(const mon of DATA.mons){
             if(!mon.legend&&WILD_SHINY_IDS.has(mon.id))addOption(query('[data-setting="shinyId"]'),mon.id,`#${mon.id} ${mon.name}`);
         }
-        const eggIds=new Set(Object.values(DATA.automation.breed).filter(x=>x.can).map(x=>x.egg));
-        for(const id of [...eggIds].sort((a,b)=>a-b))if(MONS.has(id))addOption(query('[data-setting="breedId"]'),id,`#${id} ${MONS.get(id).name}`);
+        let eggRegionKey = '';
+        function updateBreedingOptions(s) {
+            const target = engine.settings.breedId;
+            const key = JSON.stringify([currentRegion(s), s.travel?.to, s.link?.to, target]);
+            if (key === eggRegionKey) return;
+            eggRegionKey = key;
+            const ids = new Set(DATA.mons.map(mon => breedableOffspring(s, mon)).filter(id => id != null));
+            const select = query('[data-setting="breedId"]');
+            select.replaceChildren();
+            for (const id of [...ids].sort((a,b) => a-b)) addOption(select,id,`#${id} ${MONS.get(id).name}`);
+            if (!ids.has(target)) addOption(select,target,`${MONS.get(target)?.name || target} · 当前地区条件不符`);
+            select.value = String(target);
+        }
         for(const chapter of DATA.chapters)addOption(query('[data-setting="progressUntil"]'),chapter.id,`${DATA.regions.find(r=>r.key===chapter.reg)?.name} · ${chapter.name}`);
         for(const id of RESOURCE_IDS)addOption(query('[data-setting="resourceItem"]'),id,ITEMS.get(id)?.name||DATA.automation.shop.find(x=>x.id===id)?.name||DATA.automation.buffs[id]?.name||id);
         function itemOptions() {
@@ -4890,7 +5146,10 @@
         }
         function render() {
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
-            let s; try { s = engine.read(); if (s && !engine.account) { engine.loadAccount(s); itemOptions(); syncSettings(); } } catch (err) { engine.status = err.message; }
+            let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
+                engine.loadAccount(s); editingJob = null; partyKey = ''; viewSignature = null;
+                query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
+            } } catch (err) { engine.status = err.message; }
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             if(settingsViewKey!==JSON.stringify(engine.settings))syncSettings();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
@@ -4899,7 +5158,10 @@
             const queueStep=engine.queueRunning&&engine.running?`${engine.queueIndex+1}/${engine.queue.length}`:'';
             query('#run-state').textContent = engine.suspended?'PAUSED · 页面已挂起':engine.manual ? 'PAUSED · 手动控制' : engine.running ? queueStep?`队列 ${queueStep} · 运行中`:'RUNNING · 运行中' : 'READY · 已停止';
             query('#mini-state').textContent = wait ? `${engine.suspended?'挂起':'手动'} · ${wait.mini}` : engine.running ? (engine.preparation?'补练 → ':'')+MODE_NAMES[engine.settings.mode]+(queueStep?' '+queueStep:'') : '待命';
-            const execution=renderExecution(s,now);if(execution.pendingCount)query('#mini-state').textContent+=` · 待办 ${execution.pendingCount}`;
+            if(ui.folded){
+                const {pendingCount}=parallelPlan(s,engine,now);
+                if(pendingCount)query('#mini-state').textContent+=` · 待办 ${pendingCount}`;
+            }else if(ui.workspace==='activity')renderExecution(s,now);
             const nursery=nurseryPanel.render(s,now);if(nursery?.counts.shiny)query('#mini-state').textContent+=` · ✦蛋${nursery.counts.shiny}`;
             query('#resume').classList.toggle('hidden', !resumable); query('#start').classList.toggle('hidden', resumable);
             query('#resume').textContent=engine.manual&&s?.adv?.event?.raid?'接管当前团体战':engine.suspended?'继续原任务':'立即恢复';
@@ -4916,7 +5178,7 @@
             if (!s?.adv) { query('#support-info').classList.add('hidden');query('#view').textContent = '等待进入游戏；助手不会自动登录或新建存档。'; return; }
             // Keep commands and the dock current; rebuild hidden details only when visible.
             if(ui.folded||pageHidden())return;
-            partyOptions(s);
+            partyOptions(s); updateBreedingOptions(s);
             const preparation=engine.preparation;query('#prepare-info').classList.toggle('hidden',!preparation||!engine.running);
             if(preparation){
                 const levels=preparation.targets.map(target=>({...target,level:s.mons.find(m=>m.uid===target.uid)?.level||target.level}));
@@ -4977,7 +5239,7 @@
             query('#goal-label').textContent = goalLabel; query('#goal-value').textContent = goalValue;
             percent = Math.max(0,Math.min(100,percent || 0)); query('#task-progress i').style.width = `${percent}%`; query('#task-progress').setAttribute('aria-valuenow', String(Math.round(percent)));
             query('#build').textContent = window.BUILD && window.BUILD !== DATA.build ? `游戏构建 ${window.BUILD} 与数据快照 ${DATA.build} 不同，预估可能需要更新。` : '';
-            renderView(s,status);
+            if (ui.workspace === 'activity') renderView(s,status);
         }
         function textCell(row, value) { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); }
         function renderView(s, status) {
@@ -5043,7 +5305,7 @@
                 if(action==='retry'){job.status='pending';job.result='';delete job.progress;}
                 if(action==='up'&&i>0)[engine.queue[i-1],engine.queue[i]]=[job,engine.queue[i-1]];
                 if(action==='down'&&i<engine.queue.length-1)[engine.queue[i+1],engine.queue[i]]=[job,engine.queue[i+1]];
-                if(action==='edit'){editingJob=job.id;engine.settings=normalizeSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
+                if(action==='edit'){selectWorkspace('tasks');editingJob=job.id;engine.settings=normalizeSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
                 engine.persist(false);render();
             }
         });
@@ -5076,7 +5338,7 @@
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,shiny:MONS.get(cfg.shinyId)?.name,breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
         function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid','shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil'].map(key=>cfg[key]));}
-        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);tab='queue';root.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('on',el.dataset.tab===tab));engine.status='任务已保存到队列';render();};
+        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);tab='queue';selectWorkspace('activity');root.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('on',el.dataset.tab===tab));engine.status='任务已保存到队列';render();};
         query('#start-queue').onclick=()=>{engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start();engine.sessionItemId=engine.settings.itemId;syncSettings();render();};
         query('#stop').onclick=()=>{engine.stop();syncSettings();render();};
@@ -5093,8 +5355,8 @@
         };
         query('#import-profile').onclick=()=>query('#profile-file').click();
         query('#profile-file').onchange=async event=>{
-            const file=event.target.files?.[0];event.target.value='';if(!file)return;
-            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');importConfigurationProfile(engine,await file.text());editingJob=null;syncSettings();}
+            const file=event.target.files?.[0], account=engine.account;event.target.value='';if(!file)return;
+            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');const content=await file.text();if(account!==engine.account)throw new Error('读取文件期间账号已切换，请重新选择文件');importConfigurationProfile(engine,content);editingJob=null;syncSettings();}
             catch(err){engine.status='配置导入失败：'+err.message;engine.log(engine.status);}
             render();
         };

@@ -58,12 +58,17 @@ test('ranked members are not credited with evolution potential unavailable in th
     assert.equal(plan.members[0].id,129);assert.equal(plan.members[0].potentialId,undefined);assert.equal(plan.targets[0].uid,'ranked');
 });
 
-test('the screenshot-like forest badge party can remain stable when the actual-form gain is below the swap threshold',()=>{
+test('forest route alone stays stable, but the grass gym replaces two quadruple weaknesses',()=>{
     // Approximation only: a screenshot does not contain the player's map, rank or full save.
     const ids=[397,400,396,42,74,95,427,459,299,92,433,456,307,433,27,422,417,433,453,403,118,399,63,129,403,393,54];
     const levels=[22,22,22,22,22,22,17,21,22,20,20,19,18,17,19,20,17,17,21,16,16,15,9,10,18,8,16];
     const mons=ids.map((id,i)=>({uid:'m'+i,id,level:levels[i],reg:'sinnoh'}));
     const s={mons,team:mons.slice(0,6).map(mon=>mon.uid),road:mons.slice(0,6).map(mon=>mon.uid),dex:{},stats:{},travel:{to:['johto','hoenn','sinnoh']},adv:{chapter:49,unlocked:49,badges:[],gifts:{},deaths:{}}};
-    const plan=H.planAdventureTeam(s,{...H.DEFAULTS,mode:'progress'});
-    assert.ok(plan.gain>0&&plan.gain<.02);assert.equal(plan.changed,false);assert.deepEqual(plan.uids,s.team);
+    const settings={...H.DEFAULTS,mode:'progress'},now=1732000000000;
+    const foes=H.chapterCombatFoes(s,H.DATA.chapters[49]);
+    const route=H.planAdventureTeam(s,settings,[],{now,foes:foes.map(foe=>({...foe,gymCount:0}))});
+    assert.equal(route.changed,false);assert.deepEqual(route.uids,s.team);
+    const plan=H.planAdventureTeam(s,settings,[],{now});
+    assert.equal(plan.changed,true);
+    assert.ok(!plan.uids.includes('m4')&&!plan.uids.includes('m5'));
 });

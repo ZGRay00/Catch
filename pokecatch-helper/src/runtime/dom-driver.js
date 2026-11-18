@@ -68,6 +68,24 @@
             document.dispatchEvent(new PointerEvent('pointerup',{...pointer,...to,buttons:0}));
             this.e.action=label; return true;
         }
+        switchInBattle(s,now) {
+            const e=this.e,b=s.adv.battle;
+            if(!b||!helperSwitchEnabled(s,e.settings)||e.manual||FLOW_MODES.has(e.settings.mode)||this.teamTask||this.pendingMap||this.navigation||
+                this.ownedDialog||!visible($('#screen-adventure.active'))||document.body.classList.contains('swap-mode'))return false;
+            if(this.lastSwitchFoe&&b.foes?.includes(this.lastSwitchFoe))return false;
+            const choice=battleSwitchCandidate(s,e.settings,now);
+            if(!choice)return false;
+            // Cross-check the save against the live arena before clicking. Between battles
+            // the same rail also accepts clicks, but would only change party order there.
+            const enemies=$$('#enemy-slot .enemy[data-uid]:not(.fainted):not(.fxclone)').filter(visible);
+            const rows=$$('#team-rail .tr-row[data-uid]'),active=rows.filter(row=>row.classList.contains('active'));
+            if(enemies.length!==1||enemies[0].dataset.uid!==choice.foe||active.length!==1||active[0].dataset.uid!==choice.lead)return false;
+            const target=rows.find(row=>row.dataset.uid===choice.uid&&!row.classList.contains('ko'));
+            const name=MONS.get(s.mons.find(mon=>mon.uid===choice.uid).id).name;
+            if(!this.click(target,`战斗换人 · ${name} · ${choice.reason}`))return false;
+            this.lastSwitchFoe=choice.foe;
+            return true;
+        }
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
             const fail=reason=>{this.e.log(`自动配队暂缓：${reason}`);this.e.teamRetryAt=now+5*60000;this.e.teamCheck=null;this.teamTask=null;this.nav('adventure');};

@@ -31,7 +31,7 @@
         rotateMinutes: 15, raidMinutes: 90, lossLimit: 3, stopMinutes: 0,
         moneyTarget: 0, region: 'current', afterDex: 'money', manualPause: true,
         manualResume: true, resumeSeconds: 15, dismissInfo:true,
-        autoTeam: true, teamMinutes: 5,autoEvolve:true,
+        autoTeam: true, teamMinutes: 5,autoEvolve:true,activeSwitch:false,
         autoPrepare:true,prepareMargin:2,prepareGap:3,prepareIdleMinutes:5,progressCandy:true,
         legendId: 145, legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
         trainUid: 'team', trainLevel: 100,

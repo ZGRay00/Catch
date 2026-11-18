@@ -40,10 +40,11 @@
             if(keys.length!==1)throw Error('Unsupported multiple starter selectors in one chapter');
             const key=keys[0],saved=adv.gifts[key],defaultTeams=steps.map(step=>S.gymTeam(id,step));
             const variants=[...new Set(steps.flatMap(step=>Object.keys(step.byStarter).filter(value=>/^\d+$/.test(value))))];
-            const choices={};
+            const choices={},gymChoices={};
             try{
                 for(const choice of variants){
                     adv.gifts[key]=Number(choice);
+                    gymChoices[choice]=c.steps.filter(step=>step.kind==='gym').flatMap(step=>S.gymTeam(id,step));
                     const threats=new Map(baseline.map(([mon,level,weight])=>[`${mon}:${level}`,{id:mon,level,weight}]));
                     const add=(mon,level,weight)=>{const ref=`${mon}:${level}`,old=threats.get(ref);threats.set(ref,{id:mon,level,weight:(old?.weight||0)+weight});};
                     // Keep the exact exported route/league threats; replace only the gym
@@ -53,7 +54,7 @@
                     choices[choice]=[...threats.values()].filter(row=>row.weight>1e-8).map(row=>[row.id,row.level,+row.weight.toFixed(5)]);
                 }
             }finally{if(saved===undefined)delete adv.gifts[key];else adv.gifts[key]=saved;}
-            return{key,choices,default:baseline};
+            return{key,choices,gymChoices,default:baseline};
         };
         const chapters=S.CHAPTERS.map((c,id)=>{
             let reward=0,units=0,trainers=0;
@@ -75,7 +76,7 @@
             });
             const threats=parts.teams.chapters.find(r=>r.id===id),foesByStarter=starterFoes(c,id,threats.foes);
             return{id,name:tr(c.name),reg:c.reg||'kanto',league:!!c.league,loop:A.loopKey(id),band:S.bandOf(id),ace:S.aceOf(id),reward:Math.round(reward/8),units:Math.round(units/8),trainers:Math.round(trainers/8),day:!!c.day,badges:c.steps.filter(s=>s.kind==='gym'&&s.badge).map(s=>s.badge),gifts:gift,special,
-                ...parts.pools.chapters.find(r=>r.id===id),...parts.targets.chapters.find(r=>r.id===id),...threats,...(foesByStarter?{foesByStarter}:{}),shinyPools:parts.automation.chapters.find(r=>r.id===id).wild,leaders:parts.automation.chapters.find(r=>r.id===id).leaders};
+                ...parts.pools.chapters.find(r=>r.id===id),...parts.targets.chapters.find(r=>r.id===id),...threats,...(foesByStarter?{foesByStarter}:{}),shinyPools:parts.automation.chapters.find(r=>r.id===id).wild,leaders:parts.automation.chapters.find(r=>r.id===id).leaders,gymFoes:c.steps.filter(step=>step.kind==='gym').flatMap(step=>S.gymTeam(id,step))};
         });
         const targets=parts.targets,automation={...parts.automation};delete automation.build;delete automation.chapters;
         const {learns,chapters:ignored,build,...combat}=parts.teams;

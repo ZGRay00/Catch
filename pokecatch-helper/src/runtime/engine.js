@@ -507,6 +507,7 @@
                 if(adventure&&this.ensurePrepared(s,adventure.context,adventure.resume,now))return;
             }
             if(this.driver.teamTask&&this.driver.adventureTeam(s,now))return;
+            if(this.settings.activeSwitch&&this.driver.switchInBattle(s,now))return;
             if(this.preparation){this.coach.step(s,now);return;}
             if(this.raidReturn&&this.raidProbe&&!s.adv.event?.raid){this.probeRaid(s,now);return;}
             if (s.adv.event?.raid) {
@@ -643,6 +644,7 @@
             this.money(s, now);
         }
         fitTeam(s,now) {
+            if(s.adv.battle?.pick||this.driver.lastSwitchFoe&&s.adv.battle?.foes?.includes(this.driver.lastSwitchFoe))return false;
             const roam=this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
             const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam||now<this.teamRetryAt)return false;
             const frontier=this.settings.mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
@@ -666,7 +668,11 @@
                 reason:plan.changed?plan.reason:'当前阵容收益接近建议，保留现有队伍',gain:plan.gain,opponents:plan.opponents};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
-            this.log(`配队评估：${plan.reason}${plan.gain>0?` · 综合评分 +${Math.round(plan.gain*100)}%`:''}`);
+            const nameOf=uid=>MONS.get(s.mons.find(mon=>mon.uid===uid)?.id)?.name||uid;
+            const incoming=plan.uids.filter(uid=>!s.team.includes(uid)).map(nameOf);
+            const outgoing=s.team.filter(uid=>!plan.uids.includes(uid)).map(nameOf);
+            const changes=[incoming.length&&'上阵 '+incoming.join('、'),outgoing.length&&'换下 '+outgoing.join('、')].filter(Boolean);
+            this.log([`配队评估 · ${plan.reason}`,...changes,plan.gain>0&&`综合评分 +${Math.round(plan.gain*100)}%`].filter(Boolean).join(' · '));
             this.telemetry.sample=null;this.status=`为${row.name||c.name}调整冒险队伍`;
             this.driver.teamTask={chapter:c.id,members:row.members||[c.id],uids:plan.uids,started:now,attempts:0};
             return true;

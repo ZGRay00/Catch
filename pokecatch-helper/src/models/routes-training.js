@@ -149,7 +149,7 @@
         if(kind==='map'||kind==='progress'){
             const chapters=row?.members||[id];level=Math.max(...chapters.map(id=>CHAPTERS.get(id)?.ace||1));
             foes=chapters.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
-            if(ROAMING_DATA.groups.some(group=>group.ids.includes(Number(options.roamId)))){level=ROAMING_DATA.level;foes=[{id:Number(options.roamId),level,weight:20},...foes.map(foe=>({...foe,weight:foe.weight*.05}))];label='游荡捕获 · '+(MONS.get(Number(options.roamId))?.name||options.roamId);}
+            if(ROAMING_DATA.groups.some(group=>group.ids.includes(Number(options.roamId)))){level=ROAMING_DATA.level;foes=[{id:Number(options.roamId),level,weight:20},...foes.map(foe=>({...foe,gymCount:0,weight:foe.weight*.05}))];label='游荡捕获 · '+(MONS.get(Number(options.roamId))?.name||options.roamId);}
         }else if(kind==='zone'||kind==='raid'||kind==='worldCapture'){
             id=kind==='worldCapture'?493:id;level=level||zone?.level||DATA.automation.levels.raid;foes=[{id,level,weight:1}];size=kind==='raid'?2:6;
             label=options.label||({zone:'传说战',raid:'每日团体战',worldCapture:'世界首领捕获'}[kind]+' · '+(MONS.get(id)?.name||id));
@@ -157,7 +157,7 @@
             const chapter=kind==='elite'?DATA.chapters.find(c=>c.reg===reg&&c.league):c?.reg===reg?c:DATA.chapters.filter(c=>c.reg===reg&&c.id<=s.adv.unlocked).at(-1);
             const all=chapter?chapterThreats({...s,adv:{...s.adv,battle:null}},chapter.id):[];
             level=level||(kind==='tower'?Math.min(DATA.automation.levels.towerMax,Math.floor(DATA.automation.levels.towerStart+(options.floor-1)*DATA.automation.levels.towerStep)+(options.floor%10===0?3:0)):100);
-            foes=all.map(m=>({...m,level}));size=kind==='under'?DATA.automation.under.team:6;
+            foes=all.map(m=>({...m,level,gymCount:0}));size=kind==='under'?DATA.automation.under.team:6;
             label=options.label||({elite:'精英联盟',tower:'对战塔',under:'地下通道',worldAttack:'世界首领攻击'}[kind]||kind);
         }
         level=Math.min(100,Math.max(1,Number(level)||100));foes=foes.filter(m=>MONS.has(m.id));

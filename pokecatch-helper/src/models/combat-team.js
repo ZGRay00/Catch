@@ -133,8 +133,59 @@
         }
         return{turns:Math.max(150,turns*2),coverage:Math.min(.5,Math.max(0,1-hp/details[0].foeHp)*.5),deaths};
     }
+    // The native rail promotes a tapped reserve in both the road and planned party.
+    function helperSwitchEnabled(s,settings){
+        return settings.activeSwitch===true&&settings.autoTeam===true&&s?.autoSwitch===false;
+    }
+    function battleSwitchCandidate(s,settings,now){
+        const adv=s.adv,b=adv?.battle;
+        if(!helperSwitchEnabled(s,settings)||!b||!['wild','trainer','gym'].includes(b.kind)||adv.paused||adv.pending||adv.zone||adv.event||adv.tower||adv.league||b.pick||
+            b.slots!==1||b.allies?.length!==1||b.foes?.length!==1)return null;
+        // A native pick persists for this encounter. Don't lock the lead across a wave.
+        const remaining=b.enemies?.filter(mon=>mon.hp>0);
+        if(remaining?.length!==1)return null;
+        const foe=remaining[0];
+        if(!foe.uid||foe.uid!==b.foes[0]||!MONS.has(foe.id)||foe.shiny||foe.veiled)return null;
+        const planned=s.team||[],road=s.road?.length?s.road:planned;
+        if(!road.length||road.length!==planned.length||road.some((uid,i)=>uid!==planned[i]))return null;
+        const party=partyMons(s),lead=party.find(mon=>mon.uid===b.allies[0]);
+        if(!lead||!MONS.has(lead.id)||(lead.hp??1)<=0)return null;
+        const defense=effectiveStats(foe),weather=combatWeather(s,{...foe,liveNode:true},{},now);
+        const evaluate=mon=>{
+            const stats=effectiveStats(mon),hp=Math.min(stats.hp,mon.hp??stats.hp);
+            const detail=matchupDetails(mon,foe,stats,defense,weather);
+            const turns=attackTurns(detail.attack,foe.hp);
+            const hitsTaken=Math.max(0,turns-detail.first);
+            const loss=hitsTaken===0||detail.incoming.sustainedDamage===0?0:hitsTaken*detail.incoming.sustainedDamage/hp;
+            return {turns,loss};
+        };
+        const current=evaluate(lead);
+        if(current.turns<=1&&current.loss<1)return null;
+        let best=null;
+        for(const mon of party){
+            if(mon===lead||!MONS.has(mon.id)||(mon.hp??1)<=0)continue;
+            const rival=evaluate(mon);
+            if(!Number.isFinite(rival.turns)||rival.loss>=.85)continue;
+            const savesLead=current.loss>=1;
+            const faster=current.turns-rival.turns>=1&&current.loss-rival.loss>=.15;
+            if(!savesLead&&!faster)continue;
+            const cost=rival.turns*(1+rival.loss);
+            if(!best||cost<best.cost)best={uid:mon.uid,foe:foe.uid,lead:lead.uid,cost,reason:savesLead?'避免主力倒下':'缩短战斗并降低损血'};
+        }
+        return best;
+    }
     function chapterCombatFoes(s,chapter){
-        return chapterFoes(s,chapter).map(entry=>Array.isArray(entry)?{id:entry[0],level:entry[1],weight:entry[2],chapter:chapter.id}:{...entry,chapter:chapter.id});
+        if(!chapter)return [];
+        const branch=chapter.foesByStarter;
+        const starter=branch?.gymChoices&&starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number));
+        const gym=branch?.gymChoices?.[starter]||chapter.gymFoes||[];
+        const counts=new Map();
+        for(const [id,level] of gym){const key=id+':'+level;counts.set(key,(counts.get(key)||0)+1);}
+        return chapterFoes(s,chapter).map(entry=>{
+            const foe=Array.isArray(entry)?{id:entry[0],level:entry[1],weight:entry[2]}:{...entry};
+            const gymCount=counts.get(foe.id+':'+foe.level);
+            return {...foe,chapter:chapter.id,...gymCount?{gymCount}:{}};
+        });
     }
     function resolveCombatWeatherNode(s,chapter,reference){
         const nodes=WEATHER_DATA.chapters[chapter]?.nodes||[];
@@ -180,8 +231,17 @@
         const pool=(context.pool||s.mons||[]).filter(m=>teamEligible(s,m,reg));
         const route=context.row,chapters=route?(route.members?.length?route.members.map(id=>CHAPTERS.get(id)):route.league?DATA.chapters.filter(c=>c.loop===route.loop):[route]):[];
         const routeFoes=route?chapters.filter(Boolean).flatMap(c=>chapterCombatFoes(s,c)):null;
-        const foes = (context.foes || routeFoes || chapterThreats(s)).filter(m=>MONS.has(m.id)&&m.weight>0), weights = foes.length ? foes : [{ id: 19, level: CHAPTERS.get(s.adv.chapter)?.ace || 5, weight: 1 }];
+        const foes = (context.foes || routeFoes || chapterThreats(s)).filter(m=>MONS.has(m.id)&&m.weight>0);
         const objective=context.objective||(['money','train','progress','dex'].includes(settings.mode)?settings.mode==='dex'?'progress':settings.mode:'coverage'),execution=objective!=='coverage';
+        const weights=foes.length?foes.flatMap(foe=>{
+            if(objective!=='progress'||!foe.gymCount)return [foe];
+            // The route export gives each gym appearance weight 3 and merges wild
+            // encounters of the same species/level. Only the gym share is indoors.
+            const gyms=WEATHER_DATA.chapters[foe.chapter]?.nodes?.filter(node=>node.kind==='gym')||[];
+            const weight=Math.min(foe.weight,3*foe.gymCount),leader={...foe,weight,weatherNode:gyms.length===1?gyms[0]:null};
+            return foe.weight>weight?[{...foe,weight:foe.weight-weight,gymCount:0},leader]:[leader];
+        }):[{id:19,level:CHAPTERS.get(s.adv.chapter)?.ace||5,weight:1}];
+        const gymTotal=objective==='progress'?weights.reduce((n,foe)=>n+(foe.gymCount||0),0):0;
         const weatherRows=weights.map(foe=>combatWeather(s,foe,context,context.now??Date.now()));
         const threatKey=JSON.stringify([weights.map(combatProfile),weatherRows.map(row=>row.signature)]);
         let shared=TEAM_ROWS.get(threatKey);
@@ -199,26 +259,43 @@
                     const defense=foeStats[i],attack=Math.min(defense.hp,detail.attack.hit)*detail.attack.turnAccuracy,incoming=Math.min(stats.hp,detail.incoming.hit)*detail.incoming.turnAccuracy;
                     const survival=Math.min(4,stats.hp/Math.max(.01,incoming)),speed=Math.min(1.2,Math.max(.8,Math.sqrt(stats.spe/Math.max(1,defense.spe))));
                     return attack/Math.max(1,defense.hp)*(.5+.5*Math.sqrt(survival))*speed;
-                });row.details=details;shared.set(key,row);
+                });row.details=details;
+                // Estimate how much HP a fresh reserve needs to finish this matchup.
+                // Use the opponent's best actual move, including off-type coverage.
+                row.endurance=details.map(d=>{
+                    const turns=attackTurns(d.attack,d.foeHp);
+                    if(!Number.isFinite(turns))return 0;
+                    const damageShare=Math.max(0,turns-d.first)*d.incoming.sustainedDamage/d.hp;
+                    return 1/(1+damageShare*damageShare);
+                });
+                shared.set(key,row);
                 if(shared.size>1024)shared.delete(shared.keys().next().value);
             }
             cache.set(mon.uid,row);return row;
         };
         const totalWeight=weights.reduce((n,m)=>n+m.weight,0),discount=[1,.35,.15,.075,.04,.02];
         const work=[];
-        const utility = team => {
+        const utility = (team,summary) => {
             const rows=team.map(values);
-            const score=weights.reduce((sum,foe,i)=>{
+            let gymSum=0,gymWorst=1;
+            const routeScore=weights.reduce((sum,foe,i)=>{
                 let count=0;
                 for(const row of rows){const value=row[i];let at=count++;while(at>0&&work[at-1]<value){work[at]=work[at-1];at--;}work[at]=value;}
                 let value=0;for(let k=0;k<count;k++)value+=work[k]*(discount[k]||0);
                 const coverage=Math.log1p(value);
                 if(!execution)return sum+foe.weight*coverage;
                 const battle=deployedBattle(rows.map(row=>row.details[i]),s.autoSwitch!==false);
+                if(gymTotal&&foe.gymCount){
+                    const endurance=rows.reduce((sum,row)=>sum+row.endurance[i],0)/Math.max(1,rows.length);
+                    gymSum+=foe.gymCount*endurance;gymWorst=Math.min(gymWorst,endurance);
+                }
                 const efficiency=Math.log1p(3/battle.turns)*battle.coverage/(1+.2*battle.deaths);
                 const weight=objective==='progress'?.35:.7;
                 return sum+foe.weight*((1-weight)*coverage+weight*efficiency);
             },0)/totalWeight;
+            const gymScore=gymTotal ? .7*gymSum/gymTotal+.3*gymWorst : 0;
+            if(summary)summary.gym=gymScore;
+            const score=gymTotal ? .55*routeScore+.45*gymScore : routeScore;
             if(!context.trainingCosts)return score;
             const costs=team.map(mon=>clamp(context.trainingCosts[mon.uid],0,100,0)),burden=Math.max(0,...costs)+.25*costs.reduce((n,cost)=>n+cost,0);
             return score/(1+clamp(context.trainingPenalty,0,2,0)*burden);
@@ -259,13 +336,16 @@
             }
             if(!changed)break;
         }
-        const now = utility(party.filter(m=>teamEligible(s,m,reg))), next=utility(chosen);
+        const previous={},proposed={};
+        const now = utility(party.filter(m=>teamEligible(s,m,reg)),previous), next=utility(chosen,proposed);
         const changed = chosen.length!==party.length || chosen.some(m=>!s.team.includes(m.uid));
         const necessary = party.length!==(s.team||[]).length||party.length>size||chosen.length>party.length||party.some(m=>!teamEligible(s,m,reg))||new Set(party.map(identity)).size<party.length||chosen.some(m=>protectedUids.has(m.uid)&&!s.team.includes(m.uid));
         // Keep a stable party unless the predicted gain is material, so income sampling remains useful.
-        const improve = next > now * 1.05 + .01;
+        const gymGain=proposed.gym-previous.gym;
+        const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
+        const improve = next > now * 1.05 + .01||gymUpgrade;
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const reorder=!changed&&orderChanged&&(next>now*1.08+.01||s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
         const apply=context.force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
-        return { uids: result.map(m=>m.uid), changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: weights.length, reg, objective, reason:necessary?'修复队伍或保留练级目标':reorder?'调整主力出场顺序':objective==='money'?'减少刷钱回合与倒下换人':objective==='train'?'保留学员并提高带练清图效率':'提高打点覆盖与通关稳定性' };
+        return { uids: result.map(m=>m.uid), changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'减少刷钱回合与倒下换人':objective==='train'?'保留学员并提高带练清图效率':'提高打点覆盖与通关稳定性' };
     }

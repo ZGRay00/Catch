@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "4.2.3",
-  "scriptSha256": "c3ef7dec5bcdcc1228e38c6c176fe71738c49a1ae57c569b000fbc465342f89b",
-  "metadataSha256": "016e7146068844d3ba0aae80c252a0ed5cecd75155d72ec281f18ca677fafa34",
+  "version": "4.3.0",
+  "scriptSha256": "d0725d2922830d86a57070298665aa8f1efd4707044fde4b1b5c602c6658eaa8",
+  "metadataSha256": "8864c9baea5007858632b4b0eb66d2a042340487e1c2e40dd06a47bbf529c7ce",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "cbdc8358c81ddcea0e7a8750076745c89896f7502b9da1066ffd85c72c30e2a0"
+      "sha256": "f95128fb94f91df77fa0c0da43b7dd9e6694f0a2eb044b10edf0ef30d5ff3cf1"
     },
     {
       "file": "build.manifest.json",
@@ -26,7 +26,7 @@
     },
     {
       "file": "data/game.json",
-      "sha256": "d5f93f4b9b87a292c9c38614ca6b7a4a95bc8a62fd4754cb46dca3e99b6c0e1f"
+      "sha256": "59055985e00f5bb156936689cabea6427a05ad0d0bb7f5af0092b83811d7e100"
     },
     {
       "file": "src/data/game-after.js",
@@ -42,7 +42,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "ca17b2277ab8fcf11e410fb7061a2a1789bffb9393a2ab30011971e1084dba64"
+      "sha256": "06062f32471f372566e5e8a422fafe31f53a571fe6b9f2f6c96fe439414566ee"
     },
     {
       "file": "src/models/facilities.js",
@@ -78,7 +78,7 @@
     },
     {
       "file": "src/models/weather.js",
-      "sha256": "bdea7285d08a9353998d76418dd95a27484f31d7d903fae3734cf6fbcbd3d795"
+      "sha256": "aec4a92572f6842545c3c60706d13ce047969baff329e63f4e92f6b47abcbafe"
     },
     {
       "file": "src/models/roster.js",
@@ -98,11 +98,11 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "3684766eb531acd6fc5730ceb8b061157c6896f1ed045c755fba5f6a1521d068"
+      "sha256": "db2ccab4e10ed691f7d82d378ef47cd26b4c4dff567ffaadc03ba9edd266ad7b"
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "33c6c974d955060bdc099e1770b331a655bc09ecbdf79787f2f2676163e3bbe6"
+      "sha256": "f061c36cacda501bfc82da2471cad11e3c08e160f347dacd776606d99f50bf94"
     },
     {
       "file": "src/models/collection.js",
@@ -114,7 +114,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "3f370e2ab907dac852988e68006eced3ad5a4c4b0e5b0fec37b14d84a6f7ccb1"
+      "sha256": "9be7cd291e877f45b2146ed54ed708ec1aed83fbeb07c05526e7d3f9fe3c5ad3"
     },
     {
       "file": "src/runtime/automation.js",
@@ -126,11 +126,11 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "c022687f821055ae59f212767369c6c19dcc06716b669fec7e5800867dd6d0ff"
+      "sha256": "80a5b6e76b963512aa71025a9ae20ab0b1cd5657f80494cfc2f4bc59c4435076"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "f5db23e059bd1ac94a4e43761475267bea478df14f4cc28f0553975a97691dbf"
+      "sha256": "bed8b394345b160e3ed851e2b6772ca54be1ac8c863590aeebdadb965385d359"
     },
     {
       "file": "src/ui/panel-style.js",
@@ -142,7 +142,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "31957fa02d2ec8e73b7be88afc0e2d244f3162309bb32c44cf9d0cc8e1f22396"
+      "sha256": "70efa055158bcfb652039b865e248c586dae9dfb891a6d2dddcb35a2166f2420"
     }
   ]
 }

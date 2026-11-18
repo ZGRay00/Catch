@@ -95,7 +95,7 @@
         const buffs=Object.keys(s.buffs||{}).sort().filter(family=>activeYieldBuff(s,family,now)).map(family=>[family,s.buffs[family].key]);
         return JSON.stringify([s.buddy?.uid||'',buffs,s.adv.capture||null]);
     }
-    function metricsKey(s, row, settings,now=Date.now()) { return `e4|${economicRegion(s)}|${yieldFingerprint(s,now)}|${teamFingerprint(s)}|sw${+(s.autoSwitch!==false)}|${settings.speed}|${row.key}|u${s.adv.unlocked}`; }
+    function metricsKey(s, row, settings,now=Date.now()) { return `e4|${economicRegion(s)}|${yieldFingerprint(s,now)}|${teamFingerprint(s)}|sw${helperSwitchEnabled(s,settings)?'helper':+(s.autoSwitch!==false)}|${settings.speed}|${row.key}|u${s.adv.unlocked}`; }
     function estimateRate(row) { return row.reward / Math.max(20, row.units * 2.8 / 2.5) * 60; }
     function moneyRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return candidates(s, settings, true).filter(c => (cooldowns[c.key] || 0) <= now).map(row => {

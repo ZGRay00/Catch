@@ -67,6 +67,24 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
+        const railTest=await evaluate(`(()=>{
+            const e=__pcTest.engine,root=document.querySelector('#pokecatch-auto-helper').shadowRoot;
+            const toggle=root.querySelector('[data-setting="activeSwitch"]'),defaultOff=!toggle.checked;
+            toggle.click();
+            const fixture=document.createElement('div');
+            fixture.innerHTML='<div id="enemy-slot"><span class="enemy" data-uid="f">F</span></div><div id="team-rail"><button class="tr-row active" data-uid="g">G</button><button class="tr-row" data-uid="w">W</button></div>';
+            document.querySelector('#screen-adventure').append(fixture);
+            const foe={id:478,uid:'f',level:100,hp:500},b={kind:'gym',slots:1,allies:['g'],foes:['f'],enemies:[foe]};
+            const s={mons:[{uid:'g',id:389,level:100,hp:1},{uid:'w',id:395,level:100}],team:['g','w'],road:['g','w'],adv:{chapter:55,unlocked:55,battle:b}};
+            let clicks=0;fixture.querySelector('[data-uid="w"]').onclick=()=>clicks++;
+            e.running=true;const attempt=()=>{e.driver.lastClick=0;return e.driver.switchInBattle(s,1732000000000)};
+            const native=attempt();s.autoSwitch=false;
+            const enemy=fixture.querySelector('.enemy');enemy.dataset.uid='previous';const stale=attempt();enemy.dataset.uid='f';
+            const first=attempt(),repeat=attempt();
+            e.running=false;fixture.remove();toggle.click();
+            return {defaultOff,native,stale,first,repeat,clicks};
+        })()`);
+        assert.deepEqual(railTest,{defaultOff:true,native:false,stale:false,first:true,repeat:false,clicks:1},'active switch uses one live rail click and yields to the native setting or a stale scene');
         assert.equal(await evaluate(`(()=>{const root=document.querySelector('#pokecatch-auto-helper').shadowRoot;return __pcTest.engine.settings.autoEvolve===true&&root.querySelector('[data-setting="autoEvolve"]').checked})()`),true,'free level evolution is enabled by default and visible in the panel');
         const manualPolicy=await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot;for(const key of ['autoTeam','optimizeRaid']){const el=r.querySelector('[data-setting="'+key+'"]');if(el.tagName!=='SELECT')throw Error(key+' must expose an explicit automatic/manual selector');el.value='false';el.dispatchEvent(new Event('change',{bubbles:true}));}r.querySelector('#add-job').click();const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:offline-browser'));localStorage.setItem('pc-regression-resume','1');return{auto:e.settings.autoTeam,special:e.settings.optimizeRaid,types:[typeof e.settings.autoTeam,typeof e.settings.optimizeRaid],saved:[saved.settings.autoTeam,saved.settings.optimizeRaid],queued:[e.queue[0].settings.autoTeam,e.queue[0].settings.optimizeRaid]}})()`);
         assert.deepEqual(manualPolicy,{auto:false,special:false,types:['boolean','boolean'],saved:[false,false],queued:[false,false]},'manual selectors persist real booleans and queue snapshots');

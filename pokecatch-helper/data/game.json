@@ -154564,8 +154564,8 @@
       "blue-flare": {
         "type": "fire",
         "cat": "spec",
-        "power": 130,
-        "acc": 83.63636363636364
+        "power": 140,
+        "acc": 81.81818181818181
       },
       "thunder-fang": {
         "type": "electric",

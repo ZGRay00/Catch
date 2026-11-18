@@ -81,11 +81,10 @@
             if(!party.some(uid=>(s.mons||[]).some(ally=>ally.uid===uid&&ally.id===rule.party)))return reject('需要特定队友在实际行进队伍中');
         }
         const group=member=>s.link?(monRegion(member)===s.link.to?'to':'from'):'all';
-        const owned=[...(s.mons||[]),...(s.pension?.mons||[]).map(row=>row.mon),...(s.under?.slots||[]).flatMap(row=>row.mons||[]),
-            ...(s.link?.stash?.mons||[]),s.tradeOut?.mon,s.tradeIn?.mon,...(s.mktOut||[]).map(row=>row.mon)].filter(Boolean);
         // Native family capacity can permit additional copies in some branches. Conservatively
         // leave those duplicates manual rather than claiming unavailable evolved battle power.
-        if(owned.some(other=>other.uid!==mon.uid&&other.id===rule.to&&!!other.shiny===!!mon.shiny&&group(other)===group(mon)))return reject('同组已拥有相同进化目标，等待原生家族容量确认');
+        const duplicate=other=>other&&other.uid!==mon.uid&&other.id===rule.to&&!!other.shiny===!!mon.shiny&&group(other)===group(mon);
+        if((s.mons||[]).some(duplicate)||reserveEvolutionMembers(s).some(duplicate))return reject('同组已拥有相同进化目标，等待原生家族容量确认');
         if(rule.item){
             const item=evolutionItemAccess(s,rule.item);
             if(!item.held)return reject(item.reason);
@@ -94,6 +93,13 @@
     }
     function levelEvolution(s,mon,options={}){
         return evolutionStatus(s,mon,options).rule;
+    }
+    function reserveEvolutionMembers(s){
+        return [...(s.pension?.mons||[]).map(row=>row.mon),...(s.under?.slots||[]).flatMap(row=>row.mons||[]),
+            ...(s.link?.stash?.mons||[]),s.tradeOut?.mon,s.tradeIn?.mon,...(s.mktOut||[]).map(row=>row.mon)].filter(Boolean);
+    }
+    function reserveEvolutionKey(s){
+        return reserveEvolutionMembers(s).map(mon=>[mon.uid,mon.id,monRegion(mon),!!mon.shiny]);
     }
     function preparationEvolutionLabel(s,target,engine,now){
         const mon=s.mons.find(member=>member.uid===target.uid);
@@ -133,5 +139,21 @@
         if (settings.autoEvolve !== false) return projectEvolution(s,mon,level,now);
         const itemLocked = !(mon.rank > 0) && manualItemEvolution(s, EVOLUTION_DATA.rules[mon.id] || [])?.locked === true;
         return {...mon, level, evolutionItemLocked:itemLocked};
+    }
+
+    function* reserveEvolutionSearch(s,settings,context,candidates,now,sliced){
+        const ready=[];
+        for(const mon of candidates){
+            if(levelEvolution(s,mon,{now}))ready.push(mon.uid);
+            if(sliced)yield;
+        }
+        if(!ready.length)return{uid:null};
+        const projected=[];
+        for(const mon of s.mons){
+            if(teamEligible(s,mon,context.reg))projected.push(projectEvolution(s,mon,mon.level,now));
+            if(sliced)yield;
+        }
+        const plan=yield* adventureTeamSearch({...s,mons:projected},settings,[],{...context,pool:projected,force:true,now},sliced);
+        return{uid:ready.find(uid=>plan.uids.includes(uid))??null};
     }
 

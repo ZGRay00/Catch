@@ -42,19 +42,26 @@
             const wanted=new Map(rows.filter(row=>row.known&&row.shiny&&row.uid!=null).map(row=>[String(row.uid),row]));
             for(const card of document.querySelectorAll('#pen-eggs .pen-egg[data-egg]')){
                 const row=hints.checked&&wanted.get(card.dataset.egg),badge=card.querySelector('[data-pch-nursery-tag]');
-                if(!row){card.removeAttribute('data-pch-shiny');badge?.remove();continue;}
-                card.setAttribute('data-pch-shiny','1');const tag=badge||document.createElement('span');tag.dataset.pchNurseryTag='';tag.textContent='✦ '+name(row.id);if(!badge)card.appendChild(tag);
+                if(!row){if(card.hasAttribute('data-pch-shiny'))card.removeAttribute('data-pch-shiny');badge?.remove();continue;}
+                if(card.dataset.pchShiny!=='1')card.dataset.pchShiny='1';
+                const tag=badge||document.createElement('span'),title='✦ '+name(row.id);
+                if(tag.textContent!==title)tag.textContent=title;
+                if(!badge){tag.dataset.pchNurseryTag='';card.appendChild(tag);}
             }
             if(!document.getElementById('pokecatch-nursery-hints')){const css=document.createElement('style');css.id='pokecatch-nursery-hints';css.textContent='#pen-eggs [data-pch-shiny="1"]{position:relative;outline:2px solid #ffdc79;outline-offset:2px}#pen-eggs [data-pch-nursery-tag]{position:absolute;top:3px;left:3px;right:3px;padding:1px 3px;border-radius:4px;background:#352a14ef;color:#ffe6a0;font:10px/1.3 system-ui;pointer-events:none;white-space:normal;z-index:1}';(document.head||document.documentElement).appendChild(css);}
         }
         let forecastKey, forecast;
         return{render(s,now=Date.now()){
             box.classList.toggle('hidden',!s?.adv);if(!s?.adv)return null;
-            const ledger=engine.nurseryMonitor.observe(s,now),sameAccount=accountId(s)===engine.account;
+            const detailsVisible=box.open&&!box.closest('[hidden]')&&!root.querySelector('.panel').classList.contains('hidden')&&!pageHidden();
+            const monitor=engine.nurseryMonitor;
+            // New saves are already observed by Engine.read. Only reconciliation or a visible history needs a second pass.
+            const ledger=detailsVisible||monitor.ledger.dirty||monitor.ledger.pending.length||monitor.ledger.credits.length?monitor.observe(s,now):null;
+            const sameAccount=accountId(s)===engine.account;
             const options={...nurseryRuntimeOptions(),now,forecast:false},snap=nurserySnapshot(s,options);
             query('#nursery-summary').textContent=`培育屋 · 闪蛋 ${snap.counts.shiny}/${snap.counts.total} · 待领 ${snap.counts.ready}${snap.counts.unknown?' · 待判 '+snap.counts.unknown:''}`;box.classList.toggle('has-shiny',snap.counts.shiny>0);
             if(!pageHidden())hintCards(snap.eggRows);
-            if(!box.open || box.closest('[hidden]') || root.querySelector('.panel').classList.contains('hidden') || pageHidden())return snap;
+            if(!detailsVisible)return snap;
             // In older saves the native counter is initialized only when the next egg is laid.
             const laid=s.pension?.laid,counterKey=laid==null?[snap.hatched,Array.isArray(s.pension?.eggs)?snap.counts.total:null]:laid;
             const key=JSON.stringify([options.build,nurserySeed(s),counterKey,!!s.pension?.bx,nurseryParentPool(s)]);

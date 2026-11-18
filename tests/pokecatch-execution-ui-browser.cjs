@@ -34,6 +34,48 @@ async function main(){
             }
             return views})()`);
         assert.deepEqual(panes,[['pane-tasks'],['pane-settings'],['pane-activity']]);checks.push('workspace navigation exposes one page at a time with task commands available');
+        const expedition=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,selector='[data-setting="underAutoStart"]';
+            const task=r.querySelector('#pane-tasks '+selector),settings=r.querySelector('#pane-settings '+selector);
+            const before=task.checked&&settings.checked;
+            settings.click();
+            const manual=[...r.querySelectorAll('[data-under-manual]')].every(el=>!el.classList.contains('hidden'));
+            const limit=r.querySelector('#pane-tasks [data-setting="underFrom"]');
+            limit.value='50';limit.dispatchEvent(new Event('change',{bubbles:true}));
+            const value=r.querySelector('#pane-settings [data-setting="underFrom"]').value;
+            task.click();e.onChange();
+            return {before,manual,value,restored:settings.checked&&[...r.querySelectorAll('[data-under-manual]')].every(el=>el.classList.contains('hidden')),buddyVisible:!r.querySelector('[data-setting="trainBuddy"]').closest('details')};
+        })()`);
+        assert.deepEqual(expedition,{before:true,manual:true,value:'50',restored:true,buddyVisible:true});checks.push('underground task and background settings share the highest-start toggle and manual ceiling; the training companion has a distinct setting');
+        const raidNote=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine;
+            e.raidCheckNote='已按设置跳过拥有的异色目标';
+            r.querySelector('[data-workspace="settings"]').click();
+            const note=r.querySelector('#raid-check');
+            const result={visible:!!note.getClientRects().length,text:note.textContent};
+            e.raidCheckNote='';r.querySelector('[data-workspace="activity"]').click();return result;
+        })()`);
+        assert.equal(raidNote.visible,true);assert.match(raidNote.text,/已按设置跳过拥有的异色目标/);checks.push('the daily raid setting explains why the most recent check skipped the target');
+        const preparationRanking=await evaluate(`(async()=>{
+            const e=__pcExecutionTest.engine,r=${root},s=fixtureState,initial=s.adv;
+            const previousSettings=e.settings,initialLevel=s.mons[0].level;
+            const speedOptions=Array.from(r.querySelector('[data-setting="speed"]').options,el=>Number(el.value));
+            s.adv={...initial,chapter:1,unlocked:3};s.mons[0].level=28;
+            e.settings={...e.settings,mode:'progress',region:'current'};
+            e.preparation={phase:'train',context:{kind:'progress',reg:'kanto',label:'主线'},targets:[],uids:['a'],route:{key:'1',name:'蓝色徽章',members:[1]},avoid:{}};
+            commitExecution();
+            const waitUntil=async text=>{for(let i=0;i<100&&!r.querySelector('#view').textContent.includes(text);i++){await new Promise(resolve=>setTimeout(resolve,30));e.onChange();}};
+            await waitUntil('EXP/分钟');
+            const comparing=r.querySelector('#view').textContent,shown=r.querySelector('#view tr.active')?.textContent;
+            s.adv.chapter=0;commitExecution();
+            await waitUntil('下一图蓝色徽章');
+            const atStart=r.querySelector('#view').textContent;
+            e.preparation=null;s.adv=initial;s.mons[0].level=initialLevel;e.settings=previousSettings;commitExecution();
+            return {speedOptions,comparing,shown,atStart};
+        })()`);
+        assert.deepEqual(preparationRanking.speedOptions,[1,4]);assert.match(preparationRanking.comparing,/按补练阵容.*蓝色徽章.*上一图.*灰色徽章/);
+        assert.match(preparationRanking.atStart,/下一图蓝色徽章.*超过 15%/);
+        assert.match(preparationRanking.comparing,/EXP\/分钟/);assert.match(preparationRanking.shown,/蓝色徽章/);checks.push('mainline preparation compares the actual XP of adjacent routes in both directions, and speed choices match native buttons');
         const state=()=>evaluate(`(()=>{const r=${root},host=document.querySelector('#pokecatch-auto-helper').getBoundingClientRect(),e=__pcExecutionTest.engine;return{foreground:r.querySelector('#foreground-task')?.textContent,foregroundDetail:r.querySelector('#foreground-detail')?.textContent,services:r.querySelector('#background-services')?.textContent,serviceStates:Object.fromEntries([...r.querySelectorAll('#background-services [data-service]')].map(el=>[el.dataset.service,{state:el.dataset.state,text:el.textContent}])),owner:r.querySelector('#ui-owner')?.textContent,rules:r.querySelector('#parallel-rules')?.textContent,queue:r.querySelector('#start-queue')?.textContent,mini:r.querySelector('#mini-state')?.textContent,running:e.running,manual:!!e.manual,host:{left:host.left,right:host.right,top:host.top,bottom:host.bottom},card:!!r.querySelector('#execution-info'),save:localStorage.getItem('gachamon-save-v1')}})()`);
         let current=await state();assert.equal(current.card,true);assert.ok(current.host.right<=1280&&current.host.left>=0);assert.match(current.queue,/串行/);checks.push('the task card and serial queue explanation mount before automation starts');
         await evaluate(`(()=>{const e=__pcExecutionTest.engine;e.schedule=()=>{};e.settings={...e.settings,mode:'money',autoTeam:true,autoPrepare:false,raids:false,moneyBuff:false};e.running=true;e.started=Date.now();e.startMoney=fixtureState.money;e.lastProgress=Date.now();e.status='fixture active primary';e.onChange()})()`);
@@ -41,6 +83,8 @@ async function main(){
         assert.match(await evaluate(`${root}.querySelector('#action').textContent`),/助手已接管/);checks.push('a running task with no recent click never displays the idle start prompt');
         await evaluate(`(()=>{const now=Date.now();fixtureState.pension.eggs=[{uid:'egg',id:25,reg:'kanto',hatchAt:now+120000}];fixtureState.under.slots=[{id:'u',bay:0,start:now-1000,end:now+180000,team:['u0','u1','u2'],mons:[{uid:'u0',id:1,level:70},{uid:'u1',id:4,level:70},{uid:'u2',id:7,level:70}]}];commitExecution()})()`);
         current=await state();assert.match(current.services,/孵|蛋/);assert.match(current.services,/地下/);assert.match(current.services,/计时|进行|孵化|派遣|归队/);assert.equal(current.serviceStates.eggs.state,'timing');assert.equal(current.serviceStates.underground.state,'timing');assert.match(current.foreground,/刷钱/);checks.push('native egg and expedition timers are shown alongside one foreground task');
+        const reused=await evaluate(`(()=>{const r=${root},service=r.querySelector('[data-service="eggs"]'),table=r.querySelector('#view table');__pcExecutionTest.engine.onChange();return !!table&&table.isConnected&&service.isConnected})()`);
+        assert.ok(reused,'an unchanged foreground render preserves the service rows and route table');
         await evaluate(`fixtureState.pension.eggs[0].hatchAt=Date.now()-1;fixtureState.under.slots[0].end=Date.now()-1;commitExecution()`);
         current=await state();assert.match(current.services,/待|可领|成熟|归队/);assert.ok(['ready','waiting'].includes(current.serviceStates.eggs.state));assert.ok(['ready','waiting'].includes(current.serviceStates.underground.state));assert.match(current.foreground,/刷钱/);checks.push('mature background work becomes a pending service without replacing the main goal');
         await evaluate(`fixtureState.adv.battle={steps:2,enemies:[{id:19,hp:10}]};commitExecution()`);

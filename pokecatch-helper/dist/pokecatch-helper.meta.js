@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      4.7.0
+// @version      5.0.0
 // @description  原生伤害智能配队、天气窗口收集、闪蛋计数与产蛋预测、后台孵蛋地下探险、配置备份与五源在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*

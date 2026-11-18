@@ -49,9 +49,10 @@
                     const tag=planned.has(mon.id)?'可规划':ROAMING_DATA.groups.some(group=>group.ids.includes(mon.id))?'游荡':mon.legend?'传说':'查看来源';
                     return[mon.id,tag];
                 });
-                if(!changed(['missing',rows]))return;
+                const countUnit=settings.mode==='dex'&&settings.dexSpecies?.length?' 种目标宝可梦':' 条进化链';
+                if(!changed(['missing',countUnit,rows]))return;
                 if(!rows.length){results.append(label('p','所选收集目标已全部捕获。'));return;}
-                results.append(label('div','所选范围缺少 '+rows.length+(settings.mode==='dex'&&settings.dexSpecies?.length?' 种目标宝可梦':' 条进化链'),'hint'));
+                results.append(label('div','所选范围缺少 '+rows.length+countUnit,'hint'));
                 const wrap=label('div','','missing');
                 for(const [id,tag] of rows){const mon=MONS.get(id);wrap.append(speciesButton(mon,'#'+id+' '+mon.name+' · '+tag));}
                 results.append(wrap);return;
@@ -92,43 +93,65 @@
             }
             if(!sources.length)results.append(label('p','当前数据尚未收录该形态的获取地点或方式。','empty'));
         }
-        let routeView, routeSignature;
+        let routeView,routeEntries;
+        function showTargets(entry){
+            if(entry.targets)return;
+            const targets=label('div','','missing');
+            for(const hit of entry.hits){
+                const button=label('button',MONS.get(hit.id).name,'chip');
+                button.type='button';button.dataset.lookup=String(hit.id);
+                button.setAttribute('aria-label','查看'+button.textContent+'的获取方式');
+                targets.append(button);
+            }
+            entry.section.append(targets);entry.targets=targets;
+        }
+        function createRoute(row,open){
+            const section=document.createElement('details'),summary=label('summary',row.name);
+            const count=label('span','','dex-route-count');
+            section.dataset.dexRoute=row.key;section.open=open;summary.append(count);section.append(summary);
+            const entry={section,count,hits:row.targets,targets:null};
+            section.addEventListener('toggle',()=>{if(section.open)showTargets(entry);});
+            return entry;
+        }
         function renderRoutes(view,s,status,engine){
             const rows=dexRanking(s,engine.settings,engine.cooldowns);
-            const signature=JSON.stringify([status.missing.length,engine.target?.key,rows.map(row=>[row.key,row.marked,row.targets.map(hit=>hit.id)])]);
-            if(routeView?.parentNode===view&&routeSignature===signature)return;
-            routeSignature=signature;
-            const previous=new Map([...view.querySelectorAll('details[data-dex-route]')].map(el=>[el.dataset.dexRoute,el.open]));
+            if(routeView?.parentNode!==view){
+                routeView=label('div','','dex-routes');routeEntries=new Map();
+                view.replaceChildren(routeView);
+            }
             const focused=root.activeElement,activeRoute=focused?.closest('details[data-dex-route]')?.dataset.dexRoute;
-            const activeSpecies=focused?.dataset.lookup,scroll=view.scrollTop;
-            routeView=label('div','','dex-routes');
+            const activeSpecies=focused?.dataset.lookup;
             if(!rows.length){
                 const message=status.missing.length?'当前范围与条件下暂无可规划的地图。可在图鉴查看缺失物种的获取条件。':'所选收集目标已全部捕获。';
-                routeView.append(label('p',message,'empty'));
+                if(routeView.firstChild?.textContent!==message)routeView.replaceChildren(label('p',message,'empty'));
+                routeEntries.clear();return;
             }
+            if(!routeEntries.size)routeView.replaceChildren();
+            const firstLoad=!routeEntries.size;
+            const live=new Set(rows.map(row=>row.key));
+            for(const [key,entry] of routeEntries)if(!live.has(key)){entry.section.remove();routeEntries.delete(key);}
+            let position=routeView.firstChild;
             for(const [index,row] of rows.entries()){
-                const section=document.createElement('details');
-                section.dataset.dexRoute=row.key;
-                section.open=previous.get(row.key)??(!previous.size&&index===0);
-                const summary=label('summary',row.name);
+                let entry=routeEntries.get(row.key);
+                if(!entry){entry=createRoute(row,firstLoad&&index===0);routeEntries.set(row.key,entry);}
                 const state=row.marked?'已生成目标节点':row.key===engine.target?.key?'任务目标':'';
-                summary.append(label('span',[state,row.targets.length+' 种'].filter(Boolean).join(' · '),'dex-route-count'));
-                const targets=label('div','','missing');
-                for(const hit of row.targets){
-                    const button=label('button',MONS.get(hit.id).name,'chip');
-                    button.type='button';button.dataset.lookup=String(hit.id);
-                    button.setAttribute('aria-label','查看'+button.textContent+'的获取方式');
-                    targets.append(button);
+                const count=[state,row.targets.length+' 种'].filter(Boolean).join(' · ');
+                if(entry.count.textContent!==count)entry.count.textContent=count;
+                if(entry.hits!==row.targets){
+                    if(entry.targets&&(entry.hits.length!==row.targets.length||row.targets.some((hit,i)=>hit.id!==entry.hits[i].id))){
+                        entry.targets.remove();entry.targets=null;
+                    }
+                    entry.hits=row.targets;
                 }
-                section.append(summary,targets);routeView.append(section);
+                if(entry.section.open)showTargets(entry);
+                if(entry.section!==position)routeView.insertBefore(entry.section,position);
+                position=entry.section.nextSibling;
             }
-            view.replaceChildren(routeView);
-            if(activeRoute){
+            if(activeRoute&&root.activeElement!==focused){
                 const section=routeView.querySelector('[data-dex-route="'+CSS.escape(activeRoute)+'"]');
                 const next=activeSpecies&&section?.querySelector('[data-lookup="'+CSS.escape(activeSpecies)+'"]');
                 (next||section?.querySelector('summary'))?.focus({preventScroll:true});
             }
-            view.scrollTop=scroll;
         }
         return {renderDex,renderRoutes,search};
     }

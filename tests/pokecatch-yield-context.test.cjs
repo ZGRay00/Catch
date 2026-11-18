@@ -40,3 +40,24 @@ test('samples spanning a temporary multiplier cannot be reused for an unboosted 
     assert.equal(H.moneyRanking(s,settings,metrics,{},now).find(r=>r.id===row.id).measured,true);
     assert.equal(H.moneyRanking(s,settings,metrics,{},60000).find(r=>r.id===row.id).measured,false);
 });
+
+test('learning Flash Cannon at 46 invalidates Empoleon’s Lv45 measurements for both XP and money',()=>{
+    const s=state(),r=route(s),mon=s.mons[0];Object.assign(mon,{id:395,level:45});
+    const key=H.metricsKey(s,r,settings,1000),history={[key]:{xp:20000,xpRuns:2,xpSeconds:120,net:300,runs:2,seconds:120}};
+    const t=new H.Telemetry();t.begin(s,r,settings,1000);t.sample.full=true;t.sample.advanced=true;
+    mon.level=46;s.adv.runs=1;
+    const fresh=H.metricsKey(s,r,settings,61000);assert.notEqual(fresh,key);
+    assert.equal(t.observe(s,r,settings,61000),null);
+    assert.equal(H.xpRanking(s,settings,history,{},61000).find(row=>row.key===r.key).measured,false);
+    assert.equal(H.moneyRanking(s,settings,history,{},61000).find(row=>row.key===r.key).measured,false);
+    mon.level=47;assert.equal(H.metricsKey(s,r,settings,61000),fresh,'no additional attack learned at 47');
+    mon.id=132;const ditto=H.metricsKey(s,r,settings,61000);mon.level=48;assert.notEqual(H.metricsKey(s,r,settings,61000),ditto);
+});
+
+test('legacy speed two follows the hosted game and a mixed-speed cycle cannot supply a rate',()=>{
+    const cfg=H.normalizeSettings({mode:'train',speed:2});assert.equal(cfg.speed,1);
+    assert.equal(H.normalizeJobs([{settings:{mode:'train',speed:2}}])[0].settings.speed,1);
+    const s=state(),r=route(s),t=new H.Telemetry();s.adv.speed=2;t.begin(s,r,cfg,1000);assert.equal(t.sample,null);
+    s.adv.speed=1;t.begin(s,r,cfg,2000);t.sample.full=true;t.sample.advanced=true;
+    s.adv.speed=4;s.adv.runs++;assert.equal(t.observe(s,r,cfg,62000),null);assert.deepEqual(t.metrics,{});
+});

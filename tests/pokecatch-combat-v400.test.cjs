@@ -10,6 +10,14 @@ test('native multi-hit patterns are used separately from aggregate move selectio
     }
 });
 
+test('level-100 Reshiram uses the current native Blue Flare strength and adjusted accuracy',()=>{
+    const mon={id:643,level:100},foe={id:205,level:100};
+    assert.equal(H.DATA.combat.moves['blue-flare'].power,140);
+    const hit=H.expectedDamage(mon,foe,H.effectiveStats(mon),H.effectiveStats(foe),{details:true});
+    assert.equal(hit.key,'blue-flare');
+    assert.ok(Math.abs(hit.accuracy-9/11)<1e-12);
+});
+
 test('per-strike native rounding and random hit counts reproduce isolated browser evidence',()=>{
     for(const duel of native.duels){
         const actual=H.expectedDamage(duel.mon,duel.foe,H.effectiveStats(duel.mon),H.effectiveStats(duel.foe),{details:true,weather:duel.weather});
@@ -46,6 +54,20 @@ test('partial deployment damage uses the same recovered-miss cadence as KO estim
     const details=[{attack:{hit:100,damage:50,sustainedDamage:100/1.5,minHit:100,maxHit:100,accuracy:.5},incoming:{hit:100,damage:100,minHit:100,maxHit:100,accuracy:1},hp:100,foeHp:200,first:1,deployment:0}];
     const battle=H.deployedBattle(details);
     assert.ok(Math.abs(battle.coverage-1/6)<1e-12,'One available attack contributes the miss-recovered sustained damage');
+});
+
+test('ordinary one-hit KO estimates include the upper half of the native roll and the guaranteed post-miss hit',()=>{
+    const mon={id:65,level:100},foe={id:68,level:100},a=H.expectedDamage(mon,foe,H.effectiveStats(mon),H.effectiveStats(foe),{details:true});
+    const hp=Math.floor(a.hit)+1;
+    assert.ok(a.minHit<hp&&hp<a.maxHit&&hp<=2*a.minHit);
+    const draws=10000;
+    let needAnother=0;
+    for(let i=0;i<draws;i++)if(Math.max(1,Math.floor(a.singleRollMax*(.85+.15*(i+.5)/draws)))<hp)needAnother++;
+    const expected=(1+needAnother/draws)*(2-a.accuracy);
+    assert.ok(Math.abs(H.attackTurns(a,hp)-expected)<.0002);
+    assert.ok(H.attackTurns(a,hp)<1.6*(2-a.accuracy),'averaging damage then rounding would wrongly require two hits every time');
+    assert.equal(H.attackTurns(a,a.minHit),2-a.accuracy);
+    assert.equal(H.attackTurns(a,a.maxHit+1),2*(2-a.accuracy));
 });
 
 test('optional weather factors affect actual selected moves and typeless fallback stays unaffected',()=>{

@@ -76,6 +76,44 @@ test('disabled evolution support never opens or evolves an eligible member',t=>{
     const f=fixture(t,{autoEvolve:false});assert.equal(f.service(),false);assert.deepEqual(f.actions,[]);assert.equal(f.s.mons[0].id,2);
 });
 
+function reserveFixture(t){
+    const f=fixture(t);
+    f.s.mons=Array.from({length:30},(_,i)=>({uid:'pc'+i,id:18,level:5,reg:'kanto'}));
+    f.s.mons.push({uid:'gull',id:278,level:100,reg:'hoenn'});
+    f.s.team=f.s.mons.slice(0,6).map(mon=>mon.uid);f.s.road=[...f.s.team];f.s.travel.to=['hoenn'];f.save();
+    return f;
+}
+async function completedSearch(job){
+    for(let i=0;i<500&&!job.result&&!job.error;i++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.ifError(job.error);assert.ok(job.result);return job.result;
+}
+test('reserve evolution yields the screen to the adventure solver and rechecks new daycare duplicates before opening it',async t=>{
+    const f=reserveFixture(t),e=f.e;
+    assert.equal(e.serviceBackground(e.read(),f.now()),false);
+    const initial=e.evolutionSearch;assert.ok(initial);assert.equal(f.ui.screen,'adventure');assert.equal(e.automation.state.evolution,undefined);
+    e.fitTeam(e.read(),f.now());const partyJob=e.teamSearch;assert.ok(partyJob);assert.equal(e.evolutionSearch,initial);
+    const [reserve]=await Promise.all([completedSearch(initial),completedSearch(partyJob)]);
+    assert.equal(reserve.uid,'gull');assert.equal(f.actions.length,0);
+    f.s.pension.mons=[{mon:{uid:'daycare',id:279,reg:'hoenn'}}];f.save();
+    assert.equal(f.service(),false);assert.notEqual(e.evolutionSearch,initial);assert.equal(e.teamSearch,partyJob);
+    assert.equal((await completedSearch(e.evolutionSearch)).uid,null);
+    assert.equal(f.service(),false);assert.equal(e.teamSearch,partyJob);assert.equal(f.actions.length,0);
+    f.s.pension.mons=[];f.save();e.cancelTeamSearch('teamSearch');
+    assert.equal(f.service(),false);await completedSearch(e.evolutionSearch);
+    assert.equal(f.service(),true);assert.equal(e.automation.state.evolution.uid,'gull');
+    assert.equal(e.automation.state.evolution.toId,279);
+    assert.equal(f.evolveClicks().length,0);
+});
+test('manual handoff cancels both scoring jobs without leaving an evolution transaction',t=>{
+    const f=reserveFixture(t),e=f.e;
+    f.service();e.fitTeam(e.read(),f.now());
+    assert.ok(e.teamSearch&&e.evolutionSearch);
+    e.manualInput(f.now());
+    assert.ok(e.manual);
+    assert.equal(e.teamSearch,null);assert.equal(e.evolutionSearch,null);
+    assert.equal(e.automation.state.evolution,undefined);assert.equal(f.actions.length,0);
+});
+
 test('a level 68 Wingull under preparation takes precedence over an earlier eligible party member',t=>{
     const f=fixture(t);
     const gull={uid:'gull',id:278,level:68,reg:'sinnoh'};

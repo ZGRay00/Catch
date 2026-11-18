@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const H = require('../Pokecatch自动助手.user.js');
+const preparationTick=require('./fixtures/pokecatch-preparation-tick.cjs');
 
 test('target metadata has readable conditions, finite sources and complete XP thresholds', () => {
     assert.equal(H.DATA.zones.length, 57);
@@ -163,9 +164,9 @@ test('candy purchases compare actual useful XP per price instead of blindly sele
     assert.equal(H.candyChoice(s,{...mon,level:75},100,offers),null,'current regional cap prevents further candy consumption');
 });
 
-test('zero candy purchase budget falls back to training without stopping or resetting the goal',t=>{
+test('zero candy purchase budget falls back to training without stopping or resetting the goal',async t=>{
     const s=state();s.mons[0].level=5;const {e}=runtime(t,s,{mode:'progress',autoPrepare:true,autoTeam:false,progressCandy:true,spendBudget:0});e.read();e.progress(s,Date.now());
-    e.coach.step(s,Date.now());assert.equal(e.running,true);assert.equal(e.preparation.candyDisabled,true);assert.equal(e.preparation.phase,'train');assert.equal(e.budget.spent,0);assert.equal(e.settings.mode,'progress');e.stop();
+    await preparationTick(e,()=>e.coach.step(s,Date.now()));assert.equal(e.running,true);assert.equal(e.preparation.candyDisabled,true);assert.equal(e.preparation.phase,'train');assert.equal(e.budget.spent,0);assert.equal(e.settings.mode,'progress');e.stop();
 });
 
 test('unconfirmed candy action times out without repeating the transaction',t=>{
@@ -264,13 +265,13 @@ test('an observed defeat overrides the small level-gap tolerance without inventi
     assert.equal(e.preparation.targets[0].goal,46);assert.match(e.status,/战败后/);e.stop();
 });
 
-test('training defeats lower the route difficulty and keep that ceiling for the remaining detour',t=>{
+test('training defeats lower the route difficulty and keep that ceiling for the remaining detour',async t=>{
     const s=johtoScreenshot();s.mons=s.mons.slice(0,1);s.mons[0].level=40;s.team=['j0'];s.road=['j0'];
     const {e}=runtime(t,s,{mode:'progress',progressUntil:65,autoPrepare:true,autoTeam:false});e.read();const now=Date.now();e.progress(s,now);const p=e.preparation;
     Object.assign(p,{phase:'train',route:{...H.DATA.chapters[17],key:'17',members:[17]},visit:{at:now,deaths:0},routeCheck:now});s.adv.chapter=17;s.adv.deaths[17]=2;
-    e.coach.step(s,now+1000);assert.equal(p.phase,'travel');assert.equal(p.routeCeiling,37);
+    await preparationTick(e,()=>e.coach.step(s,now+1000));assert.equal(p.phase,'travel');assert.equal(p.routeCeiling,37);
     const rows=H.preparationRoutes(s,e.settings,p,e.metrics,now+1000);assert.ok(rows.length);assert.ok(rows.every(row=>row.members.every(id=>H.DATA.chapters[id].ace<=37)));
-    e.coach.step(s,now+2000);assert.equal(p.phase,'train');assert.ok(p.route.id<17);e.stop();
+    await preparationTick(e,()=>e.coach.step(s,now+2000));assert.equal(p.phase,'train');assert.ok(p.route.id<17);e.stop();
 });
 
 test('completed mainline and resource goals are never delayed by an unnecessary live-map preflight',t=>{
@@ -367,8 +368,8 @@ function pendingRoad(t){
     s.team=[...p.uids];s.road=['carrier'];s.adv.chapter=2;Object.assign(p,{phase:'train',route:{...H.DATA.chapters[2],key:'2',members:[2]},routeCheck:now,lastTick:now,roadWait:{key:JSON.stringify([s.team,s.road]),at:now-121000}});return{s,e,p,now};
 }
 
-test('a stalled native road party triggers a bounded map change instead of resetting its wait forever',t=>{
-    const {s,e,p,now}=pendingRoad(t);e.coach.step(s,now);assert.equal(e.running,true);assert.equal(p.phase,'travel');assert.equal(p.roadRepairs,1);assert.ok(p.avoid['2']>now);e.stop();
+test('a stalled native road party triggers a bounded map change instead of resetting its wait forever',async t=>{
+    const {s,e,p,now}=pendingRoad(t);await preparationTick(e,()=>e.coach.step(s,now));assert.equal(e.running,true);assert.equal(p.phase,'travel');assert.equal(p.roadRepairs,1);assert.ok(p.avoid['2']>now);e.stop();
 });
 
 test('repeated native road failure pauses clearly after the recovery limit',t=>{

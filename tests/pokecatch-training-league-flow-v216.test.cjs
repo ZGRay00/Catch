@@ -1,4 +1,5 @@
 const test=require('node:test'),assert=require('node:assert/strict'),H=require('../Pokecatch自动助手.user.js');
+const preparationTick=require('./fixtures/pokecatch-preparation-tick.cjs');
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
 
 function state(){
@@ -86,8 +87,8 @@ test('clearing the original Drake frontier continues the champion room without r
     assert.match(e.status,/推进主线|推进联盟/);
 });
 
-test('repeated league defeats apply one shared league cooldown and return to an easier training route',t=>{
-    const {s,e,p,now,save}=fixture(t);s.adv.deaths[43]=2;save();e.coach.step(s,now);
+test('repeated league defeats apply one shared league cooldown and return to an easier training route',async t=>{
+    const {s,e,p,now,save}=fixture(t);s.adv.deaths[43]=2;save();await preparationTick(e,()=>e.coach.step(s,now));
     assert.equal(p.phase,'travel');assert.equal(p.avoid['L:hoenn'],now+600000);assert.equal(p.routeCeiling,94);
     const alternatives=H.preparationRoutes(s,e.settings,p,e.metrics,now);assert.ok(alternatives.length);assert.ok(alternatives.every(row=>row.key!=='L:hoenn'));
     assert.equal(e.settings.progressUntil,65);

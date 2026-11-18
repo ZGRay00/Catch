@@ -39,6 +39,39 @@ test('wallet switches invalidate old money and XP samples instead of recording a
     assert.notEqual(H.metricsKey(s,row,settings),key);assert.equal(t.observe(s,row,settings,61000),null);assert.deepEqual(t.metrics,{});
 });
 
+test('session money follows both wallets across departure, side changes, reload, spending and merge',t=>{
+    const previous=global.document;global.document={hidden:false,querySelector:()=>null};
+    t.after(()=>{if(previous===undefined)delete global.document;else global.document=previous;});
+    const s=state(),entries=new Map(),storage={getItem:key=>entries.get(key)??null,setItem:(key,value)=>entries.set(key,String(value)),removeItem:key=>entries.delete(key)};
+    function save(){storage.setItem('gachamon-save-v1',JSON.stringify(s));}
+    function open(){const e=new H.Engine(storage,{mode:'money'});e.schedule=()=>{};e.loadAccount(s);return e;}
+    s.money=100000;save();
+    let e=open();e.start();assert.equal(e.running,true,e.status);
+    s.link={from:'hoenn',to:'sinnoh',side:'to',stash:{money:s.money}};s.money=0;
+    assert.equal(e.sessionMoneyNet(s),0);
+    s.money=3000;assert.equal(e.sessionMoneyNet(s),3000);
+    s.link.side='from';s.link.stash.money=3000;s.money=100000;
+    save();e.persist();e.release();e=open();e.start(true);
+    assert.equal(e.running,true,e.status);assert.equal(e.sessionMoneyNet(s),3000);
+    s.money-=750;assert.equal(e.sessionMoneyNet(s),2250);
+    s.money+=s.link.stash.money;delete s.link;assert.equal(e.sessionMoneyNet(s),2250);
+    e.stop();
+});
+
+test('legacy single-wallet checkpoints rebase only once a complete balance is readable',t=>{
+    const previous=global.document;global.document={hidden:false,querySelector:()=>null};
+    t.after(()=>{if(previous===undefined)delete global.document;else global.document=previous;});
+    const s=state(),entries=new Map(),storage={getItem:key=>entries.get(key)??null,setItem:(key,value)=>entries.set(key,String(value)),removeItem:key=>entries.delete(key)};
+    const e=new H.Engine(storage,{mode:'money'});e.schedule=()=>{};s.link={from:'hoenn',to:'sinnoh',side:'to'};
+    storage.setItem('gachamon-save-v1',JSON.stringify(s));e.loadAccount(s);
+    e.checkpoint={wanted:true,settings:e.settings,session:{started:1,startMoney:100000}};
+    e.start(true);assert.equal(e.running,true,e.status);assert.equal(e.sessionMoneyNet(e.read()),null);
+    s.link.stash={money:100000};storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    assert.equal(e.sessionMoneyNet(e.read()),0);assert.equal(e.walletScope,'rebased');
+    s.money+=120;storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    assert.equal(e.sessionMoneyNet(e.read()),120);e.stop();
+});
+
 test('corrected regional XP data still accounts for rank and the current per-member XP balance',()=>{
     const s=state(),mon=s.mons[0];mon.rank=3;mon.level=20;mon.xp=99;
     const table=H.DATA.xpThresholds.sinnoh[3];assert.equal(H.candyXpGap(s,mon,22),table[20]+table[21]-99);

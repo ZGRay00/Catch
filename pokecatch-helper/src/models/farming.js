@@ -1,13 +1,17 @@
     function shinyRanking(s,settings,cooldowns={},now=Date.now()){
         const targets=missingShinies(s,settings);
+        return rankedRoutes('shiny',[settings.speed,huntRankingInputs(s,settings,targets,now)],
+            ()=>rankShinyTargets(s,settings,targets,now),cooldowns,now);
+    }
+    function rankShinyTargets(s,settings,targets,now){
         const phenomena=targets.filter(id=>UNOVA_WILD_IDS.has(id)).flatMap(id=>unovaAcquisitionSources(s,id,now)).filter(source=>source.kind==='phenomenon'&&source.available);
-        return candidates(s,settings).filter(row=>(cooldowns[row.key]||0)<=now&&huntRouteMatches(s,settings,row,now)).map(row=>{
+        return candidates(s,settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row=>{
             const members=row.members;
             const expected=members.reduce((n,id)=>{
                 const pool=currentWildPool(s,id,now);
                 return n+targets.reduce((sum,target)=>sum+(pool.get(target)||0),0);
             },0)+phenomena.filter(source=>members.includes(source.chapter)).reduce((n,source)=>n+source.weight,0);
-            return{...row,expected,rate:expected/Math.max(20,row.units*2.8/2.5)*60};
+            return{...row,expected,rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }
     function pensionPlan(s,id){
@@ -92,6 +96,12 @@
         charge(cost=0,uses=0){if(cost){const day=this.day();if(day.invalid)throw new Error('每日消费记录不可识别，未执行消费');day.spent+=cost;this.e.storage.setItem(PREFIX+'budget:'+this.e.account+':'+parisDay(),JSON.stringify(day));}this.spent+=cost;this.used+=uses;}
     }
     function currentRegion(s) { return CHAPTERS.get(s?.adv?.chapter)?.reg || 'kanto'; }
+    function combinedWalletMoney(s){
+        if(!Number.isFinite(s.money)||s.money<0)return null;
+        if(!s.link)return s.money;
+        const other=s.link.stash?.money;
+        return Number.isFinite(other)&&other>=0?s.money+other:null;
+    }
     function economicRegion(s){
         if(s.link?.side==='from'&&DATA.regions.some(r=>r.key===s.link.from))return s.link.from;
         const open=new Set(['kanto',...(s.travel?.to||[]),s.link?.to,currentRegion(s)]);

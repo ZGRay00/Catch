@@ -74,6 +74,20 @@ test('trial readiness survives a refresh checkpoint and validates its actual ros
     assert.equal(next.coach.ready?.trial,true);assert.equal(next.ensurePrepared(s,context,{},now+1200),false);assert.equal(next.preparation,null);
     s.autoSwitch=false;assert.notEqual(next.coach.ready.profile,next.coach.partyProfile(s));
 });
+test('a graduated manual party cannot leave its preparation pass with a replacement level-five squad',t=>{
+    const {s,e,context,now}=fixture(t,species.map(()=>95),{autoTeam:false});
+    e.coach.step(s,now);assert.equal(e.preparation,null);assert.ok(e.coach.ready);
+    const replacements=species.map((id,i)=>({uid:'low'+i,id,level:5,reg:'hoenn'}));
+    s.mons.push(...replacements);s.team=replacements.map(mon=>mon.uid);s.road=[...s.team];
+    assert.equal(e.ensurePrepared(s,context,{},now+1200),true);
+    assert.deepEqual(e.preparation.uids,s.team);assert.equal(e.coach.ready,null);
+});
+test('a ready squad waits for its actual road roster even with automatic evolution disabled',t=>{
+    const {s,e,context,now}=fixture(t,undefined,{autoEvolve:false});e.coach.step(s,now);
+    assert.equal(e.ensurePrepared(s,context,{},now+1200),false);
+    s.road=[s.team[0]];
+    assert.equal(e.ensurePrepared(s,context,{},now+2400),true);assert.match(e.status,/等待治疗点|准备队伍上阵/);
+});
 
 test('a pending candy purchase is acknowledged before completed preparation can disappear',t=>{
     const {s,e,p,now}=fixture(t,species.map(()=>95));p.candyTx={kind:'buy',uid:'m0',id:'exp-candy-m',at:now,stock:0,counter:0,xp:0};
@@ -127,4 +141,57 @@ test('queue Stop and Resume preserve a failed trial floor and its existing budge
     const floor=structuredClone(p.trialFailure.floor);e.stop('fixture pause');assert.deepEqual(e.queue[0].progress.preparation.trialFailure.floor,floor);
     e.startQueue();assert.equal(e.running,true,e.status);assert.deepEqual(e.preparation.trialFailure.floor,floor);assert.equal(e.coach.ready,null);assert.equal(e.budget.spent,123);assert.equal(e.budget.used,2);
     e.coach.step(s,now+2400);assert.ok(e.preparation);assert.equal(e.preparation.assessment.ready,false);
+});
+
+async function finishReview(job){
+    assert.ok(job,'a cooperative review was scheduled');
+    const delay=require('node:timers/promises').setTimeout;
+    for(let i=0;i<600&&!job.result&&!job.error;i++)await delay(5);
+    if(job.error)throw job.error;
+    assert.ok(job.result,'finished within the test deadline');
+}
+
+function largeBox(s){
+    for(let i=0;i<26;i++)s.mons.push({uid:'reserve'+i,id:129,level:3,reg:'hoenn',xp:0});
+}
+
+test('active training discards a finished review after a new capture and adopts a ready party only at a safe boundary',async t=>{
+    const {s,e,p,now,save}=fixture(t,species.map(()=>5));largeBox(s);save();
+    await e.step(now);const obsolete=e.teamSearch;
+    assert.ok(obsolete?.signature.startsWith('review:'));
+    await e.step(now+1);assert.equal(e.teamSearch,obsolete);
+    assert.equal(e.driver.teamTask,null);assert.equal(p.resumeReady,undefined);
+    await finishReview(obsolete);
+    s.mons.push(...species.map((id,i)=>({uid:'ready'+i,id,level:95,reg:'hoenn'})));save();
+    await e.step(now+100);const fresh=e.teamSearch;assert.notEqual(fresh,obsolete);
+    assert.ok(fresh?.signature.startsWith('review:'));
+    await finishReview(fresh);
+    s.adv.battle={kind:'wild',steps:1};save();
+    await e.step(now+200);assert.equal(p.resumeReady,undefined);assert.equal(e.driver.teamTask,null);
+    s.adv.battle=null;save();await e.step(now+300);
+    assert.ok(p.resumeReady);assert.deepEqual(p.uids,fresh.result.plan.uids);
+    assert.equal(e.budget.spent,123);assert.equal(e.preparation,p);assert.equal(e.teamSearch,null);
+});
+
+test('the training carrier review completes on ordinary engine ticks while preserving the pinned learner',async t=>{
+    const {s,e,p,now,save,context}=fixture(t,species.map(()=>15));largeBox(s);
+    p.context={...context,kind:'raid'};p.targets=p.targets.slice(0,1);
+    s.mons.push({uid:'carrier',id:384,level:100,reg:'hoenn'});save();
+    const expected=H.planAdventureTeam({...s,team:p.uids},e.settings,[p.targets[0].uid],{row:p.route,reg:p.context.reg,objective:'train',force:false,now});
+    await e.step(now);const job=e.teamSearch;
+    assert.ok(job?.signature.startsWith('trainees:'));assert.equal(e.driver.teamTask,null);
+    await e.step(now+1);assert.equal(e.teamSearch,job);
+    await finishReview(job);await e.step(now+100);
+    assert.equal(e.teamSearch,null);assert.deepEqual(p.uids,expected.uids);assert.ok(p.uids.includes('carrier'));assert.ok(p.uids.includes(p.targets[0].uid));
+});
+
+test('off-roster evolution changes invalidate the review and manual control cancels it before any changes',async t=>{
+    const {s,e,p,now,save}=fixture(t,species.map(()=>5));largeBox(s);save();
+    await e.step(now);const old=e.teamSearch,goals=p.targets,uids=p.uids;assert.ok(old);
+    s.pension={mons:[{mon:{uid:'daycare',id:130,level:20,reg:'hoenn'}}]};save();
+    await e.step(now+1);const fresh=e.teamSearch;assert.ok(fresh);assert.notEqual(fresh,old);
+    e.manualInput(now+2);
+    await require('node:timers/promises').setTimeout(15);
+    assert.equal(e.teamSearch,null);assert.equal(fresh.result,undefined);
+    assert.equal(e.driver.teamTask,null);assert.equal(p.targets,goals);assert.equal(p.uids,uids);assert.equal(e.budget.spent,123);
 });

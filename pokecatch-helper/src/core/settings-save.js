@@ -1,7 +1,7 @@
     const MODE_NAMES = { dex: '补齐图鉴', money: '自动刷钱', legend: '指定传说战', roam: '游荡捕获', item: '指定道具', train: '目标练级', progress: '推进主线',
         breed:'繁殖孵蛋',shiny:'指定野生刷闪',underground:'地下通道',tower:'对战塔',candy:'糖果工厂',elite:'精英联盟',world:'世界首领',resource:'采购与使用' };
     const FLOW_MODES = new Set(['breed','underground','tower','candy','elite','world','resource']);
-    const SESSION_FIELDS=['started','startMoney','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','lastExplore'];
+    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','lastExplore'];
     function raidIdentity(s,value=s?.adv?.event){
         if(!value?.raid)return null;
         return JSON.stringify([value.reg||currentRegion(s),value.id,value.date||parisDay()]);
@@ -37,17 +37,24 @@
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
         dexRegions:[],dexSpecies:[],dexWeather:[],shinyRegions:[],shinySpecies:[],shinyWeather:[],
-        underRuns:1,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
+        underRuns:1,underAutoStart:true,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
         spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;
-    function normalizeSettings(raw = {}) {
+    function normalizeSettings(raw = {}, base = DEFAULTS) {
+        // The original numeric setting always stored 1, even when the player had
+        // never selected a floor. Preserve intentional non-default legacy limits.
+        if(raw.underFrom!==undefined&&typeof raw.underAutoStart!=='boolean')raw={...raw,underAutoStart:!(Number(raw.underFrom)>1)};
+        if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
-        const choices = { mode: Object.keys(MODE_NAMES), speed: [1, 2, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
+        // Public game buttons are ×1 (1) and ×3 (4). On the hosted game,
+        // an old save with speed 2 advances at the highest supported speed <= 2.
+        if(raw.speed===2||raw.speed==='2')out.speed=1;
+        const choices = { mode: Object.keys(MODE_NAMES), speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
         for (const [k, allowed] of Object.entries(choices)) if (allowed.includes(raw[k])) out[k] = raw[k];
         for (const [k, lo, hi] of [['sampleMinutes', 1, 30], ['rotateMinutes', 2, 120], ['raidMinutes', 5, 720], ['lossLimit', 1, 20], ['stopMinutes', 0, 1440], ['moneyTarget', 0, 1e12], ['legendTier', 0, 5], ['legendMinutes', 5, 720], ['roamMinutes', 5, 720], ['itemQuantity', 1, 99999], ['trainLevel', 1, 100], ['resumeSeconds', 3, 300], ['teamMinutes', 1, 60]]) {
             out[k] = clamp(raw[k], lo, hi, DEFAULTS[k]);

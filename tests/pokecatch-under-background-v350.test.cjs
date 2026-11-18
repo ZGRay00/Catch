@@ -62,6 +62,40 @@ test('automatic background dispatch is on by default and has an explicit saved o
     assert.equal(H.DEFAULTS.autoUnderDispatch,true);assert.equal(H.normalizeSettings({}).autoUnderDispatch,true);
     assert.equal(H.normalizeSettings({autoUnderDispatch:false}).autoUnderDispatch,false);
 });
+test('background selects the highest enabled floor even with a manual adventure party, then confirms return to the original screen',t=>{
+    const f=fixture(t),ids=f.prepare();f.s.under.best=300;f.save();f.from.options=[1,25,50,75,100].map(value=>({value:String(value)}));
+    f.service();assert.equal(f.from.value,'100');assert.equal(f.actions.filter(a=>a.el===f.go).length,0);
+    f.service();f.service();assert.equal(f.actions.filter(a=>a.el===f.go).length,1);
+    f.commit('first',ids);f.s.under.slots[0].from=100;f.save();f.service();
+    assert.equal(f.e.services.underDispatched,1);assert.equal(f.e.services.underground,null);assert.equal(f.ui.screen,'adventure');
+    assert.ok(f.e.logs.some(entry=>/100 层/.test(entry.text)));
+});
+test('a saved manual floor limit applies to background dispatch, while a newly occupied bay returns control',t=>{
+    const f=fixture(t,{underAutoStart:false,underFrom:45});f.prepare();f.from.options=[1,25,50].map(value=>({value:String(value)}));
+    f.service();assert.equal(f.from.value,'25');f.s.under.extra=1;
+    f.s.under.slots=[{id:'occupied',bay:0,team:['other'],end:f.now()+60000}];f.save();f.service();
+    assert.equal(f.e.services.underground,null);assert.equal(f.ui.screen,'adventure');assert.equal(f.actions.filter(a=>a.el===f.go).length,0);
+});
+
+test('large idle pool is evaluated before opening the editor and newly reserved members are excluded',async t=>{
+    const f=fixture(t),{s,e}=f;
+    for(let i=0;i<35;i++)f.add('pool-'+i,i+1);
+    f.save();f.service();
+    const before=e.teamSearch;assert.ok(before);
+    assert.ok(f.actions.every(action=>action.type!=='click'));
+    async function result(job){
+        for(let i=0;i<500&&!job.result&&!job.error;i++)await new Promise(resolve=>setTimeout(resolve,5));
+        assert.ifError(job.error);assert.ok(job.result);return job.result;
+    }
+    const old=await result(before),reserved=old.uids[0];
+    s.eventTeams.candy=[reserved];f.save();f.service();
+    const fresh=e.teamSearch;assert.notEqual(fresh,before);await result(fresh);
+    assert.equal(e.driver.ownedDialog,null);f.service();
+    const own=e.driver.ownedDialog;
+    assert.equal(own.type,'backgroundUnderTeam');
+    assert.deepEqual(own.uids,fresh.result.uids);assert.ok(!own.uids.includes(reserved));
+    assert.ok(!f.actions.some(action=>action.el===f.go));
+});
 
 test('auto fitting gets first choice of PC members, then dispatch can use the remaining squad',async t=>{
     const f=fixture(t,{autoTeam:true}),{s,e}=f;

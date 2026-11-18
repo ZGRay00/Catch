@@ -35,11 +35,12 @@
     }
     function itemRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         const item = ITEMS.get(settings.itemId); if (!item) return [];
+        const metricKey=routeMetricKey(s,settings,now);
         return candidates(s, settings).filter(row => (cooldowns[row.key] || 0) <= now).map(row => {
             const sources = item.sources.filter(source => row.members.includes(source.ch) && sourceAvailable(s, source, item.id, now));
-            const seconds = Math.max(20, row.units * 2.8 / 2.5);
+            const seconds = estimatedRouteSeconds(row,settings.speed);
             const expected = sources.reduce((n, source) => n + source.expected * (source.kind === 'town' ? Math.min(1, seconds * 1000 / Math.max(1, DATA.townCooldown || 1)) : 1), 0);
-            const m = metrics[metricsKey(s, row, settings,now)], measured = m?.itemSeconds > 0;
+            const m = metrics[metricKey(row)], measured = m?.itemSeconds > 0;
             const count = Number(m?.itemCounts?.[item.id]) || 0;
             const estimate = expected / seconds * 60;
             // A zero-drop trial cannot make a rare but valid source look impossible.
@@ -112,24 +113,104 @@
         }
         return rows;
     }
-    function xpRouteScore(s,settings,row,metrics,now){
-        const m=metrics[metricsKey(s,row,settings,now)],measured=m?.xpSeconds>0,samples=m?.xpRuns||0;
-        const party=partyMons(s),growing=party.filter(mon=>mon.level<trainingCap(s,mon)),bonus=growing.some(mon=>mon.uid===s.buddy?.uid)?.3:0,battleFit=battleRouteFit(s,row,s.team||[],now);
-        const experience=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0)*(growing.length+bonus)*(activeYieldBuff(s,'xp',now)?.mult||1);
-        const leagueTraining=row.league?leagueTrainingModel(s,settings,row,battleFit,now):null;
-        const estimate=leagueTraining?leagueTraining.xpPerMember*(growing.length+bonus)*(activeYieldBuff(s,'xp',now)?.mult||1)/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/Math.max(20,row.units*2.8/2.5)*60*battleFit.factor;
+    const STORY_FIT_LIMITS={turns:4.5,worst:12,deaths:.25,knockouts:2};
+    const MAP_FIT_LIMITS={turns:3,worst:8,deaths:.15,knockouts:1};
+    function clearsWithinLimits(fit,limits){
+        return fit.minCoverage>=.999&&fit.turns<=limits.turns&&fit.worstTurns<=limits.worst&&fit.deaths<=limits.deaths&&fit.worstDeaths<=limits.knockouts;
+    }
+    function* xpRouteSearch(s,settings,row,m,now,sliced,projection){
+        const {party,yieldMembers,xpMult}=projection;
+        const measured=m?.xpSeconds>0,samples=m?.xpRuns||0;
+        const battleFit=yield* battleRouteFitSearch(s,row,s.team||[],now,sliced);
+        const experience=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0)*yieldMembers*xpMult;
+        const leagueTraining=row.league?yield* leagueTrainingSearch(s,settings,row,battleFit,now,sliced):null;
+        const estimate=leagueTraining?leagueTraining.xpPerMember*yieldMembers*xpMult/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
         const actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
         const levels=party.filter(mon=>teamEligible(s,mon,row.reg)).map(mon=>mon.level).sort((a,b)=>b-a);
         const lead=(levels[0]||1)*.75+(levels[1]||levels[0]||1)*.25,maxLevel=Math.max(...row.members.map(id=>CHAPTERS.get(id)?.ace||1));
-        const efficient=battleFit.coverage>=.9&&battleFit.turns>0&&battleFit.turns<=3;
         const proven=measured&&samples>=2&&actualRate>0;
-        const trainingSafe=leagueTraining?proven||leagueTraining.allowed:efficient||!row.trainingFrontier&&(maxLevel<=lead||proven);
+        const efficient=battleFit.coverage>=.9&&battleFit.turns>0&&battleFit.turns<=3;
+        // The time model already charges for slower fights. A new chapter also
+        // needs an answer to its worst matchup before we try its full loop.
+        const covered=battleFit.minCoverage>=.999;
+        const ordinary=clearsWithinLimits(battleFit,STORY_FIT_LIMITS)||efficient&&(!row.trainingFrontier||covered)||!row.trainingFrontier&&maxLevel<=lead;
+        const trainingSafe=proven||(leagueTraining?leagueTraining.allowed:ordinary);
         return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,battleFit,leagueTraining,maxLevel,trainingSafe};
     }
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
-        const rows=trainingCandidates(s,settings).map(row=>xpRouteScore(s,settings,row,metrics,now)),safe=rows.filter(row=>row.trainingSafe),replays=rows.filter(row=>!row.trainingFrontier);
+        return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
+    }
+    function yieldRankingRequest(kind,s,settings,metrics,now){
+        const maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
+        return makeYieldRankingRequest(kind,s,settings,metrics,now,maps);
+    }
+    function preparationRankingRequest(s,settings,preparation,metrics,now){
+        const options={...settings,region:'all'},reg=preparation.context.reg;
+        const maps=trainingCandidates(s,options).filter(row=>row.reg===reg);
+        const training={...s,team:[...(preparation.uids||[])]};
+        const request=makeYieldRankingRequest('preparation',training,options,metrics,now,maps,reg);
+        request.ceiling=preparation.routeCeiling;
+        return request;
+    }
+    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg){
+        const xp=kind!=='money';
+        const metricKey=routeMetricKey(s,settings,now);
+        // The telemetry object mutates in place. Pin precisely the fields read by
+        // this search so a sample crossing two slices cannot mix measurements.
+        const samples=maps.map(row=>{
+            const m=metrics[metricKey(row)];
+            return m&&(xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs});
+        });
+        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),samples]);
+        const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
+            : maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
+        return {kind,reg,signature,needsSlices,
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced)};
+    }
+    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced){
+        let rows=[];
+        let projection;
+        if(kind!=='money'){
+            const party=partyMons(s),growing=party.filter(mon=>mon.level<trainingCap(s,mon));
+            const buddyShare=growing.some(mon=>mon.uid===s.buddy?.uid) ? .3 : 0;
+            projection={party,yieldMembers:growing.length+buddyShare,xpMult:activeYieldBuff(s,'xp',now)?.mult||1};
+        }
+        for(const [i,row] of maps.entries()){
+            if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,samples[i],now,sliced,projection));
+            else{
+                const fit=yield* battleRouteFitSearch(s,row,s.team||[],now,sliced);
+                rows.push(moneyRouteScore(s,row,samples[i],fit,now,settings.speed));
+            }
+            if(sliced)yield;
+        }
+        if(kind==='xp'){
+            const start=DATA.regions.find(region=>region.key===currentRegion(s))?.start;
+            rows=safeTrainingRoutes(rows,start);
+        }
+        return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
+    }
+    function safeTrainingRoutes(rows,startChapter){
+        const safe=rows.filter(row=>row.trainingSafe);
+        if(safe.length)return safe.map(row=>({...row,fallback:false}));
+        const replays=rows.filter(row=>!row.trainingFrontier||row.id===startChapter);
         const minimum=Math.min(...replays.map(row=>row.maxLevel));
-        return(safe.length?safe:replays.filter(row=>row.maxLevel===minimum)).filter(row=>(cooldowns[row.key]||0)<=now).map(row=>({...row,fallback:!safe.length})).sort((a,b)=>b.rate-a.rate||a.id-b.id);
+        return replays.filter(row=>row.maxLevel===minimum).map(row=>({...row,fallback:true}));
+    }
+    function selectYieldRoutes(request,rows,cooldowns,now){
+        if(request.kind==='preparation'){
+            if(Number.isFinite(request.ceiling))rows=rows.filter(row=>row.maxLevel<=request.ceiling);
+            const start=DATA.regions.find(region=>region.key===request.reg)?.start;
+            rows=safeTrainingRoutes(rows,start);
+        }
+        return availableRankedRoutes(rows,cooldowns,now);
+    }
+    function completeYieldRanking(request,cooldowns,now){
+        let cached=routeRankings.get(request.kind);
+        if(cached?.signature!==request.signature){
+            cached={signature:request.signature,rows:request.search(false).next().value};
+            routeRankings.set(request.kind,cached);
+        }
+        return selectYieldRoutes(request,cached.rows,cooldowns,now);
     }
     function candyRegion(s){return economicRegion(s);}
     function candyXpGap(s,mon,goal){
@@ -151,6 +232,12 @@
         let reg=options.reg||row?.reg||zone?.reg||(['worldAttack','worldCapture','under'].includes(kind)?'sinnoh':c?.reg||currentRegion(s));
         if(kind==='tower'&&s.link&&reg===s.link.to)reg=DATA.regions.find(region=>region.key===s.link.from)?.key||DATA.regions.filter(region=>region.key!==s.link.to&&region.start<=s.adv.unlocked).at(-1)?.key||'kanto';
         let id=options.id??row?.id??c?.id,level=options.level,foes=[],size=6,label=options.label||row?.name||c?.name||kind;
+        if(kind==='under'){
+            const slot=Number(options.slot)||0,floor=Math.max(1,Number(options.floor)||1),theme=s.under?.next?.[slot]||'';
+            const encounter=undergroundFoes(s,theme,floor);
+            return{kind,id,reg,level:encounter.level,foes:encounter.foes,size:DATA.automation.under.team,slot,floor,
+                tier:0,label:'地下通道 · 第 '+floor+' 层出发',key:`under:${slot}:${theme}:${floor}:${encounter.level}`};
+        }
         if(kind==='map'||kind==='progress'){
             const chapters=row?.members||[id];level=Math.max(...chapters.map(id=>CHAPTERS.get(id)?.ace||1));
             foes=chapters.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
@@ -162,8 +249,8 @@
             const chapter=kind==='elite'?DATA.chapters.find(c=>c.reg===reg&&c.league):c?.reg===reg?c:DATA.chapters.filter(c=>c.reg===reg&&c.id<=s.adv.unlocked).at(-1);
             const all=chapter?chapterThreats({...s,adv:{...s.adv,battle:null}},chapter.id):[];
             level=level||(kind==='tower'?Math.min(DATA.automation.levels.towerMax,Math.floor(DATA.automation.levels.towerStart+(options.floor-1)*DATA.automation.levels.towerStep)+(options.floor%10===0?3:0)):100);
-            foes=all.map(m=>({...m,level,gymCount:0}));size=kind==='under'?DATA.automation.under.team:6;
-            label=options.label||({elite:'精英联盟',tower:'对战塔',under:'地下通道',worldAttack:'世界首领攻击'}[kind]||kind);
+            foes=all.map(m=>({...m,level,gymCount:0}));
+            label=options.label||({elite:'精英联盟',tower:'对战塔',worldAttack:'世界首领攻击'}[kind]||kind);
         }
         level=Math.min(100,Math.max(1,Number(level)||100));foes=foes.filter(m=>MONS.has(m.id));
         return{kind,id,reg,level,foes,size,label,tier:options.tier||0,speciesUnique:kind==='elite'||kind==='zone'&&!!options.tier,floor:options.floor||0,...options.roamId?{roamId:Number(options.roamId)}:{},key:`${kind}:${reg}:${id}:${options.tier||0}:${options.floor||0}:${level}${options.roamId?':roam:'+options.roamId:''}`};
@@ -196,9 +283,12 @@
         return{costs,burden};
     }
     function preparationPlan(s,settings,context){
-        const desired=Math.min(100,context.level+settings.prepareMargin),available=new Map((s.mons||[]).map(m=>[m.uid,m]));
+        return preparationSearch(s,settings,context,false).next().value;
+    }
+    function* preparationSearch(s,settings,context,sliced){
+        const desired=Math.min(100,context.level+settings.prepareMargin),available=new Map((s.mons||[]).map(m=>[m.uid,m])),now=context.now??Date.now();
         if(context.kind==='tower'){
-            const progress=towerProgress(s),actual=towerParty(s,{snapshot:!!progress.run,floor:progress.run?progress.floor:1});
+            const progress=towerProgress(s,now),actual=towerParty(s,{snapshot:!!progress.run,floor:progress.run?progress.floor:1,now});
             const under=(s.under?.slots||[]).flatMap(slot=>slot.mons||[]),index=new Map([...under,...(s.mons||[])].map(mon=>[mon.uid,mon]));
             // The native tower owns selection and order. Train its actual leading survivors,
             // rather than a hypothetical matchup team which the tower will never deploy.
@@ -211,16 +301,23 @@
             }
             return{needed,members,targets,uids,desired,selection:{source:'native-tower'},capLimited:members.some(mon=>mon.goal<desired)};
         }
-        let pool=(s.mons||[]).filter(m=>teamEligible(s,m,context.reg));
-        if(context.kind==='under')pool=undergroundMembers(s);
+        let pool=context.kind==='under'?undergroundMembers(s,now):(s.mons||[]).filter(m=>teamEligible(s,m,context.reg));
         if(context.kind==='worldAttack')pool=pool.filter(m=>!s.wb?.used?.[m.uid]);
         const forecastIdentity=m=>DATA.combat.singles[m.id]||(context.speciesUnique?`sp:${m.id}`:`${m.id}:${+!!m.shiny}`);
         const ordinary=['map','progress'].includes(context.kind),configured=ordinary?[]:configuredBattleTeam(s,context);
         const choose=ordinary?settings.autoTeam:settings.optimizeRaid||['tower','worldAttack'].includes(context.kind);
-        const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true};
-        const actual=ordinary&&choose?planAdventureTeam({...s,mons:pool},settings,[],{...planning,pool}):null;
+        const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true,now};
+        const actual=ordinary&&choose?yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool},sliced):null;
         const ready=!!actual&&!context.forcePreparation&&!!preparationReadiness(s,settings,context,actual.uids)?.ready;
-        const now=Date.now(),future=ready?[]:pool.map(m=>trainingProjection(s,m,desired,settings,now));
+        // A saved facility party takes precedence over every other candidate.
+        // Its training preview only needs the individuals the native event will use.
+        const fixedUids=configured.length?new Set(configured.slice(0,context.size||6)):null;
+        const forecastPool=fixedUids?pool.filter(mon=>fixedUids.has(mon.uid)):choose?pool:ordinary?pool.filter(mon=>s.team.includes(mon.uid)):[];
+        const future=[];
+        if(!ready)for(const mon of forecastPool){
+            future.push(trainingProjection(s,mon,desired,settings,now));
+            if(sliced)yield;
+        }
         const futureByUid=new Map(future.map(m=>[m.uid,m]));
         let selected,selection=null;
         if(configured.length)selected=configured.slice(0,context.size||6);
@@ -230,14 +327,15 @@
                     selected=actual.uids;selection={quality:actual.score,score:actual.score,cost:0,xp:0,source:'current',ready:true};
                 }else{
                     const training=preparationCosts(s,pool,desired),penalty=.16;
-                    const projected=planAdventureTeam({...s,mons:future},settings,[],planning);
-                    const economical=planAdventureTeam({...s,mons:future},settings,[],{...planning,trainingCosts:training.costs,trainingPenalty:penalty});
+                    const projected=yield* adventureTeamSearch({...s,mons:future},settings,[],planning,sliced);
+                    const economical=yield* adventureTeamSearch({...s,mons:future},settings,[],{...planning,trainingCosts:training.costs,trainingPenalty:penalty},sliced);
                     const seen=new Set(),candidates=[];
                     for(const[source,candidate]of [['current',actual],['cost',economical],['potential',projected]]){
                         const identities=new Set(),uids=candidate.uids.filter(uid=>{const mon=futureByUid.get(uid);if(!mon)return false;const key=forecastIdentity(mon);if(identities.has(key))return false;identities.add(key);return true;});
                         const signature=[...uids].sort().join('|');if(seen.has(signature))continue;seen.add(signature);
                         const allowed=new Set(uids),fixed=future.filter(mon=>allowed.has(mon.uid));
-                        const quality=planAdventureTeam({...s,mons:future,team:uids},settings,uids,{...planning,pool:fixed}).score;
+                        const fixedPlan=yield* adventureTeamSearch({...s,mons:future,team:uids},settings,uids,{...planning,pool:fixed},sliced);
+                        const quality=fixedPlan.score;
                         const burden=training.burden(uids),score=quality/(1+penalty*burden.cost);
                         const growing=uids.some(uid=>{const mon=available.get(uid);return mon&&mon.level<Math.min(desired,trainingCap(s,mon));});
                         const lockedCount=fixed.filter(mon=>mon.evolutionItemLocked).length;
@@ -254,11 +352,11 @@
                     }
                 }
             }else{
-                const projected=planAdventureTeam({...s,mons:future},settings,[],planning);selected=projected.uids;
+                const projected=yield* adventureTeamSearch({...s,mons:future},settings,[],planning,sliced);selected=projected.uids;
                 const identity=m=>DATA.combat.singles[m.id]||(context.speciesUnique?`sp:${m.id}`:`${m.id}:${+!!m.shiny}`);
                 const readyPool=pool.filter(m=>m.level>=Math.min(desired,trainingCap(s,m))),count=Math.min(context.size||6,new Set(pool.map(identity)).size);
                 if(count&&readyPool.length<pool.length&&new Set(readyPool.map(identity)).size>=count){
-                    const actual=planAdventureTeam({...s,mons:readyPool},settings,[],{...planning,pool:readyPool});
+                    const actual=yield* adventureTeamSearch({...s,mons:readyPool},settings,[],{...planning,pool:readyPool},sliced);
                     if(projected.score<=actual.score*1.05+.01)selected=actual.uids;
                 }
             }
@@ -275,15 +373,32 @@
         if(!ready&&settings.autoTeam!==false)for(const m of(s.mons||[]).filter(m=>teamEligible(s,m,context.reg)).sort((a,b)=>b.level-a.level))add(m);
         // Keep every selected learner, but order the temporary party using its real
         // current battle strength rather than projected levels or level alone.
-        const uids=settings.autoTeam===false?[...(s.team||[])]:ready?[...selected]:choose?planAdventureTeam(s,settings,team.map(m=>m.uid),{reg:context.reg,pool:team,foes:context.foes,objective:'train',force:true}).uids:team.map(m=>m.uid);
+        let uids=team.map(m=>m.uid);
+        if(settings.autoTeam===false)uids=[...(s.team||[])];
+        else if(ready)uids=[...selected];
+        else if(choose)uids=(yield* adventureTeamSearch(s,settings,uids,{reg:context.reg,pool:team,foes:context.foes,objective:'train',force:true,now},sliced)).uids;
         return{needed,members,targets,uids,desired,selection,capLimited:!ready&&members.some(m=>m.goal<desired)};
     }
     function battleRouteFit(s,row,uids=s.team||[],now=Date.now()){
+        return battleRouteFitSearch(s,row,uids,now,false).next().value;
+    }
+    function* battleRouteFitSearch(s,row,uids,now,sliced){
         const index=new Map((s.mons||[]).map(m=>[m.uid,m]));
         const team=uids.map(uid=>index.get(uid)).filter(m=>m&&teamEligible(s,m,row.reg)).map(m=>({...m,status:null}));
         const foes=(row.members?.length?row.members.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter)):chapterCombatFoes(s,row)).filter(m=>MONS.has(m.id)&&m.weight>0);
         if(!team.length||!foes.length)return{factor:1,turns:null,coverage:null};
-        const weatherRows=foes.map(foe=>combatWeather(s,foe,{row},now)),weatherKey=JSON.stringify(weatherRows.map(row=>row.signature));
+        // Aggregate encounters on the same chapter share their weather. Explicit
+        // encounter nodes can override that chapter and must keep their own entry.
+        const chapterSkies=new Map(),signatures=[];
+        const weatherRows=foes.map(foe=>{
+            const shared=!foe.weatherNode&&!foe.liveNode;
+            if(shared&&chapterSkies.has(foe.chapter))return chapterSkies.get(foe.chapter);
+            const sky=combatWeather(s,foe,{row},now);
+            if(shared)chapterSkies.set(foe.chapter,sky);
+            signatures.push(sky.signature);
+            return sky;
+        });
+        const weatherKey=JSON.stringify(signatures);
         const key=JSON.stringify([row.reg,s.autoSwitch!==false,foes,team.map(combatProfile),weatherKey]),cached=ROUTE_FITS.get(key);
         if(cached)return{...cached};
         const allies=team.map(mon=>({mon,stats:effectiveStats(mon)}));let weight=0,cost=0,covered=0,deaths=0,minCoverage=1,worstTurns=0,worstDeaths=0;
@@ -291,6 +406,7 @@
             const defense=effectiveStats(foe),battle=deployedBattle(allies.map(({mon,stats})=>matchupDetails(mon,foe,stats,defense,weatherRows[i])),s.autoSwitch!==false);
             weight+=foe.weight;cost+=foe.weight*battle.turns;covered+=foe.weight*battle.coverage;deaths+=foe.weight*battle.deaths;
             minCoverage=Math.min(minCoverage,battle.coverage);worstTurns=Math.max(worstTurns,battle.turns);worstDeaths=Math.max(worstDeaths,battle.deaths);
+            if(sliced)yield;
         }
         // Static route time assumes a short fight; allow three expected attack turns per foe.
         // Low survival increases that cost, while observed complete runs supersede this model.
@@ -300,6 +416,7 @@
         return{...fit};
     }
     function rebuildPreparationContext(s,saved){
+        if(saved?.kind==='under'&&!saved.foes?.length)return battleContext(s,'under',saved);
         if(!saved||!['map','progress'].includes(saved.kind)||saved.foes?.length)return saved;
         const c=CHAPTERS.get(saved.id);
         if(!c||saved.reg&&c.reg!==saved.reg)return{...saved,foes:[]};
@@ -308,6 +425,9 @@
         return{...rebuilt,...saved,foes:rebuilt.foes};
     }
     function preparationReadiness(s,settings,context,uids=s.team||[]){
+        return readinessSearch(s,settings,context,uids,false).next().value;
+    }
+    function* readinessSearch(s,settings,context,uids,sliced){
         const reject=reason=>({ready:false,fit:null,reason});
         if(!['map','progress'].includes(context?.kind))return reject('独立活动保留原有等级补练要求');
         if(!settings.autoTeam)return reject('手动配队保留原定补练目标');
@@ -335,17 +455,22 @@
             weight+=foe.weight;turns+=foe.weight*battle.turns;deaths+=foe.weight*battle.deaths;coverage+=foe.weight*battle.coverage;
             minCoverage=Math.min(minCoverage,battle.coverage);worstDeaths=Math.max(worstDeaths,battle.deaths);
             if(!hardest||battle.turns>worstTurns){hardest=foe;worstTurns=battle.turns;}
+            if(sliced)yield;
         }
         const fit={coverage:coverage/weight,minCoverage,turns:turns/weight,worstTurns,deaths:deaths/weight,worstDeaths,opponents:foes.length};
-        const progress=context.kind==='progress',limits=progress?{turns:4.5,worst:12,deaths:.25,knockouts:2}:{turns:3,worst:8,deaths:.15,knockouts:1};
-        const ready=minCoverage>=.999&&fit.turns<=limits.turns&&worstTurns<=limits.worst&&fit.deaths<=limits.deaths&&worstDeaths<=limits.knockouts;
+        const limits=context.kind==='progress'?STORY_FIT_LIMITS:MAP_FIT_LIMITS;
+        const ready=clearsWithinLimits(fit,limits);
         const label=MONS.get(hardest?.id)?.name||'目标对手';
         const reason=ready?'实际战力已具备稳妥尝试条件，无需所有成员达到等级目标':minCoverage<.999?`${label}等对局仍难以稳定处理`:worstDeaths>limits.knockouts||fit.deaths>limits.deaths?'关键对局预计倒下成员较多，继续补练':`${label}等对局耗时偏高，继续补练`;
         return{ready,fit,reason};
     }
     function leagueTrainingModel(s,settings,row,battleFit=battleRouteFit(s,row),now=Date.now()){
+        return leagueTrainingSearch(s,settings,row,battleFit,now,false).next().value;
+    }
+    function* leagueTrainingSearch(s,settings,row,battleFit,now,sliced){
         const party=partyMons(s),chapters=(row.members||[]).map(id=>CHAPTERS.get(id)).filter(Boolean);
-        const key=JSON.stringify([row.reg,s.autoSwitch!==false,party.map(mon=>combatProfile({...mon,status:null})),chapters.map(chapter=>[chapter.id,chapterFoes(s,chapter)]),battleFit.weatherKey]),cached=LEAGUE_TRAINING_ROWS.get(key);
+        const profiles=party.map(mon=>[mon.uid,teamEligible(s,mon,row.reg),...combatProfile({...mon,status:null})]);
+        const key=JSON.stringify([row.reg,settings.speed,s.autoSwitch!==false,profiles,chapters.map(chapter=>[chapter.id,chapterFoes(s,chapter)]),battleFit.weatherKey]),cached=LEAGUE_TRAINING_ROWS.get(key);
         if(cached)return{...cached,completedMembers:[...cached.completedMembers]};
         // A slower league can still be better training. The safety boundary guards
         // severe attrition and losing matchups, rather than requiring a three-turn clear.
@@ -353,8 +478,8 @@
             battleFit.minCoverage>=.999&&battleFit.turns<=10&&battleFit.worstTurns<=24&&battleFit.deaths<=1.25&&battleFit.worstDeaths<=Math.max(1,party.length-2);
         let xpPerMember=0,seconds=0,failedAt=null;const completedMembers=[];
         if(capable)for(const chapter of chapters){
-            const assessment=preparationReadiness(s,{...settings,autoTeam:true},{kind:'progress',id:chapter.id,reg:row.reg,foes:chapterCombatFoes(s,chapter),now},s.team),fit=assessment.fit;
-            const base=Math.max(20,chapter.units*2.8/2.5),turns=fit?.turns??150;
+            const assessment=yield* readinessSearch(s,{...settings,autoTeam:true},{kind:'progress',id:chapter.id,reg:row.reg,foes:chapterCombatFoes(s,chapter),now},s.team,sliced),fit=assessment.fit;
+            const base=estimatedRouteSeconds(chapter,settings.speed),turns=fit?.turns??150;
             seconds+=base*Math.max(1,turns/3);
             const reliable=fit&&fit.minCoverage>=.999&&fit.worstTurns<=24&&fit.turns<=10&&fit.worstDeaths<=Math.max(1,party.length-2);
             if(!reliable){failedAt=chapter.id;seconds+=20;break;}
@@ -367,17 +492,6 @@
         return{...model,completedMembers:[...completedMembers]};
     }
     function preparationRoutes(s,settings,preparation,metrics={},now=Date.now()){
-        const options={...settings,region:'all'};
-        const training={...s,team:preparation.uids};
-        let rows=trainingCandidates(s,options).filter(row=>row.reg===preparation.context.reg);
-        rows=rows.map(row=>xpRouteScore(training,options,row,metrics,now));
-        const maximum=row=>Math.max(...row.members.map(id=>CHAPTERS.get(id)?.ace||1));
-        if(Number.isFinite(preparation.routeCeiling))rows=rows.filter(row=>maximum(row)<=preparation.routeCeiling);
-        // Ordinary frontiers need quick winning matchups. Open leagues instead compare
-        // reachable-prefix experience against attempt/recovery costs; complete native
-        // cycle measurements supersede either estimate. Weak starters keep the fallback.
-        const safe=rows.filter(row=>row.trainingSafe),start=DATA.regions.find(region=>region.key===preparation.context.reg)?.start;
-        const fallback=rows.filter(row=>!row.trainingFrontier||row.id===start),minimum=Math.min(...fallback.map(maximum));
-        return(safe.length?safe:fallback.filter(row=>maximum(row)===minimum)).filter(row=>(preparation.avoid?.[row.key]||0)<=now)
-            .map(row=>({...row,fallback:!safe.length})).sort((a,b)=>b.rate-a.rate||a.id-b.id);
+        const request=preparationRankingRequest(s,settings,preparation,metrics,now);
+        return completeYieldRanking(request,preparation.avoid||{},now);
     }

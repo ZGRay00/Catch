@@ -64,6 +64,21 @@
     .dex-route-count { float:right; margin-left:6px; color:#a1c8b8; font-size:11px; font-weight:400 }
     .dex-routes .missing { padding:0 4px 8px }
     .dex-routes .chip, #dex-results .chip { min-height:27px }
+    #hunt-forecast { padding:5px 9px; color:#a5ecd6; font-size:12px }
+    .forecast-filters { border:0; padding:0; margin:12px 0 8px }
+    .forecast-filters legend { color:#d8e8f1; margin-bottom:6px; font-weight:650 }
+    .forecast-skies { display:flex; flex-wrap:wrap; gap:5px }
+    .forecast-skies button { padding:4px 9px; border-radius:18px; font-size:12px }
+    .forecast-skies button[aria-pressed=true] { color:#c1ffe8; border-color:#72cdb1; background:#20443c }
+    .forecast-options { display:flex; flex-wrap:wrap; gap:7px 12px; align-items:center; font-size:12px }
+    .forecast-results { margin-top:10px; font-size:12px; color:#bdd0df }
+    .forecast-results details { margin:5px 0; border:1px solid #37495e; border-radius:8px; background:#172637; padding:6px 9px }
+    .forecast-results summary { min-height:26px; overflow-wrap:anywhere }
+    .forecast-results summary strong { color:#e0edf5; font-variant-numeric:tabular-nums }
+    .forecast-results summary span { margin-left:8px; color:#a7c8bb }
+    .forecast-region { padding:6px 0; border-top:1px solid #324354; overflow-wrap:anywhere }
+    .forecast-region div { display:grid; grid-template-columns:4em 1fr; padding-top:3px }
+    .forecast-region span { color:#91dfc4 }
     .actions { flex-wrap:wrap }
     .actions button { flex:1 1 26%; min-height:30px; font-size:11px }
     .commandbar { padding:8px 12px; background:#192b39 }

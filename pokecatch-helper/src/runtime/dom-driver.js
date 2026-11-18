@@ -6,6 +6,19 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
+    function raidText(french,chinese){
+        const lang=document.documentElement?.lang,dictionary=globalThis.window?.I18N;
+        if(!lang||lang==='fr')return french;
+        return dictionary?.[lang]?.[french]||(lang==='zh-Hans'&&chinese)||dictionary?.en?.[french]||french;
+    }
+    function safeRaidDeparture(s){
+        const a=s.adv,b=a.battle;
+        if(a.pending||a.event||a.zone||a.tower||a.league)return false;
+        if(!b)return true;
+        const node=a.nodes?.[a.node];
+        return a.chapter<a.unlocked&&node?.type==='wild'&&!node.phenom&&!node.static&&b.kind==='wild'&&!b.raid&&
+            !!b.enemies?.length&&b.enemies.every(mon=>MONS.has(mon.id)&&!MONS.get(mon.id).legend&&!mon.shiny&&captured(s,mon.id));
+    }
     function monIdFrom(el) {
         if (!el) return null;
         for (const img of el.querySelectorAll('img')) {
@@ -278,6 +291,7 @@
         dialog(s) {
             const own = this.ownedDialog;
             if (!own) return false;
+            if(own.type==='ally'&&own.key&&this.e.raidProbe&&this.raid&&this.confirmRaidLaunch(s,own))return true;
             if(own.type==='backgroundUnderTeam'){
                 if(!visible($('#evt-pick'))){const task=this.e.services.underground;if(task)task.editorOpen=false;this.ownedDialog=null;return false;}
                 own.started??=Date.now();return this.factoryTeam(s,own);
@@ -315,25 +329,50 @@
                     this.e.status='等待可选团体战同伴';
                     if(Date.now()-own.started>=10000&&this.click(ownedRoot.querySelector('.dc-x'),'暂无可用同伴，返回主任务')){
                         this.e.raidCooldown[parisDay()+'|'+this.raid?.reg]=Date.now()+10*60000;
-                        this.e.raidProbe=false;this.e.raidReturn=null;this.raid=null;this.ownedDialog=null;
-                        this.e.nextRaid=Date.now()+10*60000;this.e.log('团体战同伴列表为空，10 分钟后再检查');
+                        this.ownedDialog=null;this.e.deferRaid('团体战同伴列表为空，10 分钟后再检查');
                     }
                     return true;
                 }
                 const bots = s.raids?.bots?.[this.raid?.reg] || [];
                 const offers = Array.isArray(bots) ? bots : Object.values(bots);
+                const offersByKey=new Map();
+                for(const bot of offers)if(!offersByKey.has(bot.key))offersByKey.set(bot.key,bot);
                 const available=new Set(choices.map(el=>el.dataset.pick)),index=new Map((s.mons||[]).map(m=>[m.uid,m]));
                 const baseline=(s.eventTeams?.[`raid:${this.raid?.reg}`]||[]).map(uid=>index.get(uid)).filter(Boolean);
-                for(const key of s.raids?.pick?.[this.raid?.reg]||[])if(key&&!available.has(key))baseline.push(...(offers.find(bot=>bot.key===key)?.mons||[]));
-                const ranked = choices.map(el => {
-                    const known = offers.find(bot => bot.key === el.dataset.pick);
+                for(const key of s.raids?.pick?.[this.raid?.reg]||[])if(key&&!available.has(key))baseline.push(...(offersByKey.get(key)?.mons||[]));
+                const scoreTeam=raidAllyScorer(this.raid?.boss,baseline);
+                let bestChoice=null,bestScore=0;
+                for(const el of choices){
+                    const known = offersByKey.get(el.dataset.pick);
                     const mons = known?.mons || [...el.querySelectorAll('.rt-mon')].map(allyMemberFrom);
-                    return { el, score: allyStrength([...baseline,...mons], this.raid?.boss) };
-                }).sort((a, b) => b.score - a.score);
-                if (this.click(ranked[0].el, '选择团体战盟友')) this.ownedDialog = null;
+                    const score=scoreTeam(mons);
+                    if(!bestChoice||score>bestScore){bestChoice=el;bestScore=score;}
+                }
+                if (this.click(bestChoice, '选择团体战盟友')) this.ownedDialog = null;
                 return true;
             }
             return false;
+        }
+        confirmRaidLaunch(s,own){
+            const modal=$('#modal-root.open .modal'),body=modal?.querySelector('.modal-body > p');
+            if(!body||own.confirmed||this.raid.date!==parisDay())return false;
+            const launch=modal.querySelector('.modal-actions.duo button.primary'),cancel=modal.querySelector('.modal-actions.duo button.ghost');
+            if(!launch||!cancel)return false;
+            // Only the notice(s) emitted by the native daily raid launch may be accepted.
+            const reroll=raidText('Une fois le raid lancé, tu ne pourras plus relancer le tirage du jour.','团体战开始后，就不能再重新抽取今天的团体战了。');
+            const name=body.querySelector('b')?.textContent;
+            const duplicate=name&&raidText("Tu as déjà {name} chromatique : s'il est capturé, il se changera en XP pour sa famille. Lancer le raid quand même ?",
+                '你已经有异色的{name}了：捕获后会变成其家族的经验值。仍要开始团体战吗？').replace('{name}',name);
+            const text=body.textContent.trim(),owned=duplicate&&(text===duplicate||text===reroll+duplicate);
+            if(text!==reroll&&!owned)return false;
+            if(!safeRaidDeparture(s)){
+                if(this.click(cancel,'先处理当前战斗或待选事件')){this.ownedDialog=null;this.e.deferRaid('保留当前战斗或待选事件，稍后再检查团体战');}
+            }else if(owned&&this.e.settings.skipOwnedShiny){
+                if(this.click(cancel,'已拥有今日异色，跳过团体战')){this.ownedDialog=null;this.e.deferRaid('原生游戏确认已拥有今日异色，按设置跳过');}
+            }else if(this.click(launch,'确认开始每日团体战')){
+                own.confirmed=true;own.openingUntil=Date.now()+5000;
+            }
+            return true;
         }
         factoryTeam(s,own){
             const now=Date.now(),background=own.type==='backgroundUnderTeam',desired=own.uids||[],teamKey=background?own.teamKey:'candy',current=s.eventTeams?.[teamKey]||[],search=$('#evt-search'),grid=$('#evt-pc'),sort=$('#evt-sort'),eff=$('#evt-eff');
@@ -365,7 +404,11 @@
                 if(this.click($('#evt-pick [data-evt-close]'),background?'保存后台地下空闲队伍':'保存糖果工厂专属队伍')){
                     this.ownedDialog=null;
                     if(background){const task=this.e.services.underground;task.teamReady=true;task.editorOpen=false;this.e.log('后台地下安全队伍已配置，派遣前再次核对占用');this.e.persist();}
-                    else{this.recent.set(own.key,now);this.e.log('糖果工厂队伍已按今日主题调整');}
+                    else{
+                        this.recent.set(own.key,[...desired]);
+                        if(this.recent.size>80)this.recent.delete(this.recent.keys().next().value);
+                        this.e.log('糖果工厂队伍已按今日主题调整');
+                    }
                 }return true;
             }
             const slots=$$('#evt-team .slot[data-slot]'),index=desired.findIndex((uid,i)=>current[i]!==uid),uid=index>=0?desired[index]:current[desired.length];
@@ -388,31 +431,43 @@
             grid.scrollTop=next;grid.dispatchEvent(new Event('scroll',{bubbles:true}));own.lookup.scanned++;return true;
         }
         raidStep(s) {
+            if(this.navigation?.screen==='raid'&&Date.now()-this.navigation.started>=60000&&!visible($('#screen-raid.active'))){
+                this.e.deferRaid('团体战入口没有响应，10 分钟后再检查');return false;
+            }
             if (!this.nav('raid')) return false;
             const draw = $('#raid-root [data-raid-draw]');
             if (enabled(draw)) return this.click(draw, '抽取今日团体战');
             if (!$('#raid-root .rc-card')) {
                 const chroma = $('#raid-root [data-raid-page="chroma"]');
                 if (enabled(chroma)) return this.click(chroma, '打开每日异色团体战');
+                if ($('#raid-root [data-p]')) {
+                    this.e.deferRaid('异色团体战需要游戏内登录，10 分钟后再检查');return false;
+                }
+                const empty=$('#raid-root .map-body > .pg-empty');
+                if(empty?.textContent.trim()===raidText('Chargement…','加载中…')){this.e.status='等待游戏加载每日团体战';return false;}
+                if(empty?.textContent.trim()===raidText('Raids indisponibles pour le moment.','团体战暂时不可用。')){
+                    this.e.deferRaid('游戏暂未提供每日团体战，10 分钟后再检查');return false;
+                }
                 const home=$('#raid-root [data-raid-page="home"]');
                 if(enabled(home))return this.click(home,'返回活动首页，准备每日团体战');
-                if ($('#raid-root [data-p]')) {
-                    this.e.status = '异色团体战需要先在游戏内登录';
-                    this.e.log(this.e.status); this.e.raidProbe = false; this.e.raidReturn=null; this.raid = null;
-                    this.e.nextRaid = Date.now() + 10 * 60000; return false;
-                }
                 this.e.status = '团体战未解锁、未登录或今日目标尚未加载';
                 return false;
             }
             const cards = $$('#raid-root .rc-card:not(.done)').filter(card => enabled(card.querySelector('[data-raid-go]')));
+            const day=parisDay(),bossOf=card=>monIdFrom(card.querySelector('.boss'))||monIdFrom(card.querySelector('h3'));
+            let skippedOwned=false,skippedCooldown=false;
             const card = cards.find(card => {
-                const reg = card.dataset.rc, boss = monIdFrom(card.querySelector('h3')) || monIdFrom(card.querySelector('.boss'));
-                if(this.e.raidReturn&&(this.e.raidReturn.date!==parisDay()||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
-                if ((this.e.raidCooldown[`${parisDay()}|${reg}`] || 0) > Date.now()) return false;
-                return !this.e.settings.skipOwnedShiny || !boss || !s.dex?.[boss]?.shiny;
+                const reg=card.dataset.rc,boss=bossOf(card);
+                if(this.e.raidReturn&&(this.e.raidReturn.date!==day||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
+                if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > Date.now()){skippedCooldown=true;return false;}
+                if(this.e.settings.skipOwnedShiny&&(card.querySelector('.chip-own')||s.dex?.[boss]?.shiny)){skippedOwned=true;return false;}
+                return true;
             });
-            if (!card) { this.raid = null; this.e.raidProbe = false; this.e.raidReturn=null; this.e.nextRaid = Date.now() + 10 * 60000; return false; }
-            const reg = card.dataset.rc, boss = monIdFrom(card.querySelector('h3')) || monIdFrom(card.querySelector('.boss'));
+            if (!card) {
+                const reason=skippedOwned?'已按设置跳过拥有的异色目标':skippedCooldown?'团体战目标仍在重试冷却中':this.e.raidReturn?'补练前的团体战目标已不可用':$('#raid-root .rc-card.done')?'今日可挑战的团体战已完成':'当前没有开放且可挑战的团体战';
+                this.e.deferRaid(reason);return false;
+            }
+            const reg = card.dataset.rc, boss = bossOf(card);
             const sameRaid=this.raid?.reg===reg&&this.raid?.boss===boss&&this.raid?.date===parisDay();
             this.raid = { reg, boss, date:parisDay(), started: sameRaid ? this.raid.started : Date.now() };
             const key = `raid:${parisDay()}|${reg}|${boss}|${rosterFingerprint(s)}`;
@@ -422,7 +477,9 @@
                 this.ownedDialog = { type: 'team', key, optimized: false, openingUntil:Date.now()+5000 };
                 return true;
             }
-            if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},Date.now()))return false;
+            if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},Date.now())){
+                this.e.raidCheckNote='优先团体战：正在为'+MONS.get(boss).name+'准备队伍';return false;
+            }
             const go = card.querySelector('[data-raid-go]');
             // The game's launch control opens missing team/ally dialogs in sequence.
             if (this.click(go, '进入每日团体战')) {

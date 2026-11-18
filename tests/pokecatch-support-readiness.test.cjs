@@ -9,7 +9,7 @@ function fixture(t,settings={}){
     return{s,e,calls};
 }
 test('training without a replayable route stops before opening Buddy UI or consuming a berry',t=>{
-    const {s,e,calls}=fixture(t);s.adv.unlocked=0;e.farm(s,Date.now(),'train');
+    const {s,e,calls}=fixture(t);e.rankedYieldRoutes=()=>[];e.farm(s,Date.now(),'train');
     assert.equal(e.running,false);assert.match(e.status,/暂无可重打的练级地图/);assert.deepEqual(calls,{buddy:0,berry:0,progress:0});assert.equal(e.budget.used,0);
 });
 test('training map backoff waits without support operations or item charges',t=>{

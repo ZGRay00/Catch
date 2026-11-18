@@ -1,8 +1,17 @@
     function towerWeek(now=Date.now()){const date=new Date(now);return new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()-(date.getUTCDay()+6)%7)).toISOString().slice(0,10);}
+    let resetDay, resetAt;
     function nextParisReset(now=Date.now()){
-        const day=parisDay(now);let low=now,high=now+27*3600000;
-        while(high-low>1000){const mid=Math.floor((low+high)/2);if(parisDay(mid)===day)low=mid;else high=mid;}
-        return Math.ceil(high/1000)*1000;
+        const day=parisDay(now);
+        if(day===resetDay)return resetAt;
+        let low=Math.floor(now/60000),high=low+27*60;
+        while(high-low>1){
+            const mid=Math.floor((low+high)/2);
+            if(parisDay(mid*60000)===day)low=mid;
+            else high=mid;
+        }
+        resetDay=day;
+        resetAt=high*60000;
+        return resetAt;
     }
     function towerProgress(s,now=Date.now()){
         const week=towerWeek(now),saved=s.tower?.run,run=saved?.week===week?saved:null;

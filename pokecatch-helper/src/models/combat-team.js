@@ -17,16 +17,22 @@
         return{kind:'candy',id:type,type,reg,level,rank,statMult,foes,size:CANDY_DATA.team,floor:target,battleFloor,maxDex,speciesUnique:false,
             label:`糖果工厂 · ${DATA.types[type]?.fr||type}主题`,key:`candy:${type}:${target}:${battleFloor}:${reg}:${maxDex}:${level}:${rank}:${statMult}`};
     }
-    function candyPlan(s,settings,type){
+    function candyGoalContext(s,settings,type){
         const goal=settings.candyFloor>0?Math.ceil(settings.candyFloor/CANDY_DATA.step)*CANDY_DATA.step:50;
-        const context=candyContext(s,type,goal);if(!context)return null;
+        return candyContext(s,type,goal);
+    }
+    function candyPlan(s,settings,type){
+        return candyTeamSearch(s,settings,candyGoalContext(s,settings,type),false).next().value;
+    }
+    function* candyTeamSearch(s,settings,context,sliced,now=Date.now()){
+        if(!context)return null;
         // The native run clones these fields only; PC injuries and temporary multipliers
         // do not carry over, and low-level members are never raised to the level cap.
         const pool=(s.mons||[]).filter(mon=>teamEligible(s,mon,context.reg)).map(mon=>({uid:mon.uid,id:mon.id,reg:monRegion(mon),
             level:Math.min(100,Math.max(1,Number(mon.level)||1)),shiny:!!mon.shiny,...mon.rank?{rank:mon.rank}:{},...mon.taste?{taste:mon.taste}:{}}));
         const party=(s.eventTeams?.candy||[]).filter(uid=>pool.some(mon=>mon.uid===uid));
         const state={...s,mons:pool,team:party,road:party};
-        const plan=planAdventureTeam(state,settings,[],{...context,pool,force:true,objective:'progress'});
+        const plan=yield* adventureTeamSearch(state,settings,[],{...context,pool,force:true,objective:'progress',now},sliced);
         return{...plan,context,reason:'按今日主题的真实对手、已会招式与耐久选择工厂队伍'};
     }
     function effectiveStats(mon) {
@@ -50,41 +56,75 @@
         const integral=value=>{const n=Math.floor(value);return n*(n-1)/2+n*(value-n)+Math.min(value,1);};
         return (integral(high)-integral(low))/(high-low);
     }
+    // These values depend only on the game catalog, so HP, level-ups and save
+    // changes do not invalidate them. Build each species only when it battles.
+    const speciesOffense=new WeakMap(),speciesDefense=new WeakMap();
+    function damagingMoves(model){
+        let entries=speciesOffense.get(model);
+        if(!entries){
+            entries=[];
+            for(const [level,key] of model.learn||[]){
+                const move=DATA.combat.moves[key];
+                if(!move?.power)continue;
+                const stab=model.types.includes(move.type)?1.5:1;
+                const deployPower=move.power*move.acc/100*stab*model.stats[move.cat==='phys'?'atk':'spa'];
+                entries.push({level,key,move,stab,deployPower});
+            }
+            speciesOffense.set(model,entries);
+        }
+        return entries;
+    }
+    function defensiveTypes(model){
+        let table=speciesDefense.get(model);
+        if(!table){
+            table=Object.fromEntries(Object.keys(DATA.types).map(type=>[type,model.types.reduce((n,t)=>n*(DATA.chart[type]?.[t]??1),1)]));
+            speciesDefense.set(model,table);
+        }
+        return table;
+    }
     function expectedDamage(mon, foe, stats, defense, options = {}) {
         if(!MONS.has(mon.id)||!MONS.has(foe.id))return 0;
         // Native Transform copies the attacking species and its stats, keeping level/rank/shiny.
         if(mon.id===132&&foe.id!==132){mon={...mon,id:foe.id};stats=effectiveStats(mon);}
-        const model = MONS.get(mon.id), enemy = MONS.get(foe.id); let best = null, learned = false;
-        const gap=Math.pow(DATA.combat.levelGap,Math.max(-99,Math.min(99,mon.level-foe.level)));
-        const hit=(key,move,type,stab,typeless=false)=>{
+        const model = MONS.get(mon.id), enemy = MONS.get(foe.id);
+        let best=null;
+        function baseDamage(power,attack,weakened,resistance,stab,type,weather){
+            return ((2*mon.level/5+2)*power*attack*weakened/resistance/50+2)*stab*type*weather;
+        }
+        const consider=(key,move,type,stab,typeless=false)=>{
             const physical=move.cat==='phys',weakened=mon.status===(physical?'burn':'poison')?.75:1;
             const exposed=foe.status===(physical?'sleep':'freeze')?.75:1;
             const rawWeather=typeless?1:typeof options.weather==='function'?options.weather(move.type):options.weather?.[move.type];
             const weather=Number.isFinite(rawWeather)&&rawWeather>=0?rawWeather:1;
-            const baseFor=power=>((2*mon.level/5+2)*power*stats[physical?'atk':'spa']*weakened/Math.max(1,defense[physical?'def':'spd']*exposed)/50+2)*stab*type*weather;
-            const base=baseFor(move.power),accuracy=Math.max(0,Math.min(1,move.acc/100)),turnAccuracy=1/(2-accuracy);
-            const count=typeless?null:MULTI_HIT_DATA.moves[key],randomCount=count==='2-5';
-            const meanCount=randomCount?MULTI_HIT_DATA.odds.reduce((sum,weight,i)=>sum+weight*(i+2),0):Array.isArray(count)?count.length:count||1;
-            const powers=Array.isArray(count)?count:[move.power/meanCount];
-            const repeats=Array.isArray(count)?1:meanCount;
-            const rolls=powers.map(power=>baseFor(power)*gap);
-            const damage=type>0?rolls.reduce((sum,full)=>sum+damageRollMean(full),0)*repeats:0;
-            const minHit=type>0?rolls.reduce((sum,full)=>sum+Math.max(1,Math.floor(full*.85)),0)*(randomCount?2:repeats):0;
-            const maxHit=type>0?rolls.reduce((sum,full)=>sum+Math.max(1,Math.ceil(full)-1),0)*(randomCount?5:repeats):0;
-            return {key,damage:damage*accuracy,sustainedDamage:damage*turnAccuracy,hit:damage,minHit,maxHit,accuracy,turnAccuracy,type:move.type,choice:base*accuracy};
+            const attack=stats[physical?'atk':'spa'],resistance=Math.max(1,defense[physical?'def':'spd']*exposed);
+            const accuracy=Math.max(0,Math.min(1,move.acc/100));
+            const choice=baseDamage(move.power,attack,weakened,resistance,stab,type,weather)*accuracy;
+            if(!best||choice>best.choice)best={key,move,type,stab,weather,attack,weakened,resistance,accuracy,choice,typeless};
         };
-        for (const [level, key] of model.learn || []) {
+        const types=defensiveTypes(enemy);
+        for (const {level,key,move,stab} of damagingMoves(model)) {
             if (level > mon.level) continue;
-            const move = DATA.combat.moves[key]; if (!move?.power) continue;learned=true;
-            const type = enemy.types.reduce((n, t) => n * (DATA.chart[move.type]?.[t] ?? 1), 1);
-            const candidate=hit(key,move,type,model.types.includes(move.type)?1.5:1);
-            // Native combat chooses its move before damage is capped by the target's HP.
-            if(!best||candidate.choice>best.choice)best=candidate;
+            consider(key,move,types[move.type]??1,stab);
         }
         // Native combat uses typeless Struggle when all learned damaging moves are immune.
-        if(learned&&!(best?.choice>0)&&DATA.combat.moves.struggle)best=hit('struggle',DATA.combat.moves.struggle,1,1,true);
-        best??={damage:0,sustainedDamage:0,hit:0,minHit:0,maxHit:0,accuracy:1,turnAccuracy:1,type:null};
-        return options.details?best:options.capDamage?Math.min(defense.hp,best.hit)*best.accuracy:best.damage;
+        if(best&&!(best.choice>0)&&DATA.combat.moves.struggle){best=null;consider('struggle',DATA.combat.moves.struggle,1,1,true);}
+        if(!best)return options.details?{damage:0,sustainedDamage:0,hit:0,minHit:0,maxHit:0,accuracy:1,turnAccuracy:1,type:null}:0;
+        // Native selection uses aggregate power. Integrate per-strike rolls only for the selected move.
+        const {key,move,type,stab,weather,attack,weakened,resistance,accuracy,choice,typeless}=best;
+        const gap=Math.pow(DATA.combat.levelGap,Math.max(-99,Math.min(99,mon.level-foe.level)));
+        const count=typeless?null:MULTI_HIT_DATA.moves[key],randomCount=count==='2-5';
+        const repeats=randomCount?MULTI_HIT_DATA.odds.reduce((sum,weight,i)=>sum+weight*(i+2),0):Array.isArray(count)?1:count||1;
+        let hit=0,minHit=0,maxHit=0,singleRollMax=0;
+        if(type>0){
+            for(const power of Array.isArray(count)?count:[move.power/repeats]){
+                const full=baseDamage(power,attack,weakened,resistance,stab,type,weather)*gap;
+                if(!count)singleRollMax=full;
+                hit+=damageRollMean(full);minHit+=Math.max(1,Math.floor(full*.85));maxHit+=Math.max(1,Math.ceil(full)-1);
+            }
+            hit*=repeats;minHit*=randomCount?2:repeats;maxHit*=randomCount?5:repeats;
+        }
+        const damage=hit*accuracy,turnAccuracy=1/(2-accuracy);
+        return options.details?{key,damage,sustainedDamage:hit*turnAccuracy,hit,minHit,maxHit,singleRollMax,accuracy,turnAccuracy,type:move.type,choice}:options.capDamage?Math.min(defense.hp,hit)*accuracy:damage;
     }
     function matchupScore(mon,foe,stats=effectiveStats(mon),defense=effectiveStats(foe)){
         const attack=expectedDamage(mon,foe,stats,defense,{capDamage:true});
@@ -95,16 +135,16 @@
     }
     function deploymentScore(mon,foe){
         const model=MONS.get(mon.id),enemy=MONS.get(foe.id);if(!model||!enemy)return-Infinity;
-        const typeOf=type=>enemy.types.reduce((n,t)=>n*(DATA.chart[type]?.[t]??1),1);
-        let best=null,fallback=null;
-        for(const[level,key]of model.learn||[]){
-            const move=DATA.combat.moves[key];if(level>mon.level||!move?.power)continue;
-            const value=move.power*move.acc/100*(model.types.includes(move.type)?1.5:1)*model.stats[move.cat==='phys'?'atk':'spa'];
-            if(!fallback||value>fallback.value)fallback={value,type:move.type};
-            const score=value*typeOf(move.type);if(!best||score>best.value)best={value:score,type:move.type};
+        const types=defensiveTypes(enemy);
+        let bestScore=-Infinity,bestType,fallbackPower=-Infinity,fallbackType;
+        for(const {level,move,deployPower} of damagingMoves(model)){
+            if(level>mon.level)continue;
+            if(deployPower>fallbackPower){fallbackPower=deployPower;fallbackType=move.type;}
+            const score=deployPower*(types[move.type]??1);
+            if(score>bestScore){bestScore=score;bestType=move.type;}
         }
-        const move=best?.value>0?best:fallback,attack=move?typeOf(move.type):1;
-        const incoming=Math.max(...enemy.types.map(type=>model.types.reduce((n,t)=>n*(DATA.chart[type]?.[t]??1),1)));
+        const attack=types[bestScore>0?bestType:fallbackType]??1;
+        const defense=defensiveTypes(model),incoming=Math.max(...enemy.types.map(type=>defense[type]??1));
         return(attack===0?-5:attack>1?3:attack<1?-3:0)+(incoming>1?-2:incoming<1?2:0)+.01*(Math.log2(Math.max(.125,attack))-Math.log2(Math.max(.125,incoming)));
     }
     function matchupDetails(mon,foe,stats=effectiveStats(mon),defense=effectiveStats(foe),options={}){
@@ -114,6 +154,13 @@
     }
     function attackTurns(attack,hp){
         if(!(attack.hit>0)||!(attack.accuracy>0))return Infinity;
+        // A single strike rolls floor(full * U[.85,1)). If one strike can KO,
+        // two hits are sufficient; integrate the chance of needing the second
+        // even when the target is just above average damage.
+        if(attack.singleRollMax>0&&hp<=attack.maxHit){
+            const chanceOfSecond=hp<=attack.minHit?0:Math.min(1,Math.max(0,(Math.ceil(hp)-.85*attack.singleRollMax)/(.15*attack.singleRollMax)));
+            return (1+chanceOfSecond)*(2-Math.min(1,attack.accuracy));
+        }
         let hits=Math.max(1,Math.ceil(hp/attack.hit));
         // Borderline one-hit KOs can need a second attack due to the native damage roll.
         if(hits===1){const low=attack.minHit??Math.max(1,attack.hit*.85/.925),high=attack.maxHit??Math.max(1,attack.hit/.925);if(hp>low)hits+=Math.min(1,(hp-low)/Math.max(.01,high-low));}
@@ -227,6 +274,9 @@
     function teamCacheStats(){return{...TEAM_CACHE,contexts:TEAM_ROWS.size,rows:[...TEAM_ROWS.values()].reduce((n,rows)=>n+rows.size,0)};}
     function clearTeamCache(){TEAM_ROWS.clear();ROUTE_FITS.clear();LEAGUE_TRAINING_ROWS.clear();TEAM_CACHE.hits=0;TEAM_CACHE.misses=0;}
     function planAdventureTeam(s, settings, pinned = [], context = {}) {
+        return adventureTeamSearch(s,settings,pinned,context,false).next().value;
+    }
+    function* adventureTeamSearch(s,settings,pinned,context,sliced){
         const reg = context.reg || currentRegion(s), party = partyMons(s), size=Math.floor(clamp(context.size,1,6,6));
         const pool=(context.pool||s.mons||[]).filter(m=>teamEligible(s,m,reg));
         const route=context.row,chapters=route?(route.members?.length?route.members.map(id=>CHAPTERS.get(id)):route.league?DATA.chapters.filter(c=>c.loop===route.loop):[route]):[];
@@ -260,6 +310,7 @@
                     const survival=Math.min(4,stats.hp/Math.max(.01,incoming)),speed=Math.min(1.2,Math.max(.8,Math.sqrt(stats.spe/Math.max(1,defense.spe))));
                     return attack/Math.max(1,defense.hp)*(.5+.5*Math.sqrt(survival))*speed;
                 });row.details=details;
+                row.solo=details.map(detail=>deployedBattle([detail],false));
                 // Estimate how much HP a fresh reserve needs to finish this matchup.
                 // Use the opponent's best actual move, including off-type coverage.
                 row.endurance=details.map(d=>{
@@ -284,7 +335,12 @@
                 let value=0;for(let k=0;k<count;k++)value+=work[k]*(discount[k]||0);
                 const coverage=Math.log1p(value);
                 if(!execution)return sum+foe.weight*coverage;
-                const battle=deployedBattle(rows.map(row=>row.details[i]),s.autoSwitch!==false);
+                // If the native lead finishes alone, every reserve would be unused.
+                // A deployment tie stays with the earlier party member, just as in deployedBattle.
+                let lead=rows[0];
+                if(s.autoSwitch!==false)for(let j=1;j<rows.length;j++)if(rows[j].details[i].deployment>lead.details[i].deployment)lead=rows[j];
+                const solo=lead?.solo[i];
+                const battle=solo&&(solo.coverage===1||rows.length===1)?solo:deployedBattle(rows.map(row=>row.details[i]),s.autoSwitch!==false);
                 if(gymTotal&&foe.gymCount){
                     const endurance=rows.reduce((sum,row)=>sum+row.endurance[i],0)/Math.max(1,rows.length);
                     gymSum+=foe.gymCount*endurance;gymWorst=Math.min(gymWorst,endurance);
@@ -308,12 +364,26 @@
         const prefer=(a,b)=>Number(!!a.evolutionItemLocked)-Number(!!b.evolutionItemLocked)||
             (partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
         for (const uid of pinned) { const mon=pool.find(m=>m.uid===uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
+        // Copies with the same healed combat profile and training cost occupy the
+        // same legal slot. Retain the preferred UID and any explicitly pinned copy.
+        let candidates=pool;
+        if(pool.length>size){
+            const equivalent=new Map();
+            for(const mon of pool){
+                if(used.has(identity(mon)))continue;
+                const profile=JSON.stringify([combatProfile({...mon,status:null}),context.trainingCosts?.[mon.uid]??0]);
+                const other=equivalent.get(profile);
+                if(!other||prefer(mon,other)<0)equivalent.set(profile,mon);
+            }
+            candidates=[...equivalent.values()];
+        }
         while (chosen.length < size) {
             let best = null, score = -Infinity;
-            for (const mon of pool) {
+            for (const mon of candidates) {
                 if (used.has(identity(mon))) continue;
                 const value = utility([...chosen,mon]);
                 if (value > score + 1e-8 || Math.abs(value-score)<1e-8&&(!best||prefer(mon,best)<0)) { best=mon;score=value; }
+                if(sliced)yield;
             }
             if (!best) break; chosen.push(best);used.add(identity(best));
         }
@@ -323,36 +393,54 @@
             for(let slot=0;slot<chosen.length;slot++){
                 if(protectedUids.has(chosen[slot].uid))continue;
                 const rest=chosen.filter((_,i)=>i!==slot),taken=new Set(rest.map(identity));let best=chosen[slot],score=utility(chosen);
-                for(const mon of pool){
+                for(const mon of candidates){
                     if(taken.has(identity(mon)))continue;
                     const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
                     if(value>score+1e-8||Math.abs(value-score)<1e-8&&best.evolutionItemLocked&&!mon.evolutionItemLocked){best=mon;score=value;}
+                    if(sliced)yield;
                 }
                 if(best.uid!==chosen[slot].uid){chosen[slot]=best;improved=true;}
             }
             if(!improved)break;
         }
-        chosen.sort((a,b)=>utility([b])-utility([a])||prefer(a,b));
-        // With native auto-switch off, deployment follows party order. Optimize that
-        // order as well, including a fully pinned training party whose members stay fixed.
-        if(execution&&s.autoSwitch===false)for(let pass=0;pass<2;pass++){
-            let changed=false,score=utility(chosen);
+        const soloScores=new Map(chosen.map(mon=>[mon,utility([mon])]));
+        const soloOrder=[...chosen].sort((a,b)=>soloScores.get(b)-soloScores.get(a)||prefer(a,b));
+        let orderedScore=utility(chosen);
+        const soloScore=utility(soloOrder);
+        if(!execution||soloScore>=orderedScore){
+            chosen.splice(0,chosen.length,...soloOrder);orderedScore=soloScore;
+        }
+        // Equal native deployment priorities break ties in party order. A strong
+        // solo fighter can be the wrong lead for the matchups where this tie occurs.
+        const sameMembers=chosen.length===party.length&&chosen.every(mon=>partyOrder.has(mon.uid));
+        if(execution&&sameMembers){
+            const currentOrder=[...chosen].sort((a,b)=>partyOrder.get(a.uid)-partyOrder.get(b.uid));
+            const currentScore=utility(currentOrder);
+            if(currentScore>=orderedScore-1e-8){chosen.splice(0,chosen.length,...currentOrder);orderedScore=currentScore;}
+        }
+        const orderMatters=execution&&chosen.length>1&&(s.autoSwitch===false||weights.some((_,i)=>{
+            const priorities=chosen.map(mon=>values(mon).details[i].deployment);
+            return new Set(priorities).size<priorities.length;
+        }));
+        if(orderMatters)for(let pass=0;pass<2;pass++){
+            let changed=false;
             for(let i=0;i<chosen.length-1;i++)for(let j=i+1;j<chosen.length;j++){
                 [chosen[i],chosen[j]]=[chosen[j],chosen[i]];const value=utility(chosen);
-                if(value>score+1e-8){score=value;changed=true;}else[chosen[i],chosen[j]]=[chosen[j],chosen[i]];
+                if(value>orderedScore+1e-8){orderedScore=value;changed=true;}else[chosen[i],chosen[j]]=[chosen[j],chosen[i]];
+                if(sliced)yield;
             }
             if(!changed)break;
         }
         const previous={},proposed={};
         const now = utility(party.filter(m=>teamEligible(s,m,reg)),previous), next=utility(chosen,proposed);
-        const changed = chosen.length!==party.length || chosen.some(m=>!s.team.includes(m.uid));
+        const changed = !sameMembers;
         const necessary = party.length!==(s.team||[]).length||party.length>size||chosen.length>party.length||party.some(m=>!teamEligible(s,m,reg))||new Set(party.map(identity)).size<party.length||chosen.some(m=>protectedUids.has(m.uid)&&!s.team.includes(m.uid));
         // Keep a stable party unless the predicted gain is material, so income sampling remains useful.
         const gymGain=proposed.gym-previous.gym;
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
         const improve = next > now * 1.05 + .01||gymUpgrade;
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
-        const reorder=!changed&&orderChanged&&(next>now*1.08+.01||s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
+        const reorder=!changed&&orderChanged&&(improve||s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
         const apply=context.force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
         return { uids: result.map(m=>m.uid), changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'减少刷钱回合与倒下换人':objective==='train'?'保留学员并提高带练清图效率':'提高打点覆盖与通关稳定性' };
     }

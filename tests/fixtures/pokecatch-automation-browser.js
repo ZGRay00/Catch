@@ -155,7 +155,13 @@
             engine.settings={...base,mode,raids:false,autoTeam:false,autoEvolve:false,autoUnderDispatch:false,pensionService:false,manualPause:false,moneyTarget:0,spendBudget:0,moneyReserve:0,useBudget:10,trainBuddy:false,trainBuff:false,moneyBuff:false,...settings};
             engine.schedule=()=>{};engine.start();clearTimeout(engine.timer);engine.timer=null;
         };
-        const tick=async()=>{advanceUnderground();engine.driver.lastClick=0;engine.automation.state.waitUntil=0;await engine.step();};const until=async(predicate,n=20)=>{for(let i=0;i<n&&!predicate();i++)await tick();};
+        const tick=async()=>{
+            advanceUnderground();engine.driver.lastClick=0;engine.automation.state.waitUntil=0;
+            await engine.step();
+            // The accelerated game loop must also give native timers a turn to score routes.
+            if(engine.rankingJobs.size)await new Promise(resolve=>setTimeout(resolve,8));
+        };
+        const until=async(predicate,n=20)=>{for(let i=0;i<n&&!predicate();i++)await tick();};
         const adventureWin=amount=>{for(const uid of s.road||[]){const mon=s.mons.find(m=>m.uid===uid);if(!mon)continue;const reg=mon.reg||'kanto',table=__pcTest.DATA.xpThresholds[__pcTest.economicRegion(s)][mon.rank||0],cap=__pcTest.DATA.caps[s.adv.unlocked][reg];mon.xp=(mon.xp||0)+amount;while(mon.level<cap&&mon.xp>=table[mon.level]){mon.xp-=table[mon.level];mon.level++;}if(mon.level>=cap)mon.xp=0;}save();};
         const information=(classes='dexcard-modal',body='<div class="dexcard v2"><button class="dc-x">Close</button></div>')=>{const root=q('#modal-root');root.className='open';root.innerHTML=`<div class="modal ${classes}">${body}</div>`;const close=root.querySelector('.dc-x');if(close)close.onclick=()=>{root.className='';root.replaceChildren();};return root;};
         const resetFactory=(settings={},theme='fire')=>{
@@ -350,6 +356,14 @@
         const rememberEliteView=()=>{const root=q('#map-root'),go=root.querySelector('.mp-go[data-go="L"]');go.remove();const tab=document.createElement('button');tab.dataset.lgView='league';tab.textContent='League';root.appendChild(tab);tab.onclick=()=>{tab.remove();root.appendChild(go);};};
         reset('money',{autoPrepare:false});s.adv.unlocked=13;save();window.nav('map');q('#map-root .rg[data-rg="kanto"]').click();q('#map-root .mp-row[data-ch="L"]').click();rememberEliteView();engine.travel(__pcTest.candidates(s,engine.settings).find(row=>row.key==='L'),Date.now());await until(()=>s.adv.chapter===9,12);assert(s.adv.chapter===9&&!q('#map-root [data-lg-view="league"]'),'ordinary league farming leaves the remembered elite detail before replay');
         reset('progress',{progressUntil:13,autoPrepare:false});s.adv.unlocked=9;s.adv.chapter=8;save();window.nav('map');q('#map-root .rg[data-rg="kanto"]').click();q('#map-root .mp-row[data-ch="L"]').click();rememberEliteView();await until(()=>s.adv.chapter===9,12);assert(s.adv.chapter===9&&!s.adv.league&&!q('#map-root [data-lg-view="league"]'),'mainline leaves the remembered elite detail before ordinary league entry');
+        reset('money',{raids:true,autoPrepare:false,optimizeRaid:false});s.adv.badges=['Maître'];save();engine.nextRaid=0;window.nav('raid');
+        q('#raid-root').innerHTML='<div class="rc-card" data-rc="kanto"><h3>皮皮</h3><div class="boss"><img data-id="35"></div><button data-raid-go="kanto">Raid</button></div>';
+        q('[data-raid-go]').onclick=()=>{
+            const root=q('#modal-root');root.className='open';
+            root.innerHTML='<div class="modal"><div class="modal-body"><p>Une fois le raid lancé, tu ne pourras plus relancer le tirage du jour.</p></div><div class="modal-actions duo"><button class="btn ghost">Annuler</button><button class="btn primary">Lancer</button></div></div>';
+            root.querySelector('.primary').onclick=()=>{root.className='';root.replaceChildren();s.adv.event={raid:true,reg:'kanto',id:35,loops:0};save();window.nav('adventure');};
+        };
+        await until(()=>s.adv.event?.raid,15);assert(s.adv.event?.id===35&&!q('#modal-root.open'),'daily raid priority accepts only its native launch warning and starts through the confirmed action');
         reset('world',{worldActions:2,worldCapture:false});await until(()=>!engine.running);assert(s.wb.n===2,'world attack quota uses completed native attacks');
         reset('world',{worldActions:1,worldCapture:false});window.nav('raid');q('#raid-root').innerHTML='<div id="tower-root"><button data-raid-page="home">Home</button></div>';q('[data-raid-page="home"]').onclick=world;await until(()=>!engine.running);assert(s.wb.n===1,'world workflow exits another activity detail before locating its entry');
         reset('money',{raids:true});s.adv.badges=['Maître'];save();window.nav('raid');q('#raid-root').innerHTML='<div id="tower-root"><button data-raid-page="home">Home</button></div>';q('[data-raid-page="home"]').onclick=originalRaid;engine.raidProbe=true;engine.raidProbeStarted=Date.now();engine.queue=[{id:'pending-raid',title:'Money with raids',settings:{...engine.settings},status:'running',result:''}];engine.queueRunning=true;engine.queueIndex=0;await until(()=>!!engine.driver.ownedDialog);engine.stop();engine.startQueue();await until(()=>!!s.adv.event?.raid);assert(!!s.adv.event?.raid,'daily raid probe survives queue pause at recommendation editor and exits prior activity details');
@@ -394,17 +408,19 @@
         assert(s.buddy.uid==='a'&&s.items['pinap-berry']===1&&s.items['lansat-berry']===2&&engine.budget.used===1,'training selects the actual trainee buddy and consumes one owned XP berry through native controls');
         engine.onChange();const supportText=q('#pokecatch-auto-helper').shadowRoot.querySelector('#support-info').textContent;assert(supportText.includes('Buddy：喷火龙')&&supportText.includes('经验增益')&&supportText.includes('预算剩 9'),'training support displays the active buddy, live boost and remaining use budget');
         for(let n=0;n<8;n++)await tick();assert(buddyChanges===trainingBuddyChanges+1&&engine.budget.used===1&&s.buddy.uid==='a','training keeps an unfinished buddy and never stacks an already active XP buff');
-        reset('train',{trainUid:'team',trainLevel:40,autoPrepare:false,trainBuddy:true,trainBuff:false});s.buddy={uid:'p',ko:7};save();const battleBuddyChanges=buddyChanges;
-        await until(()=>s.buddy.uid==='a',35);s.adv.battle={steps:1,enemies:[{id:19,level:5,hp:100}]};save();
+        reset('train',{trainUid:'team',trainLevel:40,autoPrepare:false,trainBuddy:true,trainBuff:false});s.buddy={uid:'p',ko:7};s.adv.battle={steps:1,enemies:[{id:19,level:5,hp:100}]};save();const battleBuddyChanges=buddyChanges;
+        await until(()=>s.buddy.uid==='a',35);
         await until(()=>!engine.automation.buddyTask&&!!q('#screen-adventure.active'),20);
-        assert(engine.running&&!q('#modal-root.open')&&!!q('#screen-adventure.active')&&buddyChanges===battleBuddyChanges+1,'buddy selection closes its card and returns from the team page even if a new battle has already started');
+        assert(engine.running&&s.adv.battle?.steps===1&&!q('#modal-root.open')&&!!q('#screen-adventure.active')&&buddyChanges===battleBuddyChanges+1,'ordinary training switches a completed buddy and returns to adventure during the same ongoing battle');
         reset('train',{trainUid:'team',trainLevel:40,autoPrepare:false,trainBuddy:true,trainBuff:false});s.buddy={uid:'p',ko:7};save();const refreshedBuddyChanges=buddyChanges;
         await until(()=>engine.automation.owner?.kind==='buddy',35);const refreshBuddyButton=q('#modal-root .dc-buddy'),nativeBuddyClick=refreshBuddyButton.onclick;
         refreshBuddyButton.onclick=event=>{nativeBuddyClick(event);s.adv.battle={steps:1,enemies:[{id:19,level:5,hp:100}]};save();q('#modal-root').className='';q('#modal-root').replaceChildren();};
         await until(()=>s.buddy.uid==='a'&&!engine.automation.buddyTask&&!!q('#screen-adventure.active'),25);
         assert(engine.running&&!!q('#screen-adventure.active')&&buddyChanges===refreshedBuddyChanges+1,'native refresh removing the buddy card preserves its return action and never toggles the selected buddy twice');
         reset('progress',{progressUntil:1,autoPrepare:true,autoTeam:false,progressCandy:false,trainBuddy:true,trainBuff:true});s.adv.unlocked=1;s.mons[0].level=5;s.items['pinap-berry']=1;save();window.nav('adventure');
-        await until(()=>engine.preparation?.phase==='train',50);assert(!s.buddy.uid&&!s.buffs.xp,'training support waits until the native road party applies');s.road=[...s.team];save();
+        await until(()=>engine.preparation?.phase==='train',50);assert(!s.buddy.uid&&!s.buffs.xp,'training support waits until the native road party applies');s.road=[...s.team];s.adv.battle={steps:2,enemies:[{id:19,level:5,hp:100}]};save();
+        await until(()=>s.buddy.uid==='a'&&!engine.automation.buddyTask&&!!q('#screen-adventure.active'),35);
+        assert(engine.preparation?.phase==='train'&&s.adv.battle?.steps===2&&!s.buffs.xp&&s.items['pinap-berry']===1,'mainline preparation changes its buddy mid-battle and keeps berry consumption for a safe boundary');s.adv.battle=null;save();
         await until(()=>!!engine.preparation&&s.buddy.uid==='a'&&!!s.buffs?.xp&&!q('#modal-root.open'),65);
         assert(engine.preparation?.context.kind==='progress'&&s.buddy.uid==='a'&&s.items['pinap-berry']===0&&engine.budget.used===1,'mainline preparation uses the same automatic buddy and XP berry support');
         s.road=[...s.team];for(const target of engine.preparation.targets)s.mons.find(m=>m.uid===target.uid).level=target.goal;save();await until(()=>!engine.preparation,35);await until(()=>s.adv.chapter===1,30);assert(engine.running&&s.adv.chapter===1,'buddy and berry support do not block the return from training to the mainline goal');
@@ -434,7 +450,9 @@
         for(const [i,mon]of s.mons.entries())mon.level=[69,68,69,71,71,69][i];Object.assign(s.adv,{chapter:41,unlocked:42,loops:[41]});save();engine.progress(engine.read(),Date.now());
         const frontierPreparation=engine.preparation;assert(!!frontierPreparation&&frontierPreparation.context.id===42,'the level-69 screenshot keeps its original Victory Road preparation goal');
         Object.assign(frontierPreparation,{phase:'train',route:{...__pcTest.DATA.chapters.find(c=>c.id===41),key:'41',members:[41]},visit:{at:Date.now()-31000,deaths:0},routeCheck:Date.now()});frontierPreparation.routeProfile=engine.coach.reviewDifficulty(engine.read(),frontierPreparation,Date.now());
-        engine.manualInput();engine.inputHeld=true;engine.onChange();assert(q('#pokecatch-auto-helper').shadowRoot.querySelector('#prepare-route').textContent.includes('雨滴徽章'),'the preparation card identifies its current training map while manually paused');
+        engine.manualInput();engine.inputHeld=true;engine.onChange();
+        const pausedPrep=q('#pokecatch-auto-helper').shadowRoot;
+        assert(pausedPrep.querySelector('#prepare-title').textContent.includes('补练已暂停')&&pausedPrep.querySelector('#prepare-route').textContent.includes('雨滴徽章'),'a manual pause labels the detour as paused and preserves its actual training map');
         q('#pokecatch-auto-helper').shadowRoot.querySelector('#resume').click();await until(()=>s.adv.chapter===42&&frontierPreparation.phase==='train',40);
         assert(engine.running&&!engine.manual&&s.adv.chapter===42&&s.adv.loops.includes(42),'resuming the level-69 party enters and loops the efficient latest ordinary map through native controls');
         engine.onChange();assert(q('#pokecatch-auto-helper').shadowRoot.querySelector('#prepare-route').textContent.includes('冠军之路'),'the preparation card updates to the latest actual training map');

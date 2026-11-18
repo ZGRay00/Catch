@@ -67,7 +67,7 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
-        const dexGuide=await evaluate(`(()=>{
+        const dexGuide=await evaluate(`(async()=>{
             const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,e=__pcTest.engine;
             const tab=id=>root.querySelector('[data-tab="'+id+'"]').click();
             root.querySelector('[data-workspace="activity"]').click();tab('dex');
@@ -95,16 +95,44 @@ async function main() {
             root.querySelector('#hunt-search').value='皮卡丘';root.querySelector('#hunt-search').dispatchEvent(new Event('input'));
             root.querySelector('#hunt-add').click();
             const multi=e.settings.shinySpecies.join(',')==='25,594'&&e.settings.shinyRegions.includes('unova')&&e.settings.shinyWeather.length===2;
+            root.querySelector('#hunt-forecast').click();
+            const forecast=root.querySelector('#weather-panel');
+            const pressed=()=>[...forecast.querySelectorAll('button[aria-pressed=true]')].map(btn=>btn.dataset.sky);
+            const inherited=!forecast.hidden&&pressed().join(',')==='rain,storm'&&!!forecast.querySelector('details[open]');
+            forecast.querySelector('[data-sky="rain"]').click();forecast.querySelector('[data-sky="storm"]').click();
+            const independent=!pressed().length&&forecast.textContent.includes('选择一种或多种天气')&&e.settings.shinyWeather.length===2;
+            const range=forecast.querySelector('select');range.value='24';range.dispatchEvent(new Event('change'));
+            forecast.querySelector('[data-sky="clear"]').click();
+            const slots=[...forecast.querySelectorAll('.forecast-results details')],later=slots[1];
+            const lazy=slots.length>6&&slots.slice(1).every(slot=>!slot.querySelector('.forecast-region'));
+            const region=later.querySelector('summary span').textContent.split('、')[0];
+            const opened=new Promise(resolve=>later.addEventListener('toggle',resolve,{once:true}));
+            later.open=true;await opened;
+            const future=lazy&&later.querySelector('.forecast-region b')?.textContent===region;
+            tab('maps');
             root.querySelector('#hunt-search').value='';root.querySelector('#hunt-search').dispatchEvent(new Event('input'));
             e.settings={...before,mode:'dex',region:'current'};e.onChange();
+            const routes=[...root.querySelectorAll('#view details[data-dex-route]')];
+            const folded=routes.find(route=>!route.open);
+            if(!folded||folded.querySelector('[data-lookup]'))throw Error('Closed route prematurely populated its target list');
+            const expanded=new Promise(resolve=>folded.addEventListener('toggle',resolve,{once:true}));
+            folded.open=true;await expanded;
+            if(!folded.querySelector('[data-lookup]'))throw Error('Opening a route did not load its targets');
             const species=root.querySelector('#view details [data-lookup]');const wanted=species.dataset.lookup;
             species.closest('details').open=true;species.focus();e.onChange();
             const stable=root.activeElement===species&&species.isConnected;
-            species.click();const fromRoute=input.value==='#'+wanted&&root.activeElement===input&&root.querySelector('[data-tab="dex"]').getAttribute('aria-pressed')==='true';
+            const recorded=folded.querySelector('[data-lookup]').dataset.lookup,previous=mock.state.dex[recorded];
+            mock.state.dex[recorded]={caught:1};mock.save();e.onChange();
+            const capturedUpdated=!folded.isConnected||!folded.querySelector('[data-lookup="'+recorded+'"]');
+            if(previous===undefined)delete mock.state.dex[recorded];else mock.state.dex[recorded]=previous;
+            mock.save();e.onChange();
+            if(!capturedUpdated)throw Error('An already open route retained a captured target');
+            root.querySelector('#view [data-lookup="'+wanted+'"]').click();const fromRoute=input.value==='#'+wanted&&root.activeElement===input&&root.querySelector('[data-tab="dex"]').getAttribute('aria-pressed')==='true';
             e.settings=before;mock.state.adv=adv;mock.state.travel.to=to;
             delete mock.state.dex[636];mock.save();tab('maps');root.querySelector('[data-workspace="tasks"]').click();
-            return {locked,lockedHeading,alias,base,id,retained,none,missing,available,readyHeading,projected,stable,fromRoute,rareSpecies,multi};
+            return {locked,lockedHeading,alias,base,id,retained,none,missing,available,readyHeading,projected,stable,fromRoute,rareSpecies,multi,inherited,independent,future};
         })()`);
+        assert.ok(dexGuide.inherited&&dexGuide.independent&&dexGuide.future,'forecast inherits task selection, browses future slots and leaves the task intact');
         assert.ok(dexGuide.multi);assert.match(dexGuide.locked,/#594 保姆曼波/);assert.match(dexGuide.id,/特殊现象.*合众/);
         assert.match(dexGuide.alias,/#637 火神蛾 · 未捕获/);assert.match(dexGuide.alias,/进化链已完成/);assert.match(dexGuide.alias,/59/);
         assert.match(dexGuide.base,/#636 燃烧虫 · 已捕获/);assert.match(dexGuide.base,/蛋/);
@@ -113,6 +141,27 @@ async function main() {
         assert.ok(dexGuide.rareSpecies,'rotating-only wild targets are selectable');
         assert.ok(dexGuide.projected.includes('0.006')&&dexGuide.projected.includes('0.009'),'distinct rare encounter estimates stay distinguishable');
         assert.ok(dexGuide.stable&&dexGuide.fromRoute,'live updates preserve keyboard focus and a route target opens its dex entry');
+        const leaderboard=await evaluate(`(async()=>{
+            const {engine:e,DATA}=__pcTest;
+            const root=document.querySelector('#pokecatch-auto-helper').shadowRoot;
+            const view=root.querySelector('#view'),original=e.settings,adv=mock.state.adv,to=mock.state.travel.to;
+            mock.state.adv={...adv,chapter:55,unlocked:83};mock.state.travel.to=DATA.regions.map(r=>r.key);mock.save();
+            e.settings={...original,mode:'money',region:'all'};
+            root.querySelector('[data-workspace="activity"]').click();
+            const moneyPending=view.querySelector('[role="status"]')?.textContent;
+            root.querySelector('[data-tab="logs"]').click();
+            const released=e.rankingJobs.size===0;
+            e.settings={...e.settings,mode:'train'};
+            root.querySelector('[data-tab="maps"]').click();
+            const xpPending=view.querySelector('[role="status"]')?.textContent;
+            const deadline=performance.now()+5000;
+            while(!view.querySelector('tbody tr')&&performance.now()<deadline)await new Promise(resolve=>setTimeout(resolve,15));
+            const ready=view.querySelector('thead')?.textContent.includes('EXP/分钟')&&!!view.querySelector('tbody tr');
+            root.querySelector('[data-workspace="tasks"]').click();e.settings=original;mock.state.adv=adv;mock.state.travel.to=to;mock.save();e.onChange();
+            return {moneyPending,xpPending,ready,released,idle:!e.running&&!e.driver.pendingMap};
+        })()`);
+        assert.match(leaderboard.moneyPending,/金币收益/);assert.match(leaderboard.xpPending,/练级效率/);
+        assert.ok(leaderboard.released&&leaderboard.ready&&leaderboard.idle,'browsing a live XP leaderboard after leaving a money ranking cannot switch the game map');
         // A separate active tab exercises real Page Visibility and the same Chromium
         // focus command used by the optional extension. No game account is involved.
         const {targetId:otherTab}=await send('Target.createTarget',{url:'about:blank',background:false});
@@ -207,6 +256,11 @@ async function main() {
         assert.equal(stopped.before, stopped.after); assert.equal(stopped.running, false);
         const setUI = async values => evaluate(`(()=>{const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,folded=root.querySelector('.panel').classList.contains('hidden');if(folded)root.querySelector('.mini').click();__pcTest.engine.onChange();for(const [key,value] of Object.entries(${JSON.stringify(values)})){const el=root.querySelector('[data-setting="'+key+'"]');if(el.type==='checkbox')el.checked=value;else el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}))}if(folded)root.querySelector('#fold').click()})()`);
         const tick = async () => evaluate('(async()=>{const e=__pcTest.engine;e.driver.lastClick=0;await e.step();e.onChange()})()');
+        const waitForMap = async () => {
+            const deadline=Date.now()+5000;
+            while(!await evaluate('!!__pcTest.engine.driver.pendingMap')&&Date.now()<deadline){await delay(20);await tick();}
+            return evaluate('!!__pcTest.engine.driver.pendingMap');
+        };
         const begin = async () => evaluate(`document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#start').click()`);
         await setUI({ mode:'legend',legendId:145,legendTier:0,optimizeRaid:false,raids:true });
         await begin();
@@ -238,7 +292,7 @@ async function main() {
         assert.equal(await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector("#dex-value").textContent'),'2/2');
         await evaluate('mock.state.mons.forEach(m=>{m.level=40;m.xp=0});mock.save()');
         await setUI({mode:'train',trainUid:'team',trainLevel:41});await begin();await tick();
-        assert.ok(await evaluate('!!__pcTest.engine.driver.pendingMap'),'training planner chooses XP map');
+        assert.ok(await waitForMap(),'training planner chooses XP map');
         await evaluate('mock.state.mons.forEach(m=>{m.level=41;m.xp=0});mock.save()');await tick();
         assert.equal(await evaluate('__pcTest.engine.running'),false);assert.match(await evaluate('__pcTest.engine.status'),/Lv.41/);
         await setUI({mode:'item',itemId:'rare-candy'});
@@ -249,8 +303,19 @@ async function main() {
         assert.equal(targetOptions.train,'gone-b');assert.match(targetOptions.trainLabel,/原目标已离队/);assert.equal(targetOptions.use,'gone-use-b');assert.match(targetOptions.useLabel,/原目标已离开PC/);
         const towerProgress=await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot,before={...e.settings},tower=mock.state.tower;e.settings={...e.settings,mode:'tower',towerFloor:100};mock.state.tower={best:{week:'2000-01-03',floor:100}};mock.save();e.onChange();const result={value:r.querySelector('#dex-value').textContent,progress:r.querySelector('#task-progress').getAttribute('aria-valuenow')};e.settings=before;mock.state.tower=tower;mock.save();e.onChange();return result})()`);
         assert.equal(towerProgress.value,'0/100');assert.equal(towerProgress.progress,'0','old weekly records cannot fill the current tower progress bar');
-        const backgroundRender=await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot,observer=new MutationObserver(()=>{});let hidden=true;Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});document.dispatchEvent(new Event('visibilitychange'));observer.observe(r.querySelector('#view'),{childList:true,subtree:true});for(let i=0;i<10;i++)e.onChange();const waiting=observer.takeRecords().length;hidden=false;document.dispatchEvent(new Event('visibilitychange'));const resumed=observer.takeRecords().length;observer.disconnect();delete document.hidden;return{waiting,resumed}})()`);
-        assert.equal(backgroundRender.waiting,0,'background rendering performs no repeated table rebuilds');assert.ok(backgroundRender.resumed>0,'foreground return immediately refreshes deferred main content');
+        const backgroundRender=await evaluate(`(()=>{
+            const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot;
+            const current=r.querySelector('[data-tab][aria-pressed=true]'),view=r.querySelector('#view');
+            r.querySelector('[data-tab="logs"]').click();
+            let hidden=true;Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});
+            document.dispatchEvent(new Event('visibilitychange'));
+            const observer=new MutationObserver(()=>{});observer.observe(view,{childList:true,subtree:true});
+            e.log('background rendering regression');for(let i=0;i<10;i++)e.onChange();
+            const waiting=observer.takeRecords().length;hidden=false;document.dispatchEvent(new Event('visibilitychange'));
+            const resumed=view.textContent.includes('background rendering regression');
+            observer.disconnect();delete document.hidden;current.click();return{waiting,resumed};
+        })()`);
+        assert.equal(backgroundRender.waiting,0,'background rendering performs no repeated table rebuilds');assert.ok(backgroundRender.resumed,'foreground return immediately refreshes deferred main content');
         // Drag with real pointer input; helper UI must not count as manual gameplay.
         const dragBounds=await evaluate('(()=>{const h=document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector("header").getBoundingClientRect();return{x:h.left+90,y:h.top+20}})()');
         await send('Input.dispatchMouseEvent',{type:'mousePressed',x:dragBounds.x,y:dragBounds.y,button:'left',clickCount:1});
@@ -258,12 +323,12 @@ async function main() {
         await send('Input.dispatchMouseEvent',{type:'mouseReleased',x:dragBounds.x-120,y:dragBounds.y+20,button:'left',clickCount:1});
         assert.ok(await evaluate('JSON.parse(localStorage.getItem("pokecatch-helper:v1:ui")).panel.x>=0'),'expanded panel drag position persisted');
         const panelPosition=await evaluate('JSON.parse(localStorage.getItem("pokecatch-helper:v1:ui")).panel');
-        await evaluate('(()=>{const root=document.querySelector("#pokecatch-auto-helper").shadowRoot;root.querySelector("#fold").click()})()');
+        await evaluate(`(()=>{const root=document.querySelector("#pokecatch-auto-helper").shadowRoot;root.querySelector('[data-tab="logs"]').click();root.querySelector("#fold").click()})()`);
         assert.equal(await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector(".panel").classList.contains("hidden")'),true);
-        const compactMutations=await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot,view=r.querySelector('#view'),observer=new MutationObserver(()=>{});observer.observe(view,{childList:true,subtree:true});e.status='compact-live-status';for(let i=0;i<12;i++)e.onChange();const result={mutations:observer.takeRecords().length,status:r.querySelector('#status').textContent,stopDisabled:r.querySelector('#stop').disabled};observer.disconnect();return result})()`);
+        const compactMutations=await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot,view=r.querySelector('#view'),observer=new MutationObserver(()=>{});observer.observe(view,{childList:true,subtree:true});e.status='compact-live-status';e.log('folded log regression');for(let i=0;i<12;i++)e.onChange();const result={mutations:observer.takeRecords().length,status:r.querySelector('#status').textContent,stopDisabled:r.querySelector('#stop').disabled};observer.disconnect();return result})()`);
         assert.equal(compactMutations.mutations,0,'folded rendering performs no repeated map-table rebuilds');assert.equal(compactMutations.status,'compact-live-status');
-        const expandedRefresh=await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').shadowRoot,observer=new MutationObserver(()=>{});observer.observe(r.querySelector('#view'),{childList:true,subtree:true});r.querySelector('.mini').click();const count=observer.takeRecords().length;observer.disconnect();r.querySelector('#fold').click();return count})()`);
-        assert.ok(expandedRefresh>0,'unfold immediately refreshes the deferred main content');
+        const expandedRefresh=await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').shadowRoot;r.querySelector('.mini').click();const refreshed=r.querySelector('#view').textContent.includes('folded log regression');r.querySelector('[data-tab="maps"]').click();r.querySelector('#fold').click();return refreshed})()`);
+        assert.ok(expandedRefresh,'unfold immediately refreshes the deferred main content');
         const miniBottom=await evaluate('(()=>{const r=document.querySelector("#pokecatch-auto-helper").getBoundingClientRect();return{bottom:innerHeight-r.bottom,right:innerWidth-r.right,x:r.left+40,y:r.top+15}})()');
         assert.ok(miniBottom.bottom>=13&&miniBottom.bottom<=15,'first fold docks to bottom');assert.ok(miniBottom.right>=13&&miniBottom.right<=15);
         await send('Input.dispatchMouseEvent',{type:'mousePressed',x:miniBottom.x,y:miniBottom.y,button:'left',clickCount:1});
@@ -294,7 +359,7 @@ async function main() {
         await evaluate('__pcTest.engine.manual.until=Date.now()-1');await tick();
         assert.equal(await evaluate('__pcTest.engine.manual'),null);assert.equal(await evaluate('__pcTest.engine.running'),true);
         assert.equal(await evaluate('__pcTest.engine.started'),session.started);assert.deepEqual(await evaluate('__pcTest.engine.oldLoops'),session.loops);
-        assert.ok(await evaluate('!!__pcTest.engine.driver.pendingMap'),'original money task replans after user map selection');
+        assert.ok(await waitForMap(),'original money task replans after user map selection');
         await nativeClick('#tabs [data-screen="adventure"]');
         await evaluate('(()=>{const m=document.querySelector("#modal-root");m.className="open";m.innerHTML="<div class=modal>Manual choice</div>";__pcTest.engine.manual.until=Date.now()-1})()');await tick();
         assert.match(await evaluate('__pcTest.engine.status'),/弹窗/);assert.ok(await evaluate('!!__pcTest.engine.manual'));

@@ -6,7 +6,8 @@
             this.storage = storage; this.settings = normalizeSettings(settings); this.running = false;
             this.status = '已就绪，点击开始'; this.action = ''; this.logs = []; this.account = null;
             this.metrics = {}; this.telemetry = new Telemetry(this.metrics); this.cooldowns = {}; this.raidCooldown = {};
-            this.target = null; this.visit = null; this.nextRaid = 0; this.raidProbe = false; this.raw = null;
+            this.rankingJobs=new Map();
+            this.target = null; this.visit = null; this.nextRaid = 0; this.raidProbe = false; this.raidCheckNote=''; this.raw = null;
             this.progressSignature = ''; this.lastProgress = Date.now(); this.driver = new DOMDriver(this);
             this.timer = null; this.runId = 0; this.nextLegend = 0; this.lease = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
             this.manual = null; this.inputHeld = false; this.restoring = false;this.suspended=null;
@@ -21,12 +22,22 @@
             const raw = this.storage.getItem(SAVE_KEY);
             if (!raw) return null;
             if (raw !== this.raw) { const state = decodeSave(JSON.parse(raw)); if (!state || !Array.isArray(state.mons) || !state.dex || typeof state.dex !== 'object') throw new Error('无法识别游戏存档'); this.state = state; this.raw = raw;this.nurseryMonitor.observe(state); }
+            if(this.running&&this.walletScope&&this.startMoney===null&&accountId(this.state)===this.account){
+                const balance=combinedWalletMoney(this.state);
+                if(balance!==null){this.startMoney=balance;this.walletScope='rebased';}
+            }
             return this.state;
+        }
+        sessionMoneyNet(s){
+            if(!this.started)return 0;
+            const total=combinedWalletMoney(s);
+            return total===null||!Number.isFinite(this.startMoney)?null:Math.round(total-this.startMoney);
         }
         loadAccount(s) {
             const id = accountId(s), switching = this.account !== null && this.account !== id;
             if (switching) {
                 if (this.running || this.suspended) throw new Error('请先结束上一账号的任务');
+                this.cancelRouteRankings();
                 for (const field of SESSION_FIELDS) delete this[field];
                 this.queueRunning = false;
                 this.tabToken = undefined;
@@ -36,11 +47,12 @@
                 this.budget = new Budget(this); this.coach = new LevelCoach(this);
                 this.status = '已切换账号，已载入当前账号的任务配置';
             }
+            if(switching)this.raidCheckNote='';
             this.account = id;
             let saved = {};
             try { saved = JSON.parse(this.storage.getItem(PREFIX + id) || '{}') || {}; } catch {}
             this.metrics = readRouteHistory(saved.metrics);
-            this.settings = normalizeSettings({ ...(switching ? DEFAULTS : this.settings), ...saved.settings });
+            this.settings = normalizeSettings(saved.settings||{},switching?DEFAULTS:this.settings);
             this.queue = normalizeJobs(saved.queue);
             this.queueIndex = Number.isInteger(saved.queueIndex) ? Math.max(0, Math.min(this.queue.length, saved.queueIndex)) : 0;
             this.checkpoint = saved.resume?.wanted ? saved.resume : null;
@@ -84,6 +96,8 @@
         }
         startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(job=>job.status!=='done');if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=normalizeSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
         beginTask(s,cp,now,continuingQueue=false){
+            this.cancelTeamSearch();
+            this.cancelRouteRankings();
             const cfg=this.settings;
             this.startItems=itemCounter(s,cfg.itemId);
             this.sessionItemId=cfg.itemId;
@@ -98,7 +112,7 @@
             this.zoneId=this.zoneStarted=this.legendProbe=this.farmWait=this.weatherWindow=null;
             this.roamStarted=null;
             this.roamProbeAt=this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
-            this.raidProbe=false;
+            this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
             this.raidReturn=this.nextWake=this.modalWaitSince=this.modalWaitNode=null;
             this.nextRaid=this.nextLegend=0;
             this.progressSignature='';
@@ -110,8 +124,12 @@
             // A queued job can have its own older checkpoint. Keep the current run's
             // wallet baseline, start time and original loops when handing off to it.
             for(const key of SESSION_FIELDS){
-                if(continuingQueue&&['started','startMoney','oldLoops'].includes(key))continue;
+                if(continuingQueue&&['started','startMoney','walletScope','oldLoops'].includes(key))continue;
                 if(cp.session?.[key]!==undefined)this[key]=cp.session[key];
+            }
+            // Older checkpoints kept the active wallet only. Its starting side is unknown.
+            if(!continuingQueue&&(!['all','rebased'].includes(cp.session?.walletScope)||!Number.isFinite(this.startMoney))){
+                this.startMoney=combinedWalletMoney(s);this.walletScope='rebased';
             }
             this.automation.state=cp.flow||this.automation.state;
             this.budget.spent=Math.max(this.budget.spent,clamp(cp.budget?.spent,0,1e12,0));
@@ -149,6 +167,8 @@
             this.hiddenAt??=now;
             try{this.persist(!this.restoring,!this.restoring);}catch{}
             this.running=false;this.runId++;clearTimeout(this.timer);this.timer=null;this.release();
+            this.cancelTeamSearch();
+            this.cancelRouteRankings();
             if(this.restoring){this.restoring=false;this.status='页面已离开，循环恢复操作已中断';}
         }
         resumeSuspended(explicit=false,now=Date.now()){
@@ -212,7 +232,7 @@
                 if (!this.acquire(Date.now())) { controlDenied=true;throw new Error('另一个标签页正在运行助手'); }
                 this.running = true; this.runId++; this.started = Date.now(); this.stoppedAt = null;this.hiddenAt=null;
                 this.manual = cp?.manual||null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
-                this.startMoney = s.money;
+                this.startMoney=combinedWalletMoney(s);this.walletScope='all';
                 this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
                 this.errors=0;this.lastCheckpoint=0;
                 this.budget=new Budget(this);this.checkpoint=null;
@@ -240,6 +260,8 @@
             this.suspended=null;
             this.saveJobProgress();
             this.running = false; this.runId++; this.stoppedAt = Date.now(); clearTimeout(this.timer); this.timer = null;
+            this.cancelTeamSearch();
+            this.cancelRouteRankings();
             this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
             this.legendProbe=null;this.farmWait=null;
             this.checkpoint=null;this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;this.nextWake=null;this.modalWaitSince=null;
@@ -252,6 +274,8 @@
             if (!this.running || !this.settings.manualPause) return;
             if (!this.settings.manualResume || this.restoring) { this.stop('检测到手动操作，已停止助手'); return; }
             if (!this.manual) {
+                this.cancelTeamSearch();
+                this.cancelRouteRankings();
                 // A launch can be saved between ticks while this.state still describes the old map.
                 // Snapshot the latest persisted activity before yielding to the user's first input.
                 let s;
@@ -522,6 +546,9 @@
             }
             if(this.holdWildShiny(s,now))return;
             if(!this.adoptManualPreparation(s,now))return;
+            const inActivity=s.adv.event||s.adv.zone||s.adv.tower||s.adv.league;
+            const outcome=inActivity?null:adventureTaskOutcome(s,this,now);
+            if(!inActivity&&!outcome&&this.priorityRaid(s,now))return;
             if(this.serviceBackground(s,now))return;
             if(this.settings.mode==='candy'&&s.adv.tower?.kind==='candy'&&this.preparation?.context.kind==='candy'){
                 // A user may launch the daily run while preflight training is handed off.
@@ -530,15 +557,15 @@
                 this.log('已进入糖果工厂，保留本场机会；入场前队伍在结算后恢复');this.persist();
             }
             if(this.raidPreparation&&!s.adv.event?.raid&&!this.preparation&&!this.raidProbe&&!this.raidReturn){
+                if(this.driver.raid){this.nextRaid=now+10*60000;this.raidCheckNote='团体战已结束，恢复之前的补练';}
                 this.preparation=this.raidPreparation;this.raidPreparation=null;this.driver.raid=null;
                 this.preparation.phaseAt=now;this.preparation.lastGrowth=now;this.preparation.lastTick=now;
                 if(this.preparation.candyAt!=null)this.preparation.candyAt=now;
                 if(this.preparation.candyTx)this.preparation.candyTx.at=now;
                 if(this.preparation.roadWait)this.preparation.roadWait.at=now;
-                this.log('团体战已结束，恢复之前的补练任务');
+                this.preparation.routeCheck=0;this.preparation.routeProfile=null;this.lastProgress=now;
+                this.log('继续之前的补练任务');
             }
-            const inActivity=s.adv.event||s.adv.zone||s.adv.tower||s.adv.league;
-            const outcome=inActivity?null:adventureTaskOutcome(s,this,now);
             if(!this.preparation&&!outcome&&this.settings.autoPrepare){
                 const context=this.coach.activity(s),zone=s.adv.zone&&DATA.zones.find(z=>z.id===s.adv.zone.id);
                 const resume=context?.kind==='raid'?{type:'raid'}:zone?{row:routeDescriptor({...zone,key:`Z${zone.id}`,members:[],name:zone.monName||zone.name}),options:{zone:true,tier:s.adv.zone.elite||0,optimize:this.settings.optimizeRaid}}:{};
@@ -558,16 +585,19 @@
                 if (raid.reg !== (s.adv.event.reg||currentRegion(s)) || raid.boss !== s.adv.event.id) { this.stop('团体战目标已变化，请重新开始接管'); return; }
                 const attempts = s.adv.event.loops || 0;
                 this.status = `团体战进行中 · ${MONS.get(s.adv.event.id)?.name || s.adv.event.reg} · 尝试 ${attempts}/150`;
+                this.raidCheckNote='团体战进行中 · '+(MONS.get(s.adv.event.id)?.name||s.adv.event.reg);
                 if (now - raid.started > this.settings.raidMinutes * 60000) {
                     if (this.driver.leaveRaid()) {
                         this.raidCooldown[`${parisDay()}|${raid.reg}`] = now + 30 * 60000;
                         this.driver.raid = null; this.nextRaid = now + 10 * 60000; this.log('团体战达到时限，30 分钟后可重试');
+                        this.raidCheckNote='团体战达到时限，此地区 30 分钟后可重试';
                     }
                 } else if(!this.driver.activeTeam?.(s))this.driver.nav('adventure');
                 return;
             }
             if (this.driver.raid && !this.raidProbe) {
                 this.log('团体战已结束，返回主任务'); this.driver.raid = null; this.nextRaid = now + 10 * 60000; this.target = null;
+                this.raidCheckNote='团体战已结束，继续原任务';
             }
             if(FLOW_MODES.has(this.settings.mode)){this.automation.step(s,now);return;}
             if(outcome){
@@ -621,7 +651,13 @@
                 if (this.driver.map(pending.row, s, pending.options)) {
                     this.driver.pendingMap = null;
                     if (pending.options?.zone) { this.zoneId = pending.row.id; this.zoneStarted = now; }
-                    else { this.target = pending.row; this.visit = { started: now, deaths: totalDeaths(s, pending.row) }; this.telemetry.sample = null;if(pending.options?.roamId){this.roamStarted??=now;if(pending.options.restart)this.roamRestartAt=now;} }
+                    else {
+                        this.target=pending.row;
+                        this.visit={started:now,deaths:totalDeaths(s,pending.row)};
+                        if(this.settings.mode==='train')this.visit.trainingProfile=pending.trainingProfile??trainingRouteFingerprint(s);
+                        this.telemetry.sample=null;
+                        if(pending.options?.roamId){this.roamStarted??=now;if(pending.options.restart)this.roamRestartAt=now;}
+                    }
                 }
                 else if(pending.waiting||wasWaiting){pending.started=now;this.lastProgress=now;}
                 return;
@@ -633,12 +669,6 @@
             if (this.settings.mode === 'legend') {
                 if (s.adv.speed !== this.settings.speed) { if (this.driver.nav('adventure')) this.driver.click($(`#speed-btns [data-speed="${this.settings.speed}"]`), '设置游戏内速度'); return; }
                 if (safeBoundary) this.legend(s, now); return;
-            }
-            if ((this.settings.raids||this.raidReturn) && this.raidProbe) {
-                this.probeRaid(s,now); return;
-            }
-            if (this.settings.raids && now >= this.nextRaid && safeBoundary && !$('#tabs [data-screen="raid"]')?.classList.contains('locked') && s.adv.badges?.includes('Maître')) {
-                this.raidProbe = true; this.raidProbeStarted = now; this.telemetry.sample = null; return;
             }
             const speed = $(`#speed-btns [data-speed="${this.settings.speed}"]`);
             if (s.adv.speed !== this.settings.speed && this.driver.nav('adventure')) { this.driver.click(speed, '设置游戏内速度'); return; }
@@ -710,6 +740,39 @@
             }
             this.money(s, now);
         }
+        cancelTeamSearch(slot){
+            for(const name of slot?[slot]:['teamSearch','evolutionSearch']){
+                if(this[name])clearTimeout(this[name].timer);
+                this[name]=null;
+            }
+        }
+        evaluateTeamSearch(signature,search,slot='teamSearch'){
+            let job=this[slot];
+            if(job&&job.signature!==signature){this.cancelTeamSearch(slot);job=null;}
+            if(job){
+                if(job.error){this.cancelTeamSearch(slot);throw job.error;}
+                const result=job.result;
+                if(result)this.cancelTeamSearch(slot);
+                return result;
+            }
+            job=this[slot]={signature,epoch:this.runId};
+            const advance=()=>{
+                if(this[slot]!==job)return;
+                if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){this.cancelTeamSearch(slot);return;}
+                // Only score this snapshot here. The normal tick checks the latest
+                // route, party and roster again before it can queue a single PC action.
+                const deadline=performance.now()+(slot==='evolutionSearch'?4:6);
+                try{
+                    do{
+                        const step=search.next();
+                        if(step.done){job.result=step.value;return;}
+                    }while(performance.now()<deadline);
+                    job.timer=setTimeout(advance,0);
+                }catch(error){job.error=error;}
+            };
+            job.timer=setTimeout(advance,0);
+            return null;
+        }
         fitTeam(s,now) {
             if(s.adv.battle?.pick||this.driver.lastSwitchFoe&&s.adv.battle?.foes?.includes(this.driver.lastSwitchFoe))return false;
             const roam=this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
@@ -730,7 +793,13 @@
                 last.roster===roster&&last.deaths===deaths)return false;
             const pinned=this.settings.mode==='train'?(this.trainProtected||(this.settings.trainUid==='team'?s.team:[this.settings.trainUid])):[];
             const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
-            const plan=planAdventureTeam(s,this.settings,pinned,{reg:row.reg||c.reg,foes,objective,now});
+            const context={reg:row.reg||c.reg,foes,objective,now};
+            let plan;
+            if(this.running&&s.mons.length>=24){
+                const signature=JSON.stringify(['adventure',this.runId,this.settings.mode,c.id,key,context.reg,weatherKey,objective,autoSwitch,deaths,roster,s.team,pinned,foes]);
+                plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,context,true));
+            }else plan=planAdventureTeam(s,this.settings,pinned,context);
+            if(!plan){this.status='正在评估冒险队伍 · '+(row.name||c.name);return true;}
             this.teamCheck={key,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
                 reason:plan.changed?plan.reason:'当前阵容收益接近建议，保留现有队伍',gain:plan.gain,opponents:plan.opponents};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
@@ -788,11 +857,71 @@
             const remaining=plan.location?` · 驻留约 ${Math.max(1,Math.ceil((plan.location.until-now)/60000))} 分钟`:'';
             this.status=`追踪${plan.target.name} · ${plan.row.name}${plan.marked?' · 当前路线已生成目标遭遇':remaining}`;d.nav('adventure');
         }
+        cancelRankingJob(kind){
+            const job=this.rankingJobs.get(kind);
+            if(job){clearTimeout(job.timer);this.rankingJobs.delete(kind);}
+        }
+        cancelRouteRankings(){
+            for(const kind of this.rankingJobs.keys())this.cancelRankingJob(kind);
+        }
+        releaseRankingView(keep){
+            for(const [kind,job] of this.rankingJobs){
+                if(kind===keep)continue;
+                job.view=false;
+                if(!job.task)this.cancelRankingJob(kind);
+            }
+        }
+        rankedYieldRoutes(s,kind,cooldowns=this.cooldowns,now=Date.now(),view=false){
+            const request=yieldRankingRequest(kind,s,this.settings,this.metrics,now);
+            return this.evaluateRouteRanking(request,cooldowns,now,view);
+        }
+        evaluateRouteRanking(request,cooldowns,now,view=false){
+            const kind=request.kind;
+            if(view)this.releaseRankingView(kind);
+            let job=this.rankingJobs.get(kind);
+            if(job&&job.signature!==request.signature){this.cancelRankingJob(kind);job=null;}
+            if(routeRankings.get(kind)?.signature===request.signature||!request.needsSlices){
+                if(job)this.cancelRankingJob(kind);
+                return completeYieldRanking(request,cooldowns,now);
+            }
+            if(job){
+                job.view||=view;
+                job.task||=!view;
+                if(job.error){this.cancelRankingJob(kind);throw job.error;}
+                if(!job.rows)return null;
+                this.cancelRankingJob(kind);
+                routeRankings.set(kind,{signature:request.signature,rows:job.rows});
+                return selectYieldRoutes(request,job.rows,cooldowns,now);
+            }
+            const search=request.search(true);
+            job={signature:request.signature,epoch:this.runId,view,task:!view};
+            this.rankingJobs.set(kind,job);
+            const advance=()=>{
+                if(this.rankingJobs.get(kind)!==job)return;
+                if(job.epoch!==this.runId||pageHidden()||!job.view&&(!this.running||this.manual)){
+                    this.cancelRankingJob(kind);return;
+                }
+                // The timer can finish a leaderboard, but only a subsequent
+                // request against the latest save can publish it or select a map.
+                const deadline=performance.now()+6;
+                try{
+                    do{
+                        const part=search.next();
+                        if(part.done){job.rows=part.value;break;}
+                    }while(performance.now()<deadline);
+                }catch(error){job.error=error;}
+                if(!job.rows&&!job.error)job.timer=setTimeout(advance,0);
+                else if(job.view)this.onChange?.();
+            };
+            job.timer=setTimeout(advance,0);
+            return null;
+        }
         farm(s, now, mode) {
-            const rank = mode === 'item' ? itemRanking : xpRanking;
-            const rows = rank(s, this.settings, this.metrics, this.cooldowns, now);
+            const rank=cooldowns=>mode==='item'?itemRanking(s,this.settings,this.metrics,cooldowns,now):this.rankedYieldRoutes(s,'xp',cooldowns,now);
+            const rows=rank(this.cooldowns);
+            if(!rows){this.status='正在比较练级路线';this.lastProgress=now;return;}
             if (!rows.length) {
-                const eligible = rank(s, this.settings, this.metrics, {}, now);
+                const eligible=rank({});
                 if (eligible.length) { this.waitForFarm('目标地图暂时退避，等待后重试',now); return; }
                 if(mode==='item'){
                     const tide=DATA.tideMs||10800000,nextTide=(Math.floor(now/tide)+1)*tide+1;
@@ -803,9 +932,9 @@
             const safe=!s.adv.battle&&!s.adv.pending;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(mode==='train'&&roadPending){this.status='练级等待新队伍在治疗点上阵';this.telemetry.sample=null;this.driver.nav('adventure');return;}
-            if(mode==='train'&&safe){
+            if(mode==='train'&&!s.adv.pending){
                 if(this.automation.autoBuddy(s,now)){this.telemetry.sample=null;return;}
-                if(this.automation.autoBuff(s,now,'train')){this.telemetry.sample=null;return;}
+                if(safe&&this.automation.autoBuff(s,now,'train')){this.telemetry.sample=null;return;}
             }
             const current = rows.find(row => row.key === this.target?.key);
             const elapsed = this.visit ? now - this.visit.started : Infinity;
@@ -816,7 +945,7 @@
                     if(!previous||previous!==profile||now-at>=30000){
                         this.visit.trainingProfile=profile;this.visit.trainingReviewAt=now;
                         const next=rows[0],due=previous&&previous!==profile||now-at>=30000;
-                        if(due&&next.key!==current.key&&next.rate>current.rate*1.15){
+                        if(due&&shouldSwitchTrainingRoute(current,next)){
                             this.log(`练级效率重评：${current.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
                             this.travel(next,now);return;
                         }
@@ -851,6 +980,7 @@
             const s=this.read();if(this.holdWildShiny(s,now))return;
             if(!options.zone&&this.ensurePrepared(s,battleContext(s,'map',{row,roamId:options.roamId}),{row:routeDescriptor(row),options},now))return;
             this.driver.pendingMap = { row, options, started: now };
+            if(this.settings.mode==='train')this.driver.pendingMap.trainingProfile=trainingRouteFingerprint(s);
             this.telemetry.sample = null; this.status = `规划前往：${row.name}`;
         }
         canProgress(s) {
@@ -861,9 +991,45 @@
             return this.settings.mode==='progress'&&new Set(['kanto',...(s.travel?.to||[]),s.link?.to]).has(next.reg);
         }
         ensurePrepared(s,context,resume={},now=Date.now()){return this.holdWildShiny(s,now)||this.coach.ensure(s,context,resume,now);}
+        priorityRaid(s,now){
+            if(!this.settings.raids||FLOW_MODES.has(this.settings.mode)||['roam','legend'].includes(this.settings.mode))return false;
+            if(this.raidProbe){this.probeRaid(s,now);return true;}
+            if(now<this.nextRaid||this.driver.raid||this.raidReturn||this.raidPreparation)return false;
+            if(!s.adv.badges?.includes('Maître')){
+                this.raidCheckNote='尚未获得关都联盟冠军徽章';return false;
+            }
+            const tab=$('#tabs [data-screen="raid"]');
+            if(tab?.classList.contains('locked')||tab?.classList.contains('hold')){
+                this.raidCheckNote=tab.dataset?.why||'游戏的团体战入口暂不可用';return false;
+            }
+            const p=this.preparation,d=this.driver,a=this.automation,flow=a.state;
+            if(p&&(p.phase!=='train'||!['progress','map'].includes(p.context.kind))||d.pendingMap||d.navigation||d.teamTask||a.owner||a.buddyTask||a.buffUI||
+                p?.candyTx||flow.autoBuffTx||flow.eggService||flow.evolution||this.services.underground||s.adv.pending)return false;
+            if(s.adv.battle){
+                this.raidBoundarySince??=now;
+                if(now-this.raidBoundarySince<15000||!safeRaidDeparture(s))return false;
+            }
+            this.raidBoundarySince=null;
+            if(p){this.raidPreparation=p;this.preparation=null;this.cancelRouteRankings();}
+            this.raidProbe=true;this.raidProbeStarted=now;this.telemetry.sample=null;
+            this.status=this.raidCheckNote=p?'已暂存补练进度，优先检查每日团体战':'正在检查每日团体战';
+            return true;
+        }
+        deferRaid(reason,now=Date.now()){
+            this.raidProbe=false;this.raidReturn=null;this.driver.raid=null;
+            if(this.driver.navigation?.screen==='raid')this.driver.navigation=null;
+            this.nextRaid=now+10*60000;this.raidCheckNote=this.status=reason;
+            this.log(reason);
+        }
         probeRaid(s,now){
             this.telemetry.sample=null;
-            if(now-this.raidProbeStarted>90000){this.raidProbe=false;this.raidReturn=null;this.driver.raid=null;this.nextRaid=now+10*60000;this.log('团体战暂不可用，继续主任务');return;}
+            if(!safeRaidDeparture(s)){
+                // The native startRaid discards the current fight. Let a newly appeared
+                // trainer, uncollected wild or frontier battle finish on the adventure screen.
+                this.raidProbeStarted=now;this.lastProgress=now;this.raidCheckNote=this.status='团体战已排队，先完成当前战斗或游戏选择';
+                this.driver.nav('adventure');return;
+            }
+            if(now-this.raidProbeStarted>90000){this.deferRaid('团体战页面检查超时，10 分钟后再检查',now);return;}
             this.status='准备每日团体战';this.driver.raidStep(s);
         }
         progressReached(s){
@@ -905,9 +1071,10 @@
             this.target = row; this.status = sameLeague&&active.id!==c.id?`推进联盟 · ${active.name} · 前沿 ${c.name}`:`推进主线 · ${c.name}`; this.driver.nav('adventure');
         }
         money(s, now) {
-            const rows = moneyRanking(s, this.settings, this.metrics, this.cooldowns, now);
+            const rows=this.rankedYieldRoutes(s,'money',this.cooldowns,now);
+            if(!rows){this.status='正在比较刷钱路线';this.lastProgress=now;return;}
             if (!rows.length) {
-                if(moneyRanking(s,this.settings,this.metrics,{},now).length){this.waitForFarm('刷钱地图暂时退避，等待后重试',now);return;}
+                if(this.rankedYieldRoutes(s,'money',{},now).length){this.waitForFarm('刷钱地图暂时退避，等待后重试',now);return;}
                 const frontier = CHAPTERS.get(s.adv.unlocked);
                 if (this.canProgress(s) && (this.cooldowns[String(frontier.loop)] || 0) <= now) this.progress(s, now);
                 else this.status = '暂无可用地图，等待失败退避时间结束';

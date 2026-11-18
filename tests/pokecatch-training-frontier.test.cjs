@@ -17,6 +17,48 @@ test('explicit training shares the same efficient frontier candidate and rate as
     const {s,p,settings}=fixture(),rows=H.xpRanking(s,settings);assert.equal(rows[0].id,42);assert.equal(rows[0].rate,preparation(s,p,settings)[0].rate);
 });
 
+test('the same six evolved Hoenn members can profitably move from Mt Pyre to Mind Badge before three-turn clears',()=>{
+    const {s,p,settings}=fixture(),now=Date.UTC(2026,10,18,12);
+    s.buddy=null;s.buffs={};s.adv.chapter=38;s.adv.unlocked=39;
+    for(const m of s.mons)m.level=50;
+    assert.equal(H.xpRanking(s,settings,{}, {},now)[0].id,38);
+    for(const m of s.mons)m.level=51;
+    for(const rows of [H.xpRanking(s,settings,{}, {},now),preparation(s,p,settings,{},now)]){
+        const badge=rows[0],previous=rows.find(row=>row.id===38);
+        assert.equal(badge.id,39);assert.equal(badge.measured,false);
+        assert.ok(badge.battleFit.turns>3&&badge.battleFit.turns<=4.5);
+        assert.ok(badge.battleFit.minCoverage>=.999&&badge.rate>previous.rate*1.15);
+    }
+    for(const m of s.mons)m.level=52;
+    assert.ok(H.xpRanking(s,settings,{}, {},now).find(row=>row.id===39).battleFit.turns<=3);
+});
+
+test('an apparently profitable frontier with heavy attrition waits until the real squad can handle its hardest fight',()=>{
+    const {s,settings}=fixture(),now=Date.UTC(2026,10,18,12);
+    for(const m of s.mons)m.level=65;
+    const frontier=H.trainingCandidates(s,settings).find(r=>r.id===42);
+    assert.ok(H.battleRouteFit(s,frontier,s.team,now).worstDeaths>2);
+    assert.equal(H.xpRanking(s,settings,{}, {},now)[0].id,41);
+    for(const m of s.mons)m.level=66;
+    assert.equal(H.xpRanking(s,settings,{}, {},now)[0].id,42);
+});
+
+test('two complete positive XP runs can establish a frontier despite a pessimistic forecast but never bypass failure backoff',()=>{
+    const {s,p,settings}=fixture(),now=Date.UTC(2026,10,18,12);
+    for(const m of s.mons)m.level=64;
+    const candidate=H.trainingCandidates(s,settings).find(row=>row.id===42);
+    const sample={xp:840000,xpRuns:1,xpSeconds:170};
+    const metrics={[H.metricsKey(s,candidate,settings,now)]:sample};
+    assert.ok(!H.xpRanking(s,settings,metrics,{},now).some(row=>row.id===42));
+    sample.xp*=2;sample.xpSeconds*=2;sample.xpRuns=2;
+    const winner=H.xpRanking(s,settings,metrics,{},now)[0];
+    assert.equal(winner.id,42);assert.equal(winner.rate,sample.xp/sample.xpSeconds*60);
+    assert.equal(preparation(s,p,settings,metrics,now)[0].id,42);
+    p.avoid['42']=now+100;
+    assert.ok(!preparation(s,p,settings,metrics,now).some(row=>row.id===42));
+    assert.ok(!H.xpRanking(s,settings,metrics,p.avoid,now).some(row=>row.id===42));
+});
+
 test('allowing training on a frontier preserves cash replay and ordinary item/dex candidate policies',()=>{
     const {s,settings}=fixture();assert.ok(H.candidates(s,settings).some(row=>row.id===42));assert.ok(!H.candidates(s,settings,true).some(row=>row.id===42));
     assert.ok(!H.moneyRanking(s,settings).some(row=>row.members.includes(42)));

@@ -19,7 +19,8 @@ async function main(){
         async function start(name,setup='',inject=true,scriptSource=source){
             const html=path.join(taskDir,name+'.html'),script=`localStorage.clear();window.intervalCount=0;const nativeInterval=window.setInterval;window.setInterval=(...args)=>{window.intervalCount++;return nativeInterval(...args)};${setup}`;
             fs.writeFileSync(html,`<!doctype html><meta charset="utf-8"><body><script>${script}</script>${inject?`<script>${scriptSource.replace(/<\/script/gi,'<\\/script')}</script>`:''}</body>`);await send('Page.navigate',{url:pathToFileURL(html).href});
-            for(let i=0;i<60&&!await evaluate(inject?'!!window.__pokecatchHelper':'document.readyState==="complete"');i++)await delay(50);
+            const initialized=inject?'typeof window.__pokecatchHelper?.ready==="boolean" || !!document.querySelector("#pokecatch-helper-recovery")':'document.readyState==="complete"';
+            for(let i=0;i<60&&!await evaluate(initialized);i++)await delay(50);
         }
         const state=()=>evaluate(`(()=>{const api=window.__pokecatchHelper,host=document.querySelector('#pokecatch-auto-helper'),r=host?.getBoundingClientRect(),root=host?.shadowRoot;return{ready:api?.ready,host:!!host,visible:!!r&&r.width>0&&r.height>0&&r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,folded:root?.querySelector('.panel').classList.contains('hidden'),status:root?.querySelector('#status').textContent,recovery:document.querySelector('#pokecatch-helper-recovery')?.textContent,intervals:window.intervalCount}})()`);
         await start('no-save');let result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);

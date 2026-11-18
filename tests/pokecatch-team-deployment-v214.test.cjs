@@ -31,6 +31,42 @@ test('party order alone is left stable when native type selection would choose t
     assert.deepEqual(plan.uids,s.team);assert.equal(plan.changed,false);
 });
 
+test('native deployment ties use whole-party order on real routes at trainee level and at level 100',()=>{
+    const now=1732000000000;
+    for(const [chapter,ids,levels] of [[50,[430,402],[26,32]],[65,[197,132],[100,100]]]){
+        const mons=ids.map((id,i)=>({id,uid:'m'+i,level:levels[i],reg:'sinnoh'}));
+        const s={mons,team:['m0','m1'],autoSwitch:true,adv:{chapter,unlocked:65,badges:['Maître Sinnoh']},travel:{to:['sinnoh']}};
+        const row={...H.DATA.chapters[chapter],members:[chapter]},context={row,size:2,objective:'train',now};
+        const plan=H.planAdventureTeam(s,H.DEFAULTS,s.team,context);
+        assert.deepEqual(plan.uids,['m1','m0'],'keep both protected trainees and improve the actual deployment order');
+        assert.ok(plan.score>plan.currentScore);
+        assert.ok(H.battleRouteFit(s,row,plan.uids,now).turns<H.battleRouteFit(s,row,s.team,now).turns);
+        s.team=plan.uids;
+        assert.equal(H.planAdventureTeam(s,H.DEFAULTS,s.team,context).changed,false,'stable on the next tick');
+    }
+});
+
+test('interchangeable copies preserve party preference, training cost, explicit UIDs and the normal/shiny slot rule',()=>{
+    const mons=['a','b','z'].map(uid=>({id:65,uid,level:100}));
+    mons.push({...mons[0],uid:'shiny',shiny:true});
+    const s={mons,team:['z'],adv:{chapter:3,unlocked:8}},context={foes:[foe],objective:'train',size:2,force:true};
+    assert.deepEqual(new Set(H.planAdventureTeam(s,H.DEFAULTS,[],context).uids),new Set(['z','shiny']));
+    assert.deepEqual(new Set(H.planAdventureTeam(s,H.DEFAULTS,['b'],context).uids),new Set(['b','shiny']));
+    const cheap=H.planAdventureTeam(s,H.DEFAULTS,[],{...context,pool:mons.slice(0,3),size:1,trainingPenalty:1,trainingCosts:{a:1,b:0,z:2}});
+    assert.deepEqual(cheap.uids,['b']);
+});
+
+test('a full level-100 final-form team can keep all six training UIDs and clear Stark Mountain faster by reordering',()=>{
+    const mons=[553,235,579,359,365,510].map((id,i)=>({uid:'m'+i,id,level:100,reg:'sinnoh'}));
+    const s={mons,team:mons.map(m=>m.uid),autoSwitch:true,adv:{chapter:65,unlocked:83,badges:['Maître Sinnoh']},travel:{to:['sinnoh']}};
+    const now=1732000000000,row={...H.DATA.chapters[65],members:[65]};
+    const p=H.planAdventureTeam(s,H.DEFAULTS,s.team,{row,objective:'train',now});
+    const before=H.battleRouteFit(s,row,s.team,now),after=H.battleRouteFit(s,row,p.uids,now);
+    assert.deepEqual(new Set(p.uids),new Set(s.team));
+    assert.ok(after.turns<before.turns*.8);
+    assert.equal(after.deaths,0);
+});
+
 test('overkill capping retains the native selected move rather than inventing a more accurate one',()=>{
     const mon=training().mons[0],a=H.effectiveStats(mon),b=H.effectiveStats(foe);
     const selected=H.expectedDamage(mon,foe,a,b,{details:true}),capped=H.expectedDamage(mon,foe,a,b,{capDamage:true});

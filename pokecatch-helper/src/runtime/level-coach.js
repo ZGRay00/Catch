@@ -1,3 +1,10 @@
+    function trainingSwitchMargin(current,next){
+        return current?.measured&&next?.measured&&current.samples>=3&&next.samples>=3&&current.rate>0&&next.rate>0?5:15;
+    }
+    function shouldSwitchTrainingRoute(current,next){
+        if(!next||next.key===current?.key)return false;
+        return !current||next.rate-current.rate>current.rate*trainingSwitchMargin(current,next)/100;
+    }
     class LevelCoach {
         constructor(engine){this.e=engine;this.checked=null;this.combat=null;this.ready=null;this.planReview=null;}
         partyProfile(s,uids=s.team||[]){
@@ -15,9 +22,18 @@
                 return!before||mon.level>=before.level+2||mon.id!==before.id||(mon.rank||0)>before.rank||(mon.statMult||1)>before.statMult||(mon.hpMult||1)>before.hpMult||tasteProfile(mon)!==before.taste;
             });
         }
-        rememberReady(s,context,targets,trial=false){
+        conditions(s,context,now){
+            const chapters=[...new Set((context.foes||[]).map(foe=>foe.chapter??s.adv.chapter))];
+            return JSON.stringify(chapters.map(id=>{
+                const branch=CHAPTERS.get(id)?.foesByStarter;
+                // The chapter forecast has no specific encounter node. Match the
+                // same damage factors as the scorer, even across a day/night change.
+                return[id,branch?starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number)):null,Object.values(weatherDamageContext(s,id,now))];
+            }));
+        }
+        rememberReady(s,context,targets,trial=false,now=Date.now()){
             const chapter=CHAPTERS.get(context.id),members=chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[context.id];
-            this.ready={key:context.key,deaths:totalDeaths(s,{members}),targets:trial?this.trialFloor(s).map(mon=>({uid:mon.uid,goal:mon.level})):targets.map(t=>({uid:t.uid,goal:t.goal}))};
+            this.ready={key:context.key,deaths:totalDeaths(s,{members}),team:[...s.team],conditions:this.conditions(s,rebuildPreparationContext(s,context),now),targets:trial?this.trialFloor(s).map(mon=>({uid:mon.uid,goal:mon.level})):targets.map(t=>({uid:t.uid,goal:t.goal}))};
             if(trial)Object.assign(this.ready,{trial:true,profile:this.partyProfile(s)});
         }
         manualTrainingWait(s,targets,reg,now){
@@ -44,10 +60,13 @@
             // Engine.step runs this check before the native PC transaction. Let an
             // already queued roster finish instead of replacing it or blocking it.
             if(ordinary&&e.driver.teamTask?.preparationReady)return false;
+            const conditions=this.conditions(s,context,now);
             let failedTrial=null;
             if(this.ready){
                 const ready=this.ready;
-                if(ordinary&&ready.key===context.key&&deaths<=ready.deaths&&(!ready.trial||ready.profile===this.partyProfile(s))&&ready.targets.every(t=>(s.mons||[]).some(m=>m.uid===t.uid&&m.level>=Math.min(t.goal,trainingCap(s,m)))))return false;
+                const sameTeam=ready.team?.length===s.team.length&&ready.team.every((uid,i)=>s.team[i]===uid);
+                const applied=!s.road?.length||s.road.length===s.team.length&&s.road.every((uid,i)=>s.team[i]===uid);
+                if(ordinary&&ready.key===context.key&&deaths<=ready.deaths&&sameTeam&&applied&&ready.conditions===conditions&&(!ready.trial||ready.profile===this.partyProfile(s))&&ready.targets.every(t=>(s.mons||[]).some(m=>m.uid===t.uid&&m.level>=Math.min(t.goal,trainingCap(s,m)))))return false;
                 if(ordinary&&ready.key===context.key&&ready.trial&&deaths>ready.deaths)failedTrial={at:now,deaths,floor:this.trialFloor(s)};
                 this.ready=null;
             }
@@ -56,15 +75,26 @@
                 else{if(deaths>this.combat.deaths)this.combat.failedAt=now;this.combat.deaths=deaths;}
             }
             const recovering=ordinary&&(!!failedTrial||this.combat.failedAt>0&&now-this.combat.failedAt<10*60000);
-            const fingerprint=JSON.stringify([context.key,e.settings.mode,e.settings.autoTeam,e.settings.autoEvolve,e.settings.optimizeRaid,e.settings.prepareMargin,e.settings.prepareGap,s.adv.unlocked,s.team,s.link?.side,s.autoSwitch!==false,
-                rosterFingerprint(s),lockedEvolutionItems(s),configuredBattleTeam(s,context),context.kind==='tower'?towerParty(s,{snapshot:!!towerProgress(s,now).run,now}).map(mon=>[mon.src,mon.id,mon.level]):null,context.kind==='under'?s.under?.used:context.kind==='worldAttack'?s.wb?.used:null,deaths,recovering]);
+            const configured=configuredBattleTeam(s,context);
+            const evolution=e.settings.autoEvolve?[phaseAt(s,now),!!(s.adv.event||s.adv.zone||s.adv.league||s.adv.tower),reserveEvolutionKey(s)]:null;
+            const fingerprint=JSON.stringify([context.key,conditions,e.settings.mode,e.settings.autoTeam,e.settings.autoEvolve,e.settings.optimizeRaid,e.settings.prepareMargin,e.settings.prepareGap,s.adv.unlocked,s.team,s.road,s.link?.side,s.autoSwitch!==false,
+                rosterFingerprint(s),lockedEvolutionItems(s),s.adv.badges,s.travel?.to,evolution,configured,context.kind==='tower'?towerParty(s,{snapshot:!!towerProgress(s,now).run,now}).map(mon=>[mon.src,mon.id,mon.level]):null,context.kind==='under'?undergroundMembers(s,now).map(mon=>mon.uid):context.kind==='worldAttack'?s.wb?.used:null,deaths,recovering]);
             if(this.checked===fingerprint)return false;
             let plan;
             if(this.planReview?.profile===fingerprint&&now-this.planReview.at<30000)plan=this.planReview.plan;
-            else{plan=preparationPlan(s,e.settings,recovering?{...context,forcePreparation:true}:context);this.planReview={profile:fingerprint,at:now,plan};}
+            else{
+                const battle=recovering?{...context,forcePreparation:true}:context;
+                const searchRoster=ordinary?e.settings.autoTeam:context.kind!=='tower'&&!configured.length&&(e.settings.optimizeRaid||context.kind==='worldAttack');
+                if(searchRoster&&e.running&&s.mons.length>=24){
+                    const signature=JSON.stringify(['preparation',fingerprint,context.foes]);
+                    plan=e.evaluateTeamSearch(signature,preparationSearch(s,e.settings,{...battle,now},true));
+                    if(!plan){e.status='正在评估补练需求 · '+context.label;e.lastProgress=now;return true;}
+                }else plan=preparationPlan(s,e.settings,{...battle,now});
+                this.planReview={profile:fingerprint,at:now,plan};
+            }
             const desired=Math.min(100,context.level+e.settings.prepareMargin);
             if(ordinary&&e.settings.autoTeam&&!recovering){
-                const assessment=preparationReadiness(s,e.settings,context,plan.uids);
+                const assessment=preparationReadiness(s,e.settings,{...context,now},plan.uids);
                 if(assessment.ready){
                     const same=plan.uids.length===(s.team||[]).length&&plan.uids.every((uid,i)=>s.team[i]===uid),roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid));
                     if(!same){
@@ -75,7 +105,7 @@
                         e.status=`使用现有战力挑战${context.label}，准备队伍上阵`;return true;
                     }
                     if(roadPending){e.telemetry.sample=null;e.lastProgress=now;e.status='现有战力已足够，等待治疗点应用队伍';e.driver.nav('adventure');return true;}
-                    this.rememberReady(s,context,[],true);this.checked=fingerprint;return false;
+                    this.rememberReady(s,context,[],true,now);this.checked=fingerprint;return false;
                 }
             }
             const staleTower=context.kind==='tower'&&towerParty(s,{snapshot:true}).some(mon=>mon.level+e.settings.prepareGap<desired&&(s.mons||[]).some(real=>real.uid===mon.src&&real.level>mon.level));
@@ -206,10 +236,16 @@
             if(s.adv.battle||s.adv.pending||roadPending||p.candyTx||this.e.driver?.ownedDialog||this.e.automation?.owner||this.e.automation?.buddyTask||this.e.automation?.buffUI||this.e.automation?.state?.resourceTx||this.e.automation?.state?.autoBuffTx||this.e.automation?.state?.resourceBuffTx)return;
             const current=CHAPTERS.get(s.adv.chapter),fallback=current?.reg===p.context.reg?current:DATA.chapters.find(c=>c.reg===p.context.reg);
             const row=p.route?.reg===p.context.reg?p.route:fallback;
-            const fingerprint=()=>JSON.stringify([row?.key||row?.id,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),p.uids,s.autoSwitch!==false,rosterFingerprint(s)]);
+            const chapters=row?.members?.length?row.members:row?.league?DATA.chapters.filter(c=>c.loop===row.loop).map(c=>c.id):[row?.id??s.adv.chapter];
+            const weather=adventureTeamWeatherKey(s,chapters,now);
+            const fingerprint=()=>JSON.stringify([row?.key??row?.id,chapters,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),p.uids,s.autoSwitch!==false,weather,rosterFingerprint(s)]);
             const profile=fingerprint(),last=this.teamReview;
             if(!repair&&last?.preparation===p&&last.profile===profile&&now-last.at<30000)return;
-            const plan=planAdventureTeam({...s,team:p.uids},this.e.settings,required,{reg:p.context.reg,row,objective:'train',force:repair});
+            const settings=this.e.settings,context={reg:p.context.reg,row,objective:'train',force:repair,now},state={...s,team:p.uids};
+            const sliced=this.e.running&&s.mons.length>=24;
+            const search=adventureTeamSearch(state,settings,required,context,sliced);
+            const plan=sliced?this.e.evaluateTeamSearch('trainees:'+profile,search):search.next().value;
+            if(!plan){this.e.status='正在评估补练队伍 · '+p.context.label;p.phaseAt=now;return true;}
             if(plan.changed&&plan.uids.length){
                 p.uids=plan.uids;this.e.telemetry.sample=null;p.routeCheck=0;p.routeProfile=null;
                 this.e.log(`补练配队重评：${plan.reason}${plan.gain>0?` · 综合评分 +${Math.round(plan.gain*100)}%`:''}`);
@@ -228,31 +264,48 @@
             if(p.resumeReady&&readyRosterValid&&(!readyApplied||roadPending))return false;
             if(s.adv.battle||s.adv.pending||roadPending||e.driver.teamTask||e.driver.ownedDialog||p.candyTx||e.automation?.owner||e.automation?.buddyTask||e.automation?.buffUI||e.automation?.state?.resourceTx||e.automation?.state?.autoBuffTx||e.automation?.state?.resourceBuffTx)return false;
             const context=rebuildPreparationContext(s,p.context);if(!context?.foes?.length)return false;
-            const profile=JSON.stringify([context.key,e.settings.autoEvolve,s.adv.unlocked,s.autoSwitch!==false,s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),rosterFingerprint(s),lockedEvolutionItems(s)]),last=this.preparationReview;
-            if(last?.preparation===p&&last.profile===profile&&now-last.at<30000)return false;
+            const chapters=[...new Set(context.foes.map(foe=>foe.chapter??s.adv.chapter))],grew=this.trialGrew(s,p);
+            const profile=JSON.stringify([context.key,context.foes,e.settings.mode,e.settings.autoEvolve,e.settings.prepareMargin,e.settings.prepareGap,
+                s.adv.unlocked,s.adv.badges,s.travel?.to,phaseAt(s,now),adventureTeamWeatherKey(s,chapters,now),s.autoSwitch!==false,s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),
+                rosterFingerprint(s),lockedEvolutionItems(s),e.settings.autoEvolve&&reserveEvolutionKey(s),grew]),last=this.preparationReview;
+            if(last?.preparation===p&&last.profile===profile&&(now-last.at<30000||e.teamSearch?.signature.startsWith('trainees:')))return false;
+            const sliced=e.running&&s.mons.length>=24;
+            const search=this.comparePreparation(s,p,{...context,now},grew,sliced);
+            const review=sliced?e.evaluateTeamSearch('review:'+profile,search):search.next().value;
+            if(!review){e.status='正在复评补练目标 · '+p.context.label;p.phaseAt=now;return true;}
             this.preparationReview={preparation:p,profile,at:now};
-            const applied=p.uids.length===s.team.length&&p.uids.every((uid,i)=>s.team[i]===uid),assessment=preparationReadiness(s,e.settings,context,s.team),grew=this.trialGrew(s,p);
+            const {assessment,plan,equalCostAndQuality}=review,applied=readyApplied;
             p.assessment={ready:assessment.ready&&grew&&applied,reason:!applied?'等待目标队伍在治疗点实际上阵后重新评估':!grew?'上次试打战败，先补练获得可验证成长后再尝试':assessment.reason};
             if(assessment.fit)p.assessment.fit={turns:assessment.fit.turns,coverage:assessment.fit.coverage,deaths:assessment.fit.deaths};
             if(applied&&assessment.ready&&grew){
                 p.earlyReady=true;p.returnReason='当前战力已足够尝试原任务，提前结束补练';this.setPhase(p,'restore',now);return true;
             }
-            const plan=preparationPlan(s,e.settings,grew?context:{...context,forcePreparation:true});
-            const targetKey=targets=>JSON.stringify(targets.map(t=>[t.uid,t.goal]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
             if(!plan.uids.length){if(p.resumeReady){e.failTask('准备上阵的队伍已不可用，当前地区没有可替换成员');return true;}p.selection=plan.selection;return false;}
-            if(targetKey(plan.targets)===targetKey(p.targets)&&plan.uids.length===p.uids.length&&plan.uids.every((uid,i)=>p.uids[i]===uid)){p.selection=plan.selection;return false;}
-            const pool=(s.mons||[]).filter(mon=>teamEligible(s,mon,context.reg)),desired=Math.min(100,context.level+e.settings.prepareMargin);
-            const future=pool.map(mon=>trainingProjection(s,mon,desired,e.settings,now)),oldIds=new Set(p.uids);
-            const previous=planAdventureTeam({...s,mons:future,team:p.uids},e.settings,p.uids,{reg:context.reg,pool:future.filter(mon=>oldIds.has(mon.uid)),foes:context.foes,size:context.size,force:true});
-            const burden=preparationCosts(s,pool,desired).burden(p.uids),oldScore=previous.score/(1+.16*burden.cost),next=plan.selection;
-            const oldLocked=future.filter(mon=>previous.uids.includes(mon.uid)&&mon.evolutionItemLocked).length;
-            const equalCostAndQuality=next&&Math.abs(next.quality-previous.score)<1e-8&&Math.abs(next.cost-burden.cost)<1e-8;
-            const worthwhile=next?.ready||!p.targets.length||next&&(next.score>oldScore*1.08+.005&&next.quality>=previous.score*.9||next.cost<burden.cost*.75&&next.quality>=previous.score*.97||
-                equalCostAndQuality&&next.lockedCount<oldLocked);
-            if(!worthwhile)return false;
+            if(review.same){p.selection=plan.selection;return false;}
+            if(!review.worthwhile)return false;
+            const next=plan.selection;
             p.targets=plan.targets;p.uids=plan.uids;p.selection=next;p.capLimited=plan.capLimited;p.lastGrowth=now;p.growth=null;p.routeCheck=0;p.routeProfile=null;
             p.resumeReady=!plan.needed&&!plan.targets.length;this.teamReview=null;e.telemetry.sample=null;this.preparationReview=null;
             this.setPhase(p,'team',now);e.log(next?.ready?'发现无需额外补练的现成队伍，准备上阵后继续原任务':equalCostAndQuality?'补练队伍同分，优先选择进化道具已解锁或无需道具的成员':'补练计划重评：改用培养负担更低的队伍，保留原任务与预算');return true;
+        }
+        *comparePreparation(s,p,context,grew,sliced){
+            const settings=this.e.settings,uids=[...p.uids];
+            const targetKey=targets=>JSON.stringify(targets.map(t=>[t.uid,t.goal]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
+            const oldTargets=targetKey(p.targets),noTargets=!p.targets.length;
+            const assessment=yield* readinessSearch(s,settings,context,s.team,sliced);
+            if(assessment.ready&&grew&&uids.length===s.team.length&&uids.every((uid,i)=>uid===s.team[i]))return{assessment};
+            const plan=yield* preparationSearch(s,settings,grew?context:{...context,forcePreparation:true},sliced);
+            const same=targetKey(plan.targets)===oldTargets&&plan.uids.length===uids.length&&plan.uids.every((uid,i)=>uids[i]===uid);
+            if(!plan.uids.length||same)return{assessment,plan,same};
+            const pool=(s.mons||[]).filter(mon=>teamEligible(s,mon,context.reg)),desired=Math.min(100,context.level+settings.prepareMargin);
+            const oldIds=new Set(uids),fixed=pool.filter(mon=>oldIds.has(mon.uid)).map(mon=>trainingProjection(s,mon,desired,settings,context.now));
+            const previous=yield* adventureTeamSearch({...s,mons:fixed,team:uids},settings,uids,{reg:context.reg,pool:fixed,foes:context.foes,size:context.size,force:true,now:context.now},sliced);
+            const burden=preparationCosts(s,pool,desired).burden(uids),oldScore=previous.score/(1+.16*burden.cost),next=plan.selection;
+            const oldLocked=fixed.filter(mon=>previous.uids.includes(mon.uid)&&mon.evolutionItemLocked).length;
+            const equalCostAndQuality=next&&Math.abs(next.quality-previous.score)<1e-8&&Math.abs(next.cost-burden.cost)<1e-8;
+            const worthwhile=next?.ready||noTargets||next&&(next.score>oldScore*1.08+.005&&next.quality>=previous.score*.9||next.cost<burden.cost*.75&&next.quality>=previous.score*.97||
+                equalCostAndQuality&&next.lockedCount<oldLocked);
+            return{assessment,plan,worthwhile,equalCostAndQuality};
         }
         reviewDifficulty(s,p,now){
             const profile=trainingRouteFingerprint(s,p.uids),limit=p.routeLimit;
@@ -263,10 +316,20 @@
             }
             return profile;
         }
+        routes(s,p,now,message,ceiling=p.routeCeiling){
+            const e=this.e,options=ceiling===p.routeCeiling?p:{...p,routeCeiling:ceiling};
+            const request=preparationRankingRequest(s,e.settings,options,e.metrics,now);
+            const avoid=p.avoid??={};
+            const rows=e.running?e.evaluateRouteRanking(request,avoid,now):completeYieldRanking(request,avoid,now);
+            if(rows===null){e.status=message;p.phaseAt=now;}
+            return rows;
+        }
         finish(s,p,now){
             const e=this.e;
+            e.cancelTeamSearch?.();
+            e.cancelRankingJob('preparation');
             if(['map','progress'].includes(p.context.kind)){
-                this.rememberReady(s,p.context,p.targets,!!p.earlyReady);
+                this.rememberReady(s,p.context,p.targets,!!p.earlyReady,now);
             }
             e.preparation=null;e.target=null;e.visit=null;e.telemetry.sample=null;e.driver.pendingMap=null;e.teamCheck=null;e.teamRetryAt=0;e.driver.recent?.clear();this.checked=null;
             e.zoneId=null;e.zoneStarted=null;e.driver.raid=null;e.raidProbe=false;e.raidReturn=null;this.preparationReview=null;
@@ -311,7 +374,9 @@
                 }
                 if(s.adv.event?.raid){d.leaveRaid();return;}
                 if(s.adv.zone||s.adv.league){
-                    const row=preparationRoutes(s,e.settings,p,e.metrics,now).find(row=>s.adv.zone||row.id!==s.adv.chapter);
+                    const routes=this.routes(s,p,now,'正在选择退出活动后的补练地点');
+                    if(!routes)return;
+                    const row=routes.find(row=>s.adv.zone||row.id!==s.adv.chapter);
                     if(!row){e.failTask('没有可用于退出当前战斗的练级地图，请先手动结束该战斗');return;}
                     d.map(row,s);return;
                 }
@@ -335,7 +400,7 @@
                 if((!['map','progress'].includes(p.context.kind)||!e.settings.autoTeam)&&original.length&&this.team(s,original,now))return;
                 this.finish(s,p,now);return;
             }
-            this.reconcile(s,p,now);
+            if(this.reconcile(s,p,now))return;
             const routeProfile=this.reviewDifficulty(s,p,now);
             if(currentRegion(s)!==p.context.reg&&p.phase==='train')this.setPhase(p,'travelFirst',now);
             if(p.phase==='train'&&(s.team.length!==p.uids.length||p.uids.some((uid,i)=>s.team[i]!==uid))){
@@ -347,7 +412,9 @@
             }
             if(e.settings.progressCandy&&p.context.kind==='progress'&&p.phase!=='travelFirst'&&!p.candyDisabled&&this.candy(s,p,now))return;
             if(p.phase==='travel'||p.phase==='travelFirst'){
-                const routes=preparationRoutes(s,e.settings,p,e.metrics,now),row=routes[0];
+                const routes=this.routes(s,p,now,'正在比较目标地区的补练地图');
+                if(!routes)return;
+                const row=routes[0];
                 if(!row){
                     if(Object.values(p.avoid).some(until=>until>now)){e.status='补练地图暂时退避，等待后重试';p.phaseAt=now;p.lastGrowth=now;return;}
                     e.failTask('目标地区暂无可进入的补练地图，请先解锁或切换地区');return;
@@ -370,10 +437,13 @@
                 const key=JSON.stringify([s.team,s.road]);
                 if(p.roadWait?.key!==key)p.roadWait={key,at:now};
                 if(now-p.roadWait.at>=e.settings.prepareIdleMinutes*60000){
-                    const alternative=preparationRoutes(s,e.settings,p,e.metrics,now).find(row=>!row.members.includes(s.adv.chapter));
-                    if(alternative&&(p.roadRepairs||0)<2){
-                        p.roadRepairs=(p.roadRepairs||0)+1;p.avoid[p.route.key]=now+e.settings.prepareIdleMinutes*60000;
-                        p.roadWait=null;this.setPhase(p,'travel',now);e.log('新队伍迟未上阵，切换练级地图触发原生治疗点');return;
+                    if((p.roadRepairs||0)<2){
+                        const routes=this.routes(s,p,now,'正在寻找可应用队伍的补练地图');
+                        if(!routes)return;
+                        if(routes.some(row=>!row.members.includes(s.adv.chapter))){
+                            p.roadRepairs=(p.roadRepairs||0)+1;p.avoid[p.route.key]=now+e.settings.prepareIdleMinutes*60000;
+                            p.roadWait=null;this.setPhase(p,'travel',now);e.log('新队伍迟未上阵，切换练级地图触发原生治疗点');return;
+                        }
                     }
                     e.failTask('补练队伍等待治疗点应用超时，请检查原生行进队伍后继续');return;
                 }
@@ -386,21 +456,25 @@
             const safe=!s.adv.battle&&!s.adv.pending;
             if(safe&&totalDeaths(s,p.route)-(p.visit?.deaths||0)>=Math.min(2,e.settings.lossLimit)){
                 const ceiling=Math.max(...p.route.members.map(id=>CHAPTERS.get(id)?.ace||1))-1;
-                const alternatives=preparationRoutes(s,e.settings,{...p,routeCeiling:ceiling},e.metrics,now);
+                const alternatives=this.routes(s,p,now,'正在比较战败后可用的低难度补练地图',ceiling);
+                if(!alternatives)return;
                 if(alternatives.length){p.routeCeiling=ceiling;p.routeLimit={until:now+10*60000,profile:routeProfile};p.avoid[p.route.key]=now+10*60000;e.log(`${p.route.name}补练仍有战败，暂时降低难度，成长后重新评估`);this.setPhase(p,'travel',now);e.telemetry.sample=null;return;}
                 p.visit.deaths=totalDeaths(s,p.route);e.log('当前只有一张起步练级地图，继续获取经验后重试');
             }
             if(safe&&!roadPending&&(p.routeProfile!==routeProfile||now-(p.routeCheck||0)>=30000)){
+                const rows=this.routes(s,p,now,'正在重新比较补练地图收益');
+                if(!rows)return;
                 p.routeCheck=now;p.routeProfile=routeProfile;
-                const rows=preparationRoutes(s,e.settings,p,e.metrics,now),next=rows[0],current=rows.find(row=>row.key===p.route.key);
-                if(next&&next.key!==p.route.key&&(!current||next.rate>current.rate*1.15)){
+                const next=rows[0],current=rows.find(row=>row.key===p.route.key);
+                if(shouldSwitchTrainingRoute(current,next)){
                     e.log(`补练效率重评：${p.route.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
                     this.setPhase(p,'travel',now);e.telemetry.sample=null;return;
                 }
             }
-            if(safe&&!roadPending){
+            // Native member details and Buddy selection also work during ordinary combat.
+            if(!s.adv.pending&&!roadPending){
                 if(e.automation.autoBuddy(s,now)){e.telemetry.sample=null;return;}
-                if(e.automation.autoBuff(s,now,'train')){e.telemetry.sample=null;return;}
+                if(safe&&e.automation.autoBuff(s,now,'train')){e.telemetry.sample=null;return;}
             }
             if(d.nav('adventure')&&s.adv.speed!==e.settings.speed)d.click($(`#speed-btns [data-speed="${e.settings.speed}"]`),'设置补练游戏速度');
         }

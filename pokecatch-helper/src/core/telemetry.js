@@ -29,13 +29,14 @@
     class Telemetry {
         constructor(metrics = {}) { this.metrics = metrics; this.sample = null; }
         begin(s, row, settings, now) {
-            this.sample = { key: metricsKey(s, row, settings,now), route: row.key, members: row.members, wallet: Number(s.money) || 0,
-                run: s.adv.runs || 0, startNode: s.adv.node, started: now, advanced: false, deaths: totalDeaths(s, row), fingerprint: teamFingerprint(s), speed: settings.speed,
+            if(s.adv.speed!=null&&s.adv.speed!==settings.speed){this.sample=null;return;}
+            this.sample = { key: metricsKey(s, row, settings,now), route: row.key, wallet: Number(s.money) || 0,
+                run: s.adv.runs || 0, startNode: s.adv.node, started: now, advanced: false, deaths: totalDeaths(s, row),
                 xp: experienceTotal(s), party: JSON.stringify(s.team || []), items: Object.fromEntries([...ITEMS.keys()].map(id => [id, itemCounter(s, id)])) };
         }
         observe(s, row, settings, now) {
             const old = this.sample;
-            if (!old || !row || old.route !== row.key || old.key !== metricsKey(s, row, settings,now) || old.party !== JSON.stringify(s.team || []) || old.fingerprint !== teamFingerprint(s) || old.speed !== settings.speed || s.adv.event || s.adv.zone || s.adv.tower || s.adv.league || !row.members.includes(s.adv.chapter)) { this.sample = null; return null; }
+            if (!old || !row || old.route !== row.key || old.key !== metricsKey(s, row, settings,now) || old.party !== JSON.stringify(s.team || []) || s.adv.speed!=null&&s.adv.speed!==settings.speed || s.adv.event || s.adv.zone || s.adv.tower || s.adv.league || !row.members.includes(s.adv.chapter)) { this.sample = null; return null; }
             if ((s.adv.runs || 0) < old.run) { this.sample = null; return null; }
             old.advanced ||= s.adv.node !== old.startNode || !!s.adv.battle;
             const crossed = (s.adv.runs || 0) > old.run && (!row.league || s.adv.chapter === row.members[0]);

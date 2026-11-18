@@ -1,5 +1,18 @@
 const test=require('node:test'),assert=require('node:assert/strict'),H=require('../Pokecatch自动助手.user.js');
 
+test('Paris reset is exact across short and long expedition days and advances at midnight',()=>{
+    for(const [start,end] of [
+        ['2026-03-28T23:00:00Z','2026-03-29T22:00:00Z'],
+        ['2026-10-24T22:00:00Z','2026-10-25T23:00:00Z'],
+    ]){
+        const first=Date.parse(start),next=Date.parse(end);
+        assert.equal(H.nextParisReset(first),next);
+        assert.equal(H.nextParisReset(next-1),next);
+        assert.equal(H.nextParisReset(next),next+86400000);
+        assert.equal(H.nextParisReset(first+12345),next);
+    }
+});
+
 function fixture(t,settings={}){
     const previous={document:global.document,getComputedStyle:global.getComputedStyle,now:Date.now};let clock=Date.UTC(2026,10,17,12);
     Date.now=()=>clock;const nodes=new Map(),clicks=[],completed=[],failed=[],prepared=[];
@@ -93,6 +106,45 @@ test('actual bay team drives preparation and manual adventure members remain out
 test('the chosen starting floor must be an available native option within the user limit',t=>{
     const f=fixture(t,{underFrom:70}),changes=[];f.show('#ug-root [data-ug-go]',{ugGo:'0'});const select=f.show('#ug-root [data-ug-from="0"]',{}, {value:'1',options:[1,25,50,75].map(value=>({value:String(value)})),dispatchEvent:event=>changes.push(event.type)});f.tick();
     assert.equal(select.value,'50');assert.deepEqual(changes,['change']);assert.equal(f.clicks.length,0);assert.equal(f.prepared.length,0);
+});
+test('saved checkpoints unlock exactly at the four expedition milestones and stop at 100',()=>{
+    for(const [best,target]of [[0,1],[24,1],[25,25],[49,25],[50,50],[74,50],[75,75],[99,75],[100,100],[125,100],[300,100]]){
+        const status=H.undergroundStatus({under:{best}});
+        assert.equal(H.undergroundStartFloor(H.DEFAULTS,status.startFloors),target);
+    }
+});
+test('legacy floor preferences migrate through account load, queue settings and explicit first-floor selection',t=>{
+    assert.equal(H.normalizeSettings({underFrom:1}).underAutoStart,true);
+    assert.equal(H.normalizeSettings({underFrom:70}).underAutoStart,false);
+    const legacy=H.normalizeJobs([{settings:{mode:'underground',underFrom:50}}]);
+    assert.equal(legacy[0].settings.underAutoStart,false);
+    const f=fixture(t);f.storage.setItem('pokecatch-helper:v1:'+f.e.account,JSON.stringify({settings:{underFrom:75}}));
+    f.e.loadAccount(f.s);assert.equal(f.e.settings.underAutoStart,false);assert.equal(f.e.settings.underFrom,75);
+    const manual=H.normalizeSettings({underFrom:1,underAutoStart:false});
+    assert.equal(H.undergroundStartFloor(manual,[1,25,50]),1);
+    assert.equal(H.normalizeSettings({underFrom:25,underAutoStart:true}).underAutoStart,true);
+});
+test('automatic standalone expeditions use freshly rendered options, wait after changing and send once from the confirmed bay',t=>{
+    const f=fixture(t),changes=[],go=f.show('#ug-root [data-ug-go]',{ugGo:'0'});f.s.under.best=99;
+    f.tick();assert.equal(f.clicks.length,0);assert.match(f.e.status,/起始楼层/);
+    const select=f.show('#ug-root [data-ug-from="0"]',{}, {value:'1',options:[{value:'1'},{value:'50'},{value:'75',disabled:true}],dispatchEvent:event=>changes.push(event.type)});
+    f.tick();assert.equal(select.value,'50');assert.equal(f.clicks.length,0);
+    select.options.push({value:'75'});f.tick();assert.equal(select.value,'75');assert.deepEqual(changes,['change','change']);
+    f.tick();f.tick();assert.equal(f.clicks.filter(action=>action.el===go).length,1);
+    assert.deepEqual(f.e.automation.state.underLaunch.uids,f.s.eventTeams['under:0']);assert.match(f.clicks[0].label,/75/);
+});
+test('underground preparation follows the selected bay theme and first guard rather than the adventure chapter or level 100',t=>{
+    const f=fixture(t);f.s.under.next=['flooded','crystal'];
+    const a=H.battleContext(f.s,'under',{slot:1,floor:25}),b=H.battleContext(f.s,'under',{slot:0,floor:100});
+    assert.equal(a.slot,1);assert.equal(a.floor,25);assert.equal(a.level,50);assert.equal(b.level,99);
+    assert.ok(a.foes.some(foe=>foe.statMult===2));assert.ok(a.foes.every(foe=>H.MONS.get(foe.id).types.some(type=>['ice','psychic','steel'].includes(type))));
+    f.s.adv.chapter=7;assert.deepEqual(H.battleContext(f.s,'under',{slot:1,floor:25}).foes,a.foes);
+    const {foes,...snapshot}=a;assert.deepEqual(H.rebuildPreparationContext(f.s,snapshot).foes,foes);
+});
+test('a new expedition in the same bay with different members cannot confirm this task send',t=>{
+    const f=fixture(t);f.show('#ug-root [data-ug-go]',{ugGo:'0'});f.tick();
+    f.s.under.slots=[f.job('other',0,f.now()+60000,['m3','m4','m5'])];f.tick();
+    assert.ok(f.e.automation.state.underLaunch);assert.equal(f.clicks.length,1);
 });
 test('a single geode uses its own button when native UI has no open-all control',t=>{
     const f=fixture(t,{underOpenGeodes:true});f.e.automation.state.underDone=1;f.s.under.geodes=[1,0,0,0];const single=f.show('#ug-root [data-ug-geode]',{ugGeode:'0'});f.tick();

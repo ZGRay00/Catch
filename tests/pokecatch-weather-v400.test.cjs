@@ -1,6 +1,50 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 const H=require('../Pokecatch自动助手.user.js');
 const state=()=>({adv:{chapter:49,unlocked:83,gifts:{},badges:[]},mons:[{id:6,uid:'a',level:100}],team:['a'],dex:{},items:{},travel:{to:['johto','hoenn','sinnoh','unova']},roam:{at:{},caught:[]}});
+test('forecast groups each matching chapter once by sky and region, with progression and midnight boundaries',()=>{
+ const s=state(),now=new Date(2026,10,18,23,41).getTime(),wanted=['clear','rain','storm'];
+ s.travel.to=[];s.adv.chapter=0;s.adv.unlocked=3;
+ assert.deepEqual(H.regionalWeatherForecast(s,[],6,false,now),[]);
+ for(const unlockedOnly of [true,false]){
+  const periods=H.regionalWeatherForecast(s,wanted,6,unlockedOnly,now);
+  assert.equal(periods[0].at,now);assert.equal(periods.at(-1).until,(Math.floor(now/3600000)+7)*3600000);
+  for(const [i,period] of periods.entries()){
+   if(i)assert.equal(periods[i-1].until,period.at);
+   const found=[];
+   for(const [reg,skies] of period.regions)for(const [sky,rows] of skies)for(const {chapter,locked} of rows){
+    assert.equal(reg,chapter.reg);assert.equal(sky,H.chapterWeather(s,chapter.id,period.at).key||'clear');
+    assert.equal(locked,chapter.id>3);found.push(chapter.id);
+   }
+   const expected=H.DATA.chapters.filter(c=>(!unlockedOnly||c.id<=3)&&wanted.includes(H.chapterWeather(s,c.id,period.at).key||'clear')).map(c=>c.id);
+   assert.deepEqual(found.sort((a,b)=>a-b),expected);
+  }
+ }
+});
+test('forecast reverts to natural weather at the saved roaming expiry inside the hour',()=>{
+ const s=state(),now=new Date(2026,10,18,12,5).getTime(),expiry=now+123456;
+ const natural=H.chapterWeather(s,49,expiry).key||'clear';
+ const [id,sky]=Object.entries(H.WEATHER_DATA.roamingWeather).find(([,key])=>key!==natural);
+ s.roam.at[id]={ch:49,until:expiry};
+ const slots=H.regionalWeatherForecast(s,[sky],0,true,now);
+ const includes=period=>period.regions.get('sinnoh')?.get(sky)?.some(row=>row.chapter.id===49)||false;
+ assert.equal(slots[0].until,expiry);assert.equal(slots[1].at,expiry);assert.ok(includes(slots[0]));assert.equal(includes(slots[1]),false);
+});
+test('wild appearance forecast follows a roaming expiry to the minute and refreshes when its timer changes',()=>{
+ const s=state();s.adv.chapter=0;s.adv.unlocked=0;s.travel.to=[];
+ const now=Date.UTC(2026,10,18,4,5),expiry=now+125000;
+ const natural=H.chapterWeather(s,0,expiry).key||'clear';
+ const [roamer]=Object.entries(H.WEATHER_DATA.roamingWeather).find(([,sky])=>sky!==natural);
+ const id=[...H.weatherEncounterPool(s,0,expiry).keys()][0];
+ const cfg={...H.DEFAULTS,mode:'shiny',region:'current',shinyWeather:[natural]};
+ s.roam.at[roamer]={ch:0,until:expiry};
+ const first=H.nextWildWindow(s,cfg,[id],now,4);
+ assert.equal(first.at,expiry);assert.equal(first.id,id);
+ assert.equal(H.nextWildWindow(s,cfg,[id],now+1000,4),first);
+ s.roam.at[roamer].until=expiry+60000;
+ assert.equal(H.nextWildWindow(s,cfg,[id],now+1000,4).at,expiry+60000);
+ s.roam.caught.push(+roamer);
+ assert.notEqual(H.nextWildWindow(s,cfg,[id],now+1000,4)?.at,expiry+60000);
+});
 test('weather metadata has full seasons, phases and referenced finite encounter pools',()=>{
  assert.equal(H.WEATHER_DATA.chance,.54);assert.equal(H.WEATHER_DATA.slotMs,3600000);assert.equal(H.WEATHER_DATA.chapters.length,H.DATA.chapters.length);
  for(const chapter of H.WEATHER_DATA.chapters)for(const kind of ['pools','direct'])for(const season of ['spring','summer','autumn','winter'])for(const phase of ['morning','day','night'])for(const ref of Object.values(chapter[kind][season][phase]))assert.ok(H.WEATHER_DATA.tables[ref]);

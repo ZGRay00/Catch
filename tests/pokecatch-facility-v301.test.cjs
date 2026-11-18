@@ -73,6 +73,41 @@ test('factory launch waits for the native save instead of spending a second dail
     assert.ok(f.e.automation.state.candyLaunch);assert.equal(f.completed.length,0);
 });
 
+test('manual factory teams and unavailable editors never score the box',t=>{
+    const f=fixture(t);
+    for(let i=0;i<32;i++)f.s.mons.push({uid:'box'+i,id:i+1,level:85});
+    H.clearTeamCache();
+    f.show('#candy-root [data-cr-go]',null,{disabled:true});
+    f.candy();
+    f.e.settings.optimizeRaid=true;
+    f.candy();
+    assert.equal(f.e.teamSearch?.result,undefined);
+    assert.equal(H.teamCacheStats().misses,0);
+    assert.equal(f.clicks.length,0);
+});
+
+test('factory defers large teams, rejects changed candidates and uses the finished plan once',async t=>{
+    const f=fixture(t,{optimizeRaid:true});
+    for(let i=0;i<32;i++)f.s.mons.push({uid:'box'+i,id:i+1,level:85});
+    const edit=f.show('#candy-root [data-cr-team]');
+    f.candy();
+    const first=f.e.teamSearch;assert.ok(first);assert.equal(f.clicks.length,0);
+    f.s.mons.at(-1).level=99;
+    f.candy();
+    const fresh=f.e.teamSearch;assert.notEqual(fresh,first);assert.ok(fresh);
+    for(let i=0;i<500&&!fresh.result&&!fresh.error;i++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.ifError(fresh.error);assert.deepEqual(fresh.result.uids,H.candyPlan(f.s,f.e.settings,'fire').uids);
+    f.candy();
+    assert.equal(f.clicks.at(-1).el,edit);
+    const own=f.e.driver.ownedDialog;assert.deepEqual(own.uids,fresh.result.uids);
+    f.s.eventTeams.candy=[...own.uids];f.e.driver.recent.set(own.key,[...own.uids]);
+    f.e.driver.ownedDialog=null;
+    f.s.eventTeams.candy.pop();f.candy();assert.ok(f.e.teamSearch,'a manually edited factory party must be re-evaluated');
+    f.e.cancelTeamSearch();f.s.eventTeams.candy=[...own.uids];f.show('#candy-root [data-cr-go]');
+    H.clearTeamCache();f.candy();
+    assert.ok(f.e.automation.state.candyLaunch);assert.equal(f.e.teamSearch,null);assert.equal(H.teamCacheStats().misses,0);
+});
+
 test('an unconfirmed factory launch stops rather than replaying the entry',t=>{
     const f=fixture(t);const go=f.show('#candy-root [data-cr-go]');f.candy();f.advance(16000);f.candy();
     assert.equal(f.clicks.filter(action=>action.el===go).length,1);assert.equal(f.e.automation.state.candyDone||0,0);assert.equal(f.e.running,false);

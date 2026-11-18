@@ -189,7 +189,12 @@
         const dispatchOn=c.autoUnderDispatch!==false,collectOn=c.autoUnderCollect!==false,underTask=services.underground,unlocked=undergroundBackgroundUnlocked(s);
         let underState=under.slots.length?(under.ready.length?'ready':'timing'):'unconfigured',underLabel='',underAt=Number.isFinite(nextUnder)?nextUnder:null;
         let underText=`计时中 ${under.running.length} · 已返回 ${under.ready.length} · 自动派遣${dispatchOn?'开':'关'} / 领取${collectOn?'开':'关'}`;
-        if(services.underDispatched||services.underClaimed)underText+=` · 已派 ${services.underDispatched||0} / 已领 ${services.underClaimed||0} 队`;
+        if(unlocked&&s.adv.badges?.includes('Forêt')){
+            const nextStart=undergroundStartFloor(c,under.startFloors);
+            underText+=` · 今日已派 ${under.sent}/${under.perDay} · 下次从第 ${nextStart} 层出发`;
+            if(under.best>0)underText+=`（历史最高 ${under.best} 层）`;
+        }
+        if(services.underDispatched||services.underClaimed)underText+=` · 后台累计已派 ${services.underDispatched||0} / 已领 ${services.underClaimed||0} 队`;
         if(underTask){
             underState=e.running&&!e.manual&&!e.suspended?'running':'waiting';
             underLabel=underState==='running'?(underTask.action==='dispatch'?'派遣中':'领取中'):'等待恢复';
@@ -239,12 +244,46 @@
         }
         return{route,team,reason};
     }
+    function undergroundStartFloor(settings,floors){
+        const cap=settings.underAutoStart===false?settings.underFrom:Infinity;
+        return floors.reduce((best,floor)=>Number.isInteger(floor)&&floor>0&&floor<=cap?Math.max(best,floor):best,0);
+    }
+    const UNDER_THEMES={flooded:['water','grass','electric'],volcanic:['fire','rock','ground'],crystal:['ice','psychic','steel'],dark:['ghost','dark','poison'],ancient:['dragon','fighting'],galleries:['normal','bug','flying']};
+    const UNDER_FOE_POOLS=new Map();
+    function undergroundFoes(s,theme,floor){
+        const nationalMax=DATA.regions.reduce((highest,region)=>{
+            const champion=DATA.chapters.find(c=>c.reg===region.key&&c.league&&c.badges.length);
+            return champion&&(s.adv.unlocked>champion.id||champion.badges.some(b=>s.adv.badges?.includes(b)))?Math.max(highest,region.dexRange[1]):highest;
+        },151);
+        const types=UNDER_THEMES[theme],cacheKey=(types?theme:'unknown')+'|'+nationalMax;
+        let samples=UNDER_FOE_POOLS.get(cacheKey);
+        if(!samples){
+            const candidates=DATA.mons.filter(mon=>!mon.baby&&!mon.legend&&!DATA.combat.singles[mon.id]&&(!types||mon.types.some(type=>types.includes(type))));
+            const inPool=(lo,hi)=>candidates.filter(mon=>mon.id>=lo&&mon.id<=hi&&!EVOLUTION_DATA.rules[mon.id]?.some(edge=>edge.to<=hi&&MONS.has(edge.to)));
+            const total=mon=>Object.values(mon.stats).reduce((sum,stat)=>sum+stat,0);
+            const stronger=(a,b)=>total(b)-total(a)||a.id-b.id;
+            const wild=inPool(1,nationalMax).sort(stronger),guards=inPool(387,493).sort(stronger).slice(0,10);
+            // Sample one strong wild opponent per theme type plus the native top-ten
+            // Sinnoh guard pool. The real expedition draws its enemies at launch.
+            const wildSamples=types?[...new Set(types.map(type=>wild.find(mon=>mon.types.includes(type))).filter(Boolean))]:wild.slice(0,3);
+            samples={wild:wildSamples.map(mon=>mon.id),guards:guards.map(mon=>mon.id)};
+            UNDER_FOE_POOLS.set(cacheKey,samples);
+        }
+        const enemyLevel=n=>Math.min(100,Math.round(30+(n-1)*.7));
+        const level=enemyLevel(Math.ceil(floor/10)*10);
+        const foes=[...samples.wild.map(id=>({id,weight:1,level:enemyLevel(floor)})),
+            ...samples.guards.map(id=>({id,weight:1,level,statMult:2}))];
+        return{foes,level};
+    }
+    // Public native Underground.starts(), build c8fb8b2e96. The best reached
+    // floor is credited on return. A live native bay menu is authoritative on send.
     function undergroundStatus(s,now=Date.now()){
         const under=s.under||{},day=parisDay(now),extra=Math.min(3,Math.max(0,Math.floor(Number(under.extra)||0))),slots=Array.isArray(under.slots)?under.slots:[];
         const perDay=8+[1,1,2].slice(0,extra).reduce((n,value)=>n+value,0),sent=under.day===day?Math.max(0,Math.floor(Number(under.sent)||0)):0;
         const ready=slots.filter(slot=>slot.recalled!=null||Number.isFinite(+slot.end)&&+slot.end>0&&+slot.end<=now),running=slots.filter(slot=>!ready.includes(slot));
         const ends=running.map(slot=>Number(slot.end)).filter(end=>Number.isFinite(end)&&end>now);
-        return{day,slots,ready,running,perDay,sent,left:Math.max(0,perDay-sent),capacity:Math.max(1+extra,slots.length),nextReturn:ends.length?Math.min(...ends):now+60000,nextReset:nextParisReset(now)};
+        const best=Math.max(0,Math.floor(Number(under.best)||0)),startFloors=[1,...[25,50,75,100].filter(floor=>floor<=best)];
+        return{day,slots,ready,running,perDay,sent,left:Math.max(0,perDay-sent),capacity:Math.max(1+extra,slots.length),best,startFloors,nextReturn:ends.length?Math.min(...ends):now+60000,nextReset:nextParisReset(now)};
     }
     function undergroundBay(s,bay,status=undergroundStatus(s)){
         const {slots,capacity}=status,index=Number(bay);if(!Number.isInteger(index)||index<0||index>=capacity)return null;

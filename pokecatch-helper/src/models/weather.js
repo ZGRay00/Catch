@@ -1,4 +1,34 @@
     const WEATHER_POOL_CACHE = new Map();
+    const WEATHER_LABELS={clear:'晴朗',rain:'下雨',storm:'雷暴',sun:'大晴天',sand:'沙暴',snow:'下雪',ash:'火山灰',fog:'浓雾',blizzard:'暴风雪',breeze:'微风',gale:'强风'};
+
+    function regionalWeatherForecast(s, selected, futureHours, unlockedOnly, now=Date.now()){
+        const wanted=new Set(selected),slot=WEATHER_DATA.slotMs;
+        if(!wanted.size||!s?.adv)return [];
+        const unlocked=new Set(availableChapters(s,{region:'all'}).map(c=>c.id));
+        const chapters=DATA.chapters.filter(c=>!unlockedOnly||unlocked.has(c.id));
+        const end=(Math.floor(now/slot)+1+futureHours)*slot;
+        const periods=[];
+        for(let at=now;at<end;){
+            let until=(Math.floor(at/slot)+1)*slot;
+            // Local day/night can change inside a UTC weather slot in fractional-offset zones.
+            const local=new Date(at);
+            local.setHours(local.getHours()<8?8:local.getHours()<20?20:32,0,0,0);
+            until=Math.min(until,local.getTime());
+            const regions=new Map();
+            for(const chapter of chapters){
+                const sky=chapterWeather(s,chapter.id,at),key=sky.key||'clear';
+                if(sky.until>at)until=Math.min(until,sky.until);
+                if(!sky.known||!wanted.has(key))continue;
+                if(!regions.has(chapter.reg))regions.set(chapter.reg,new Map());
+                const skies=regions.get(chapter.reg);
+                if(!skies.has(key))skies.set(key,[]);
+                skies.get(key).push({chapter,locked:!unlocked.has(chapter.id)});
+            }
+            periods.push({at,until,regions});
+            at=until;
+        }
+        return periods;
+    }
     const WILD_SHINY_IDS = new Set(UNOVA_WILD_IDS);
     const WILD_HABITATS = new Map();
     const WILD_PHASES = ['morning','day','night'];
@@ -48,9 +78,42 @@
         return sky.known&&selected.includes(sky.key||'clear');
     }
     function shinyGoals(settings){return settings.shinySpecies?.length?settings.shinySpecies:[settings.shinyId];}
-    function missingShinies(s,settings){return shinyGoals(settings).filter(id=>!shinyOwned(s,id));}
+    function missingShinies(s,settings){
+        const unchecked=shinyGoals(settings).filter(id=>!s.dex?.[id]?.shiny);
+        if(!unchecked.length)return [];
+        const owned=new Set(collectionMembers(s).filter(mon=>mon.shiny).map(mon=>mon.id));
+        return unchecked.filter(id=>!owned.has(id));
+    }
     function huntRouteMatches(s,settings,row,now){
         return huntRegionMatches(s,settings,row.reg)&&(row.members||[row.id]).every(id=>huntWeatherMatches(s,settings,id,now));
+    }
+    // Keep one ranking per task. Narrow dependencies survive native battle autosaves
+    // (HP, wallet, XP ticks) and work with imported saves and in-place metric updates.
+    const routeRankings=new Map();
+    function rankingEnvironment(s,settings,now){
+        const activeRoam=Object.entries(s.roam?.at||{}).filter(([id,pos])=>
+            pos?.until>now&&!s.roam?.caught?.includes(+id)&&WEATHER_DATA.roamingWeather[id]).map(([id,pos])=>[id,pos.ch]);
+        return [accountId(s),s.adv.chapter,s.adv.unlocked,s.travel?.to,settings.region,huntRegions(settings),
+            Math.floor(now/WEATHER_DATA.slotMs),new Date(now).getHours(),weatherSeason(now),activeRoam];
+    }
+    function huntRankingInputs(s,settings,targets,now){
+        const a=s.adv;
+        const nodes=currentRegion(s)==='unova'&&!a.event&&!a.zone&&!a.tower&&!a.league&&Array.isArray(a.nodes)
+            ? a.nodes.slice(Math.max(0,a.node||0)).filter(n=>n.phenom||n.type==='item'&&n.loot) : null;
+        return [rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,nodes];
+    }
+    function rankedRoutes(kind,inputs,build,cooldowns,now){
+        const signature=JSON.stringify(inputs);
+        let cached=routeRankings.get(kind);
+        if(!cached||cached.signature!==signature){
+            cached={signature,rows:build()};routeRankings.set(kind,cached);
+        }
+        // Cooldowns can expire anywhere in a weather slot. A marked dex encounter
+        // always keeps precedence, including when its ordinary map is cooling down.
+        return availableRankedRoutes(cached.rows,cooldowns,now);
+    }
+    function availableRankedRoutes(rows,cooldowns,now){
+        return rows.filter(row=>row.marked||(cooldowns[row.key]||0)<=now);
     }
     function hasWildSource(s,settings,id){
         const specialChapters=(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter);
@@ -71,11 +134,37 @@
         const c=CHAPTERS.get(chapter),phase=phaseAt(s,now,chapter);
         return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
     }
+    let wildForecastCache;
     function nextWildWindow(s,settings,ids,now=Date.now(),hours=48) {
-        const targets=Array.from(new Set(ids)),rows=candidates(s,settings),slot=WEATHER_DATA.slotMs;
+        const targets=Array.from(new Set(ids));
+        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught]);
+        if(wildForecastCache?.signature===signature&&now>=wildForecastCache.from&&now<wildForecastCache.until)return wildForecastCache.result;
+        const slot=WEATHER_DATA.slotMs,firstHour=(Math.floor(now/slot)+1)*slot;
+        const result=searchWildWindow(s,settings,targets,now,firstHour,firstHour+(Math.floor(hours)-1)*slot);
+        wildForecastCache={signature,from:now,until:Math.min(firstHour,result?.at??Infinity),result};
+        return result;
+    }
+    function searchWildWindow(s,settings,targets,now,firstHour,end){
         const phenomenonIds=targets.filter(id=>UNOVA_WILD_IDS.has(id));
-        for(let n=1;n<=hours;n++){
-            const at=Math.floor(now/slot)*slot+n*slot;
+        const specialChapters=new Set(phenomenonIds.flatMap(id=>(UNOVA_SOURCE_INDEX.get(id)||[]).map(route=>route.chapter)));
+        const rows=candidates(s,settings).filter(row=>row.members.some(ch=>specialChapters.has(ch)||targets.some(id=>WILD_HABITATS.get(ch)?.has(id))));
+        if(!rows.length)return null;
+        const chapters=new Set(rows.flatMap(row=>row.members));
+        const boundaries=new Set();
+        for(let at=firstHour;at<=end;at+=WEATHER_DATA.slotMs)boundaries.add(at);
+        // In fractional-offset time zones local phase and season changes can fall inside a weather slot.
+        const day=new Date(now);day.setHours(0,0,0,0);
+        for(;day.getTime()<=end;day.setDate(day.getDate()+1)){
+            for(const hour of [0,8,10,20]){
+                const at=new Date(day).setHours(hour,0,0,0);
+                if(at>now&&at<=end)boundaries.add(at);
+            }
+        }
+        for(const [id,pos] of Object.entries(s.roam?.at||{})){
+            const at=Number(pos?.until);
+            if(chapters.has(pos?.ch)&&WEATHER_DATA.roamingWeather[id]&&!s.roam?.caught?.includes(+id)&&at>now&&at<=end)boundaries.add(at);
+        }
+        for(const at of [...boundaries].sort((a,b)=>a-b)){
             const matching=rows.filter(row=>huntRouteMatches(s,settings,row,at));
             for(const row of matching)for(const chapter of row.members){
                 const pool=currentWildPool(s,chapter,at),id=targets.find(id=>(pool.get(id)||0)>0);
@@ -83,7 +172,7 @@
             }
             for(const id of phenomenonIds){
                 for(const source of unovaAcquisitionSources(s,id,at,false)){
-                    const row=source.available&&matching.find(r=>r.members.includes(source.chapter));
+                    const row=source.kind==='phenomenon'&&source.available&&matching.find(r=>r.members.includes(source.chapter));
                     if(row)return{at,row,id,weather:chapterWeather(s,source.chapter,at).key};
                 }
             }
@@ -151,10 +240,39 @@
         }
         return [...grouped.values()].filter(row => !row.league || DATA.chapters.filter(c => c.loop === row.loop).every(c => chapters.includes(c)));
     }
+    const yieldLevelBands=new WeakMap();
+    function yieldLevelBand(mon){
+        const level=Math.floor(mon.level),bucket=Math.floor(level/10),model=MONS.get(mon.id);
+        if(!model)return bucket;
+        // Transform uses the opponent's learnset at Ditto's own level.
+        if(mon.id===132)return 'ditto'+level;
+        let bands=yieldLevelBands.get(model);
+        if(!bands){
+            const firstLevels=new Map();
+            for(const entry of damagingMoves(model)){
+                const previous=firstLevels.get(entry.key)??Infinity;
+                if(entry.level<previous)firstLevels.set(entry.key,entry.level);
+            }
+            const learned=new Set(firstLevels.values());
+            bands=[];
+            for(let lo=0;lo<=100;lo+=10){
+                const start=Math.max(1,lo),end=Math.min(100,lo+9);
+                let since=start;
+                for(let lv=start;lv<=end;lv++){
+                    if(learned.has(lv))since=lv;
+                    bands[lv]=since;
+                }
+                // Keep old history only when the whole old bucket had one move set.
+                for(let lv=start;lv<=end;lv++)bands[lv]=since===start?lo/10:lo/10+'m'+bands[lv];
+            }
+            yieldLevelBands.set(model,bands);
+        }
+        return bands[level]??bucket;
+    }
     function teamFingerprint(s) {
         const index = new Map((s.mons || []).map(m => [m.uid, m]));
         // Coarse level buckets allow useful history while rejecting a different party.
-        return (s.team || []).map(uid => index.get(uid)).filter(Boolean).map(m => `${m.id}:${Math.floor(m.level / 10)}:${m.rank || 0}:${+!!m.shiny}:${m.statMult||1}:${m.hpMult||1}:${+!!(m.level>=trainingCap(s,m))}:${tasteProfile(m)}`).join(',');
+        return (s.team || []).map(uid => index.get(uid)).filter(Boolean).map(m => `${m.id}:${yieldLevelBand(m)}:${m.rank || 0}:${+!!m.shiny}:${m.statMult||1}:${m.hpMult||1}:${+!!(m.level>=trainingCap(s,m))}:${tasteProfile(m)}`).join(',');
     }
     function trainingRouteFingerprint(s,uids=s.team||[]){
         const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon]));
@@ -171,18 +289,32 @@
         const buffs=Object.keys(s.buffs||{}).sort().filter(family=>activeYieldBuff(s,family,now)).map(family=>[family,s.buffs[family].key]);
         return JSON.stringify([s.buddy?.uid||'',buffs,s.adv.capture||null]);
     }
-    function metricsKey(s, row, settings,now=Date.now()) { return `e4|${economicRegion(s)}|${yieldFingerprint(s,now)}|${teamFingerprint(s)}|sw${helperSwitchEnabled(s,settings)?'helper':+(s.autoSwitch!==false)}|${settings.speed}|${row.key}|u${s.adv.unlocked}`; }
-    function estimateRate(row) { return row.reward / Math.max(20, row.units * 2.8 / 2.5) * 60; }
+    function routeMetricKey(s,settings,now){
+        const prefix=`e4|${economicRegion(s)}|${yieldFingerprint(s,now)}|${teamFingerprint(s)}|sw${helperSwitchEnabled(s,settings)?'helper':+(s.autoSwitch!==false)}|${settings.speed}|`;
+        const suffix='|u'+s.adv.unlocked;
+        return row=>prefix+row.key+suffix;
+    }
+    function metricsKey(s,row,settings,now=Date.now()){return routeMetricKey(s,settings,now)(row);}
+    function yieldRankingInputs(s,settings,rows,now){
+        const starters=rows.flatMap(row=>row.members.map(id=>CHAPTERS.get(id).foesByStarter)).filter(Boolean)
+            .map(branch=>starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number)));
+        const party=partyMons(s).map(m=>[m.uid,monRegion(m),trainingCap(s,m),...combatProfile({...m,status:null})]);
+        return [rankingEnvironment(s,settings,now),settings.speed,s.team,party,starters,s.autoSwitch!==false,s.link?.to,s.link?.side,
+            economicRegion(s),yieldFingerprint(s,now),s.buddy?.uid];
+    }
+    function estimatedRouteSeconds(row,speed=4){
+        // Native SPEED_PACE maps the top control to 2.5x effective pace.
+        // The route units are a time estimate; observed durations stay in real seconds.
+        return Math.max(20,row.units*2.8/(Number(speed)===4?2.5:1));
+    }
+    function estimateRate(row,speed) { return row.reward / estimatedRouteSeconds(row,speed) * 60; }
     function moneyRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
-        return candidates(s, settings, true).filter(c => (cooldowns[c.key] || 0) <= now).map(row => {
-            const m = metrics[metricsKey(s, row, settings,now)];
-            const measured = m?.seconds > 0 && m?.runs > 0;
-            const factor = moneyFactor(s,row);
-            const battleFit = battleRouteFit(s,row,s.team||[],now);
-            const coverage = battleFit.coverage==null ? 1 : Math.min(1,Math.max(0,battleFit.coverage));
-            // Slow victories and an inability to finish encounters are separate costs.
-            // A difficulty floor must not promise a full route reward to a losing party.
-            const rate = measured ? m.net / m.seconds * 60 : estimateRate(row) * factor*(activeYieldBuff(s,'money',now)?.mult||1)*battleFit.factor*coverage;
-            return { ...row, rate, battleFit, measured, samples: m?.runs || 0, seconds: m?.seconds || 0 };
-        }).sort((a, b) => b.rate - a.rate || a.id - b.id);
+        return completeYieldRanking(yieldRankingRequest('money',s,settings,metrics,now),cooldowns,now);
+    }
+    function moneyRouteScore(s,row,m,battleFit,now,speed){
+        const measured=m?.seconds>0&&m?.runs>0;
+        const coverage=battleFit.coverage==null?1:Math.min(1,Math.max(0,battleFit.coverage));
+        // Slow victories and an inability to finish encounters are separate costs.
+        const rate=measured?m.net/m.seconds*60:estimateRate(row,speed)*moneyFactor(s,row)*(activeYieldBuff(s,'money',now)?.mult||1)*battleFit.factor*coverage;
+        return {...row,rate,battleFit,measured,samples:m?.runs||0,seconds:m?.seconds||0};
     }

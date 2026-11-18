@@ -17,6 +17,15 @@ test('preparation buddies come only from unfinished trainee targets, excluding s
     const s=state(),prep={targets:[{uid:'b',goal:40}]};assert.equal(H.selectTrainingBuddy(s,settings({mode:'progress'}),prep),'b');
     s.mons[1].level=40;assert.equal(H.selectTrainingBuddy(s,settings({mode:'progress'}),prep),null);
 });
+test('the Sinnoh Bertha detour replaces a capped Staraptor with a training target below the regional cap',()=>{
+    const s=state();s.adv.chapter=59;s.adv.unlocked=61;s.travel.to=['johto','hoenn','sinnoh'];s.link={to:'sinnoh',side:'to'};
+    s.mons=[[423,88],[398,88],[473,85],[112,84],[65,84],[405,84]].map(([id,level])=>({uid:'m'+id,id,level,reg:'sinnoh'}));
+    s.team=s.mons.map(m=>m.uid);s.road=[...s.team];s.buddy={uid:'m398',ko:15};
+    const p={targets:s.mons.slice(1).map(mon=>({uid:mon.uid,goal:88}))};
+    assert.equal(H.trainingCap(s,s.mons[1]),88);assert.equal(H.selectTrainingBuddy(s,settings({mode:'progress'}),p),'m112');
+    s.buddy.uid='m112';s.mons[3].level=88;
+    assert.equal(H.selectTrainingBuddy(s,settings({mode:'progress'}),p),'m65');
+});
 test('protected team training does not quietly expand to new supports or PC-only members',()=>{
     const s=state();assert.equal(H.selectTrainingBuddy(s,settings(),null,['b']),'b');
     s.road=['carry'];assert.equal(H.selectTrainingBuddy(s,settings(),null,['a','b']),null);
@@ -73,6 +82,22 @@ test('buddy selection waits for native road application and leaves unrelated act
 });
 test('an already correct buddy never opens a member card',t=>{
     const {s,a,actions}=fixture(t);s.buddy.uid='a';assert.equal(a.autoBuddy(s),false);assert.deepEqual(actions,[]);
+});
+test('manual handoff leaves the KO counter alone and resume rechecks the unfinished trainee',t=>{
+    const {s,e,a,actions,card}=fixture(t);s.adv.battle={kind:'trainer'};e.manual={until:Date.now()+15000};
+    assert.equal(a.autoBuddy(s),false);assert.equal(s.buddy.ko,17);assert.deepEqual(actions,[]);
+    e.manual=null;assert.equal(a.autoBuddy(s),true);e.manual={};assert.equal(a.buddyCard(s,card),false);
+    e.manual=null;s.mons[0].level=70;a.buddyCard(s,card);assert.equal(a.buddyTask.stage,'return');
+    assert.equal(actions.includes('设为当前训练搭档'),false);
+});
+test('a new required choice or independent event interrupts the switch before the buddy button is pressed',t=>{
+    const {s,a,actions,card}=fixture(t);
+    for(const [key,value] of [['pending',{type:'gift'}],['event',{raid:true}],['zone',{id:150}],['tower',{kind:'candy'}],['league',{reg:'kanto'}]]){
+        s.adv.battle={kind:'trainer'};assert.equal(a.autoBuddy(s),true);s.adv[key]=value;
+        assert.equal(a.buddyCard(s,card),true,key);assert.equal(a.buddyTask.stage,'return',key);a.autoBuddy(s);
+        assert.equal(a.autoBuddy(s),false);assert.equal(a.buddyTask,null);delete s.adv[key];
+    }
+    assert.equal(actions.includes('设为当前训练搭档'),false);
 });
 
 test('mobile buddy selection skips a hidden desktop slot and opens the visible mini party member',t=>{

@@ -7,6 +7,16 @@ function fixture(unlocked=46){
 }
 const league=s=>H.trainingCandidates(s,settings).find(row=>row.key==='L:hoenn');
 
+test('league estimates keep real elapsed seconds separate for each selected pace',()=>{
+    const s=fixture(),now=Date.UTC(2026,10,18,12);
+    const score=speed=>H.xpRanking(s,{...settings,speed},{},{},now).find(row=>row.league);
+    const fast=score(4),slow=score(1);
+    assert.ok(fast.rate>slow.rate);
+    assert.ok(slow.leagueTraining.seconds>fast.leagueTraining.seconds*2);
+    assert.deepEqual(fast.leagueTraining.completedMembers,slow.leagueTraining.completedMembers);
+    assert.equal(score(4).rate,fast.rate);
+});
+
 test('opening the first native league room enables a full training-loop forecast',()=>{
     assert.equal(league(fixture(42)),undefined);
     const row=league(fixture(43));assert.ok(row);assert.equal(row.id,43);assert.equal(row.reg,'hoenn');

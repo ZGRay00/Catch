@@ -37,8 +37,23 @@ test('the model uses the actual training party and permits a strong carrier to c
 test('an attackless or immune matchup keeps a bounded fallback rather than hiding every training map',()=>{
     const {s,p}=fixture(63,1);s.adv.unlocked=0;
     const rows=routes(s,p);assert.equal(rows.length,1);assert.equal(rows[0].id,0);assert.equal(rows[0].fallback,true);
+    const explicit=H.xpRanking(s,{...H.DEFAULTS,mode:'train'});assert.deepEqual(explicit.map(r=>r.id),[0]);assert.equal(explicit[0].fallback,true);
     const fit=H.battleRouteFit(s,{reg:'kanto',foes:[{id:92,level:10,weight:1}]},p.uids);
     assert.equal(fit.factor,.02);assert.equal(fit.coverage,0);assert.ok(Number.isFinite(fit.turns));
+});
+
+test('changing game speed recomputes both economic forecasts and preserves real complete-run timing',()=>{
+    const {s,p}=fixture(150,60),now=Date.UTC(2026,10,18,12),fast={...H.DEFAULTS,speed:4},slow={...H.DEFAULTS,speed:1};
+    for(const rank of [H.xpRanking,H.moneyRanking]){
+        const first=rank(s,fast,{}, {},now).find(r=>r.id===4),second=rank(s,slow,{}, {},now).find(r=>r.id===4);
+        assert.ok(Math.abs(first.rate/second.rate-2.5)<1e-8);
+        assert.equal(rank(s,fast,{}, {},now).find(r=>r.id===4).rate,first.rate);
+    }
+    const fastPrep=H.preparationRoutes(s,fast,p,{},now).find(r=>r.id===4),slowPrep=H.preparationRoutes(s,slow,p,{},now).find(r=>r.id===4);
+    assert.ok(Math.abs(fastPrep.rate/slowPrep.rate-2.5)<1e-8);
+    const metrics={[H.metricsKey(s,slowPrep,slow,now)]:{xp:6000,xpSeconds:240,xpRuns:2,net:2400,seconds:240,runs:2}};
+    assert.equal(H.xpRanking(s,slow,metrics,{},now).find(r=>r.id===4).rate,1500);
+    assert.equal(H.moneyRanking(s,slow,metrics,{},now).find(r=>r.id===4).rate,600);
 });
 
 test('normal immunity uses the native typeless Struggle fallback in route difficulty',()=>{
@@ -59,4 +74,34 @@ test('one measured cycle is blended with the battle model rather than being trea
     const metrics={[key]:{xp:2000000,xpSeconds:100,xpRuns:1,runs:1,net:1,seconds:100}},estimated=routes(s,p).find(r=>r.id===7).rate;
     const mixed=routes(s,p,metrics).find(r=>r.id===7);
     assert.equal(mixed.rate,(1200000+estimated)/2);
+});
+
+test('preparation cooldowns and difficulty limits apply to the cached scores on each read',()=>{
+    const {s,p}=fixture(150,70),now=Date.UTC(2026,10,18,12);
+    const all=routes(s,p,{},now),best=all[0];
+    assert.ok(all.length>1);
+    p.avoid[best.key]=now+50;
+    assert.ok(routes(s,p,{},now+49).every(row=>row.key!==best.key));
+    assert.equal(routes(s,p,{},now+50)[0].battleFit,best.battleFit);
+    p.routeCeiling=all[0].maxLevel-1;
+    const lower=routes(s,p,{},now);
+    assert.ok(lower.every(row=>row.maxLevel<=p.routeCeiling));
+    delete p.routeCeiling;delete p.avoid[best.key];
+    assert.equal(routes(s,p,{},now)[0].battleFit,best.battleFit);
+});
+
+test('preparation rankings follow the planned learners, region and amended XP samples',()=>{
+    const {s,p}=fixture(129,20,'johto'),now=Date.UTC(2026,10,18,15);
+    s.mons.push({id:150,uid:'carry',level:75,reg:'johto'});s.team=['carry'];
+    const learners=routes(s,p,{},now);
+    p.uids=['carry'];
+    const carriers=routes(s,p,{},now);
+    assert.notDeepEqual(carriers.map(row=>[row.key,row.rate]),learners.map(row=>[row.key,row.rate]));
+    const chosen=carriers.at(-1),key=H.metricsKey(s,chosen,H.DEFAULTS,now);
+    const metrics={[key]:{xp:500000,xpSeconds:10,xpRuns:2}};
+    assert.equal(routes(s,p,metrics,now)[0].key,chosen.key);
+    metrics[key].xp=600000;
+    assert.equal(routes(s,p,metrics,now)[0].rate,3600000);
+    p.context.reg='kanto';
+    assert.ok(routes(s,p,metrics,now).every(row=>row.reg==='kanto'));
 });

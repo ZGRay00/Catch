@@ -1,0 +1,44 @@
+PokéCatch 保持激活 v1.0.0
+
+安装（Chrome 118 及以上）
+1. 地址栏打开 chrome://extensions 。
+2. 开启右上角“开发者模式”。
+3. 点击“加载已解压的扩展程序”，选择本文件所在的 pokecatch-keep-active 文件夹。
+4. 在工具栏的拼图菜单里，将“PokéCatch 保持激活”固定到工具栏。
+
+使用
+1. 进入 https://pokecatch-online.netlify.app/ ，先关闭游戏页的 F12。
+2. 点击扩展图标，再点击“在当前游戏页开启”。看到绿色 ON 即已开启。
+3. 可以切换标签页、最小化整个窗口；电脑仍须保持运行，不能睡眠。
+4. 不需要一直打开扩展弹窗或 F12。刷新游戏会恢复保持激活。
+5. 扩展记住启用偏好，浏览器重启后会尝试恢复到一个已打开的游戏标签页。
+6. 需要停止时，点击扩展图标，点击“关闭保持激活”。
+
+限制与提示
+- 一次只保持一个游戏标签页，不绕过游戏自身的多窗口互斥。切换保持对象时会先停止旧页面。
+- 浏览器会显示“此扩展正在调试浏览器/页面”等提示，这是此 API 的正常表现。
+- 点击浏览器调试提示的“取消”，或打开游戏页的 F12，可能中断扩展连接。
+  此时不会强行抢回连接。请先关闭 F12，再点击扩展手动开启。
+- 这是浏览器原生模拟聚焦，不是把 F12 的勾选永久写入游戏。
+- 只为游戏域名调用 Emulation.setFocusEmulationEnabled，不注入页面脚本，
+  不改游戏速度、时间、存档、资源，不执行点击或向游戏接口提交操作。
+- 需要 debugger 权限，所以安装时 Chrome 会显示较宽的调试权限提示；实现只接受本扩展弹窗控制，
+  仅连接上述游戏域名，不读取账号令牌、不包含联网代码。
+- 游戏对这种后台保持方式是否允许尚未确认，不能保证不会被限制或封禁。
+- 本地测试页验证不等于实际游戏、电脑睡眠或浏览器长时间冻结情况下的保证。
+
+验证记录（2026-11-11）
+- Chrome 156.0.8078.80，独立测试配置；游戏地址的请求全部由本地模拟页面响应。
+- 已验证扩展弹窗开启、窗口彻底最小化、切换其他标签页、后台刷新和关闭恢复。
+- 保持激活期间动画帧与计时器继续运行；Date.now、setTimeout、setInterval、
+  requestAnimationFrame 和 performance.now 均保持浏览器原生函数。
+- 8 项生命周期测试通过，涵盖开关保存、线程恢复、取消连接、域名限制和单标签页互斥。
+- 未登录真实游戏账号，未验证真实游戏的收益或服务器判定。
+
+技术依据
+https://developer.chrome.com/docs/extensions/reference/api/debugger
+https://developer.chrome.com/docs/devtools/rendering/apply-effects#emulate_a_focused_page
+https://chromedevtools.github.io/devtools-protocol/tot/Emulation/#method-setFocusEmulationEnabled
+
+卸载
+在 chrome://extensions 找到本扩展并点击“移除”，即可清除偏好并解除连接。

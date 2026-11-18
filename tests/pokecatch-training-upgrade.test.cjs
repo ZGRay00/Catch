@@ -21,6 +21,17 @@ function fixture(t,settings={},unlocked=38){
 }
 const ace=row=>Math.max(...row.members.map(id=>H.DATA.chapters[id].ace));
 
+test('a ready team awaiting the healing point keeps progressing, but a genuinely stalled screen still times out',t=>{
+    const {s,e,now,preparation}=fixture(t,{autoTeam:true}),p=preparation();
+    p.phase='team';p.targets=[];p.resumeReady=true;s.road=[s.team[0]];
+    for(let tick=0;tick<135;tick++){
+        if(tick%20===0)s.adv.node++;
+        e.coach.step(s,now+tick*1200);assert.equal(e.running,true);
+    }
+    for(let tick=135;tick<250&&e.running;tick++)e.coach.step(s,now+tick*1200);
+    assert.equal(e.running,false);assert.match(e.status,/治疗点应用队伍/);
+});
+
 test('an unmeasured low training map is upgraded after a short review instead of being held for thirty minutes',t=>{
     const {s,e,now,farming}=fixture(t);farming(31000);e.farm(s,now,'train');
     assert.ok(e.driver.pendingMap,'the low-level route must not wait for two complete samples');assert.ok(ace(e.driver.pendingMap.row)>37);assert.match(e.logs[0].text,/练级效率重评/);e.stop();

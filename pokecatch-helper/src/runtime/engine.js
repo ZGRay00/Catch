@@ -375,9 +375,14 @@
             clearTimeout(this.timer);
             if (!this.running) return;
             const epoch = this.runId;this.sleepDelay=ms;
+            // A visibility event can reschedule an already overdue callback before it runs.
+            const due=Date.now()+ms;
+            this.tickDue=this.tickEpoch===epoch?Math.min(this.tickDue??due,due):due;this.tickEpoch=epoch;
             this.timer = setTimeout(async () => {
                 if (epoch !== this.runId) return;
-                try { await this.step(); this.errors = 0; }
+                const now=Date.now();
+                this.accountTimerDelay(this.tickDue,now);this.tickDue=null;
+                try { await this.step(now); this.errors = 0; }
                 catch (err) { this.log(`异常：${err.message}`); this.status = err.message; if (++this.errors >= 3) this.failTask('连续异常，已暂停：' + err.message); }
                 try{this.onChange?.();this.renderError=null;}catch(err){if(this.renderError!==err.message)this.log('面板刷新失败：'+err.message);this.renderError=err.message;}
                 if (this.running && epoch === this.runId) this.schedule(this.nextDelay());
@@ -391,9 +396,25 @@
             if(FLOW_MODES.has(this.settings.mode)&&this.nextWake>now)return Math.min(6000,Math.max(1200,this.nextWake-now));
             return 1200;
         }
-        resumeUIClock(now){
+        accountTimerDelay(due,now){
+            if(due==null||now-due<5000)return;
+            this.telemetry.sample=null;
+            if(this.hiddenAt!=null){this.hiddenAt=Math.min(this.hiddenAt,due);return;}
+            this.hiddenAt=due;this.resumeUIClock(now,true);
+        }
+        backgroundFramesStalled(now){
+            if(!backgroundKeepalive(now)||typeof requestAnimationFrame!=='function'){this.frameProbe=null;return false;}
+            if(this.frameProbe==null){
+                const probe={at:now};
+                this.frameProbe=probe;
+                requestAnimationFrame(()=>{if(this.frameProbe===probe)this.frameProbe=null;});
+            }
+            return now-this.frameProbe.at>=8000;
+        }
+        resumeUIClock(now,delayed=false){
             if(this.hiddenAt==null)return;
-            const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;this.lastProgress=now;
+            const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;
+            this.lastProgress=delayed?Math.min(now,this.lastProgress+duration):now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
             if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
             if(this.driver.ownedDialog?.openingUntil!=null)this.driver.ownedDialog.openingUntil+=duration;
@@ -416,7 +437,7 @@
             if(eggs.eggReceiptUntil!=null)eggs.eggReceiptUntil+=duration;
             if(this.modalWaitSince!=null)this.modalWaitSince+=duration;
             const p=this.preparation;
-            if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;if(p.candyTx)p.candyTx.at+=duration;p.lastTick=now;}
+            if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;if(p.candyTx)p.candyTx.at+=duration;if(!delayed)p.lastTick=now;else if(p.lastTick!=null)p.lastTick+=duration;}
         }
         serviceBackground(s,now=Date.now()){
             if(!this.running||this.manual||pageHidden())return false;
@@ -442,7 +463,11 @@
             if (this.settings.stopMinutes && now - this.started >= this.settings.stopMinutes * 60000) { this.stop('达到定时运行上限'); return; }
             const idle=pageHidden()||FLOW_MODES.has(this.settings.mode)&&this.nextWake>now;
             if(now-(this.lastCheckpoint||0)>(idle?15000:5000)){this.lastCheckpoint=now;this.persist();}
-            if (pageHidden()) { this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
+            if (pageHidden()) { this.frameProbe=null;this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
+            if(this.backgroundFramesStalled(now)){
+                this.hiddenAt??=now;this.status='浏览器已暂停游戏画面，等待恢复渲染后继续补练或原任务';
+                this.lastProgress=now;this.telemetry.sample=null;return;
+            }
             const sleepOverlay=$('.sleep-fx'),sleeping=document.documentElement?.classList?.contains('sleeping')||visible(sleepOverlay);
             if(sleeping){this.hiddenAt??=now;this.lastProgress=now;this.telemetry.sample=null;}
             if(!s.adv.paused&&!sleeping)this.resumeUIClock(now);

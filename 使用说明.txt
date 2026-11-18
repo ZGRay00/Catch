@@ -1,4 +1,4 @@
-PokéCatch 自动助手 v4.3.0
+PokéCatch 自动助手 v4.3.1
 适用：https://pokecatch-online.netlify.app/ 与 https://pokecatch-online.pages.dev/
 数据核对：2026-11-16，公开游戏构建 b05c8cc201 / 存档 layout 6。
 战斗与孵蛋机制核对：2026-11-17，公开游戏构建 1a16948eef。
@@ -24,7 +24,8 @@ PokéCatch 自动助手 v4.3.0
 - 不改变已有游戏存档、任务队列、预算或模块化结构。
 
 4.0 安装与维护
-- 将 pokecatch-helper/dist/pokecatch-helper.user.js 导入油猴，刷新游戏后确认面板版本为 4.3.0。
+- 将 pokecatch-helper/dist/pokecatch-helper.user.js 导入油猴，刷新游戏后确认面板版本为 4.3.1。
+- 切换到其他标签页时也要持续推图，可在 Chrome / Edge 扩展管理页打开开发者模式，加载完整包里的 pokecatch-keep-active 文件夹，然后在游戏页打开扩展并选择「在当前游戏页开启」，确认显示绿色 ON。
 - 设置中的「助手主动换人」默认关闭。使用时开启智能冒险配队并关闭游戏自带的自动换人。普通冒险单打只剩一个对手时，助手会在明显占优的情况下选择替补，游戏会把它移到队首。
 - 压缩包包含完整安装脚本、分模块源码、数据、测试与可选保活扩展；安装脚本无需 Node。
 - 配置导入/导出位于「设置」页。导入前请先停止助手。

@@ -846,7 +846,8 @@ test('league threat model covers all five members and stays stable across the le
 });
 
 test('team reevaluation is throttled but a new map and a failure trigger another check', t => {
-    const s=state(),{e}=runtime(t,s,{autoTeam:true,raids:false,mode:'money'}),now=Date.now();
+    // Keep these four ticks in the same weather slot; a weather change also triggers a review.
+    const s=state(),{e}=runtime(t,s,{autoTeam:true,raids:false,mode:'money'}),now=new Date(2026,10,18,14,12).getTime();
     assert.equal(e.fitTeam(s,now),false);assert.equal(e.fitTeam(s,now+1000),false);assert.equal(e.teamCheck.at,now);
     s.adv.chapter=1;e.fitTeam(s,now+2000);assert.equal(e.teamCheck.at,now+2000);
     s.adv.deaths[1]=1;e.fitTeam(s,now+3000);assert.equal(e.teamCheck.at,now+3000);

@@ -151,7 +151,7 @@
             const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
             query('#execution-route').textContent=model.decision.route;query('#execution-team').textContent=model.decision.team;query('#execution-reason').textContent=model.decision.reason;
-            query('#execution-environment').textContent=backgroundKeepalive(now)?'可选保活扩展已启用：页面获得后台运行许可；浏览器冻结或系统休眠时计时器仍会停止。':pageHidden()?'当前标签在后台：助手等待回到游戏，原生计时继续。':'当前标签可操作；后台继续运行可选装压缩包内的保活扩展。';
+            query('#execution-environment').textContent=backgroundKeepalive(now)?'已检测到后台支持心跳。浏览器暂停画面时，助手保留任务并等待恢复。':pageHidden()?'游戏标签已在后台，返回后继续。要在其他标签页使用期间继续推图，可启用包内的 PokéCatch 保持激活。':'当前游戏页面可操作。切走后要继续推图，可加载完整包里的 pokecatch-keep-active，并在游戏页开启。';
             if(query('#probability-info').open){
                 const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;

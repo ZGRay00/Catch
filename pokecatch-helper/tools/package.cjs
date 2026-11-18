@@ -49,6 +49,11 @@ function collectFiles(projectRoot=DEFAULT_PROJECT,version){
   for(const name of ['pokecatch-helper.user.js','pokecatch-helper.meta.js','build-info.json'])addFile(path.join(project,'dist',name),'pokecatch-helper/dist/'+name);
   // Extensions are first-party optional artifacts supplied separately by this project.
   for(const relative of ['extension','extensions'])tree(relative,file=>/\.(?:js|json|html|css|md|txt|svg|png)$/.test(file));
+  const focusDir='pokecatch-keep-active';
+  if(fs.existsSync(path.join(workspace,focusDir,'manifest.json'))){
+    for(const name of ['manifest.json','background.js','popup.html','popup.css','popup.js','使用说明.txt'])
+      addFile(path.join(workspace,focusDir,name),focusDir+'/'+name);
+  }
   const tests=path.join(workspace,'tests');if(fs.existsSync(tests))for(const item of fs.readdirSync(tests,{withFileTypes:true})){
     if(item.isFile()&&/^pokecatch.*\.cjs$/.test(item.name))addFile(path.join(tests,item.name),'tests/'+item.name);
   }

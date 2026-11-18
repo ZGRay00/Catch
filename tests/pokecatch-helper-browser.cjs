@@ -67,6 +67,22 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
+        // A separate active tab exercises real Page Visibility and the same Chromium
+        // focus command used by the optional extension. No game account is involved.
+        const {targetId:otherTab}=await send('Target.createTarget',{url:'about:blank',background:false});
+        try{
+            await send('Target.activateTarget',{targetId:otherTab});
+            for(let i=0;i<20&&!await evaluate('document.hidden');i++)await delay(100);
+            const tryAction=`(()=>{const e=__pcTest.engine;const probe=document.createElement('button');probe.textContent='test';document.body.append(probe);
+                let clicked=false;probe.onclick=()=>{clicked=true};e.running=true;e.driver.lastClick=0;
+                try{e.driver.click(probe,'test background control');return {hidden:document.hidden,clicked};}
+                finally{probe.remove();e.running=false;e.action='';}})()`;
+            assert.deepEqual(await evaluate(tryAction),{hidden:true,clicked:false});
+            await send('Emulation.setFocusEmulationEnabled',{enabled:true});
+            assert.deepEqual(await evaluate(tryAction),{hidden:false,clicked:true});
+        }finally{
+            await send('Emulation.setFocusEmulationEnabled',{enabled:false});await send('Target.closeTarget',{targetId:otherTab});await send('Page.bringToFront');
+        }
         const railTest=await evaluate(`(()=>{
             const e=__pcTest.engine,root=document.querySelector('#pokecatch-auto-helper').shadowRoot;
             const toggle=root.querySelector('[data-setting="activeSwitch"]'),defaultOff=!toggle.checked;

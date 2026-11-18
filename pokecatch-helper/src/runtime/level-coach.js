@@ -278,7 +278,11 @@
         step(s,now){
             const e=this.e,p=e.preparation,d=e.driver;if(!p)return;
             e.lastProgress=now;
-            if(now-(p.lastTick||now)>60000){p.phaseAt=now;p.lastGrowth=now;if(p.candyAt)p.candyAt=now;if(p.roadWait)p.roadWait.at=now;}p.lastTick=now;
+            // A PC transaction or a higher-priority service can own the UI for many
+            // ticks. Charge the phase only for opportunities the coach actually had.
+            const gap=now-(p.lastTick??now);
+            if(gap>5000)p.phaseAt=Math.min(now,p.phaseAt+gap-1200);
+            if(gap>60000){p.lastGrowth=now;if(p.candyAt)p.candyAt=now;if(p.roadWait)p.roadWait.at=now;}p.lastTick=now;
             const index=new Map((s.mons||[]).map(m=>[m.uid,m]));
             if(p.targets.some(m=>!index.has(m.uid))){e.failTask('补练目标已离开PC，请取回成员或重新规划任务');return;}
             for(const target of p.targets){const mon=index.get(target.uid);target.id=mon.id;target.goal=Math.min(target.goal,trainingCap(s,mon));}
@@ -288,7 +292,18 @@
             }
             if(s.adv.paused){e.status='补练等待中：游戏已暂停，请在游戏内继续';p.lastGrowth=now;return;}
             if(p.candyTx&&this.candyPending(s,p,now))return;
-            if(p.phase!=='train'&&now-p.phaseAt>120000){e.failTask('补练页面操作超时，请检查地图和队伍控件');return;}
+            if(p.phase!=='train'){
+                // Healing points apply the planned road roster as adventure advances.
+                const healing=p.resumeReady&&p.uids.every((uid,i)=>uid===s.team[i])&&s.road?.length&&s.team.some((uid,i)=>uid!==s.road[i]);
+                const progress=JSON.stringify([p.phase,$('.screen.active')?.id,s.adv.unlocked,s.team,s.road,
+                    $('#map-root .rg.active')?.dataset.rg,$('#map-root .mp-row.sel')?.dataset.ch,s.adv.loops,
+                    healing?[s.adv.chapter,s.adv.node,s.adv.runs,s.stats?.battles]:null]);
+                if(progress!==p.uiProgress){p.uiProgress=progress;p.phaseAt=now;}
+                if(now-p.phaseAt>120000){
+                    const phase={team:'应用队伍',travel:'前往练级地图',travelFirst:'切换地区',exit:'退出活动',restore:'恢复原任务'}[p.phase]||p.phase;
+                    e.failTask(`补练等待${healing?'治疗点应用队伍':phase}超过 2 分钟，页面和存档均无进展`);return;
+                }
+            }
             if(p.phase==='exit'){
                 if(s.adv.tower||p.restartTower&&s.tower?.run){
                     if(!e.automation.raidPage('tower'))return;

@@ -10,6 +10,31 @@ function fixture(t,settings={}){
     const scheduled=[];e.schedule=delay=>scheduled.push(delay);return{s,e,storage,scheduled,now:()=>clock,advance:ms=>{clock+=ms;},save:()=>storage.setItem('gachamon-save-v1',JSON.stringify(s))};
 }
 
+test('minute-throttled callbacks charge only the scheduled UI interval, preserving wall-clock limits',t=>{
+    const {e,now,advance}=fixture(t),start=now();
+    const p=e.preparation={phase:'travel',phaseAt:start,lastTick:start,lastGrowth:start};
+    e.lastProgress=start;e.driver.navigation={started:start,nextAt:start};
+    for(let n=0;n<4;n++){
+        const due=now()+1200;advance(60000);e.accountTimerDelay(due,now());
+    }
+    assert.equal(now()-p.phaseAt,4800);assert.equal(now()-e.driver.navigation.started,4800);
+    assert.equal(now()-e.lastProgress,4800);assert.equal(now()-e.started,240000);
+    // A real visibility notification during a delayed tick must not double-credit it.
+    const due=now()+1200;e.hiddenAt=due+100;advance(60000);e.accountTimerDelay(due,now());e.resumeUIClock(now());
+    assert.equal(now()-p.phaseAt,6000);
+});
+
+test('a live heartbeat with suspended animation frames waits and resumes on the next real frame',t=>{
+    const {e,now,advance}=fixture(t);
+    const orig=global.requestAnimationFrame;let frame,calls=0;
+    global.document.documentElement={getAttribute:()=>String(now())};
+    global.requestAnimationFrame=fn=>{frame=fn;calls++;};
+    t.after(()=>{if(orig===undefined)delete global.requestAnimationFrame;else global.requestAnimationFrame=orig;});
+    assert.equal(e.backgroundFramesStalled(now()),false);advance(9000);
+    assert.equal(e.backgroundFramesStalled(now()),true);assert.equal(calls,1);
+    frame();assert.equal(e.backgroundFramesStalled(now()),false);
+});
+
 test('BFCache return continues the same manual session, queue, preparation and reserved item action',t=>{
     const {e,now,advance,scheduled}=fixture(t);e.manualInput(now());const manual=e.manual,started=e.started;
     const prep={phase:'train',targets:[{uid:'a',goal:50}],phaseAt:now(),lastGrowth:now(),lastTick:now()};e.preparation=prep;

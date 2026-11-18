@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "4.3.0",
-  "scriptSha256": "d0725d2922830d86a57070298665aa8f1efd4707044fde4b1b5c602c6658eaa8",
-  "metadataSha256": "8864c9baea5007858632b4b0eb66d2a042340487e1c2e40dd06a47bbf529c7ce",
+  "version": "4.3.1",
+  "scriptSha256": "573b65463a69873a520b93b1447538edd2fb33eaff3208fe8870b5b121dd3d6d",
+  "metadataSha256": "3aeec3b088d6a8d35806e11cb6aa62a5cffcdcbe917dee908cdbb16669539429",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "f95128fb94f91df77fa0c0da43b7dd9e6694f0a2eb044b10edf0ef30d5ff3cf1"
+      "sha256": "fa7796c14800d3f10f0ce4179c43c9e65667190f8eecdafb5d01f44376dfae96"
     },
     {
       "file": "build.manifest.json",
@@ -122,11 +122,11 @@
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "e65f495abe9f81c240ae00c0cb8a69ad6fbe134ee6b856542f42c2e194d04b83"
+      "sha256": "38f749827a517140f6b2807e0bc386a987b91398389cf50346e979e06ed50936"
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "80a5b6e76b963512aa71025a9ae20ab0b1cd5657f80494cfc2f4bc59c4435076"
+      "sha256": "bef5dec6e586f92a30d827b10add52ff5f929b7d1ddf288ca6de010c8812e324"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -142,7 +142,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "70efa055158bcfb652039b865e248c586dae9dfb891a6d2dddcb35a2166f2420"
+      "sha256": "f8731ad3ee7700567f447517644e1e3e5ba9aba6bd608c03799efc59fbbe4d7e"
     }
   ]
 }

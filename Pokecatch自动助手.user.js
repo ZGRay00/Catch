@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      4.3.0
+// @version      4.3.1
 // @description  原生伤害智能配队、天气窗口收集、闪蛋计数与产蛋预测、后台孵蛋地下探险、配置备份与五源在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '4.3.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '4.3.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -3869,7 +3869,11 @@
         step(s,now){
             const e=this.e,p=e.preparation,d=e.driver;if(!p)return;
             e.lastProgress=now;
-            if(now-(p.lastTick||now)>60000){p.phaseAt=now;p.lastGrowth=now;if(p.candyAt)p.candyAt=now;if(p.roadWait)p.roadWait.at=now;}p.lastTick=now;
+            // A PC transaction or a higher-priority service can own the UI for many
+            // ticks. Charge the phase only for opportunities the coach actually had.
+            const gap=now-(p.lastTick??now);
+            if(gap>5000)p.phaseAt=Math.min(now,p.phaseAt+gap-1200);
+            if(gap>60000){p.lastGrowth=now;if(p.candyAt)p.candyAt=now;if(p.roadWait)p.roadWait.at=now;}p.lastTick=now;
             const index=new Map((s.mons||[]).map(m=>[m.uid,m]));
             if(p.targets.some(m=>!index.has(m.uid))){e.failTask('补练目标已离开PC，请取回成员或重新规划任务');return;}
             for(const target of p.targets){const mon=index.get(target.uid);target.id=mon.id;target.goal=Math.min(target.goal,trainingCap(s,mon));}
@@ -3879,7 +3883,18 @@
             }
             if(s.adv.paused){e.status='补练等待中：游戏已暂停，请在游戏内继续';p.lastGrowth=now;return;}
             if(p.candyTx&&this.candyPending(s,p,now))return;
-            if(p.phase!=='train'&&now-p.phaseAt>120000){e.failTask('补练页面操作超时，请检查地图和队伍控件');return;}
+            if(p.phase!=='train'){
+                // Healing points apply the planned road roster as adventure advances.
+                const healing=p.resumeReady&&p.uids.every((uid,i)=>uid===s.team[i])&&s.road?.length&&s.team.some((uid,i)=>uid!==s.road[i]);
+                const progress=JSON.stringify([p.phase,$('.screen.active')?.id,s.adv.unlocked,s.team,s.road,
+                    $('#map-root .rg.active')?.dataset.rg,$('#map-root .mp-row.sel')?.dataset.ch,s.adv.loops,
+                    healing?[s.adv.chapter,s.adv.node,s.adv.runs,s.stats?.battles]:null]);
+                if(progress!==p.uiProgress){p.uiProgress=progress;p.phaseAt=now;}
+                if(now-p.phaseAt>120000){
+                    const phase={team:'应用队伍',travel:'前往练级地图',travelFirst:'切换地区',exit:'退出活动',restore:'恢复原任务'}[p.phase]||p.phase;
+                    e.failTask(`补练等待${healing?'治疗点应用队伍':phase}超过 2 分钟，页面和存档均无进展`);return;
+                }
+            }
             if(p.phase==='exit'){
                 if(s.adv.tower||p.restartTower&&s.tower?.run){
                     if(!e.automation.raidPage('tower'))return;
@@ -4359,9 +4374,14 @@
             clearTimeout(this.timer);
             if (!this.running) return;
             const epoch = this.runId;this.sleepDelay=ms;
+            // A visibility event can reschedule an already overdue callback before it runs.
+            const due=Date.now()+ms;
+            this.tickDue=this.tickEpoch===epoch?Math.min(this.tickDue??due,due):due;this.tickEpoch=epoch;
             this.timer = setTimeout(async () => {
                 if (epoch !== this.runId) return;
-                try { await this.step(); this.errors = 0; }
+                const now=Date.now();
+                this.accountTimerDelay(this.tickDue,now);this.tickDue=null;
+                try { await this.step(now); this.errors = 0; }
                 catch (err) { this.log(`异常：${err.message}`); this.status = err.message; if (++this.errors >= 3) this.failTask('连续异常，已暂停：' + err.message); }
                 try{this.onChange?.();this.renderError=null;}catch(err){if(this.renderError!==err.message)this.log('面板刷新失败：'+err.message);this.renderError=err.message;}
                 if (this.running && epoch === this.runId) this.schedule(this.nextDelay());
@@ -4375,9 +4395,25 @@
             if(FLOW_MODES.has(this.settings.mode)&&this.nextWake>now)return Math.min(6000,Math.max(1200,this.nextWake-now));
             return 1200;
         }
-        resumeUIClock(now){
+        accountTimerDelay(due,now){
+            if(due==null||now-due<5000)return;
+            this.telemetry.sample=null;
+            if(this.hiddenAt!=null){this.hiddenAt=Math.min(this.hiddenAt,due);return;}
+            this.hiddenAt=due;this.resumeUIClock(now,true);
+        }
+        backgroundFramesStalled(now){
+            if(!backgroundKeepalive(now)||typeof requestAnimationFrame!=='function'){this.frameProbe=null;return false;}
+            if(this.frameProbe==null){
+                const probe={at:now};
+                this.frameProbe=probe;
+                requestAnimationFrame(()=>{if(this.frameProbe===probe)this.frameProbe=null;});
+            }
+            return now-this.frameProbe.at>=8000;
+        }
+        resumeUIClock(now,delayed=false){
             if(this.hiddenAt==null)return;
-            const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;this.lastProgress=now;
+            const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;
+            this.lastProgress=delayed?Math.min(now,this.lastProgress+duration):now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
             if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
             if(this.driver.ownedDialog?.openingUntil!=null)this.driver.ownedDialog.openingUntil+=duration;
@@ -4400,7 +4436,7 @@
             if(eggs.eggReceiptUntil!=null)eggs.eggReceiptUntil+=duration;
             if(this.modalWaitSince!=null)this.modalWaitSince+=duration;
             const p=this.preparation;
-            if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;if(p.candyTx)p.candyTx.at+=duration;p.lastTick=now;}
+            if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;if(p.candyTx)p.candyTx.at+=duration;if(!delayed)p.lastTick=now;else if(p.lastTick!=null)p.lastTick+=duration;}
         }
         serviceBackground(s,now=Date.now()){
             if(!this.running||this.manual||pageHidden())return false;
@@ -4426,7 +4462,11 @@
             if (this.settings.stopMinutes && now - this.started >= this.settings.stopMinutes * 60000) { this.stop('达到定时运行上限'); return; }
             const idle=pageHidden()||FLOW_MODES.has(this.settings.mode)&&this.nextWake>now;
             if(now-(this.lastCheckpoint||0)>(idle?15000:5000)){this.lastCheckpoint=now;this.persist();}
-            if (pageHidden()) { this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
+            if (pageHidden()) { this.frameProbe=null;this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
+            if(this.backgroundFramesStalled(now)){
+                this.hiddenAt??=now;this.status='浏览器已暂停游戏画面，等待恢复渲染后继续补练或原任务';
+                this.lastProgress=now;this.telemetry.sample=null;return;
+            }
             const sleepOverlay=$('.sleep-fx'),sleeping=document.documentElement?.classList?.contains('sleeping')||visible(sleepOverlay);
             if(sleeping){this.hiddenAt??=now;this.lastProgress=now;this.telemetry.sample=null;}
             if(!s.adv.paused&&!sleeping)this.resumeUIClock(now);
@@ -5163,7 +5203,7 @@
             const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
             query('#execution-route').textContent=model.decision.route;query('#execution-team').textContent=model.decision.team;query('#execution-reason').textContent=model.decision.reason;
-            query('#execution-environment').textContent=backgroundKeepalive(now)?'可选保活扩展已启用：页面获得后台运行许可；浏览器冻结或系统休眠时计时器仍会停止。':pageHidden()?'当前标签在后台：助手等待回到游戏，原生计时继续。':'当前标签可操作；后台继续运行可选装压缩包内的保活扩展。';
+            query('#execution-environment').textContent=backgroundKeepalive(now)?'已检测到后台支持心跳。浏览器暂停画面时，助手保留任务并等待恢复。':pageHidden()?'游戏标签已在后台，返回后继续。要在其他标签页使用期间继续推图，可启用包内的 PokéCatch 保持激活。':'当前游戏页面可操作。切走后要继续推图，可加载完整包里的 pokecatch-keep-active，并在游戏页开启。';
             if(query('#probability-info').open){
                 const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;

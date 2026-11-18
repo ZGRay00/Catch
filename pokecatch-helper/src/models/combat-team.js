@@ -303,7 +303,10 @@
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
         const chosen = [], used = new Set();
         const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
-        const prefer=(a,b)=>(partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
+        // Only training projections carry this flag. Resolve equal combat scores
+        // before falling back to the existing party order and stable UID.
+        const prefer=(a,b)=>Number(!!a.evolutionItemLocked)-Number(!!b.evolutionItemLocked)||
+            (partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
         for (const uid of pinned) { const mon=pool.find(m=>m.uid===uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
         while (chosen.length < size) {
             let best = null, score = -Infinity;
@@ -320,7 +323,11 @@
             for(let slot=0;slot<chosen.length;slot++){
                 if(protectedUids.has(chosen[slot].uid))continue;
                 const rest=chosen.filter((_,i)=>i!==slot),taken=new Set(rest.map(identity));let best=chosen[slot],score=utility(chosen);
-                for(const mon of pool){if(taken.has(identity(mon)))continue;const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));if(value>score+1e-8){best=mon;score=value;}}
+                for(const mon of pool){
+                    if(taken.has(identity(mon)))continue;
+                    const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
+                    if(value>score+1e-8||Math.abs(value-score)<1e-8&&best.evolutionItemLocked&&!mon.evolutionItemLocked){best=mon;score=value;}
+                }
                 if(best.uid!==chosen[slot].uid){chosen[slot]=best;improved=true;}
             }
             if(!improved)break;

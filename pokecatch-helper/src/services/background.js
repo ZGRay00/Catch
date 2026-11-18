@@ -96,7 +96,7 @@
         if(mode==='breed')return c.breedShiny?shinyOwned(s,c.breedId):(flow.hatched||0)>=c.breedGoal;
         if(mode==='underground')return(flow.underDone||0)>=c.underRuns;
         if(mode==='resource'){
-            const id=c.resourceItem,n=c.resourceAction==='buy'?Math.max(0,itemCounter(s,id)-(flow.resourceIn??itemCounter(s,id))):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));
+            const id=c.resourceItem,n=c.resourceAction==='buy'?purchasedQuantity(s,id,flow):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));
             return n>=c.resourceQuantity;
         }
         if(mode==='candy')return!s.candy?.run&&!s.adv.tower&&(flow.candyDone||0)>=c.candyRuns;

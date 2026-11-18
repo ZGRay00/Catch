@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "4.6.0",
-  "scriptSha256": "134414cb0b005c54e9c576cf9b85b4dcd49e22944fdccf162f93ced4e814c271",
-  "metadataSha256": "0021a442ddecb9b2d24037a6ec14263c982325bd7027f5bced80457871a13dfc",
+  "version": "4.7.0",
+  "scriptSha256": "d1a68d2acba0aef692382cbfd2323d20eaf41be5127f5b5e9185a9ac4e760c54",
+  "metadataSha256": "b280059a0919fb06de10d2385c09f2e733003f793c530ccfc3b416fb7a6e6180",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "351f9ffde2f37e97fdfdae7ea0a7d7590a974baa636768d13b8f83c5490fa245"
+      "sha256": "64e5e913aa9daec7ed163c4a4ad987ab099c092cdef4e326f335e60fe78acca2"
     },
     {
       "file": "build.manifest.json",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "5e29bcd486609de8b07b55d3a5d1b473b9826de94e390d50f21429e45b16aeea"
+      "sha256": "23d91ea3488f0b8d86afdd1b83ee13f619babdcc7075d844ee9405949dca725e"
     },
     {
       "file": "src/models/facilities.js",
@@ -58,15 +58,15 @@
     },
     {
       "file": "src/models/task-goals.js",
-      "sha256": "d726305f808512bb078870ca1c68264ee6a3e0f3bda3502ccf2d3aa37ee81196"
+      "sha256": "691684fc08b7c149160712d0a4eb7732636aad65431c75f9a69002f00a2537c0"
     },
     {
       "file": "src/services/background.js",
-      "sha256": "3b57f3a422b0f2a0cd5c0cfda57cdcbf9fea0614ccf7e88587deb91b7c3ed7bc"
+      "sha256": "1f36480059ccffd33a4b7035e778e8512800597b5e2b22e3e3ef7ae9d5387a0d"
     },
     {
       "file": "src/models/farming.js",
-      "sha256": "e2893a05a839b6542cc1318e0818e0413733c5e60e69a1e88ccf7f06756874a9"
+      "sha256": "94648c51852447da0c274207e9902384eb957810857bc5e823a85363ae5960ee"
     },
     {
       "file": "src/models/nursery-model.js",
@@ -90,7 +90,7 @@
     },
     {
       "file": "src/models/weather.js",
-      "sha256": "870580acb18e40d885d6889a341746d31c4f1543b18b3684df9f575fb54425e2"
+      "sha256": "e710dd4d9dd65c10fd8b87f8268c38ec3a333c98b3371e080df48b3e94fb9cda"
     },
     {
       "file": "src/models/roster.js",
@@ -106,19 +106,19 @@
     },
     {
       "file": "src/models/evolution.js",
-      "sha256": "63cd49a501916548c89d9e4fdd791c0d5bf537304eccfbde31b5285e1459521c"
+      "sha256": "024b2269f43b8209b4c5ba0c2b4c1d95adbea54d65b13a13ed31108fe9b54b6a"
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "db2ccab4e10ed691f7d82d378ef47cd26b4c4dff567ffaadc03ba9edd266ad7b"
+      "sha256": "00ce5bbb812b0a7cfe2f8ac1a5b32807c431e9e8558ca8de762e9912ab3064fc"
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "02ca900c0832d20051670b3880923d5d4377cc566649b862e1074473c801b3e6"
+      "sha256": "2d2783e6a536f044eab37367b96c2a5f8e1e3dde80facc48560ad2856e3e3522"
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "e90835ef5e9831aec8fe601bea696fac5fecfdb3696af4a7e67f438fd5be09b0"
+      "sha256": "0a2526a1494299e3a1afc51a8c7c8d2aa44fbdc3df7a30e738ceea419805b67b"
     },
     {
       "file": "src/core/telemetry.js",
@@ -130,15 +130,15 @@
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "f31ddc2286b0b3e1380a8365ac81ff80c95f1703f8aed3af2873d609512d08f7"
+      "sha256": "33f45bf37b23359cb8f62843c2cb6b06889a08132fda3fc833d7d41e1ba7853b"
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "28fe72d02942248ffcd42b127ed8a59ee840479d83cc8a9f4b2dace82d077864"
+      "sha256": "3dbba865b9dce81bba72eb3ce1f56a96ca00d07aaeaa6119e15e4dcf1f4359e2"
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "bc3bb42724aff0e3f39c35d91181a7e217a78b1595feade251c280fdcfb57824"
+      "sha256": "1e06f1558d7dceb9d3e75c9892dad01d2a24add36f2bd1b97c59f52021022a47"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -150,7 +150,7 @@
     },
     {
       "file": "src/ui/dex-panel.js",
-      "sha256": "1848335fe96ae0c72d9523ec0ad169c9741720ce21f390df18460e36dfb69a62"
+      "sha256": "e1032615b2eec81268718d644592a79c9c8495c12b7506db80e5b2db74d0aad3"
     },
     {
       "file": "src/ui/nursery-panel.js",
@@ -158,7 +158,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "4518dbfb84b8171ed5eb7eab777b37ce85922e1b931b9b257edf89d1e86e4e83"
+      "sha256": "04b3e724d88d19457397f57191832757cb0a12763a72fa7567ef72650e88299a"
     }
   ]
 }

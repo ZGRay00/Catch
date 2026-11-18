@@ -34,6 +34,24 @@
         }
         WILD_HABITATS.set(c.id,habitat);
     }
+    function huntRegions(settings){
+        return ['dex','shiny'].includes(settings.mode)?settings[settings.mode+'Regions']||[]:[];
+    }
+    function huntRegionMatches(s,settings,region){
+        const selected=huntRegions(settings);
+        return selected.length?selected.includes(region):settings.region==='all'||region===currentRegion(s);
+    }
+    function huntWeatherMatches(s,settings,chapter,now){
+        const selected=settings[settings.mode+'Weather'];
+        if(!selected?.length)return true;
+        const sky=chapterWeather(s,chapter,now);
+        return sky.known&&selected.includes(sky.key||'clear');
+    }
+    function shinyGoals(settings){return settings.shinySpecies?.length?settings.shinySpecies:[settings.shinyId];}
+    function missingShinies(s,settings){return shinyGoals(settings).filter(id=>!shinyOwned(s,id));}
+    function huntRouteMatches(s,settings,row,now){
+        return huntRegionMatches(s,settings,row.reg)&&(row.members||[row.id]).every(id=>huntWeatherMatches(s,settings,id,now));
+    }
     function hasWildSource(s,settings,id){
         const specialChapters=(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter);
         return candidates(s,settings).some(row=>row.members.some(ch=>WILD_HABITATS.get(ch)?.has(id)||specialChapters.includes(ch)));
@@ -54,17 +72,18 @@
         return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
     }
     function nextWildWindow(s,settings,ids,now=Date.now(),hours=48) {
-        const targets=ids instanceof Set?ids:new Set(ids),rows=candidates(s,settings),slot=WEATHER_DATA.slotMs;
-        const phenomenonIds=[...targets].filter(id=>UNOVA_WILD_IDS.has(id));
+        const targets=Array.from(new Set(ids)),rows=candidates(s,settings),slot=WEATHER_DATA.slotMs;
+        const phenomenonIds=targets.filter(id=>UNOVA_WILD_IDS.has(id));
         for(let n=1;n<=hours;n++){
             const at=Math.floor(now/slot)*slot+n*slot;
-            for(const row of rows)for(const chapter of row.members){
-                const pool=currentWildPool(s,chapter,at),id=[...targets].find(id=>(pool.get(id)||0)>0);
+            const matching=rows.filter(row=>huntRouteMatches(s,settings,row,at));
+            for(const row of matching)for(const chapter of row.members){
+                const pool=currentWildPool(s,chapter,at),id=targets.find(id=>(pool.get(id)||0)>0);
                 if(id)return{at,row,id,weather:chapterWeather(s,chapter,at).key};
             }
             for(const id of phenomenonIds){
                 for(const source of unovaAcquisitionSources(s,id,at,false)){
-                    const row=source.available&&rows.find(r=>r.members.includes(source.chapter));
+                    const row=source.available&&matching.find(r=>r.members.includes(source.chapter));
                     if(row)return{at,row,id,weather:chapterWeather(s,source.chapter,at).key};
                 }
             }
@@ -94,12 +113,13 @@
         const key=nodeWeather(s,chapter,node,now),night=phaseAt(s,now,chapter)==='night';
         return Object.fromEntries(Object.keys(DATA.types).map(type=>[type,(node?.weatherDamage?(node.weatherDamage[type]??1):(WEATHER_DATA.types[key]?.damage?.[type]??1))*(night?WEATHER_DATA.nightDamage[type]??1:1)]));
     }
-    function captured(s, id) {
+    function collectionMembers(s){
+        return [...(s.mons||[]),...(s.pension?.mons||[]).map(slot=>slot?.mon),
+            ...(s.link?.stash?.mons||[]),...(s.under?.slots||[]).flatMap(slot=>slot?.mons||[])].filter(Boolean);
+    }
+    function captured(s, id, ownedIds) {
         // Historical captures survive evolution, trading, daycare and release.
-        return Number(s.dex?.[id]?.caught) > 0 || (s.mons || []).some(m => m.id === id) ||
-            (s.pension?.mons || []).some(m => m.mon?.id === id) ||
-            (s.link?.stash?.mons || []).some(m => m.id === id) ||
-            (s.under?.slots || []).some(slot => (slot.mons || []).some(m => m.id === id));
+        return Number(s.dex?.[id]?.caught) > 0 || (ownedIds ? ownedIds.has(id) : collectionMembers(s).some(m=>m.id===id));
     }
     function regionOfMon(id) {
         const base=MONS.get(id)?.root||id;
@@ -108,14 +128,18 @@
     }
     function dexStatus(s, settings) {
         const open = new Set(['kanto', ...(s.travel?.to || []), currentRegion(s)]);
-        const roots = ROOTS.filter(m => settings.region === 'all' ? open.has(regionOfMon(m.id)) : regionOfMon(m.id) === currentRegion(s));
-        const missing = roots.filter(m => !captured(s, m.id));
+        const explicit=settings.mode==='dex'&&settings.dexSpecies?.length;
+        const regions=huntRegions(settings);
+        const roots = explicit?settings.dexSpecies.map(id=>MONS.get(id)).filter(Boolean):ROOTS.filter(m=>regions.length?regions.includes(regionOfMon(m.id)):
+            settings.region==='all'?open.has(regionOfMon(m.id)):regionOfMon(m.id)===currentRegion(s));
+        const ownedIds = new Set(collectionMembers(s).map(mon=>mon.id));
+        const missing = roots.filter(m => !captured(s, m.id, ownedIds));
         return { roots, missing, complete: roots.length - missing.length, ids: new Set(missing.map(m => m.id)) };
     }
     function availableChapters(s, settings, replay = false) {
         const open = new Set(['kanto', ...(s.travel?.to || [])]);
         const reg = currentRegion(s); open.add(reg);
-        return DATA.chapters.filter(c => open.has(c.reg) && (settings.region === 'all' || c.reg === reg) &&
+        return DATA.chapters.filter(c => open.has(c.reg) && huntRegionMatches(s,settings,c.reg) &&
             c.id <= s.adv.unlocked && (!replay || c.id < s.adv.unlocked || c.id === DATA.regions.find(r => r.key === c.reg)?.end));
     }
     function candidates(s, settings, replay = false) {

@@ -12,10 +12,10 @@
             if(Number.isFinite(e.startItems)&&itemCounter(s,cfg.itemId)-e.startItems>=cfg.itemQuantity)reason=`已获得目标道具 ${cfg.itemQuantity} 个`;
             break;
         case 'shiny':
-            if(shinyOwned(s,cfg.shinyId))reason='指定野生异色目标已捕获';
+            if(!missingShinies(s,cfg).length)reason='指定野生异色目标已捕获';
             break;
         case 'dex':
-            if((cfg.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,cfg).missing.length)reason='所选范围的基础形态已全部捕获';
+            if((cfg.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,cfg).missing.length)reason=cfg.dexSpecies?.length?'指定物种已全部捕获':'所选范围的基础形态已全部捕获';
             break;
         case 'progress':
             if(e.progressReached?.(s))reason='主线目标章节已完成';

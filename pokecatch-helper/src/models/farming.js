@@ -1,9 +1,12 @@
     function shinyRanking(s,settings,cooldowns={},now=Date.now()){
-        const target=settings.shinyId;
-        const phenomena=unovaAcquisitionSources(s,target,now).filter(source=>source.kind==='phenomenon'&&source.available);
-        return candidates(s,settings).filter(row=>(cooldowns[row.key]||0)<=now).map(row=>{
-            const expected=row.members.reduce((n,id)=>n+(currentWildPool(s,id,now).get(target)||0),0)
-                +phenomena.filter(source=>row.members.includes(source.chapter)).reduce((n,source)=>n+source.weight,0);
+        const targets=missingShinies(s,settings);
+        const phenomena=targets.filter(id=>UNOVA_WILD_IDS.has(id)).flatMap(id=>unovaAcquisitionSources(s,id,now)).filter(source=>source.kind==='phenomenon'&&source.available);
+        return candidates(s,settings).filter(row=>(cooldowns[row.key]||0)<=now&&huntRouteMatches(s,settings,row,now)).map(row=>{
+            const members=row.members;
+            const expected=members.reduce((n,id)=>{
+                const pool=currentWildPool(s,id,now);
+                return n+targets.reduce((sum,target)=>sum+(pool.get(target)||0),0);
+            },0)+phenomena.filter(source=>members.includes(source.chapter)).reduce((n,source)=>n+source.weight,0);
             return{...row,expected,rate:expected/Math.max(20,row.units*2.8/2.5)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }

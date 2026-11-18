@@ -51,6 +51,9 @@
     function specialAvailable(s,special,now=Date.now(),chapter=s?.adv?.chapter){
         return !specialBlockReason(s,special,now,chapter);
     }
+    const FOSSIL_NAMES = {'old-amber':'秘密琥珀','helix-fossil':'贝壳化石','dome-fossil':'甲壳化石',
+        'root-fossil':'根状化石','claw-fossil':'爪子化石','skull-fossil':'头盖化石','armor-fossil':'盾甲化石',
+        'cover-fossil':'背盖化石','plume-fossil':'羽毛化石'};
     function acquisitionSources(s,id,now=Date.now()){
         if(!s?.adv||!MONS.has(id))return [];
         const result=[],unlocked=new Set(availableChapters(s,{region:'all'}).map(c=>c.id));
@@ -82,8 +85,17 @@
             for(const special of c.special){
                 const offer=special.offers?.find(([,species])=>species===id);
                 if(offer){
-                    const item=ITEMS.get(offer[0])?.name||offer[0];
+                    const item=FOSSIL_NAMES[offer[0]]||ITEMS.get(offer[0])?.name||offer[0];
                     add('trade','使用'+item+'复原化石',s.items?.[offer[0]]>0?'':'当前背包缺少'+item);
+                    if(Object.hasOwn(FOSSIL_NAMES,offer[0])){
+                        const region=DATA.regions.find(region=>region.key===c.reg);
+                        const open=(c.reg==='kanto'||s.travel?.to?.includes(c.reg))&&s.adv.unlocked>=region.start;
+                        const registered=c.reg!=='unova'||DATA.mons.some(mon=>mon.root===id&&s.dex?.[mon.id]);
+                        const gate=!s.adv.badges?.includes('Forêt')?'需要神奥森林徽章':
+                            !open?'需先开放'+region.name:!registered?'合众化石需先登记本进化链的任一形态，可与其他玩家交换':'';
+                        result.push({kind:'underground',chapter:null,place:'地下通道',available:!gate,
+                            detail:[gate,'从第 75 层起随机获得，返程领取时直接取得宝可梦'].filter(Boolean).join(' · ')});
+                    }
                 }
                 if(![].concat(special.id||[]).includes(id))continue;
                 const block=specialBlockReason(s,special,now,c.id);
@@ -103,7 +115,7 @@
             for(const rule of rules.filter(edge=>edge.to===id)){
                 const species=Number(from),members=(s.mons||[]).filter(mon=>mon.id===species).sort((a,b)=>(a.rank||0)-(b.rank||0)||b.level-a.level);
                 const checks=members.map(mon=>evolutionStatus(s,mon,{now},rule)),available=checks.some(check=>check.rule);
-                let detail=rule.item==='link-cable'?'交换进化':(rule.level?'Lv.'+rule.level:ITEMS.get(rule.item)?.name||rule.item)+' 进化';
+                let detail=rule.item==='link-cable'?'交换进化':(rule.level?'Lv.'+rule.level:evolutionItemAccess(s,rule.item).name)+' 进化';
                 const time=EVOLUTION_DATA.time[id];
                 if(time)detail+=' · '+(time==='night'?'夜间':'白天');
                 if(rule.party)detail+=' · 同行队友需要'+(MONS.get(rule.party)?.name||rule.party);
@@ -130,6 +142,7 @@
         return result.sort((a,b)=>Number(b.available)-Number(a.available));
     }
     function markedDexSource(s,settings,now){
+        if(!huntRegionMatches(s,settings,currentRegion(s))||!huntWeatherMatches(s,settings,s.adv.chapter,now))return null;
         if(currentRegion(s)!=='unova'||!s.adv.nodes?.length)return null;
         const nodes=s.adv.nodes.slice(s.adv.node||0);
         let missing;
@@ -156,7 +169,7 @@
                 specialByChapter.get(source.chapter).push(source);
             }
         }
-        return candidates(s, settings).map(row => {
+        return candidates(s, settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row => {
             const hits = new Map(); let score = 0,marked=false,hasWild=false;
             for (const id of row.members) {
                 const c = CHAPTERS.get(id);

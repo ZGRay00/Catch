@@ -29,6 +29,21 @@ test('a purchase with an unchanged game save is not repeated after the former tw
     const {e,buy,advance,clicks}=fixture(t);buy();advance(2400);buy();assert.deepEqual(clicks,['buy']);assert.equal(e.budget.spent,200);assert.match(e.status,/到账确认/);
     advance(10001);buy();assert.equal(e.running,false);assert.deepEqual(clicks,['buy']);assert.match(e.status,/避免重复采购/);assert.equal(e.budget.spent,200);
 });
+
+test('expedition drops do not complete a procurement or acknowledge an unpaid order',t=>{
+    const {s,e,id,advance,clicks}=fixture(t,{resourceQuantity:1});
+    s.stats.spent={candy:50};
+    s.stats.itemIn[id]+=2;s.items[id]+=2;
+    e.automation.resource(s,Date.now());
+    assert.deepEqual(clicks,['buy']);
+    s.stats.itemIn[id]++;s.items[id]++;
+    advance(1200);e.automation.resource(s,Date.now());
+    assert.equal(e.automation.state.resourcePurchased,0);
+    assert.ok(e.automation.state.resourceTx);
+    s.stats.spent.candy+=200;
+    advance(1200);e.automation.resource(s,Date.now());
+    assert.equal(e.running,false);assert.deepEqual(clicks,['buy']);assert.match(e.status,/采购目标已完成/);
+});
 test('an unconfirmed ordinary candy serving reserves one use and pauses without spending another',t=>{
     const {e,use,advance,clicks}=fixture(t,{resourceAction:'use'});use();advance(1200);use();assert.deepEqual(clicks,['use']);assert.equal(e.budget.used,1);
     advance(10001);use();assert.equal(e.running,false);assert.deepEqual(clicks,['use']);assert.match(e.status,/避免重复消耗/);assert.equal(e.budget.used,1);

@@ -587,8 +587,8 @@
             }
             if (s.adv.event || s.adv.tower || s.adv.league) { this.stop('检测到其他活动，已暂停助手'); return; }
             if (!(s.team || []).length && this.settings.mode !== 'legend' && !this.settings.autoTeam) { this.stop('当前战斗已结束，冒险队伍为空，请先配置队伍'); return; }
-            if(this.settings.mode==='shiny'&&UNOVA_WILD_IDS.has(this.settings.shinyId)){
-                const marked=unovaAcquisitionSources(s,this.settings.shinyId,now).find(source=>source.marked);
+            if(this.settings.mode==='shiny'&&huntRegionMatches(s,this.settings,currentRegion(s))&&huntWeatherMatches(s,this.settings,s.adv.chapter,now)){
+                const marked=missingShinies(s,this.settings).filter(id=>UNOVA_WILD_IDS.has(id)).flatMap(id=>unovaAcquisitionSources(s,id,now)).find(source=>source.marked);
                 if(marked){
                     this.driver.pendingMap=null;
                     this.status=`刷闪 · ${marked.nodeName}已出现目标可能出没的现象，走完该节点`;
@@ -606,6 +606,13 @@
             }
             if (this.driver.pendingMap) {
                 const pending = this.driver.pendingMap;
+                const mode=this.settings.mode;
+                if(['dex','shiny'].includes(mode)&&!pending.options?.zone&&
+                    (huntRegions(this.settings).length||this.settings[mode+'Weather']?.length)&&
+                    (mode==='shiny'||dexStatus(s,this.settings).missing.length)&&!huntRouteMatches(s,this.settings,pending.row,now)){
+                    this.driver.pendingMap=null;this.target=null;this.visit=null;this.telemetry.sample=null;
+                    this.status='地图条件已变化，重新选择搜寻路线';return;
+                }
                 if(pending.options?.roamId&&!this.settings.roamAllowMasterBall&&(Number(s.items?.['master-ball'])||0)>0){
                     pending.started=now;this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球';return;
                 }
@@ -648,15 +655,16 @@
             }
             if (this.settings.mode === 'progress') { this.progress(s, now); return; }
             if(this.settings.mode==='shiny'){
+                const remaining=missingShinies(s,this.settings);
                 const rows=shinyRanking(s,this.settings,this.cooldowns,now),current=rows.find(row=>row.key===this.target?.key);
                 if(safeBoundary&&rows.length&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${MONS.get(this.settings.shinyId)?.name} · ${current.name}`;this.driver.nav('adventure');return;}
+                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;}
                 if(!safeBoundary){this.driver.nav('adventure');return;}if(!rows.length){
                     const eligible=shinyRanking(s,this.settings,{},now);
                     if(eligible.length){this.waitForFarm('刷闪地图暂时退避，等待后重试',now);return;}
-                    const window=nextWildWindow(s,this.settings,[this.settings.shinyId],now);
+                    const window=nextWildWindow(s,this.settings,remaining,now);
                     if(window){this.weatherWindow=window;this.waitForFarm(`等待野生出没时段 / 天气窗口 · ${window.row.name} · ${new Date(window.at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`,now);return;}
-                    const possible=hasWildSource(s,this.settings,this.settings.shinyId);
+                    const possible=remaining.some(id=>hasWildSource(s,this.settings,id));
                     if(possible){this.waitForFarm('已确认野生来源，等待天气、季节或出没时段；不会放弃任务',now);return;}
                     this.failTask('当前范围没有该物种的野生来源；请检查地区、时段和天气');return;
                 }this.travel(rows[0],now);return;
@@ -666,8 +674,9 @@
             if (this.settings.mode === 'dex') {
                 const status = dexStatus(s, this.settings);
                 if (!status.missing.length) {
-                    if (this.settings.afterDex === 'stop'||this.queueRunning) { this.completeTask('所选范围的基础形态已全部捕获'); return; }
-                    this.status = '所选范围进化链已完成，转为刷钱'; this.money(s, now); return;
+                    const done=this.settings.dexSpecies?.length?'指定物种已全部捕获':'所选范围的基础形态已全部捕获';
+                    if (this.settings.afterDex === 'stop'||this.queueRunning) { this.completeTask(done); return; }
+                    this.status = done+'，转为刷钱'; this.money(s, now); return;
                 }
                 const rows = dexRanking(s, this.settings, this.cooldowns, now);
                 const stillNeeded = rows.find(r => r.key === this.target?.key);
@@ -690,7 +699,11 @@
                     if(next.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     this.travel(next, now); return;
                 }
-                if (this.settings.legends && now >= this.nextLegend && this.findLegend(s, status, now)) return;
+                if (this.settings.legends && !this.settings.dexWeather?.length && now >= this.nextLegend && this.findLegend(s, status, now)) return;
+                if(this.settings.dexWeather?.length||this.settings.dexSpecies?.length||this.settings.dexRegions?.length){
+                    this.target=null;this.visit=null;this.telemetry.sample=null;
+                    this.waitForFarm('所选范围暂无可刷目标，等待天气、退避结束或开放来源；可在图鉴查看获取条件',now);return;
+                }
                 if (this.settings.progress && this.canProgress(s)) { this.progress(s, now); return; }
                 this.status = `还缺 ${status.missing.length} 条进化链；等待天气、特殊条件或解锁，暂刷钱`;
                 this.money(s, now); return;
@@ -920,7 +933,7 @@
         }
         findLegend(s, status, now) {
             const open=new Set(['kanto',...(s.travel?.to||[]),currentRegion(s)]);
-            const zones=DATA.zones.filter(z=>!z.eliteOnly&&status.ids.has(z.id)&&open.has(z.reg)&&(this.settings.region==='all'||z.reg===currentRegion(s))&&(this.cooldowns[`Z${z.id}`]||0)<=now);
+            const zones=DATA.zones.filter(z=>!z.eliteOnly&&status.ids.has(z.id)&&open.has(z.reg)&&huntRegionMatches(s,this.settings,z.reg)&&(this.cooldowns[`Z${z.id}`]||0)<=now);
             const signature=zones.map(z=>`${z.reg}:${z.id}`).join('|');
             const finish=()=>{this.legendProbe=null;this.nextLegend=now+10*60000;return false;};
             if(!zones.length)return finish();

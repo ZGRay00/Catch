@@ -1,5 +1,9 @@
     function ownedItems(s, id) { return (Number(s.items?.[id]) || 0) + (Number(s.link?.stash?.items?.[id]) || 0); }
     function itemCounter(s, id) { return s.stats?.itemIn && typeof s.stats.itemIn === 'object' ? Number(s.stats.itemIn[id]) || 0 : ownedItems(s, id); }
+    function purchasedQuantity(s, id, flow) {
+        // Older task checkpoints recorded the starting inventory counter.
+        return flow.resourcePurchased ?? Math.max(0, itemCounter(s,id) - (flow.resourceIn ?? itemCounter(s,id)));
+    }
     function ownsMon(s, id) {
         return [...s.mons || [], ...(s.pension?.mons || []).map(p => p.mon), ...s.link?.stash?.mons || [], ...(s.under?.slots || []).flatMap(slot => slot.mons || [])].some(mon => mon?.id === id);
     }
@@ -210,21 +214,20 @@
         let pool=(s.mons||[]).filter(m=>teamEligible(s,m,context.reg));
         if(context.kind==='under')pool=undergroundMembers(s);
         if(context.kind==='worldAttack')pool=pool.filter(m=>!s.wb?.used?.[m.uid]);
-        const now=Date.now(),future=pool.map(m=>{
-            const level=Math.max(m.level,Math.min(desired,trainingCap(s,m)));
-            return settings.autoEvolve===false?{...m,level}:projectEvolution(s,m,level,now);
-        }),futureByUid=new Map(future.map(m=>[m.uid,m]));
         const forecastIdentity=m=>DATA.combat.singles[m.id]||(context.speciesUnique?`sp:${m.id}`:`${m.id}:${+!!m.shiny}`);
         const ordinary=['map','progress'].includes(context.kind),configured=ordinary?[]:configuredBattleTeam(s,context);
         const choose=ordinary?settings.autoTeam:settings.optimizeRaid||['tower','worldAttack'].includes(context.kind);
-        const planning={reg:context.reg,pool:future,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true};
-        let selected,selection=null,ready=false;
+        const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true};
+        const actual=ordinary&&choose?planAdventureTeam({...s,mons:pool},settings,[],{...planning,pool}):null;
+        const ready=!!actual&&!context.forcePreparation&&!!preparationReadiness(s,settings,context,actual.uids)?.ready;
+        const now=Date.now(),future=ready?[]:pool.map(m=>trainingProjection(s,m,desired,settings,now));
+        const futureByUid=new Map(future.map(m=>[m.uid,m]));
+        let selected,selection=null;
         if(configured.length)selected=configured.slice(0,context.size||6);
         else if(choose){
             if(ordinary){
-                const actual=planAdventureTeam({...s,mons:pool},settings,[],{...planning,pool}),assessment=!context.forcePreparation?preparationReadiness(s,settings,context,actual.uids):null;
-                if(assessment?.ready){
-                    selected=actual.uids;ready=true;selection={quality:actual.score,score:actual.score,cost:0,xp:0,source:'current',ready:true};
+                if(ready){
+                    selected=actual.uids;selection={quality:actual.score,score:actual.score,cost:0,xp:0,source:'current',ready:true};
                 }else{
                     const training=preparationCosts(s,pool,desired),penalty=.16;
                     const projected=planAdventureTeam({...s,mons:future},settings,[],planning);
@@ -237,14 +240,16 @@
                         const quality=planAdventureTeam({...s,mons:future,team:uids},settings,uids,{...planning,pool:fixed}).score;
                         const burden=training.burden(uids),score=quality/(1+penalty*burden.cost);
                         const growing=uids.some(uid=>{const mon=available.get(uid);return mon&&mon.level<Math.min(desired,trainingCap(s,mon));});
-                        candidates.push({uids,growing,quality,score,...burden,source,ready:false});
+                        const lockedCount=fixed.filter(mon=>mon.evolutionItemLocked).length;
+                        candidates.push({uids,growing,quality,score,...burden,lockedCount,source,ready:false});
                     }
                     // A real defeat disproves the mature squad's zero-cost advantage.
                     // Prefer a trainable improvement over repeatedly retrying that same
                     // capped lineup, without inventing a project of equal or lower quality.
                     const current=candidates.find(candidate=>candidate.source==='current');
                     const recovery=context.forcePreparation&&current&&!current.growing?candidates.filter(candidate=>candidate.growing&&candidate.quality>current.quality*1.01+.002):[];
-                    for(const candidate of recovery.length?recovery:candidates)if(!selection||candidate.score>selection.score+1e-8){
+                    for(const candidate of recovery.length?recovery:candidates)if(!selection||candidate.score>selection.score+1e-8||
+                        Math.abs(candidate.quality-selection.quality)<1e-8&&Math.abs(candidate.cost-selection.cost)<1e-8&&candidate.lockedCount<selection.lockedCount){
                         const{uids,growing,...comparison}=candidate;selected=uids;selection={...comparison,recovery:recovery.length>0};
                     }
                 }

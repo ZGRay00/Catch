@@ -7,6 +7,19 @@ function state(missing){
     return {mons:[],team:[],dex,items:{},travel:{to:['johto','hoenn','sinnoh','unova']},pension:{eggs:[],open:{eggs:1}},
         adv:{chapter:74,unlocked:83,badges:['Maître Unys'],gifts:{},nodes:[],node:0}};
 }
+test('underground can register earlier fossils but requires the exact Unova family first',()=>{
+    const s=state(566),under=id=>H.acquisitionSources(s,id,noon).find(source=>source.kind==='underground');
+    assert.equal(under(138).available,false);
+    s.adv.badges.push('Forêt');delete s.dex[138];
+    assert.equal(under(138).available,true);
+    s.seen={566:true};
+    assert.equal(under(566).available,false);
+    assert.match(under(566).detail,/本进化链/);
+    s.dex[567]={caught:1};
+    assert.equal(under(566).available,true);
+    assert.match(H.acquisitionSources(s,566,noon).find(source=>source.kind==='trade').detail,/羽毛化石/);
+    assert.equal(under(567),undefined);
+});
 test('Alomomola is offered in ripple chapters; no common wild or gift outcome is implied',()=>{
     const s=state(594),sources=H.acquisitionSources(s,594,noon);
     assert.deepEqual([...new Set(sources.filter(row=>row.kind==='phenomenon').map(row=>row.chapter))],[74,83]);

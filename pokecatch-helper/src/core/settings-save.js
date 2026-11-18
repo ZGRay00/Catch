@@ -36,6 +36,7 @@
         trainUid: 'team', trainLevel: 100,
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
+        dexRegions:[],dexSpecies:[],dexWeather:[],shinyRegions:[],shinySpecies:[],shinyWeather:[],
         underRuns:1,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
@@ -57,6 +58,12 @@
         out.candyFloor=Math.floor(clamp(raw.candyFloor,0,999,DEFAULTS.candyFloor));out.candyRuns=Math.floor(clamp(raw.candyRuns,1,30,DEFAULTS.candyRuns));
         if(MONS.has(+raw.breedId))out.breedId=+raw.breedId;
         if(MONS.has(+raw.shinyId)&&!MONS.get(+raw.shinyId).legend)out.shinyId=+raw.shinyId;
+        for(const mode of ['dex','shiny']){
+            const clean=(suffix,convert,allow)=>[...new Set((Array.isArray(raw[mode+suffix])?raw[mode+suffix]:[]).map(convert).filter(allow))];
+            out[mode+'Regions']=clean('Regions',String,id=>DATA.regions.some(region=>region.key===id)).sort();
+            out[mode+'Weather']=clean('Weather',String,id=>id==='clear'||Object.hasOwn(WEATHER_DATA.types,id)).sort();
+            out[mode+'Species']=clean('Species',Number,id=>MONS.has(id)&&(mode==='dex'||WILD_SHINY_IDS.has(id)&&!MONS.get(id).legend)).sort((a,b)=>a-b);
+        }
         if(RESOURCE_IDS.has(raw.resourceItem))out.resourceItem=raw.resourceItem;
         if(typeof raw.useUid==='string'&&raw.useUid.length<120)out.useUid=raw.useUid;
         if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
@@ -96,4 +103,4 @@
         return state;
     }
     function accountId(s) { return String(s?.trainer?.id || s?.trainer?.tag || 'guest'); }
-    function shinyOwned(s,id){return !!s.dex?.[id]?.shiny||[...(s.mons||[]),...(s.pension?.mons||[]).map(x=>x.mon),...(s.under?.slots||[]).flatMap(x=>x.mons||[]),...(s.link?.stash?.mons||[])].some(m=>m?.id===id&&m.shiny);}
+    function shinyOwned(s,id){return !!s.dex?.[id]?.shiny||collectionMembers(s).some(m=>m.id===id&&m.shiny);}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      4.6.0
+// @version      4.7.0
 // @description  原生伤害智能配队、天气窗口收集、闪蛋计数与产蛋预测、后台孵蛋地下探险、配置备份与五源在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '4.6.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '4.7.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -443,6 +443,7 @@
         trainUid: 'team', trainLevel: 100,
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
+        dexRegions:[],dexSpecies:[],dexWeather:[],shinyRegions:[],shinySpecies:[],shinyWeather:[],
         underRuns:1,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
@@ -464,6 +465,12 @@
         out.candyFloor=Math.floor(clamp(raw.candyFloor,0,999,DEFAULTS.candyFloor));out.candyRuns=Math.floor(clamp(raw.candyRuns,1,30,DEFAULTS.candyRuns));
         if(MONS.has(+raw.breedId))out.breedId=+raw.breedId;
         if(MONS.has(+raw.shinyId)&&!MONS.get(+raw.shinyId).legend)out.shinyId=+raw.shinyId;
+        for(const mode of ['dex','shiny']){
+            const clean=(suffix,convert,allow)=>[...new Set((Array.isArray(raw[mode+suffix])?raw[mode+suffix]:[]).map(convert).filter(allow))];
+            out[mode+'Regions']=clean('Regions',String,id=>DATA.regions.some(region=>region.key===id)).sort();
+            out[mode+'Weather']=clean('Weather',String,id=>id==='clear'||Object.hasOwn(WEATHER_DATA.types,id)).sort();
+            out[mode+'Species']=clean('Species',Number,id=>MONS.has(id)&&(mode==='dex'||WILD_SHINY_IDS.has(id)&&!MONS.get(id).legend)).sort((a,b)=>a-b);
+        }
         if(RESOURCE_IDS.has(raw.resourceItem))out.resourceItem=raw.resourceItem;
         if(typeof raw.useUid==='string'&&raw.useUid.length<120)out.useUid=raw.useUid;
         if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
@@ -503,7 +510,7 @@
         return state;
     }
     function accountId(s) { return String(s?.trainer?.id || s?.trainer?.tag || 'guest'); }
-    function shinyOwned(s,id){return !!s.dex?.[id]?.shiny||[...(s.mons||[]),...(s.pension?.mons||[]).map(x=>x.mon),...(s.under?.slots||[]).flatMap(x=>x.mons||[]),...(s.link?.stash?.mons||[])].some(m=>m?.id===id&&m.shiny);}
+    function shinyOwned(s,id){return !!s.dex?.[id]?.shiny||collectionMembers(s).some(m=>m.id===id&&m.shiny);}
     function towerWeek(now=Date.now()){const date=new Date(now);return new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()-(date.getUTCDay()+6)%7)).toISOString().slice(0,10);}
     function nextParisReset(now=Date.now()){
         const day=parisDay(now);let low=now,high=now+27*3600000;
@@ -553,10 +560,10 @@
             if(Number.isFinite(e.startItems)&&itemCounter(s,cfg.itemId)-e.startItems>=cfg.itemQuantity)reason=`已获得目标道具 ${cfg.itemQuantity} 个`;
             break;
         case 'shiny':
-            if(shinyOwned(s,cfg.shinyId))reason='指定野生异色目标已捕获';
+            if(!missingShinies(s,cfg).length)reason='指定野生异色目标已捕获';
             break;
         case 'dex':
-            if((cfg.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,cfg).missing.length)reason='所选范围的基础形态已全部捕获';
+            if((cfg.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,cfg).missing.length)reason=cfg.dexSpecies?.length?'指定物种已全部捕获':'所选范围的基础形态已全部捕获';
             break;
         case 'progress':
             if(e.progressReached?.(s))reason='主线目标章节已完成';
@@ -675,7 +682,7 @@
         if(mode==='breed')return c.breedShiny?shinyOwned(s,c.breedId):(flow.hatched||0)>=c.breedGoal;
         if(mode==='underground')return(flow.underDone||0)>=c.underRuns;
         if(mode==='resource'){
-            const id=c.resourceItem,n=c.resourceAction==='buy'?Math.max(0,itemCounter(s,id)-(flow.resourceIn??itemCounter(s,id))):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));
+            const id=c.resourceItem,n=c.resourceAction==='buy'?purchasedQuantity(s,id,flow):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));
             return n>=c.resourceQuantity;
         }
         if(mode==='candy')return!s.candy?.run&&!s.adv.tower&&(flow.candyDone||0)>=c.candyRuns;
@@ -835,11 +842,14 @@
         return legacy[free.indexOf(index)]||null;
     }
     function shinyRanking(s,settings,cooldowns={},now=Date.now()){
-        const target=settings.shinyId;
-        const phenomena=unovaAcquisitionSources(s,target,now).filter(source=>source.kind==='phenomenon'&&source.available);
-        return candidates(s,settings).filter(row=>(cooldowns[row.key]||0)<=now).map(row=>{
-            const expected=row.members.reduce((n,id)=>n+(currentWildPool(s,id,now).get(target)||0),0)
-                +phenomena.filter(source=>row.members.includes(source.chapter)).reduce((n,source)=>n+source.weight,0);
+        const targets=missingShinies(s,settings);
+        const phenomena=targets.filter(id=>UNOVA_WILD_IDS.has(id)).flatMap(id=>unovaAcquisitionSources(s,id,now)).filter(source=>source.kind==='phenomenon'&&source.available);
+        return candidates(s,settings).filter(row=>(cooldowns[row.key]||0)<=now&&huntRouteMatches(s,settings,row,now)).map(row=>{
+            const members=row.members;
+            const expected=members.reduce((n,id)=>{
+                const pool=currentWildPool(s,id,now);
+                return n+targets.reduce((sum,target)=>sum+(pool.get(target)||0),0);
+            },0)+phenomena.filter(source=>members.includes(source.chapter)).reduce((n,source)=>n+source.weight,0);
             return{...row,expected,rate:expected/Math.max(20,row.units*2.8/2.5)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }
@@ -1419,6 +1429,24 @@
         }
         WILD_HABITATS.set(c.id,habitat);
     }
+    function huntRegions(settings){
+        return ['dex','shiny'].includes(settings.mode)?settings[settings.mode+'Regions']||[]:[];
+    }
+    function huntRegionMatches(s,settings,region){
+        const selected=huntRegions(settings);
+        return selected.length?selected.includes(region):settings.region==='all'||region===currentRegion(s);
+    }
+    function huntWeatherMatches(s,settings,chapter,now){
+        const selected=settings[settings.mode+'Weather'];
+        if(!selected?.length)return true;
+        const sky=chapterWeather(s,chapter,now);
+        return sky.known&&selected.includes(sky.key||'clear');
+    }
+    function shinyGoals(settings){return settings.shinySpecies?.length?settings.shinySpecies:[settings.shinyId];}
+    function missingShinies(s,settings){return shinyGoals(settings).filter(id=>!shinyOwned(s,id));}
+    function huntRouteMatches(s,settings,row,now){
+        return huntRegionMatches(s,settings,row.reg)&&(row.members||[row.id]).every(id=>huntWeatherMatches(s,settings,id,now));
+    }
     function hasWildSource(s,settings,id){
         const specialChapters=(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter);
         return candidates(s,settings).some(row=>row.members.some(ch=>WILD_HABITATS.get(ch)?.has(id)||specialChapters.includes(ch)));
@@ -1439,17 +1467,18 @@
         return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
     }
     function nextWildWindow(s,settings,ids,now=Date.now(),hours=48) {
-        const targets=ids instanceof Set?ids:new Set(ids),rows=candidates(s,settings),slot=WEATHER_DATA.slotMs;
-        const phenomenonIds=[...targets].filter(id=>UNOVA_WILD_IDS.has(id));
+        const targets=Array.from(new Set(ids)),rows=candidates(s,settings),slot=WEATHER_DATA.slotMs;
+        const phenomenonIds=targets.filter(id=>UNOVA_WILD_IDS.has(id));
         for(let n=1;n<=hours;n++){
             const at=Math.floor(now/slot)*slot+n*slot;
-            for(const row of rows)for(const chapter of row.members){
-                const pool=currentWildPool(s,chapter,at),id=[...targets].find(id=>(pool.get(id)||0)>0);
+            const matching=rows.filter(row=>huntRouteMatches(s,settings,row,at));
+            for(const row of matching)for(const chapter of row.members){
+                const pool=currentWildPool(s,chapter,at),id=targets.find(id=>(pool.get(id)||0)>0);
                 if(id)return{at,row,id,weather:chapterWeather(s,chapter,at).key};
             }
             for(const id of phenomenonIds){
                 for(const source of unovaAcquisitionSources(s,id,at,false)){
-                    const row=source.available&&rows.find(r=>r.members.includes(source.chapter));
+                    const row=source.available&&matching.find(r=>r.members.includes(source.chapter));
                     if(row)return{at,row,id,weather:chapterWeather(s,source.chapter,at).key};
                 }
             }
@@ -1479,12 +1508,13 @@
         const key=nodeWeather(s,chapter,node,now),night=phaseAt(s,now,chapter)==='night';
         return Object.fromEntries(Object.keys(DATA.types).map(type=>[type,(node?.weatherDamage?(node.weatherDamage[type]??1):(WEATHER_DATA.types[key]?.damage?.[type]??1))*(night?WEATHER_DATA.nightDamage[type]??1:1)]));
     }
-    function captured(s, id) {
+    function collectionMembers(s){
+        return [...(s.mons||[]),...(s.pension?.mons||[]).map(slot=>slot?.mon),
+            ...(s.link?.stash?.mons||[]),...(s.under?.slots||[]).flatMap(slot=>slot?.mons||[])].filter(Boolean);
+    }
+    function captured(s, id, ownedIds) {
         // Historical captures survive evolution, trading, daycare and release.
-        return Number(s.dex?.[id]?.caught) > 0 || (s.mons || []).some(m => m.id === id) ||
-            (s.pension?.mons || []).some(m => m.mon?.id === id) ||
-            (s.link?.stash?.mons || []).some(m => m.id === id) ||
-            (s.under?.slots || []).some(slot => (slot.mons || []).some(m => m.id === id));
+        return Number(s.dex?.[id]?.caught) > 0 || (ownedIds ? ownedIds.has(id) : collectionMembers(s).some(m=>m.id===id));
     }
     function regionOfMon(id) {
         const base=MONS.get(id)?.root||id;
@@ -1493,14 +1523,18 @@
     }
     function dexStatus(s, settings) {
         const open = new Set(['kanto', ...(s.travel?.to || []), currentRegion(s)]);
-        const roots = ROOTS.filter(m => settings.region === 'all' ? open.has(regionOfMon(m.id)) : regionOfMon(m.id) === currentRegion(s));
-        const missing = roots.filter(m => !captured(s, m.id));
+        const explicit=settings.mode==='dex'&&settings.dexSpecies?.length;
+        const regions=huntRegions(settings);
+        const roots = explicit?settings.dexSpecies.map(id=>MONS.get(id)).filter(Boolean):ROOTS.filter(m=>regions.length?regions.includes(regionOfMon(m.id)):
+            settings.region==='all'?open.has(regionOfMon(m.id)):regionOfMon(m.id)===currentRegion(s));
+        const ownedIds = new Set(collectionMembers(s).map(mon=>mon.id));
+        const missing = roots.filter(m => !captured(s, m.id, ownedIds));
         return { roots, missing, complete: roots.length - missing.length, ids: new Set(missing.map(m => m.id)) };
     }
     function availableChapters(s, settings, replay = false) {
         const open = new Set(['kanto', ...(s.travel?.to || [])]);
         const reg = currentRegion(s); open.add(reg);
-        return DATA.chapters.filter(c => open.has(c.reg) && (settings.region === 'all' || c.reg === reg) &&
+        return DATA.chapters.filter(c => open.has(c.reg) && huntRegionMatches(s,settings,c.reg) &&
             c.id <= s.adv.unlocked && (!replay || c.id < s.adv.unlocked || c.id === DATA.regions.find(r => r.key === c.reg)?.end));
     }
     function candidates(s, settings, replay = false) {
@@ -1563,6 +1597,49 @@
     }
     const EVOLUTION_DATA = {"build":"1a16948eef","checked":"2026-11-17","rules":{"1":[{"to":2,"level":16}],"2":[{"to":3,"level":32}],"4":[{"to":5,"level":16}],"5":[{"to":6,"level":36}],"7":[{"to":8,"level":16}],"8":[{"to":9,"level":36}],"10":[{"to":11,"level":7}],"11":[{"to":12,"level":10}],"13":[{"to":14,"level":7}],"14":[{"to":15,"level":10}],"16":[{"to":17,"level":18}],"17":[{"to":18,"level":36}],"19":[{"to":20,"level":20}],"21":[{"to":22,"level":20}],"23":[{"to":24,"level":22}],"25":[{"to":26,"item":"thunder-stone"}],"27":[{"to":28,"level":22}],"29":[{"to":30,"level":16}],"30":[{"to":31,"item":"moon-stone"}],"32":[{"to":33,"level":16}],"33":[{"to":34,"item":"moon-stone"}],"35":[{"to":36,"item":"moon-stone"}],"37":[{"to":38,"item":"fire-stone"}],"39":[{"to":40,"item":"moon-stone"}],"41":[{"to":42,"level":22}],"42":[{"to":169,"item":"soothe-bell"}],"43":[{"to":44,"level":21}],"44":[{"to":45,"item":"leaf-stone"},{"to":182,"item":"sun-stone"}],"46":[{"to":47,"level":24}],"48":[{"to":49,"level":31}],"50":[{"to":51,"level":26}],"52":[{"to":53,"level":28}],"54":[{"to":55,"level":33}],"56":[{"to":57,"level":28}],"58":[{"to":59,"item":"fire-stone"}],"60":[{"to":61,"level":25}],"61":[{"to":62,"item":"water-stone"},{"to":186,"item":"kings-rock"}],"63":[{"to":64,"level":16}],"64":[{"to":65,"item":"link-cable"}],"66":[{"to":67,"level":28}],"67":[{"to":68,"item":"link-cable"}],"69":[{"to":70,"level":21}],"70":[{"to":71,"item":"leaf-stone"}],"72":[{"to":73,"level":30}],"74":[{"to":75,"level":25}],"75":[{"to":76,"item":"link-cable"}],"77":[{"to":78,"level":40}],"79":[{"to":80,"level":37},{"to":199,"item":"kings-rock"}],"81":[{"to":82,"level":30}],"82":[{"to":462,"item":"thunder-stone"}],"84":[{"to":85,"level":31}],"86":[{"to":87,"level":34}],"88":[{"to":89,"level":38}],"90":[{"to":91,"item":"water-stone"}],"92":[{"to":93,"level":25}],"93":[{"to":94,"item":"link-cable"}],"95":[{"to":208,"item":"metal-coat"}],"96":[{"to":97,"level":26}],"98":[{"to":99,"level":28}],"100":[{"to":101,"level":30}],"102":[{"to":103,"item":"leaf-stone"}],"104":[{"to":105,"level":28}],"108":[{"to":463,"level":33}],"109":[{"to":110,"level":35}],"111":[{"to":112,"level":42}],"112":[{"to":464,"item":"protector"}],"113":[{"to":242,"item":"soothe-bell"}],"114":[{"to":465,"level":33}],"116":[{"to":117,"level":32}],"117":[{"to":230,"item":"dragon-scale"}],"118":[{"to":119,"level":33}],"120":[{"to":121,"item":"water-stone"}],"123":[{"to":212,"item":"metal-coat"}],"125":[{"to":466,"item":"electirizer"}],"126":[{"to":467,"item":"magmarizer"}],"129":[{"to":130,"level":20}],"133":[{"to":134,"item":"water-stone"},{"to":135,"item":"thunder-stone"},{"to":136,"item":"fire-stone"},{"to":196,"item":"soothe-bell"},{"to":197,"item":"soothe-bell"},{"to":470,"item":"leaf-stone"},{"to":471,"item":"ice-stone"}],"138":[{"to":139,"level":40}],"140":[{"to":141,"level":40}],"147":[{"to":148,"level":30}],"148":[{"to":149,"level":55}],"152":[{"to":153,"level":16}],"153":[{"to":154,"level":32}],"155":[{"to":156,"level":14}],"156":[{"to":157,"level":36}],"158":[{"to":159,"level":18}],"159":[{"to":160,"level":30}],"161":[{"to":162,"level":15}],"163":[{"to":164,"level":20}],"165":[{"to":166,"level":18}],"167":[{"to":168,"level":22}],"170":[{"to":171,"level":27}],"172":[{"to":25,"item":"soothe-bell"}],"173":[{"to":35,"item":"soothe-bell"}],"174":[{"to":39,"item":"soothe-bell"}],"175":[{"to":176,"item":"soothe-bell"}],"176":[{"to":468,"item":"shiny-stone"}],"177":[{"to":178,"level":25}],"179":[{"to":180,"level":15}],"180":[{"to":181,"level":30}],"183":[{"to":184,"level":18}],"187":[{"to":188,"level":18}],"188":[{"to":189,"level":27}],"190":[{"to":424,"level":32}],"191":[{"to":192,"item":"sun-stone"}],"193":[{"to":469,"level":33}],"194":[{"to":195,"level":20}],"198":[{"to":430,"item":"dusk-stone"}],"200":[{"to":429,"item":"dusk-stone"}],"204":[{"to":205,"level":31}],"207":[{"to":472,"item":"razor-fang"}],"209":[{"to":210,"level":23}],"215":[{"to":461,"item":"razor-claw"}],"216":[{"to":217,"level":30}],"218":[{"to":219,"level":38}],"220":[{"to":221,"level":33}],"221":[{"to":473,"level":40}],"223":[{"to":224,"level":25}],"228":[{"to":229,"level":24}],"231":[{"to":232,"level":25}],"236":[{"to":106,"level":20},{"to":107,"level":20},{"to":237,"level":20}],"238":[{"to":124,"level":30}],"239":[{"to":125,"level":30}],"240":[{"to":126,"level":30}],"246":[{"to":247,"level":30}],"247":[{"to":248,"level":55}],"252":[{"to":253,"level":16}],"253":[{"to":254,"level":36}],"255":[{"to":256,"level":16}],"256":[{"to":257,"level":36}],"258":[{"to":259,"level":16}],"259":[{"to":260,"level":36}],"261":[{"to":262,"level":18}],"263":[{"to":264,"level":20}],"265":[{"to":266,"level":7},{"to":268,"level":7}],"266":[{"to":267,"level":10}],"268":[{"to":269,"level":10}],"270":[{"to":271,"level":14}],"271":[{"to":272,"item":"water-stone"}],"273":[{"to":274,"level":14}],"274":[{"to":275,"item":"leaf-stone"}],"276":[{"to":277,"level":22}],"278":[{"to":279,"level":25}],"280":[{"to":281,"level":20}],"281":[{"to":282,"level":30},{"to":475,"item":"dawn-stone"}],"283":[{"to":284,"level":22}],"285":[{"to":286,"level":23}],"287":[{"to":288,"level":18}],"288":[{"to":289,"level":36}],"290":[{"to":291,"level":20},{"to":292,"item":"shed-shell"}],"293":[{"to":294,"level":20}],"294":[{"to":295,"level":40}],"296":[{"to":297,"level":24}],"298":[{"to":183,"item":"soothe-bell"}],"299":[{"to":476,"item":"thunder-stone"}],"300":[{"to":301,"item":"moon-stone"}],"304":[{"to":305,"level":32}],"305":[{"to":306,"level":42}],"307":[{"to":308,"level":37}],"309":[{"to":310,"level":26}],"315":[{"to":407,"item":"shiny-stone"}],"316":[{"to":317,"level":26}],"318":[{"to":319,"level":30}],"320":[{"to":321,"level":40}],"322":[{"to":323,"level":33}],"325":[{"to":326,"level":32}],"328":[{"to":329,"level":35}],"329":[{"to":330,"level":45}],"331":[{"to":332,"level":32}],"333":[{"to":334,"level":35}],"339":[{"to":340,"level":30}],"341":[{"to":342,"level":30}],"343":[{"to":344,"level":36}],"345":[{"to":346,"level":40}],"347":[{"to":348,"level":40}],"349":[{"to":350,"item":"prism-scale"}],"353":[{"to":354,"level":37}],"355":[{"to":356,"level":37}],"356":[{"to":477,"item":"reaper-cloth"}],"360":[{"to":202,"level":15}],"361":[{"to":362,"level":42},{"to":478,"item":"dawn-stone"}],"363":[{"to":364,"level":32}],"364":[{"to":365,"level":44}],"366":[{"to":367,"item":"deep-sea-tooth"},{"to":368,"item":"deep-sea-scale"}],"371":[{"to":372,"level":30}],"372":[{"to":373,"level":50}],"374":[{"to":375,"level":20}],"375":[{"to":376,"level":45}],"387":[{"to":388,"level":18}],"388":[{"to":389,"level":32}],"390":[{"to":391,"level":14}],"391":[{"to":392,"level":36}],"393":[{"to":394,"level":16}],"394":[{"to":395,"level":36}],"396":[{"to":397,"level":14}],"397":[{"to":398,"level":34}],"399":[{"to":400,"level":15}],"401":[{"to":402,"level":10}],"403":[{"to":404,"level":15}],"404":[{"to":405,"level":30}],"406":[{"to":315,"item":"soothe-bell"}],"408":[{"to":409,"level":30}],"410":[{"to":411,"level":30}],"412":[{"to":413,"level":20},{"to":414,"level":20}],"415":[{"to":416,"level":21}],"418":[{"to":419,"level":26}],"420":[{"to":421,"level":25}],"422":[{"to":423,"level":30}],"425":[{"to":426,"level":28}],"427":[{"to":428,"item":"soothe-bell"}],"431":[{"to":432,"level":38}],"433":[{"to":358,"item":"soothe-bell"}],"434":[{"to":435,"level":34}],"436":[{"to":437,"level":33}],"438":[{"to":185,"level":17}],"439":[{"to":122,"level":18}],"440":[{"to":113,"item":"oval-stone"}],"443":[{"to":444,"level":24}],"444":[{"to":445,"level":48}],"446":[{"to":143,"item":"soothe-bell"}],"447":[{"to":448,"item":"soothe-bell"}],"449":[{"to":450,"level":34}],"451":[{"to":452,"level":40}],"453":[{"to":454,"level":37}],"456":[{"to":457,"level":31}],"458":[{"to":226,"level":1,"party":223}],"459":[{"to":460,"level":40}],"495":[{"to":496,"level":17}],"496":[{"to":497,"level":36}],"498":[{"to":499,"level":17}],"499":[{"to":500,"level":36}],"501":[{"to":502,"level":17}],"502":[{"to":503,"level":36}],"504":[{"to":505,"level":20}],"506":[{"to":507,"level":16}],"507":[{"to":508,"level":32}],"509":[{"to":510,"level":20}],"511":[{"to":512,"item":"leaf-stone"}],"513":[{"to":514,"item":"fire-stone"}],"515":[{"to":516,"item":"water-stone"}],"517":[{"to":518,"item":"moon-stone"}],"519":[{"to":520,"level":21}],"520":[{"to":521,"level":32}],"522":[{"to":523,"level":27}],"524":[{"to":525,"level":25}],"525":[{"to":526,"item":"link-cable"}],"527":[{"to":528,"item":"soothe-bell"}],"529":[{"to":530,"level":31}],"532":[{"to":533,"level":25}],"533":[{"to":534,"item":"link-cable"}],"535":[{"to":536,"level":25}],"536":[{"to":537,"level":36}],"540":[{"to":541,"level":20}],"541":[{"to":542,"item":"soothe-bell"}],"543":[{"to":544,"level":22}],"544":[{"to":545,"level":30}],"546":[{"to":547,"item":"sun-stone"}],"548":[{"to":549,"item":"sun-stone"}],"551":[{"to":552,"level":29}],"552":[{"to":553,"level":40}],"554":[{"to":555,"level":35}],"557":[{"to":558,"level":34}],"559":[{"to":560,"level":39}],"562":[{"to":563,"level":34}],"564":[{"to":565,"level":37}],"566":[{"to":567,"level":37}],"568":[{"to":569,"level":36}],"570":[{"to":571,"level":30}],"572":[{"to":573,"item":"shiny-stone"}],"574":[{"to":575,"level":32}],"575":[{"to":576,"level":41}],"577":[{"to":578,"level":32}],"578":[{"to":579,"level":41}],"580":[{"to":581,"level":35}],"582":[{"to":583,"level":35}],"583":[{"to":584,"level":47}],"585":[{"to":586,"level":34}],"588":[{"to":589,"level":1,"party":616}],"590":[{"to":591,"level":39}],"592":[{"to":593,"level":40}],"595":[{"to":596,"level":36}],"597":[{"to":598,"level":40}],"599":[{"to":600,"level":38}],"600":[{"to":601,"level":49}],"602":[{"to":603,"level":39}],"603":[{"to":604,"item":"thunder-stone"}],"605":[{"to":606,"level":42}],"607":[{"to":608,"level":41}],"608":[{"to":609,"item":"dusk-stone"}],"610":[{"to":611,"level":38}],"611":[{"to":612,"level":48}],"613":[{"to":614,"level":37}],"616":[{"to":617,"level":1,"party":588}],"619":[{"to":620,"level":50}],"622":[{"to":623,"level":43}],"624":[{"to":625,"level":52}],"627":[{"to":628,"level":54}],"629":[{"to":630,"level":54}],"633":[{"to":634,"level":50}],"634":[{"to":635,"level":64}],"636":[{"to":637,"level":59}],"41201":[{"to":41301,"level":20},{"to":414,"level":20}],"41202":[{"to":41302,"level":20},{"to":414,"level":20}],"42201":[{"to":42301,"level":30}]},"time":{"113":"day","196":"day","197":"night","315":"day","358":"night","413":"day","414":"night","448":"day","461":"night","472":"night","41301":"day","41302":"day"}};
 
+    const EVOLUTION_ITEMS = new Set(Object.values(EVOLUTION_DATA.rules).flat().map(rule => rule.item).filter(Boolean));
+    const EVOLUTION_SHOP = new Map(DATA.automation.shop.filter(row => EVOLUTION_ITEMS.has(row.id)).map(row => [row.id, row]));
+
+    function evolutionShopLocked(s, row) {
+        if (row.once && !s.adv?.gifts?.[row.once]) return true;
+        if (!row.region) return false;
+        const region = DATA.regions.find(entry => entry.key === row.region);
+        return !(s.travel?.to || []).includes(row.region) || !(s.adv?.unlocked >= region?.start);
+    }
+
+    function lockedEvolutionItems(s) {
+        return [...EVOLUTION_SHOP.values()].filter(row => !(s.items?.[row.id] > 0) && evolutionShopLocked(s, row)).map(row => row.id);
+    }
+
+    function evolutionPurchaseReason(s, shop) {
+        if (!evolutionShopLocked(s,shop)) return shop.name + '已解锁购买，当前背包缺少' + shop.name;
+        const prefix = shop.name + '未解锁购买，';
+        if (shop.region) return prefix + '需先开放' + DATA.regions.find(region => region.key === shop.region).name;
+        const first = ITEMS.get(shop.id)?.sources?.find(source => source.once === shop.once);
+        const chapter = CHAPTERS.get(first?.ch);
+        return prefix + (chapter ? '可先到「' + chapter.name + '」取得' : '需先领取地下探险掉落');
+    }
+
+    function evolutionItemAccess(s, id) {
+        const shop = EVOLUTION_SHOP.get(id);
+        const name = shop?.name || ITEMS.get(id)?.name || ({'link-cable':'连接绳','shed-shell':'脱壳'})[id] || id;
+        if (id === 'link-cable') return {name, held:false, locked:false, reason:'须通过游戏内交换完成'};
+        if (s.items?.[id] > 0) return {name, held:true, locked:false, reason:'已持有' + name + '，可手动使用'};
+        if (!shop) return {name, held:false, locked:false, reason:'当前背包缺少' + name};
+        const locked = evolutionShopLocked(s, shop);
+        const reason = evolutionPurchaseReason(s, shop);
+        return {name, held:false, locked, reason};
+    }
+
+    function manualItemEvolution(s, rules) {
+        if (!rules.length || rules.some(rule => !rule.item)) return null;
+        const items = [...new Set(rules.map(rule => rule.item))].map(id => evolutionItemAccess(s, id));
+        const locked = items.every(item => item.locked);
+        const detail = items.length === 1 ? items[0].reason :
+            locked ? items.map(item => item.name).join('、') + '均未解锁购买' : '';
+        return {locked, detail};
+    }
+
     function evolutionStatus(s,mon,options={},requestedRule=null){
         const level=clamp(options.level??mon?.level,1,100,1),now=options.now??Date.now();
         const reject=reason=>({rule:null,reason,level});
@@ -1575,8 +1652,12 @@
             // Automated roles only consider an unambiguous free evolution. The dex
             // supplies a specific rule to check the player's manual options.
             const free=rules.filter(edge=>edge.level>0&&!edge.item);
-            if(new Set(rules.map(edge=>edge.to)).size>1)return reject('存在进化分支，保留手动选择');
-            if(!free.length)return reject(rules.some(edge=>edge.item)?'需要道具进化，保留手动操作':'当前形态没有免费等级进化');
+            const branched=new Set(rules.map(edge=>edge.to)).size>1;
+            if(branched||!free.length){
+                const item=manualItemEvolution(s,rules);
+                const reason=branched?'存在进化分支，保留手动选择':item?'需要道具进化，保留手动操作':'当前形态没有免费等级进化';
+                return {...reject(item?.detail?reason+' · '+item.detail:reason),itemLocked:item?.locked===true,itemDetail:item?.detail||''};
+            }
             if(free.length!==1)return reject('进化条件存在多个规则，等待手动核对');
             rule=free[0];
         }
@@ -1604,7 +1685,10 @@
         // Native family capacity can permit additional copies in some branches. Conservatively
         // leave those duplicates manual rather than claiming unavailable evolved battle power.
         if(owned.some(other=>other.uid!==mon.uid&&other.id===rule.to&&!!other.shiny===!!mon.shiny&&group(other)===group(mon)))return reject('同组已拥有相同进化目标，等待原生家族容量确认');
-        if(rule.item&&!(s.items?.[rule.item]>0))return reject('当前背包缺少'+(ITEMS.get(rule.item)?.name||rule.item));
+        if(rule.item){
+            const item=evolutionItemAccess(s,rule.item);
+            if(!item.held)return reject(item.reason);
+        }
         return{rule:{...rule,from:mon.id},reason:requestedRule?'已满足进化条件':'唯一免费等级进化已满足',level};
     }
     function levelEvolution(s,mon,options={}){
@@ -1617,8 +1701,9 @@
         const levels=mon.level+'/'+target.goal;
         const edges=EVOLUTION_DATA.rules[mon.id]||[];
         if(!edges.some(edge=>edge.level>0&&!edge.item&&mon.level>=edge.level)){
-            const future=engine.settings.autoEvolve&&edges.length?projectEvolution(s,mon,target.goal,now).id:mon.id;
-            return (future!==mon.id?label+' → '+MONS.get(future).name:label)+' '+levels;
+            const next=engine.settings.autoEvolve&&edges.length?projectEvolution(s,mon,target.goal,now):null;
+            const detail=next?.evolutionItemDetail||(!next&&evolutionStatus(s,mon,{now}).itemDetail);
+            return (next&&next.id!==mon.id?label+' → '+MONS.get(next.id).name:label)+' '+levels+(detail?'（'+detail+'）':'');
         }
         if(!engine.settings.autoEvolve)return label+' '+levels+'（自动进化已关闭）';
         const {rule,reason}=evolutionStatus(s,mon,{now});
@@ -1638,7 +1723,15 @@
             if(status.rule.party){status={rule:null,reason:'依赖队友形态，需逐次原生进化后重新核对'};break;}
             path.push({from:projected.id,to:status.rule.to,level:status.rule.level});projected.id=status.rule.to;
         }
-        return{...projected,evolutionPath:path,evolutionBlockedReason:status?.rule?'进化链数据循环':status?.reason||''};
+        return{...projected,evolutionPath:path,evolutionBlockedReason:status?.rule?'进化链数据循环':status?.reason||'',
+            evolutionItemLocked:status?.itemLocked===true,evolutionItemDetail:status?.itemDetail||''};
+    }
+
+    function trainingProjection(s, mon, desired, settings, now) {
+        const level = Math.max(mon.level, Math.min(desired, trainingCap(s,mon)));
+        if (settings.autoEvolve !== false) return projectEvolution(s,mon,level,now);
+        const itemLocked = !(mon.rank > 0) && manualItemEvolution(s, EVOLUTION_DATA.rules[mon.id] || [])?.locked === true;
+        return {...mon, level, evolutionItemLocked:itemLocked};
     }
 
     function candyContext(s,type,floor=50){
@@ -1946,7 +2039,10 @@
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
         const chosen = [], used = new Set();
         const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
-        const prefer=(a,b)=>(partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
+        // Only training projections carry this flag. Resolve equal combat scores
+        // before falling back to the existing party order and stable UID.
+        const prefer=(a,b)=>Number(!!a.evolutionItemLocked)-Number(!!b.evolutionItemLocked)||
+            (partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
         for (const uid of pinned) { const mon=pool.find(m=>m.uid===uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
         while (chosen.length < size) {
             let best = null, score = -Infinity;
@@ -1963,7 +2059,11 @@
             for(let slot=0;slot<chosen.length;slot++){
                 if(protectedUids.has(chosen[slot].uid))continue;
                 const rest=chosen.filter((_,i)=>i!==slot),taken=new Set(rest.map(identity));let best=chosen[slot],score=utility(chosen);
-                for(const mon of pool){if(taken.has(identity(mon)))continue;const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));if(value>score+1e-8){best=mon;score=value;}}
+                for(const mon of pool){
+                    if(taken.has(identity(mon)))continue;
+                    const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
+                    if(value>score+1e-8||Math.abs(value-score)<1e-8&&best.evolutionItemLocked&&!mon.evolutionItemLocked){best=mon;score=value;}
+                }
                 if(best.uid!==chosen[slot].uid){chosen[slot]=best;improved=true;}
             }
             if(!improved)break;
@@ -1994,6 +2094,10 @@
     }
     function ownedItems(s, id) { return (Number(s.items?.[id]) || 0) + (Number(s.link?.stash?.items?.[id]) || 0); }
     function itemCounter(s, id) { return s.stats?.itemIn && typeof s.stats.itemIn === 'object' ? Number(s.stats.itemIn[id]) || 0 : ownedItems(s, id); }
+    function purchasedQuantity(s, id, flow) {
+        // Older task checkpoints recorded the starting inventory counter.
+        return flow.resourcePurchased ?? Math.max(0, itemCounter(s,id) - (flow.resourceIn ?? itemCounter(s,id)));
+    }
     function ownsMon(s, id) {
         return [...s.mons || [], ...(s.pension?.mons || []).map(p => p.mon), ...s.link?.stash?.mons || [], ...(s.under?.slots || []).flatMap(slot => slot.mons || [])].some(mon => mon?.id === id);
     }
@@ -2204,21 +2308,20 @@
         let pool=(s.mons||[]).filter(m=>teamEligible(s,m,context.reg));
         if(context.kind==='under')pool=undergroundMembers(s);
         if(context.kind==='worldAttack')pool=pool.filter(m=>!s.wb?.used?.[m.uid]);
-        const now=Date.now(),future=pool.map(m=>{
-            const level=Math.max(m.level,Math.min(desired,trainingCap(s,m)));
-            return settings.autoEvolve===false?{...m,level}:projectEvolution(s,m,level,now);
-        }),futureByUid=new Map(future.map(m=>[m.uid,m]));
         const forecastIdentity=m=>DATA.combat.singles[m.id]||(context.speciesUnique?`sp:${m.id}`:`${m.id}:${+!!m.shiny}`);
         const ordinary=['map','progress'].includes(context.kind),configured=ordinary?[]:configuredBattleTeam(s,context);
         const choose=ordinary?settings.autoTeam:settings.optimizeRaid||['tower','worldAttack'].includes(context.kind);
-        const planning={reg:context.reg,pool:future,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true};
-        let selected,selection=null,ready=false;
+        const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true};
+        const actual=ordinary&&choose?planAdventureTeam({...s,mons:pool},settings,[],{...planning,pool}):null;
+        const ready=!!actual&&!context.forcePreparation&&!!preparationReadiness(s,settings,context,actual.uids)?.ready;
+        const now=Date.now(),future=ready?[]:pool.map(m=>trainingProjection(s,m,desired,settings,now));
+        const futureByUid=new Map(future.map(m=>[m.uid,m]));
+        let selected,selection=null;
         if(configured.length)selected=configured.slice(0,context.size||6);
         else if(choose){
             if(ordinary){
-                const actual=planAdventureTeam({...s,mons:pool},settings,[],{...planning,pool}),assessment=!context.forcePreparation?preparationReadiness(s,settings,context,actual.uids):null;
-                if(assessment?.ready){
-                    selected=actual.uids;ready=true;selection={quality:actual.score,score:actual.score,cost:0,xp:0,source:'current',ready:true};
+                if(ready){
+                    selected=actual.uids;selection={quality:actual.score,score:actual.score,cost:0,xp:0,source:'current',ready:true};
                 }else{
                     const training=preparationCosts(s,pool,desired),penalty=.16;
                     const projected=planAdventureTeam({...s,mons:future},settings,[],planning);
@@ -2231,14 +2334,16 @@
                         const quality=planAdventureTeam({...s,mons:future,team:uids},settings,uids,{...planning,pool:fixed}).score;
                         const burden=training.burden(uids),score=quality/(1+penalty*burden.cost);
                         const growing=uids.some(uid=>{const mon=available.get(uid);return mon&&mon.level<Math.min(desired,trainingCap(s,mon));});
-                        candidates.push({uids,growing,quality,score,...burden,source,ready:false});
+                        const lockedCount=fixed.filter(mon=>mon.evolutionItemLocked).length;
+                        candidates.push({uids,growing,quality,score,...burden,lockedCount,source,ready:false});
                     }
                     // A real defeat disproves the mature squad's zero-cost advantage.
                     // Prefer a trainable improvement over repeatedly retrying that same
                     // capped lineup, without inventing a project of equal or lower quality.
                     const current=candidates.find(candidate=>candidate.source==='current');
                     const recovery=context.forcePreparation&&current&&!current.growing?candidates.filter(candidate=>candidate.growing&&candidate.quality>current.quality*1.01+.002):[];
-                    for(const candidate of recovery.length?recovery:candidates)if(!selection||candidate.score>selection.score+1e-8){
+                    for(const candidate of recovery.length?recovery:candidates)if(!selection||candidate.score>selection.score+1e-8||
+                        Math.abs(candidate.quality-selection.quality)<1e-8&&Math.abs(candidate.cost-selection.cost)<1e-8&&candidate.lockedCount<selection.lockedCount){
                         const{uids,growing,...comparison}=candidate;selected=uids;selection={...comparison,recovery:recovery.length>0};
                     }
                 }
@@ -2423,6 +2528,9 @@
     function specialAvailable(s,special,now=Date.now(),chapter=s?.adv?.chapter){
         return !specialBlockReason(s,special,now,chapter);
     }
+    const FOSSIL_NAMES = {'old-amber':'秘密琥珀','helix-fossil':'贝壳化石','dome-fossil':'甲壳化石',
+        'root-fossil':'根状化石','claw-fossil':'爪子化石','skull-fossil':'头盖化石','armor-fossil':'盾甲化石',
+        'cover-fossil':'背盖化石','plume-fossil':'羽毛化石'};
     function acquisitionSources(s,id,now=Date.now()){
         if(!s?.adv||!MONS.has(id))return [];
         const result=[],unlocked=new Set(availableChapters(s,{region:'all'}).map(c=>c.id));
@@ -2454,8 +2562,17 @@
             for(const special of c.special){
                 const offer=special.offers?.find(([,species])=>species===id);
                 if(offer){
-                    const item=ITEMS.get(offer[0])?.name||offer[0];
+                    const item=FOSSIL_NAMES[offer[0]]||ITEMS.get(offer[0])?.name||offer[0];
                     add('trade','使用'+item+'复原化石',s.items?.[offer[0]]>0?'':'当前背包缺少'+item);
+                    if(Object.hasOwn(FOSSIL_NAMES,offer[0])){
+                        const region=DATA.regions.find(region=>region.key===c.reg);
+                        const open=(c.reg==='kanto'||s.travel?.to?.includes(c.reg))&&s.adv.unlocked>=region.start;
+                        const registered=c.reg!=='unova'||DATA.mons.some(mon=>mon.root===id&&s.dex?.[mon.id]);
+                        const gate=!s.adv.badges?.includes('Forêt')?'需要神奥森林徽章':
+                            !open?'需先开放'+region.name:!registered?'合众化石需先登记本进化链的任一形态，可与其他玩家交换':'';
+                        result.push({kind:'underground',chapter:null,place:'地下通道',available:!gate,
+                            detail:[gate,'从第 75 层起随机获得，返程领取时直接取得宝可梦'].filter(Boolean).join(' · ')});
+                    }
                 }
                 if(![].concat(special.id||[]).includes(id))continue;
                 const block=specialBlockReason(s,special,now,c.id);
@@ -2475,7 +2592,7 @@
             for(const rule of rules.filter(edge=>edge.to===id)){
                 const species=Number(from),members=(s.mons||[]).filter(mon=>mon.id===species).sort((a,b)=>(a.rank||0)-(b.rank||0)||b.level-a.level);
                 const checks=members.map(mon=>evolutionStatus(s,mon,{now},rule)),available=checks.some(check=>check.rule);
-                let detail=rule.item==='link-cable'?'交换进化':(rule.level?'Lv.'+rule.level:ITEMS.get(rule.item)?.name||rule.item)+' 进化';
+                let detail=rule.item==='link-cable'?'交换进化':(rule.level?'Lv.'+rule.level:evolutionItemAccess(s,rule.item).name)+' 进化';
                 const time=EVOLUTION_DATA.time[id];
                 if(time)detail+=' · '+(time==='night'?'夜间':'白天');
                 if(rule.party)detail+=' · 同行队友需要'+(MONS.get(rule.party)?.name||rule.party);
@@ -2502,6 +2619,7 @@
         return result.sort((a,b)=>Number(b.available)-Number(a.available));
     }
     function markedDexSource(s,settings,now){
+        if(!huntRegionMatches(s,settings,currentRegion(s))||!huntWeatherMatches(s,settings,s.adv.chapter,now))return null;
         if(currentRegion(s)!=='unova'||!s.adv.nodes?.length)return null;
         const nodes=s.adv.nodes.slice(s.adv.node||0);
         let missing;
@@ -2528,7 +2646,7 @@
                 specialByChapter.get(source.chapter).push(source);
             }
         }
-        return candidates(s, settings).map(row => {
+        return candidates(s, settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row => {
             const hits = new Map(); let score = 0,marked=false,hasWild=false;
             for (const id of row.members) {
                 const c = CHAPTERS.get(id);
@@ -3130,7 +3248,7 @@
         get buffRetry(){return this.state.buffRetry||={};}
         set buffRetry(value){this.state.buffRetry=value||{};}
         constructor(engine){this.e=engine;this.state={};this.owner=null;this.lastService=0;}
-        begin(s){this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
+        begin(s){this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
         wait(text,at){this.e.status=text;this.e.lastProgress=Date.now();this.e.nextWake=at||null;}
         fail(text){this.e.failTask(text);}
         done(text){this.e.completeTask(text);}
@@ -3218,7 +3336,7 @@
                 if(!e.settings.autoEvolve||['breed','resource'].includes(e.settings.mode)||this.state.evolutionRetryAt>now)return false;
                 const cfg=e.settings;
                 if(cfg.mode==='progress'&&e.progressReached(s)||cfg.mode==='money'&&cfg.moneyTarget&&s.money>=cfg.moneyTarget||
-                    cfg.mode==='item'&&itemCounter(s,cfg.itemId)-e.startItems>=cfg.itemQuantity||cfg.mode==='shiny'&&shinyOwned(s,cfg.shinyId)||
+                    cfg.mode==='item'&&itemCounter(s,cfg.itemId)-e.startItems>=cfg.itemQuantity||cfg.mode==='shiny'&&!missingShinies(s,cfg).length||
                     cfg.mode==='dex'&&(cfg.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,cfg).missing.length)return false;
                 if(cfg.mode==='train'){const status=trainingStatus(s,cfg,e.trainProtected);if(status.complete||status.capped||status.missing)return false;}
                 if(s.adv.paused||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||
@@ -3236,7 +3354,7 @@
                 const specialSelection=FLOW_MODES.has(cfg.mode)||cfg.mode==='legend'||!['map','progress'].includes(context.kind);
                 const manualSelection=specialSelection?!cfg.optimizeRaid:!cfg.autoTeam;
                 if(!choice&&!manualSelection){
-                    const projected=pool.map(mon=>projectEvolution(s,mon,mon.level,now)),key=JSON.stringify([rosterFingerprint(s),s.team,context.key,s.adv.unlocked,s.adv.badges,phaseAt(s,now)]);
+                    const projected=pool.map(mon=>projectEvolution(s,mon,mon.level,now)),key=JSON.stringify([rosterFingerprint(s),s.team,context.key,s.adv.unlocked,s.adv.badges,phaseAt(s,now),lockedEvolutionItems(s)]);
                     if(this.evolutionChoiceCache?.key!==key){const plan=planAdventureTeam({...s,mons:projected},e.settings,[],{...context,reg,pool:projected,force:true});this.evolutionChoiceCache={key,uids:plan.uids};}
                     choice=ready.find(entry=>this.evolutionChoiceCache.uids.includes(entry.mon.uid));
                 }
@@ -3824,7 +3942,7 @@
         }
         resource(s,now){
             if(this.resourcePending(s,now))return;
-            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0),bought=itemCounter(s,id)-(this.state.resourceIn||0);
+            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0),bought=purchasedQuantity(s,id,this.state);
             if(cfg.resourceAction==='buy'&&bought>=cfg.resourceQuantity){this.done('道具采购目标已完成');return;}
             if(cfg.resourceAction!=='buy'&&used>=cfg.resourceQuantity){
                 const close=$('#modal-root.open .mon-modal .dc-x');if(enabled(close)){this.e.driver.click(close,'关闭已完成的道具使用面板');this.owner=null;return;}
@@ -3847,7 +3965,10 @@
             const section=$('#shop-grid [data-sh-sec="shop"]:not(.active)');if(enabled(section)){d.click(section,'打开金币商店');return;}
             const buyTab=$('#shop-grid [data-sh-mode="buy"]:not(.on)');if(enabled(buyTab)){d.click(buyTab,'切换购买');return;}
             const item=$$('#shop-grid .sh-item[data-id]').find(el=>el.dataset.id===id);
-            if(!item||item.classList.contains('locked')){this.fail('目标道具未在当前金币商店解锁');return;}
+            if(!item||item.classList.contains('locked')){
+                const row=EVOLUTION_SHOP.get(id);
+                this.fail(row&&evolutionShopLocked(s,row)?evolutionPurchaseReason(s,row):'目标道具未在当前金币商店解锁');return;
+            }
             const one=item.querySelector('[data-n="1"]');if(enabled(one)&&!one.classList.contains('on')){d.click(one,'将购买数量限制为一份');return;}
             const buy=item.querySelector('.buy'),cost=parsePrice(item.querySelector('.total')?.textContent||buy?.textContent);
             if(visible(buy)&&buy.disabled){this.fail('当前金币不足或该商品暂不可购买');return;}
@@ -3856,8 +3977,19 @@
         resourcePending(s,now=Date.now()){
             const tx=this.state.resourceTx;if(!tx)return false;
             const stock=Number(s.items?.[tx.id])||0,out=Number(s.stats?.itemOut?.[tx.id])||0;
-            const confirmed=tx.kind==='buy'?itemCounter(s,tx.id)>tx.in||stock>tx.stock:out>tx.out||stock<tx.stock;
-            if(confirmed){delete this.state.resourceTx;return false;}
+            const received=itemCounter(s,tx.id)>tx.in||stock>tx.stock;
+            // Old pending orders lack a debit snapshot. New ones prefer the native
+            // spending ledger, which remains reliable while adventure awards money.
+            const paid=tx.cost==null||(s.stats?.spent
+                ? (Number(s.stats.spent[tx.category])||0)-tx.spendBefore>=tx.cost
+                : tx.walletBefore-s.money>=tx.cost);
+            const confirmed=tx.kind==='buy'?received&&paid:out>tx.out||stock<tx.stock;
+            if(confirmed){
+                if(tx.kind==='buy'&&this.state.resourcePurchased!=null)this.state.resourcePurchased++;
+                delete this.state.resourceTx;
+                this.e.persist();
+                return false;
+            }
             if(now-tx.at<10000)this.wait(tx.kind==='buy'?'等待目标道具购买到账确认':'等待目标道具使用确认');
             else this.fail(tx.kind==='buy'?'目标道具购买未确认，已暂停以避免重复采购':'目标道具使用未确认，已暂停以避免重复消耗');
             return true;
@@ -3868,6 +4000,11 @@
             // Persist the pending action with its budget reservation before the native click.
             // A stale or failed game save must never authorize a second purchase or serving.
             this.state.resourceTx={kind,id,stock:Number(s.items?.[id])||0,in:itemCounter(s,id),out:Number(s.stats?.itemOut?.[id])||0,at:Date.now()};
+            if(kind==='buy'){
+                this.state.resourcePurchased=purchasedQuantity(s,id,this.state);
+                const category=id.startsWith('exp-candy-')?'candy':'shop';
+                Object.assign(this.state.resourceTx,{category,cost,spendBefore:Number(s.stats?.spent?.[category])||0,walletBefore:s.money});
+            }
             const clicked=this.spentClick(button,s,cost,uses,label);if(!clicked)delete this.state.resourceTx;return clicked;
         }
         useFromCard(s,card){
@@ -4002,7 +4139,7 @@
             }
             const recovering=ordinary&&(!!failedTrial||this.combat.failedAt>0&&now-this.combat.failedAt<10*60000);
             const fingerprint=JSON.stringify([context.key,e.settings.mode,e.settings.autoTeam,e.settings.autoEvolve,e.settings.optimizeRaid,e.settings.prepareMargin,e.settings.prepareGap,s.adv.unlocked,s.team,s.link?.side,s.autoSwitch!==false,
-                rosterFingerprint(s),configuredBattleTeam(s,context),context.kind==='tower'?towerParty(s,{snapshot:!!towerProgress(s,now).run,now}).map(mon=>[mon.src,mon.id,mon.level]):null,context.kind==='under'?s.under?.used:context.kind==='worldAttack'?s.wb?.used:null,deaths,recovering]);
+                rosterFingerprint(s),lockedEvolutionItems(s),configuredBattleTeam(s,context),context.kind==='tower'?towerParty(s,{snapshot:!!towerProgress(s,now).run,now}).map(mon=>[mon.src,mon.id,mon.level]):null,context.kind==='under'?s.under?.used:context.kind==='worldAttack'?s.wb?.used:null,deaths,recovering]);
             if(this.checked===fingerprint)return false;
             let plan;
             if(this.planReview?.profile===fingerprint&&now-this.planReview.at<30000)plan=this.planReview.plan;
@@ -4173,7 +4310,7 @@
             if(p.resumeReady&&readyRosterValid&&(!readyApplied||roadPending))return false;
             if(s.adv.battle||s.adv.pending||roadPending||e.driver.teamTask||e.driver.ownedDialog||p.candyTx||e.automation?.owner||e.automation?.buddyTask||e.automation?.buffUI||e.automation?.state?.resourceTx||e.automation?.state?.autoBuffTx||e.automation?.state?.resourceBuffTx)return false;
             const context=rebuildPreparationContext(s,p.context);if(!context?.foes?.length)return false;
-            const profile=JSON.stringify([context.key,e.settings.autoEvolve,s.adv.unlocked,s.autoSwitch!==false,s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),rosterFingerprint(s)]),last=this.preparationReview;
+            const profile=JSON.stringify([context.key,e.settings.autoEvolve,s.adv.unlocked,s.autoSwitch!==false,s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),rosterFingerprint(s),lockedEvolutionItems(s)]),last=this.preparationReview;
             if(last?.preparation===p&&last.profile===profile&&now-last.at<30000)return false;
             this.preparationReview={preparation:p,profile,at:now};
             const applied=p.uids.length===s.team.length&&p.uids.every((uid,i)=>s.team[i]===uid),assessment=preparationReadiness(s,e.settings,context,s.team),grew=this.trialGrew(s,p);
@@ -4186,17 +4323,18 @@
             const targetKey=targets=>JSON.stringify(targets.map(t=>[t.uid,t.goal]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
             if(!plan.uids.length){if(p.resumeReady){e.failTask('准备上阵的队伍已不可用，当前地区没有可替换成员');return true;}p.selection=plan.selection;return false;}
             if(targetKey(plan.targets)===targetKey(p.targets)&&plan.uids.length===p.uids.length&&plan.uids.every((uid,i)=>p.uids[i]===uid)){p.selection=plan.selection;return false;}
-            const pool=(s.mons||[]).filter(mon=>teamEligible(s,mon,context.reg)),desired=Math.min(100,context.level+e.settings.prepareMargin),future=pool.map(mon=>{
-                const level=Math.max(mon.level,Math.min(desired,trainingCap(s,mon)));
-                return e.settings.autoEvolve===false?{...mon,level}:projectEvolution(s,mon,level,now);
-            }),oldIds=new Set(p.uids);
+            const pool=(s.mons||[]).filter(mon=>teamEligible(s,mon,context.reg)),desired=Math.min(100,context.level+e.settings.prepareMargin);
+            const future=pool.map(mon=>trainingProjection(s,mon,desired,e.settings,now)),oldIds=new Set(p.uids);
             const previous=planAdventureTeam({...s,mons:future,team:p.uids},e.settings,p.uids,{reg:context.reg,pool:future.filter(mon=>oldIds.has(mon.uid)),foes:context.foes,size:context.size,force:true});
             const burden=preparationCosts(s,pool,desired).burden(p.uids),oldScore=previous.score/(1+.16*burden.cost),next=plan.selection;
-            const worthwhile=next?.ready||!p.targets.length||next&&(next.score>oldScore*1.08+.005&&next.quality>=previous.score*.9||next.cost<burden.cost*.75&&next.quality>=previous.score*.97);
+            const oldLocked=future.filter(mon=>previous.uids.includes(mon.uid)&&mon.evolutionItemLocked).length;
+            const equalCostAndQuality=next&&Math.abs(next.quality-previous.score)<1e-8&&Math.abs(next.cost-burden.cost)<1e-8;
+            const worthwhile=next?.ready||!p.targets.length||next&&(next.score>oldScore*1.08+.005&&next.quality>=previous.score*.9||next.cost<burden.cost*.75&&next.quality>=previous.score*.97||
+                equalCostAndQuality&&next.lockedCount<oldLocked);
             if(!worthwhile)return false;
             p.targets=plan.targets;p.uids=plan.uids;p.selection=next;p.capLimited=plan.capLimited;p.lastGrowth=now;p.growth=null;p.routeCheck=0;p.routeProfile=null;
             p.resumeReady=!plan.needed&&!plan.targets.length;this.teamReview=null;e.telemetry.sample=null;this.preparationReview=null;
-            this.setPhase(p,'team',now);e.log(next?.ready?'发现无需额外补练的现成队伍，准备上阵后继续原任务':'补练计划重评：改用培养负担更低的队伍，保留原任务与预算');return true;
+            this.setPhase(p,'team',now);e.log(next?.ready?'发现无需额外补练的现成队伍，准备上阵后继续原任务':equalCostAndQuality?'补练队伍同分，优先选择进化道具已解锁或无需道具的成员':'补练计划重评：改用培养负担更低的队伍，保留原任务与预算');return true;
         }
         reviewDifficulty(s,p,now){
             const profile=trainingRouteFingerprint(s,p.uids),limit=p.routeLimit;
@@ -4939,8 +5077,8 @@
             }
             if (s.adv.event || s.adv.tower || s.adv.league) { this.stop('检测到其他活动，已暂停助手'); return; }
             if (!(s.team || []).length && this.settings.mode !== 'legend' && !this.settings.autoTeam) { this.stop('当前战斗已结束，冒险队伍为空，请先配置队伍'); return; }
-            if(this.settings.mode==='shiny'&&UNOVA_WILD_IDS.has(this.settings.shinyId)){
-                const marked=unovaAcquisitionSources(s,this.settings.shinyId,now).find(source=>source.marked);
+            if(this.settings.mode==='shiny'&&huntRegionMatches(s,this.settings,currentRegion(s))&&huntWeatherMatches(s,this.settings,s.adv.chapter,now)){
+                const marked=missingShinies(s,this.settings).filter(id=>UNOVA_WILD_IDS.has(id)).flatMap(id=>unovaAcquisitionSources(s,id,now)).find(source=>source.marked);
                 if(marked){
                     this.driver.pendingMap=null;
                     this.status=`刷闪 · ${marked.nodeName}已出现目标可能出没的现象，走完该节点`;
@@ -4958,6 +5096,13 @@
             }
             if (this.driver.pendingMap) {
                 const pending = this.driver.pendingMap;
+                const mode=this.settings.mode;
+                if(['dex','shiny'].includes(mode)&&!pending.options?.zone&&
+                    (huntRegions(this.settings).length||this.settings[mode+'Weather']?.length)&&
+                    (mode==='shiny'||dexStatus(s,this.settings).missing.length)&&!huntRouteMatches(s,this.settings,pending.row,now)){
+                    this.driver.pendingMap=null;this.target=null;this.visit=null;this.telemetry.sample=null;
+                    this.status='地图条件已变化，重新选择搜寻路线';return;
+                }
                 if(pending.options?.roamId&&!this.settings.roamAllowMasterBall&&(Number(s.items?.['master-ball'])||0)>0){
                     pending.started=now;this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球';return;
                 }
@@ -5000,15 +5145,16 @@
             }
             if (this.settings.mode === 'progress') { this.progress(s, now); return; }
             if(this.settings.mode==='shiny'){
+                const remaining=missingShinies(s,this.settings);
                 const rows=shinyRanking(s,this.settings,this.cooldowns,now),current=rows.find(row=>row.key===this.target?.key);
                 if(safeBoundary&&rows.length&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${MONS.get(this.settings.shinyId)?.name} · ${current.name}`;this.driver.nav('adventure');return;}
+                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;}
                 if(!safeBoundary){this.driver.nav('adventure');return;}if(!rows.length){
                     const eligible=shinyRanking(s,this.settings,{},now);
                     if(eligible.length){this.waitForFarm('刷闪地图暂时退避，等待后重试',now);return;}
-                    const window=nextWildWindow(s,this.settings,[this.settings.shinyId],now);
+                    const window=nextWildWindow(s,this.settings,remaining,now);
                     if(window){this.weatherWindow=window;this.waitForFarm(`等待野生出没时段 / 天气窗口 · ${window.row.name} · ${new Date(window.at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}`,now);return;}
-                    const possible=hasWildSource(s,this.settings,this.settings.shinyId);
+                    const possible=remaining.some(id=>hasWildSource(s,this.settings,id));
                     if(possible){this.waitForFarm('已确认野生来源，等待天气、季节或出没时段；不会放弃任务',now);return;}
                     this.failTask('当前范围没有该物种的野生来源；请检查地区、时段和天气');return;
                 }this.travel(rows[0],now);return;
@@ -5018,8 +5164,9 @@
             if (this.settings.mode === 'dex') {
                 const status = dexStatus(s, this.settings);
                 if (!status.missing.length) {
-                    if (this.settings.afterDex === 'stop'||this.queueRunning) { this.completeTask('所选范围的基础形态已全部捕获'); return; }
-                    this.status = '所选范围进化链已完成，转为刷钱'; this.money(s, now); return;
+                    const done=this.settings.dexSpecies?.length?'指定物种已全部捕获':'所选范围的基础形态已全部捕获';
+                    if (this.settings.afterDex === 'stop'||this.queueRunning) { this.completeTask(done); return; }
+                    this.status = done+'，转为刷钱'; this.money(s, now); return;
                 }
                 const rows = dexRanking(s, this.settings, this.cooldowns, now);
                 const stillNeeded = rows.find(r => r.key === this.target?.key);
@@ -5042,7 +5189,11 @@
                     if(next.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     this.travel(next, now); return;
                 }
-                if (this.settings.legends && now >= this.nextLegend && this.findLegend(s, status, now)) return;
+                if (this.settings.legends && !this.settings.dexWeather?.length && now >= this.nextLegend && this.findLegend(s, status, now)) return;
+                if(this.settings.dexWeather?.length||this.settings.dexSpecies?.length||this.settings.dexRegions?.length){
+                    this.target=null;this.visit=null;this.telemetry.sample=null;
+                    this.waitForFarm('所选范围暂无可刷目标，等待天气、退避结束或开放来源；可在图鉴查看获取条件',now);return;
+                }
                 if (this.settings.progress && this.canProgress(s)) { this.progress(s, now); return; }
                 this.status = `还缺 ${status.missing.length} 条进化链；等待天气、特殊条件或解锁，暂刷钱`;
                 this.money(s, now); return;
@@ -5272,7 +5423,7 @@
         }
         findLegend(s, status, now) {
             const open=new Set(['kanto',...(s.travel?.to||[]),currentRegion(s)]);
-            const zones=DATA.zones.filter(z=>!z.eliteOnly&&status.ids.has(z.id)&&open.has(z.reg)&&(this.settings.region==='all'||z.reg===currentRegion(s))&&(this.cooldowns[`Z${z.id}`]||0)<=now);
+            const zones=DATA.zones.filter(z=>!z.eliteOnly&&status.ids.has(z.id)&&open.has(z.reg)&&huntRegionMatches(s,this.settings,z.reg)&&(this.cooldowns[`Z${z.id}`]||0)<=now);
             const signature=zones.map(z=>`${z.reg}:${z.id}`).join('|');
             const finish=()=>{this.legendProbe=null;this.nextLegend=now+10*60000;return false;};
             if(!zones.length)return finish();
@@ -5394,7 +5545,7 @@
         const panel=root.querySelector('#dex-panel');
         panel.innerHTML='<div class="field"><label for="dex-search">查询获取方式</label><input id="dex-search" type="search" placeholder="名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>缺失列表</button></div><div class="list" id="dex-results"></div>';
         const input=panel.querySelector('#dex-search'),results=panel.querySelector('#dex-results'),clear=panel.querySelector('#dex-clear');
-        const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换',evolution:'进化',legend:'传说战',roam:'游荡'};
+        const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
         let signature=null;
         function search(value){
             input.value=value;
@@ -5442,8 +5593,8 @@
                     return[mon.id,tag];
                 });
                 if(!changed(['missing',rows]))return;
-                if(!rows.length){results.append(label('p','所选范围的基础形态已全部捕获。'));return;}
-                results.append(label('div','所选范围缺少 '+rows.length+' 条进化链','hint'));
+                if(!rows.length){results.append(label('p','所选收集目标已全部捕获。'));return;}
+                results.append(label('div','所选范围缺少 '+rows.length+(settings.mode==='dex'&&settings.dexSpecies?.length?' 种目标宝可梦':' 条进化链'),'hint'));
                 const wrap=label('div','','missing');
                 for(const [id,tag] of rows){const mon=MONS.get(id);wrap.append(speciesButton(mon,'#'+id+' '+mon.name+' · '+tag));}
                 results.append(wrap);return;
@@ -5495,7 +5646,7 @@
             const activeSpecies=focused?.dataset.lookup,scroll=view.scrollTop;
             routeView=label('div','','dex-routes');
             if(!rows.length){
-                const message=status.missing.length?'当前范围与条件下暂无可规划的地图。可在图鉴查看缺失物种的获取条件。':'所选范围的基础形态已全部捕获。';
+                const message=status.missing.length?'当前范围与条件下暂无可规划的地图。可在图鉴查看缺失物种的获取条件。':'所选收集目标已全部捕获。';
                 routeView.append(label('p',message,'empty'));
             }
             for(const [index,row] of rows.entries()){
@@ -5658,7 +5809,16 @@
                 <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div></div>
                 <div data-fields="train" class="hidden"><div class="field"><span>练级对象</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div></div>
                 <div data-fields="progress" class="hidden"><div class="field"><span>完成章节</span><select data-setting="progressUntil" aria-label="主线目标章节"></select></div><label class="setting"><span><input type="checkbox" data-setting="autoTravel">达到条件后自动跨地区开局</span></label></div>
-                <div data-fields="shiny" class="hidden"><div class="field"><span>野生目标</span><select data-setting="shinyId" aria-label="野生异色目标"></select></div></div>
+                <fieldset id="hunt-filters" style="min-width:0;margin:8px 0;padding:9px;border:1px solid #40516a;border-radius:8px">
+                    <legend>搜寻条件</legend>
+                    <details><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
+                    <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
+                    <details><summary id="hunt-species-summary"></summary>
+                        <input id="hunt-search" type="search" aria-label="搜索目标物种" placeholder="中文名、英文名或编号">
+                        <div class="field"><select id="hunt-picker" aria-label="可添加的物种"></select><button type="button" id="hunt-add">添加</button></div>
+                        <div id="hunt-selected" class="missing" aria-label="已选物种"></div>
+                    </details><div id="hunt-help" class="hint"></div>
+                </fieldset>
                 <div data-fields="breed" class="hidden"><div class="field"><span>孵化目标</span><select data-setting="breedId" aria-label="繁殖物种"></select></div><div class="field"><span>孵化数量</span><input data-setting="breedGoal" type="number" min="1" max="9999"></div><label class="setting"><span><input type="checkbox" data-setting="breedShiny">孵到目标异色为止</span></label><label class="setting"><span><input type="checkbox" data-setting="pensionExpand">预算内购买繁殖必需的寄养位</span></label></div>
                 <div data-fields="underground" class="hidden"><div class="field"><span>领取次数</span><input data-setting="underRuns" type="number" min="1" max="999"></div><div class="field"><span>起始楼层</span><input data-setting="underFrom" type="number" min="1" max="300"></div><label class="setting"><span><input type="checkbox" data-setting="underOpenGeodes">领取完后开启背包中的晶洞</span></label></div>
                 <div data-fields="tower" class="hidden"><div class="field"><span>目标楼层</span><input data-setting="towerFloor" type="number" min="1" max="999"></div><div class="field"><span>尝试上限</span><input data-setting="towerRuns" type="number" min="1" max="100"></div></div>
@@ -5805,8 +5965,55 @@
         }
         function addOption(select,value,label){const el=document.createElement('option');el.value=String(value);el.textContent=label;select.appendChild(el);}
         for(const group of ROAMING_DATA.groups){const options=document.createElement('optgroup');options.label=DATA.regions.find(region=>region.key===group.reg)?.name||group.reg;for(const id of group.ids)addOption(options,id,`#${id} ${MONS.get(id)?.name||id}`);query('[data-setting="roamId"]').appendChild(options);}
-        for(const mon of DATA.mons){
-            if(!mon.legend&&WILD_SHINY_IDS.has(mon.id))addOption(query('[data-setting="shinyId"]'),mon.id,`#${mon.id} ${mon.name}`);
+        const skies={clear:'晴朗',rain:'下雨',storm:'雷暴',sun:'大晴天',sand:'沙暴',snow:'下雪',ash:'火山灰',fog:'浓雾',blizzard:'暴风雪',breeze:'微风',gale:'强风'};
+        function huntChecks(container,suffix,entries){
+            for(const [value,name] of entries){
+                const label=document.createElement('label'),box=document.createElement('input');
+                box.type='checkbox';box.value=value;box.dataset.hunt=suffix;
+                box.onchange=()=>{
+                    const key=engine.settings.mode+suffix,selected=new Set(engine.settings[key]);
+                    if(box.checked)selected.add(value);else selected.delete(value);
+                    changeSetting(key,[...selected]);
+                };
+                label.append(box,name);query(container).append(label);
+            }
+        }
+        huntChecks('#hunt-regions','Regions',DATA.regions.map(r=>[r.key,r.name]));
+        huntChecks('#hunt-weather','Weather',Object.entries(skies));
+        function selectedSpecies(cfg){return cfg.mode==='shiny'?shinyGoals(cfg):cfg.dexSpecies;}
+        function filterSpecies(){
+            const cfg=engine.settings,term=query('#hunt-search').value.trim().toLowerCase().replace(/^#/,'');
+            const picker=query('#hunt-picker'),selected=new Set(selectedSpecies(cfg));
+            picker.replaceChildren();
+            for(const mon of DATA.mons){
+                if(selected.has(mon.id)||cfg.mode==='shiny'&&(!WILD_SHINY_IDS.has(mon.id)||mon.legend))continue;
+                if(term&&!mon.name.includes(term)&&!mon.key?.includes(term)&&!String(mon.id).startsWith(term))continue;
+                addOption(picker,mon.id,'#'+mon.id+' '+mon.name);
+            }
+            query('#hunt-add').disabled=!picker.value;
+        }
+        query('#hunt-search').oninput=filterSpecies;
+        query('#hunt-add').onclick=()=>{
+            const cfg=engine.settings,id=Number(query('#hunt-picker').value);
+            if(id)changeSetting(cfg.mode+'Species',[...selectedSpecies(cfg),id]);
+        };
+        function syncHunt(){
+            const cfg=engine.settings,mode=cfg.mode,field=query('#hunt-filters');
+            field.hidden=!['dex','shiny'].includes(mode);if(field.hidden)return;
+            const regions=cfg[mode+'Regions'],weather=cfg[mode+'Weather'],species=selectedSpecies(cfg);
+            query('#hunt-region-summary').textContent='搜寻地区 · '+(regions.map(id=>DATA.regions.find(r=>r.key===id).name).join('、')||'沿用规划范围');
+            query('#hunt-weather-summary').textContent='地图天气 · '+(weather.map(key=>skies[key]).join('、')||'不限');
+            query('#hunt-species-summary').textContent='目标物种 · '+(species.length===1?MONS.get(species[0]).name:species.length?species.length+' 种':'全部缺失进化链');
+            query('#hunt-help').textContent=mode==='dex'?'指定物种按该形态的捕获记录完成；留空按基础形态补齐进化链。':'每捕获一种目标异色，助手就继续寻找剩余目标。';
+            for(const box of field.querySelectorAll('[data-hunt]'))box.checked=cfg[mode+box.dataset.hunt].includes(box.value);
+            const wrap=query('#hunt-selected');wrap.replaceChildren();
+            for(const id of species){
+                const button=document.createElement('button');button.type='button';button.className='chip';
+                button.textContent=MONS.get(id).name+' ×';button.setAttribute('aria-label','移除'+MONS.get(id).name);
+                button.disabled=mode==='shiny'&&species.length===1;
+                button.onclick=()=>changeSetting(mode+'Species',species.filter(value=>value!==id));wrap.append(button);
+            }
+            filterSpecies();
         }
         let eggRegionKey = '';
         function updateBreedingOptions(s) {
@@ -5843,6 +6050,7 @@
         }
         function showCategory(value){category=value;root.querySelectorAll('[data-category]').forEach(el=>el.classList.toggle('on',el.dataset.category===value));root.querySelectorAll('[data-group]').forEach(el=>el.classList.toggle('hidden',el.dataset.group!==value));}
         function syncSettings() {
+            syncHunt();
             settingsViewKey=JSON.stringify(engine.settings);
             for (const input of root.querySelectorAll('[data-setting]')) {
                 const value = engine.settings[input.dataset.setting];
@@ -5852,7 +6060,7 @@
             root.querySelectorAll('[data-mode]').forEach(button => { const on = button.dataset.mode === engine.settings.mode; button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); });
             if(lastMode!==engine.settings.mode){lastMode=engine.settings.mode;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
             root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode));
-            query('#scope-field').classList.toggle('hidden', ['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
+            query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
             query('[data-setting="autoTeam"]').closest('label').classList.remove('hidden');
             query('[data-setting="raids"]').closest('label').classList.toggle('hidden',independent);
@@ -5896,6 +6104,7 @@
             query('#reset').disabled = locked; query('#restore').disabled = locked || !engine.oldLoops;
             query('#import-profile').disabled=locked||!engine.account;
             root.querySelectorAll('[data-setting], [data-mode], #item-search').forEach(input => input.disabled = locked);
+            query('#hunt-filters').disabled=locked;
             if(wait?.reason==='ready'&&engine.running&&!pageHidden()&&!engine.timer)engine.schedule(50);
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;
@@ -5932,8 +6141,12 @@
             const seconds = engine.started ? Math.max(0, Math.floor(((engine.running ? Date.now() : engine.stoppedAt || Date.now()) - engine.started) / 1000)) : 0;
             query('#time-value').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
             const shinyRoutes=mode==='shiny'?shinyRanking(s,settings,engine.cooldowns,now):null;
-            let primary = `${status.complete}/${status.roots.length}`, primaryLabel = '进化链完成', goalLabel = '基础形态收集', goalValue = `${status.missing.length} 条待完成`, percent = status.complete / Math.max(1,status.roots.length) * 100;
+            let primary = `${status.complete}/${status.roots.length}`, primaryLabel = settings.dexSpecies?.length&&mode==='dex'?'目标已捕获':'进化链完成', goalLabel = settings.dexSpecies?.length&&mode==='dex'?'指定物种收集':'基础形态收集', goalValue = `${status.missing.length} 条待完成`, percent = status.complete / Math.max(1,status.roots.length) * 100;
             let hint = mode === 'money' ? '按整轮金币净增实测排名，轮换采样后优先高收益地图；未测地图显示估算。' : mode === 'progress' ? '关闭章节循环，自动适配队伍并推进至目标章节；开启跨地区开局后会按游戏规则分开管理新地区的钱包和队伍。' : '基础形态曾捕获即完成整条进化链；幼年形态不另设目标。';
+            if (mode === 'dex' && settings.dexSpecies?.length) {
+                goalValue = `${status.missing.length} 只待捕获`;
+                hint = '按所选物种各自的捕获记录计数。助手会在符合地区和地图天气的路线中寻找剩余目标。';
+            }
             if (mode === 'legend') {
                 const p = legendProgress(s, settings);
                 primary = settings.legendTier ? `${p.tier}/${settings.legendTier}` : p.done ? '已完成' : '待捕获'; primaryLabel = settings.legendTier ? '精英阶级' : '普通捕获'; goalLabel = p.zone.monName || p.zone.name; goalValue = settings.legendTier ? `推进至 ${settings.legendTier} 阶` : '全部轮换形态'; percent = p.done ? 100 : settings.legendTier ? p.tier / settings.legendTier * 100 : 0;
@@ -5952,14 +6165,14 @@
                 primary = gained.toLocaleString(); primaryLabel = settings.trainUid==='team'?'本次全队 EXP':'练级对象 EXP'; goalLabel = `目标 Lv.${settings.trainLevel} · 上限 ${p.cap || '—'}`; goalValue = `${p.targets.filter(m=>m.level>=settings.trainLevel).length}/${p.targets.length} 达标`; percent = p.targets.length ? p.targets.reduce((n,m)=>n+Math.min(1,m.level/settings.trainLevel),0)/p.targets.length*100 : 0;
                 hint = p.missing ? '所选目标不在当前冒险队伍中，请重新选择。' : `当前 ${p.targets.map(m=>`${MONS.get(m.id)?.name || m.id} Lv.${m.level}`).join('、')}。按全队经验/分钟选图，达到目标或当前等级上限时停止；不使用糖果。`;
             } else if (mode === 'money') { goalLabel = '金币目标'; goalValue = settings.moneyTarget ? `${s.money.toLocaleString()} / ${settings.moneyTarget.toLocaleString()}` : '持续刷钱'; percent = settings.moneyTarget ? s.money/settings.moneyTarget*100 : 0; }
-            else if(mode==='shiny'){const done=shinyOwned(s,settings.shinyId);primary=done?'已捕获':'寻找中';primaryLabel='目标异色';goalLabel=MONS.get(settings.shinyId)?.name;goalValue=`${shinyRoutes.length} 张可刷地图`;percent=done?100:0;hint='按当前野生遭遇表、轮换与特殊现象选图。运行实况显示各地图每轮预计遇到目标物种的次数，捕获目标异色后完成。';}
+            else if(mode==='shiny'){const goals=shinyGoals(settings),left=missingShinies(s,settings).length;primary=(goals.length-left)+'/'+goals.length;primaryLabel='目标异色';goalLabel=goals.slice(0,3).map(id=>MONS.get(id).name).join('、')+(goals.length>3?' 等':'');goalValue=`${shinyRoutes.length} 张可刷地图`;percent=(goals.length-left)/goals.length*100;hint='按当前野生遭遇表、轮换与特殊现象选图。运行实况显示各地图每轮预计遇到目标物种的次数，捕获目标异色后完成。';}
             else if(mode==='breed'){const flow=engine.automation.state,plan=pensionPlan(s,settings.breedId);primary=`${flow.hatched||0}/${settings.breedShiny?'✦':settings.breedGoal}`;primaryLabel='目标孵化';goalLabel=MONS.get(settings.breedId)?.name;goalValue=`寄养 ${s.pension?.mons?.length||0} · 蛋 ${s.pension?.eggs?.length||0}`;percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;hint=(plan.missing?plan.missing+'。':'优先异色亲本，配置百变怪和对应亲本。')+'游戏自动产蛋并放入孵化器；成熟后点击孵化，重复个体仍计入本次目标。蛋成熟后自动孵化，异色可能需要多轮。';}
             else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint='优先领取已归队成员与奖励，存档确认后才计数；按实际槽位的三人队伍补练和派遣，达到次数或槽位限制后等待返回/巴黎次日。不购买次数、槽位或起始楼层。';}
             else if(mode==='tower'){const p=towerProgress(s,now),reached=Math.max(p.best,p.cleared);primary=`${reached}/${settings.towerFloor}`;primaryLabel='本周已过楼层';goalLabel='已结束尝试';goalValue=`${engine.automation.state.towerWeek===p.week?engine.automation.state.towerAttempts||0:0}/${settings.towerRuns}`;percent=reached/settings.towerFloor*100;hint='按原生收藏排序、同种族限制和休息等级核对实际前六名，只为真正会上场的成员补练。暂停场次继续，不计失败；周记录与尝试次数按 UTC 周一重置，奖励结算后再结束任务。';}
             else if(mode==='candy'){const run=s.candy?.run,flow=engine.automation.state,cleared=Math.max(0,run?run.floor-1:flow.candyResult?.floor||0);primary=settings.candyFloor?`${cleared}/${Math.ceil(settings.candyFloor/5)*5}`:String(cleared);primaryLabel='本场已过楼层';goalLabel=`完成场次 ${flow.candyDone||0}/${settings.candyRuns}`;goalValue=run?`今日${DATA.types[run.type]?.fr||run.type}主题 · 已获糖果保留`:'每日一次 · 巴黎时间刷新';percent=(flow.candyDone||0)/settings.candyRuns*100;hint='按今日主题、实际招式与耐久配置六人专属队伍；需要时先补练再入场，入场后保留克隆阵容。目标层向上取整至五层营地，0 表示尽力挑战；不购买跳层，失败仍按真实结算计一局。25枚神奇糖果日上限后仍可获得经验糖果。';}
             else if(mode==='elite'){const reg=settings.eliteRegion==='current'?currentRegion(s):settings.eliteRegion,best=s.eliteLeague?.[reg]?.t||0;primary=`${best}/${settings.eliteTier}`;primaryLabel='精英联盟阶级';goalLabel=DATA.regions.find(r=>r.key===reg)?.name;goalValue='逐阶挑战并领取宝石';percent=best/settings.eliteTier*100;hint='按全联盟配置专属队伍，只挑战未完成的下一阶；通关后选择第一种可领取宝石。原生条件不足时等待，不重复领取已完成阶级。';}
             else if(mode==='world'){primary=`${engine.automation.state.worldDone||0}/${settings.worldActions}`;primaryLabel='本次首领攻击';goalLabel='世界首领';goalValue=settings.worldCapture?'攻击 → 等待 → 捕获':'攻击目标完成即结束';percent=(engine.automation.state.worldDone||0)/settings.worldActions*100;hint='使用原生推荐的可攻击成员，每日次数和登录条件由服务器校验。捕获阶段可能需要等待；没有开放时不会反复提交攻击。';}
-            else if(mode==='resource'){const flow=engine.automation.state,id=settings.resourceItem,n=settings.resourceAction==='buy'?Math.max(0,itemCounter(s,id)-(flow.resourceIn??itemCounter(s,id))):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));primary=`${n}/${settings.resourceQuantity}`;primaryLabel=settings.resourceAction==='buy'?'采购份数':'使用份数';goalLabel=ITEMS.get(id)?.name||id;goalValue=`背包 ${s.items?.[id]||0}`;percent=n/settings.resourceQuantity*100;hint='每次只购买或使用一份，逐次核对价格、到账和预算。只购买支持当前金币商店的道具；树果用于全局增益，糖果或进化道具用于所选成员。';}
+            else if(mode==='resource'){const flow=engine.automation.state,id=settings.resourceItem,n=settings.resourceAction==='buy'?purchasedQuantity(s,id,flow):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));primary=`${n}/${settings.resourceQuantity}`;primaryLabel=settings.resourceAction==='buy'?'采购份数':'使用份数';goalLabel=ITEMS.get(id)?.name||id;goalValue=`背包 ${s.items?.[id]||0}`;percent=n/settings.resourceQuantity*100;hint='每次只购买或使用一份，逐次核对价格、到账和预算。只购买支持当前金币商店的道具；树果用于全局增益，糖果或进化道具用于所选成员。';}
             else if(mode==='progress'){primary=`${Math.min(settings.progressUntil,s.adv.unlocked)}/${settings.progressUntil}`;primaryLabel='主线章节';goalLabel=CHAPTERS.get(settings.progressUntil)?.name;goalValue=`当前 ${CHAPTERS.get(s.adv.chapter)?.name||s.adv.chapter}`;percent=s.adv.unlocked/Math.max(1,settings.progressUntil)*100;}
             query('#dex-value').textContent = primary; query('#primary-label').textContent = primaryLabel; query('#target-hint').textContent = hint;
             query('#goal-label').textContent = goalLabel; query('#goal-value').textContent = goalValue;
@@ -6065,8 +6278,8 @@
         document.addEventListener('visibilitychange',()=>{if(!pageHidden()){render();place();}});
         query('#fold').onclick=()=>fold(true);
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
-        function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,shiny:MONS.get(cfg.shinyId)?.name,breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
-        function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid','shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil'].map(key=>cfg[key]));}
+        function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
+        function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid','shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil','region',...(['dex','shiny'].includes(cfg.mode)?['Species','Weather','Regions'].map(suffix=>cfg.mode+suffix):[])].map(key=>cfg[key]));}
         query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
         query('#start-queue').onclick=()=>{engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start();engine.sessionItemId=engine.settings.itemId;syncSettings();render();};

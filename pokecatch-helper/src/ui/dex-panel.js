@@ -2,7 +2,7 @@
         const panel=root.querySelector('#dex-panel');
         panel.innerHTML='<div class="field"><label for="dex-search">查询获取方式</label><input id="dex-search" type="search" placeholder="名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>缺失列表</button></div><div class="list" id="dex-results"></div>';
         const input=panel.querySelector('#dex-search'),results=panel.querySelector('#dex-results'),clear=panel.querySelector('#dex-clear');
-        const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换',evolution:'进化',legend:'传说战',roam:'游荡'};
+        const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
         let signature=null;
         function search(value){
             input.value=value;
@@ -50,8 +50,8 @@
                     return[mon.id,tag];
                 });
                 if(!changed(['missing',rows]))return;
-                if(!rows.length){results.append(label('p','所选范围的基础形态已全部捕获。'));return;}
-                results.append(label('div','所选范围缺少 '+rows.length+' 条进化链','hint'));
+                if(!rows.length){results.append(label('p','所选收集目标已全部捕获。'));return;}
+                results.append(label('div','所选范围缺少 '+rows.length+(settings.mode==='dex'&&settings.dexSpecies?.length?' 种目标宝可梦':' 条进化链'),'hint'));
                 const wrap=label('div','','missing');
                 for(const [id,tag] of rows){const mon=MONS.get(id);wrap.append(speciesButton(mon,'#'+id+' '+mon.name+' · '+tag));}
                 results.append(wrap);return;
@@ -103,7 +103,7 @@
             const activeSpecies=focused?.dataset.lookup,scroll=view.scrollTop;
             routeView=label('div','','dex-routes');
             if(!rows.length){
-                const message=status.missing.length?'当前范围与条件下暂无可规划的地图。可在图鉴查看缺失物种的获取条件。':'所选范围的基础形态已全部捕获。';
+                const message=status.missing.length?'当前范围与条件下暂无可规划的地图。可在图鉴查看缺失物种的获取条件。':'所选收集目标已全部捕获。';
                 routeView.append(label('p',message,'empty'));
             }
             for(const [index,row] of rows.entries()){

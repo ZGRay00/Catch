@@ -1,3 +1,46 @@
+    const EVOLUTION_ITEMS = new Set(Object.values(EVOLUTION_DATA.rules).flat().map(rule => rule.item).filter(Boolean));
+    const EVOLUTION_SHOP = new Map(DATA.automation.shop.filter(row => EVOLUTION_ITEMS.has(row.id)).map(row => [row.id, row]));
+
+    function evolutionShopLocked(s, row) {
+        if (row.once && !s.adv?.gifts?.[row.once]) return true;
+        if (!row.region) return false;
+        const region = DATA.regions.find(entry => entry.key === row.region);
+        return !(s.travel?.to || []).includes(row.region) || !(s.adv?.unlocked >= region?.start);
+    }
+
+    function lockedEvolutionItems(s) {
+        return [...EVOLUTION_SHOP.values()].filter(row => !(s.items?.[row.id] > 0) && evolutionShopLocked(s, row)).map(row => row.id);
+    }
+
+    function evolutionPurchaseReason(s, shop) {
+        if (!evolutionShopLocked(s,shop)) return shop.name + '已解锁购买，当前背包缺少' + shop.name;
+        const prefix = shop.name + '未解锁购买，';
+        if (shop.region) return prefix + '需先开放' + DATA.regions.find(region => region.key === shop.region).name;
+        const first = ITEMS.get(shop.id)?.sources?.find(source => source.once === shop.once);
+        const chapter = CHAPTERS.get(first?.ch);
+        return prefix + (chapter ? '可先到「' + chapter.name + '」取得' : '需先领取地下探险掉落');
+    }
+
+    function evolutionItemAccess(s, id) {
+        const shop = EVOLUTION_SHOP.get(id);
+        const name = shop?.name || ITEMS.get(id)?.name || ({'link-cable':'连接绳','shed-shell':'脱壳'})[id] || id;
+        if (id === 'link-cable') return {name, held:false, locked:false, reason:'须通过游戏内交换完成'};
+        if (s.items?.[id] > 0) return {name, held:true, locked:false, reason:'已持有' + name + '，可手动使用'};
+        if (!shop) return {name, held:false, locked:false, reason:'当前背包缺少' + name};
+        const locked = evolutionShopLocked(s, shop);
+        const reason = evolutionPurchaseReason(s, shop);
+        return {name, held:false, locked, reason};
+    }
+
+    function manualItemEvolution(s, rules) {
+        if (!rules.length || rules.some(rule => !rule.item)) return null;
+        const items = [...new Set(rules.map(rule => rule.item))].map(id => evolutionItemAccess(s, id));
+        const locked = items.every(item => item.locked);
+        const detail = items.length === 1 ? items[0].reason :
+            locked ? items.map(item => item.name).join('、') + '均未解锁购买' : '';
+        return {locked, detail};
+    }
+
     function evolutionStatus(s,mon,options={},requestedRule=null){
         const level=clamp(options.level??mon?.level,1,100,1),now=options.now??Date.now();
         const reject=reason=>({rule:null,reason,level});
@@ -10,8 +53,12 @@
             // Automated roles only consider an unambiguous free evolution. The dex
             // supplies a specific rule to check the player's manual options.
             const free=rules.filter(edge=>edge.level>0&&!edge.item);
-            if(new Set(rules.map(edge=>edge.to)).size>1)return reject('存在进化分支，保留手动选择');
-            if(!free.length)return reject(rules.some(edge=>edge.item)?'需要道具进化，保留手动操作':'当前形态没有免费等级进化');
+            const branched=new Set(rules.map(edge=>edge.to)).size>1;
+            if(branched||!free.length){
+                const item=manualItemEvolution(s,rules);
+                const reason=branched?'存在进化分支，保留手动选择':item?'需要道具进化，保留手动操作':'当前形态没有免费等级进化';
+                return {...reject(item?.detail?reason+' · '+item.detail:reason),itemLocked:item?.locked===true,itemDetail:item?.detail||''};
+            }
             if(free.length!==1)return reject('进化条件存在多个规则，等待手动核对');
             rule=free[0];
         }
@@ -39,7 +86,10 @@
         // Native family capacity can permit additional copies in some branches. Conservatively
         // leave those duplicates manual rather than claiming unavailable evolved battle power.
         if(owned.some(other=>other.uid!==mon.uid&&other.id===rule.to&&!!other.shiny===!!mon.shiny&&group(other)===group(mon)))return reject('同组已拥有相同进化目标，等待原生家族容量确认');
-        if(rule.item&&!(s.items?.[rule.item]>0))return reject('当前背包缺少'+(ITEMS.get(rule.item)?.name||rule.item));
+        if(rule.item){
+            const item=evolutionItemAccess(s,rule.item);
+            if(!item.held)return reject(item.reason);
+        }
         return{rule:{...rule,from:mon.id},reason:requestedRule?'已满足进化条件':'唯一免费等级进化已满足',level};
     }
     function levelEvolution(s,mon,options={}){
@@ -52,8 +102,9 @@
         const levels=mon.level+'/'+target.goal;
         const edges=EVOLUTION_DATA.rules[mon.id]||[];
         if(!edges.some(edge=>edge.level>0&&!edge.item&&mon.level>=edge.level)){
-            const future=engine.settings.autoEvolve&&edges.length?projectEvolution(s,mon,target.goal,now).id:mon.id;
-            return (future!==mon.id?label+' → '+MONS.get(future).name:label)+' '+levels;
+            const next=engine.settings.autoEvolve&&edges.length?projectEvolution(s,mon,target.goal,now):null;
+            const detail=next?.evolutionItemDetail||(!next&&evolutionStatus(s,mon,{now}).itemDetail);
+            return (next&&next.id!==mon.id?label+' → '+MONS.get(next.id).name:label)+' '+levels+(detail?'（'+detail+'）':'');
         }
         if(!engine.settings.autoEvolve)return label+' '+levels+'（自动进化已关闭）';
         const {rule,reason}=evolutionStatus(s,mon,{now});
@@ -73,6 +124,14 @@
             if(status.rule.party){status={rule:null,reason:'依赖队友形态，需逐次原生进化后重新核对'};break;}
             path.push({from:projected.id,to:status.rule.to,level:status.rule.level});projected.id=status.rule.to;
         }
-        return{...projected,evolutionPath:path,evolutionBlockedReason:status?.rule?'进化链数据循环':status?.reason||''};
+        return{...projected,evolutionPath:path,evolutionBlockedReason:status?.rule?'进化链数据循环':status?.reason||'',
+            evolutionItemLocked:status?.itemLocked===true,evolutionItemDetail:status?.itemDetail||''};
+    }
+
+    function trainingProjection(s, mon, desired, settings, now) {
+        const level = Math.max(mon.level, Math.min(desired, trainingCap(s,mon)));
+        if (settings.autoEvolve !== false) return projectEvolution(s,mon,level,now);
+        const itemLocked = !(mon.rank > 0) && manualItemEvolution(s, EVOLUTION_DATA.rules[mon.id] || [])?.locked === true;
+        return {...mon, level, evolutionItemLocked:itemLocked};
     }
 

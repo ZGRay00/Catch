@@ -6,7 +6,7 @@
         get buffRetry(){return this.state.buffRetry||={};}
         set buffRetry(value){this.state.buffRetry=value||{};}
         constructor(engine){this.e=engine;this.state={};this.owner=null;this.lastService=0;}
-        begin(s){this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
+        begin(s){this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
         wait(text,at){this.e.status=text;this.e.lastProgress=Date.now();this.e.nextWake=at||null;}
         fail(text){this.e.failTask(text);}
         done(text){this.e.completeTask(text);}
@@ -94,7 +94,7 @@
                 if(!e.settings.autoEvolve||['breed','resource'].includes(e.settings.mode)||this.state.evolutionRetryAt>now)return false;
                 const cfg=e.settings;
                 if(cfg.mode==='progress'&&e.progressReached(s)||cfg.mode==='money'&&cfg.moneyTarget&&s.money>=cfg.moneyTarget||
-                    cfg.mode==='item'&&itemCounter(s,cfg.itemId)-e.startItems>=cfg.itemQuantity||cfg.mode==='shiny'&&shinyOwned(s,cfg.shinyId)||
+                    cfg.mode==='item'&&itemCounter(s,cfg.itemId)-e.startItems>=cfg.itemQuantity||cfg.mode==='shiny'&&!missingShinies(s,cfg).length||
                     cfg.mode==='dex'&&(cfg.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,cfg).missing.length)return false;
                 if(cfg.mode==='train'){const status=trainingStatus(s,cfg,e.trainProtected);if(status.complete||status.capped||status.missing)return false;}
                 if(s.adv.paused||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||
@@ -112,7 +112,7 @@
                 const specialSelection=FLOW_MODES.has(cfg.mode)||cfg.mode==='legend'||!['map','progress'].includes(context.kind);
                 const manualSelection=specialSelection?!cfg.optimizeRaid:!cfg.autoTeam;
                 if(!choice&&!manualSelection){
-                    const projected=pool.map(mon=>projectEvolution(s,mon,mon.level,now)),key=JSON.stringify([rosterFingerprint(s),s.team,context.key,s.adv.unlocked,s.adv.badges,phaseAt(s,now)]);
+                    const projected=pool.map(mon=>projectEvolution(s,mon,mon.level,now)),key=JSON.stringify([rosterFingerprint(s),s.team,context.key,s.adv.unlocked,s.adv.badges,phaseAt(s,now),lockedEvolutionItems(s)]);
                     if(this.evolutionChoiceCache?.key!==key){const plan=planAdventureTeam({...s,mons:projected},e.settings,[],{...context,reg,pool:projected,force:true});this.evolutionChoiceCache={key,uids:plan.uids};}
                     choice=ready.find(entry=>this.evolutionChoiceCache.uids.includes(entry.mon.uid));
                 }
@@ -700,7 +700,7 @@
         }
         resource(s,now){
             if(this.resourcePending(s,now))return;
-            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0),bought=itemCounter(s,id)-(this.state.resourceIn||0);
+            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0),bought=purchasedQuantity(s,id,this.state);
             if(cfg.resourceAction==='buy'&&bought>=cfg.resourceQuantity){this.done('道具采购目标已完成');return;}
             if(cfg.resourceAction!=='buy'&&used>=cfg.resourceQuantity){
                 const close=$('#modal-root.open .mon-modal .dc-x');if(enabled(close)){this.e.driver.click(close,'关闭已完成的道具使用面板');this.owner=null;return;}
@@ -723,7 +723,10 @@
             const section=$('#shop-grid [data-sh-sec="shop"]:not(.active)');if(enabled(section)){d.click(section,'打开金币商店');return;}
             const buyTab=$('#shop-grid [data-sh-mode="buy"]:not(.on)');if(enabled(buyTab)){d.click(buyTab,'切换购买');return;}
             const item=$$('#shop-grid .sh-item[data-id]').find(el=>el.dataset.id===id);
-            if(!item||item.classList.contains('locked')){this.fail('目标道具未在当前金币商店解锁');return;}
+            if(!item||item.classList.contains('locked')){
+                const row=EVOLUTION_SHOP.get(id);
+                this.fail(row&&evolutionShopLocked(s,row)?evolutionPurchaseReason(s,row):'目标道具未在当前金币商店解锁');return;
+            }
             const one=item.querySelector('[data-n="1"]');if(enabled(one)&&!one.classList.contains('on')){d.click(one,'将购买数量限制为一份');return;}
             const buy=item.querySelector('.buy'),cost=parsePrice(item.querySelector('.total')?.textContent||buy?.textContent);
             if(visible(buy)&&buy.disabled){this.fail('当前金币不足或该商品暂不可购买');return;}
@@ -732,8 +735,19 @@
         resourcePending(s,now=Date.now()){
             const tx=this.state.resourceTx;if(!tx)return false;
             const stock=Number(s.items?.[tx.id])||0,out=Number(s.stats?.itemOut?.[tx.id])||0;
-            const confirmed=tx.kind==='buy'?itemCounter(s,tx.id)>tx.in||stock>tx.stock:out>tx.out||stock<tx.stock;
-            if(confirmed){delete this.state.resourceTx;return false;}
+            const received=itemCounter(s,tx.id)>tx.in||stock>tx.stock;
+            // Old pending orders lack a debit snapshot. New ones prefer the native
+            // spending ledger, which remains reliable while adventure awards money.
+            const paid=tx.cost==null||(s.stats?.spent
+                ? (Number(s.stats.spent[tx.category])||0)-tx.spendBefore>=tx.cost
+                : tx.walletBefore-s.money>=tx.cost);
+            const confirmed=tx.kind==='buy'?received&&paid:out>tx.out||stock<tx.stock;
+            if(confirmed){
+                if(tx.kind==='buy'&&this.state.resourcePurchased!=null)this.state.resourcePurchased++;
+                delete this.state.resourceTx;
+                this.e.persist();
+                return false;
+            }
             if(now-tx.at<10000)this.wait(tx.kind==='buy'?'等待目标道具购买到账确认':'等待目标道具使用确认');
             else this.fail(tx.kind==='buy'?'目标道具购买未确认，已暂停以避免重复采购':'目标道具使用未确认，已暂停以避免重复消耗');
             return true;
@@ -744,6 +758,11 @@
             // Persist the pending action with its budget reservation before the native click.
             // A stale or failed game save must never authorize a second purchase or serving.
             this.state.resourceTx={kind,id,stock:Number(s.items?.[id])||0,in:itemCounter(s,id),out:Number(s.stats?.itemOut?.[id])||0,at:Date.now()};
+            if(kind==='buy'){
+                this.state.resourcePurchased=purchasedQuantity(s,id,this.state);
+                const category=id.startsWith('exp-candy-')?'candy':'shop';
+                Object.assign(this.state.resourceTx,{category,cost,spendBefore:Number(s.stats?.spent?.[category])||0,walletBefore:s.money});
+            }
             const clicked=this.spentClick(button,s,cost,uses,label);if(!clicked)delete this.state.resourceTx;return clicked;
         }
         useFromCard(s,card){

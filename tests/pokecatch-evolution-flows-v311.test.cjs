@@ -76,6 +76,16 @@ test('disabled evolution support never opens or evolves an eligible member',t=>{
     const f=fixture(t,{autoEvolve:false});assert.equal(f.service(),false);assert.deepEqual(f.actions,[]);assert.equal(f.s.mons[0].id,2);
 });
 
+test('a level 68 Wingull under preparation takes precedence over an earlier eligible party member',t=>{
+    const f=fixture(t);
+    const gull={uid:'gull',id:278,level:68,reg:'sinnoh'};
+    f.s.mons.push(gull);f.s.team.push(gull.uid);f.s.travel.to=['hoenn','sinnoh'];f.save();
+    f.e.preparation={targets:[{uid:gull.uid,id:278,goal:72}]};
+    assert.equal(f.service(),true);
+    assert.equal(f.e.automation.state.evolution.uid,'gull');
+    assert.equal(f.e.automation.state.evolution.toId,279);
+});
+
 test('an already completed mainline task does not start a new irreversible evolution',t=>{
     const f=fixture(t,{progressUntil:0});assert.equal(f.service(),false);assert.deepEqual(f.actions,[]);assert.equal(f.s.mons[0].id,2);
 });

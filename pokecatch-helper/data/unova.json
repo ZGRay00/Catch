@@ -1,0 +1,79 @@
+{
+  "build": "a5299b1690",
+  "chance": [
+    0.05,
+    0.1
+  ],
+  "itemFraction": 0.2,
+  "itemNodeChance": 0.7,
+  "weights": {
+    "grass": {
+      "531": 5,
+      "587": 5,
+      "evolved": 15,
+      "local": 75
+    },
+    "dust": {
+      "529": 5,
+      "530": 1,
+      "evolved": 15,
+      "local": 79
+    },
+    "shadow": {
+      "580": 5,
+      "581": 1,
+      "evolved": 15,
+      "local": 79
+    },
+    "ripple": {
+      "594": 5,
+      "evolved": 15,
+      "local": 80
+    }
+  },
+  "routes": [
+    {"chapter":66,"name":"Route 1","phenomenon":"grass"},
+    {"chapter":66,"name":"Route 2","phenomenon":"grass"},
+    {"chapter":66,"name":"Vestiges du Rêve","phenomenon":"grass","weatherWeights":{"sun":{"513":5},"rain":{"515":5},"fog":{"511":5}}},
+    {"chapter":67,"name":"Route 3","phenomenon":"grass"},
+    {"chapter":67,"name":"Veine Souterraine","phenomenon":"dust"},
+    {"chapter":67,"name":"Route 3 (est)","phenomenon":"grass"},
+    {"chapter":68,"name":"Forêt d'Empoigne","phenomenon":"grass"},
+    {"chapter":68,"name":"Forêt d'Empoigne (est)","phenomenon":"grass"},
+    {"chapter":69,"name":"Route 4","phenomenon":"grass"},
+    {"chapter":69,"name":"Désert Délassant","phenomenon":"grass","egg":{"id":636,"chance":0.2,"badge":"Maître Unys","skies":["sun"]}},
+    {"chapter":69,"name":"Château Enfoui","phenomenon":"dust"},
+    {"chapter":70,"name":"Route 4 (nord)","phenomenon":"grass"},
+    {"chapter":70,"name":"Route 16","phenomenon":"grass"},
+    {"chapter":70,"name":"Route 5","phenomenon":"grass"},
+    {"chapter":71,"name":"Pont Yoneuve","phenomenon":"shadow"},
+    {"chapter":71,"name":"Hangar Frigorifique","phenomenon":"dust"},
+    {"chapter":72,"name":"Route 6","phenomenon":"grass"},
+    {"chapter":72,"name":"Route 6 (nord)","phenomenon":"grass"},
+    {"chapter":72,"name":"Grotte Électrolithe","phenomenon":"dust"},
+    {"chapter":72,"name":"Grotte Parsemille","phenomenon":"dust"},
+    {"chapter":73,"name":"Route 7","phenomenon":"dust"},
+    {"chapter":73,"name":"Tour des Cieux","phenomenon":"dust"},
+    {"chapter":73,"name":"Route 7 (nord)","phenomenon":"dust"},
+    {"chapter":73,"name":"Mont Foré","phenomenon":"dust"},
+    {"chapter":74,"name":"Tourbière Flocombe","phenomenon":"ripple"},
+    {"chapter":74,"name":"Route 8","phenomenon":"ripple"},
+    {"chapter":74,"name":"Tour Dragospire","phenomenon":"dust"},
+    {"chapter":75,"name":"Route 9","phenomenon":"grass"},
+    {"chapter":75,"name":"Route 9 (est)","phenomenon":"grass"},
+    {"chapter":76,"name":"Route 10","phenomenon":"grass"},
+    {"chapter":76,"name":"Route Victoire","phenomenon":"dust"},
+    {"chapter":76,"name":"Route Victoire","phenomenon":"dust"},
+    {"chapter":83,"name":"Route 11","phenomenon":"grass"},
+    {"chapter":83,"name":"Pont du Hameau","phenomenon":"shadow"},
+    {"chapter":83,"name":"Route 12","phenomenon":"grass"},
+    {"chapter":83,"name":"Route 13","phenomenon":"ripple"},
+    {"chapter":83,"name":"Baie Vaguelone","phenomenon":"ripple"},
+    {"chapter":83,"name":"Route 14","phenomenon":"ripple"},
+    {"chapter":83,"name":"Route 15","phenomenon":"grass"},
+    {"chapter":83,"name":"Forêt Blanche","phenomenon":"grass","day":true},
+    {"chapter":83,"name":"Route 16","phenomenon":"grass"},
+    {"chapter":83,"name":"Bois des Illusions","phenomenon":"grass"},
+    {"chapter":83,"name":"Grotte Cyclopéenne","phenomenon":"dust"}
+  ]
+}

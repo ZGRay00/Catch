@@ -92,14 +92,7 @@
     function mainGoalReached(s,e,now=Date.now()){
         if(!s?.adv)return false;
         const c=e.settings||{},mode=c.mode,flow=e.automation?.state||{};
-        if(mode==='money')return c.moneyTarget>0&&s.money>=c.moneyTarget;
-        if(mode==='item')return Number.isFinite(e.startItems)&&itemCounter(s,c.itemId)-e.startItems>=c.itemQuantity;
-        if(mode==='shiny')return shinyOwned(s,c.shinyId);
-        if(mode==='dex')return(c.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,c).missing.length;
-        if(mode==='progress')return!!e.progressReached?.(s);
-        if(mode==='legend')return!!legendProgress(s,c).done;
-        if(mode==='roam')return roamingProgress(s,c,now).done;
-        if(mode==='train'){const status=trainingStatus(s,c,e.trainProtected);return status.complete||status.capped||status.missing;}
+        if(!FLOW_MODES.has(mode))return !!adventureTaskOutcome(s,e,now);
         if(mode==='breed')return c.breedShiny?shinyOwned(s,c.breedId):(flow.hatched||0)>=c.breedGoal;
         if(mode==='underground')return(flow.underDone||0)>=c.underRuns;
         if(mode==='resource'){

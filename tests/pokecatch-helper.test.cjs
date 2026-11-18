@@ -428,6 +428,37 @@ test('queue advances finite tasks while retaining spending and failure pauses th
     e.failTask('缺少百变怪');assert.equal(e.queue[1].status,'failed');assert.equal(e.queue[2].status,'pending');assert.equal(e.running,false);assert.equal(JSON.parse(e.storage.getItem('pokecatch-helper:v1:fixture')).resume,null);
 });
 
+test('a second roaming job starts its own search clock and does not inherit a previous weather window',t=>{
+    const s=state(),{e}=runtime(t,s,{mode:'roam',roamId:243});
+    e.queue=H.normalizeJobs([{settings:e.settings},{settings:{mode:'roam',roamId:244,roamMinutes:5}}]);
+    e.queueRunning=true;e.queueIndex=0;
+    e.roamStarted=Date.now()-600000;e.roamRestartAt=Date.now();e.weatherWindow={at:Date.now()+900000};
+    e.action='上一目标的地图操作';e.completeTask('首个游荡目标已捕获');
+    assert.equal(e.settings.roamId,244);assert.equal(e.running,true);
+    assert.equal(e.roamStarted,null);assert.equal(e.roamRestartAt,0);
+    assert.equal(e.weatherWindow,null);assert.equal(e.action,'');e.stop();
+});
+
+test('restoring a later job keeps the live queue baseline and restores its item counter',t=>{
+    const s=state(),{e}=runtime(t,s,{mode:'money'});
+    const runStarted=e.started;e.oldLoops=['L'];e.budget.spent=75;
+    e.queue=H.normalizeJobs([{settings:e.settings},{settings:{mode:'item'},progress:{
+        session:{started:100,startMoney:5,oldLoops:[4],startItems:12},budget:{spent:50}
+    }}]);
+    e.queueRunning=true;e.completeTask('金币已达标');
+    assert.equal(e.started,runStarted);assert.equal(e.startMoney,s.money);assert.deepEqual(e.oldLoops,['L']);
+    assert.equal(e.startItems,12);assert.equal(e.budget.spent,75);e.stop();
+});
+
+test('a confirmed goal settles before the inactivity timeout and emits one completion log',async t=>{
+    const s=state(),{e}=runtime(t,s,{mode:'money',moneyTarget:s.money});
+    e.progressSignature=JSON.stringify([0,0,0,0,0,0,null,null,null]);
+    e.lastProgress=Date.now()-240000;
+    await e.step();
+    assert.equal(e.running,false);assert.equal(e.status,'达到目标金币');
+    assert.equal(e.logs.filter(row=>row.text===e.status).length,1);
+});
+
 test('refresh checkpoint resumes goal counters and budget; explicit stop cancels restoration',t=>{
     const {e}=runtime(t,state(),{mode:'breed'});e.read();e.oldLoops=[0];e.startItems=7;e.automation.begin(e.state);e.automation.state.hatched=2;e.budget.spent=250;e.budget.used=1;e.suspend();
     const next=new H.Engine(e.storage);next.loadAccount(e.state);next.schedule=()=>{};next.start(true);

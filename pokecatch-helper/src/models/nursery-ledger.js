@@ -31,7 +31,8 @@
         static cleanRecord(row){
             if(!row||typeof row!=='object'||typeof row.key!=='string'||!row.key||row.key.length>300)return null;
             const known=row.known===true&&typeof row.shiny==='boolean';
-            return{key:row.key,uid:typeof row.uid==='string'?row.uid.slice(0,180):null,id:Number.isInteger(row.id)&&row.id>0?row.id:null,known,shiny:known?row.shiny:null,source:typeof row.source==='string'?row.source.slice(0,40):'unknown',egg:row.egg&&typeof row.egg==='object'?NurseryLedger.eggEvidence(row.egg):null};
+            return{key:row.key,uid:typeof row.uid==='string'?row.uid.slice(0,180):null,id:Number.isInteger(row.id)&&row.id>0?row.id:null,known,shiny:known?row.shiny:null,source:typeof row.source==='string'?row.source.slice(0,40):'unknown',egg:row.egg&&typeof row.egg==='object'?NurseryLedger.eggEvidence(row.egg):null,
+                ...(row.unclassifiedObservation===true?{unclassifiedObservation:true}:{})};
         }
         static eggEvidence(egg){
             const out={};for(const key of ['uid','id','k','sp','bx','laidAt','hatchAt','reg','shiny']){
@@ -71,6 +72,15 @@
         }
         record(row,status,now){
             this.recent.unshift({...row,status,at:now});this.recent.length=Math.min(this.recent.length,NURSERY_LEDGER_LIMITS.recent);this.remember(this.resolved,row.key);this.dirty=true;
+        }
+        refineObservation(row){
+            if(!row.unclassifiedObservation||!row.known)return;
+            delete row.unclassifiedObservation;
+            if(this.stats.unknownObserved>0){
+                this.stats.unknownObserved--;
+                if(row.shiny)this.stats.shinyObserved++;else this.stats.plainObserved++;
+            }
+            this.dirty=true;
         }
         expire(now){
             const limits=NURSERY_LEDGER_LIMITS,expired=this.pending.filter(row=>now-row.at>limits.windowMs);
@@ -117,17 +127,26 @@
                 const known=result?.known===true&&typeof result.shiny==='boolean';return{...row,known,shiny:known?result.shiny:null,source:result?.source||'unknown'};
             };
             const refreshed=this.active.map(refresh),pending=this.pending.map(refresh);
+            // Reconcile a departed egg with the build and evidence used for this hatch.
+            for(const row of pending)this.refineObservation(row);
             if(JSON.stringify(refreshed)!==JSON.stringify(this.active)||JSON.stringify(pending)!==JSON.stringify(this.pending)){this.active=refreshed;this.pending=pending;this.dirty=true;}
             const current=NurseryLedger.records(s,options),before=new Map(this.active.map(row=>[row.key,row])),present=new Map(current.map(row=>[row.key,row]));
             for(const row of this.active)if(!present.has(row.key)&&!this.resolved.includes(row.key)&&!this.pending.some(pending=>pending.key===row.key)){
+                this.refineObservation(row);
                 this.pending.push({...row,at:now});this.event('egg-gone','蛋已离巢，等待游戏孵化计数核对',now);
             }
             while(this.pending.length>NURSERY_LEDGER_LIMITS.pending){const row=this.pending.shift();this.stats.unconfirmedDisappearances++;this.record(row,'unconfirmed',now);}
             for(const row of current){
                 const pending=this.pending.findIndex(item=>item.key===row.key);
+                const prior=before.get(row.key)||this.pending[pending];
+                if(prior?.unclassifiedObservation&&prior.id===row.id&&row.source!=='duplicate'){
+                    row.unclassifiedObservation=true;
+                    this.refineObservation(row);
+                }
                 if(pending>=0){this.pending.splice(pending,1);this.event('egg-returned','待核对蛋重新出现，已撤销离巢待核对记录',now);}
                 if(!before.has(row.key)&&!this.seen.includes(row.key)){
                     this.stats.eggsObserved++;if(row.known&&row.shiny)this.stats.shinyObserved++;else if(row.known)this.stats.plainObserved++;else this.stats.unknownObserved++;
+                    if(!row.known&&row.source!=='duplicate')row.unclassifiedObservation=true;
                     this.event('egg-seen','观测到新蛋'+(row.known?(row.shiny?' · 异色':' · 普通'):' · 结果未知'),now);
                 }
                 if(!this.seen.includes(row.key)){this.remember(this.seen,row.key);this.dirty=true;}

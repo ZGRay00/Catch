@@ -53,11 +53,12 @@
         return egg?.laidAt!=null?'legacy:'+String(egg.laidAt):null;
     }
     function eggOutcome(s,egg,options={}){
-        const unknown=reason=>({known:false,shiny:null,rate:egg&&typeof egg==='object'?nurseryEggRate(egg):null,source:'unknown',key:nurseryEggKey(s,egg),reason});
+        const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
+        const unknown=reason=>({certainty:'unknown',known:false,shiny:null,rate:egg&&typeof egg==='object'?nurseryEggRate(egg):null,rateVerified:!unverified,source:'unknown',key:nurseryEggKey(s,egg),reason});
         if(!egg||typeof egg!=='object')return unknown('蛋数据不可用');
         const rate=nurseryEggRate(egg),key=nurseryEggKey(s,egg);
-        if(Object.hasOwn(egg,'shiny'))return{known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,source:'saved',key};
-        if(options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build))return unknown('当前游戏构建尚未核对确定性蛋规则');
+        if(Object.hasOwn(egg,'shiny'))return{certainty:'saved',known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,rateVerified:!unverified,source:'saved',key};
+        if(unverified)return unknown('当前游戏构建尚未核对确定性蛋规则');
         let roll,source;
         if(Number.isInteger(egg.k)){
             roll=nurseryFixedRoll(s,egg.k);source='counter';
@@ -67,7 +68,7 @@
             if(legacy==null||String(legacy)==='')return unknown('旧蛋缺少可核对的 UID 或产蛋时间');
             roll=nurseryHash(String(legacy));source='legacy';
         }
-        return{known:true,shiny:roll<rate,rate,roll,source,key};
+        return{certainty:'deterministic',known:true,shiny:roll<rate,rate,rateVerified:true,roll,source,key};
     }
     function breedableOffspring(s, mon) {
         if (!mon || mon.noEgg || mon.id === NURSERY_RULES.ditto || NURSERY_RULES.noEgg.includes(mon.id) ||
@@ -90,13 +91,26 @@
     }
     function nurseryForecast(s,options={}){
         const limit=Number.isFinite(+options.limit)?Math.max(1,Math.min(50000,Math.floor(+options.limit))):20000;
-        const pool=nurseryParentPool(s),laid=s?.pension?.laid,seed=nurserySeed(s),pendingBerry=!!s?.pension?.bx;
-        const result={known:false,active:false,build:NURSERY_RULES.build,counter:Number.isSafeInteger(laid)&&laid>=0?laid:null,
+        const pool=nurseryParentPool(s),pension=s?.pension,seed=nurserySeed(s),pendingBerry=!!pension?.bx;
+        const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
+        let laid=pension?.laid,counterSource=null;
+        if(Number.isSafeInteger(laid)&&laid>=0)counterSource='saved';
+        else if(laid==null&&!unverified&&Number.isSafeInteger(s?.stats?.hatched)&&s.stats.hatched>=0&&Array.isArray(pension?.eggs)){
+            // The game's first egg allocation on a legacy save initializes this
+            // counter before incrementing it. Do not use this to backfill history.
+            laid=s.stats.hatched+pension.eggs.length;
+            if(Number.isSafeInteger(laid))counterSource='native-initializer';
+        }
+        // Prior to drawing a parent, every eligible slot is equally likely, including
+        // duplicate species. Ditto enables breeding but never contributes a shiny rate.
+        const nextRate=pool.known&&pool.hasDitto&&pool.parents.length?
+            pool.parents.reduce((sum,parent)=>sum+nurseryEggRate({sp:parent.shiny?2:0,bx:pendingBerry}),0)/pool.parents.length:null;
+        const result={certainty:'unavailable',known:false,active:false,build:NURSERY_RULES.build,counter:counterSource?laid:null,counterSource,
+            nextRate,rateVerified:!unverified,
             limit,scanned:0,pool:pool.parents,hasDitto:pool.hasDitto,pendingBerry,nextEgg:null,nextShiny:null,hits:[],
             assumptions:['亲本顺序与异色状态保持不变','期间没有赠送蛋等其他来源占用蛋序号','只计现有待用靛莓果，不假设后续自动喂果','距离指自然产蛋次数，不是孵化次数或保底进度'],
             scenarios:{plainParents:{hypothetical:true,nextShiny:null},shinyParents:{hypothetical:true,nextShiny:null},berryNext:{hypothetical:true,nextShiny:null}}};
         const reject=reason=>({...result,reason});
-        const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
         if(unverified&&!options.estimateUnverified)return reject('当前游戏构建尚未核对确定性蛋规则');
         if(!pool.known)return reject(pool.reason);
         if(seed===null)return reject('训练家 ID 或创建时间缺失，未使用空种子预测');
@@ -104,17 +118,33 @@
         if(!pool.hasDitto||!pool.parents.length)return reject(pool.reason);
         if(laid>Number.MAX_SAFE_INTEGER-limit)return reject('蛋序号超出安全整数范围');
         result.known=!unverified;result.estimated=unverified;result.active=true;
+        result.certainty=unverified?'reference':'conditional';
         const keep=Number.isFinite(+options.count)?Math.max(1,Math.min(20,Math.floor(+options.count))):3;
+        const prefix=seed+'|egg|',scenarios=result.scenarios;
         for(let offset=0;offset<limit;offset++){
-            const k=laid+offset,roll=nurseryHash(`${seed}|egg|${k}|0`),parentRoll=nurseryHash(`${seed}|egg|${k}|1`);
-            const parent=pool.parents[Math.floor(parentRoll*pool.parents.length)],bx=offset===0&&pendingBerry;
-            const rate=nurseryEggRate({sp:parent.shiny?2:0,bx}),row={k,offset,position:offset+1,eggId:parent.eggId,parent:{...parent},rate,roll,bx,shiny:roll<rate};
-            if(offset===0)result.nextEgg=row;
-            if(row.shiny&&result.hits.length<keep)result.hits.push(row);
-            const thresholds={plainParents:NURSERY_RULES.baseRate*(bx?2:1),shinyParents:NURSERY_RULES.parentRate*(bx?2:1),berryNext:nurseryEggRate({sp:parent.shiny?2:0,bx:offset===0})};
-            for(const[key,threshold]of Object.entries(thresholds))if(!result.scenarios[key].nextShiny&&roll<threshold)result.scenarios[key].nextShiny={...row,rate:threshold,shiny:true,hypothetical:true};
+            const k=laid+offset,drawPrefix=prefix+k+'|',roll=nurseryHash(drawPrefix+'0');
             result.scanned=offset+1;
-            if(result.hits.length>=keep&&Object.values(result.scenarios).every(scenario=>scenario.nextShiny))break;
+            // After the first egg the largest possible native threshold is 1/16.
+            // A miss at that threshold cannot appear in any of the result lists.
+            if(offset>0&&roll>=NURSERY_RULES.parentRate)continue;
+            const parentIndex=pool.parents.length===1?0:Math.floor(nurseryHash(drawPrefix+'1')*pool.parents.length);
+            const parent=pool.parents[parentIndex],bx=offset===0&&pendingBerry;
+            const rate=nurseryEggRate({sp:parent.shiny?2:0,bx}),row={k,offset,position:offset+1,eggId:parent.eggId,parent:{...parent},rate,roll,bx,shiny:roll<rate};
+            if(offset===0){
+                // Hold the egg number and the pending berry fixed while changing
+                // only the selected parent's shiny status.
+                const plainRate=nurseryEggRate({bx}),shinyRate=nurseryEggRate({sp:2,bx});
+                result.nextEgg={...row,parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
+            }
+            if(row.shiny&&result.hits.length<keep)result.hits.push(row);
+            for(const key of Object.keys(scenarios)){
+                if(scenarios[key].nextShiny)continue;
+                const shinyParent=key==='berryNext'?parent.shiny:key==='shinyParents';
+                const berry=key==='berryNext'?offset===0:bx;
+                const threshold=nurseryEggRate({sp:shinyParent?2:0,bx:berry});
+                if(roll<threshold)scenarios[key].nextShiny={...row,parent:{...parent,shiny:shinyParent},bx:berry,rate:threshold,shiny:true,hypothetical:true};
+            }
+            if(result.hits.length>=keep&&scenarios.plainParents.nextShiny&&scenarios.shinyParents.nextShiny&&scenarios.berryNext.nextShiny)break;
         }
         result.nextShiny=result.hits[0]||null;result.truncated=!result.nextShiny;
         result.reason=result.nextShiny?'按当前亲本池核对的自然产蛋序列；条件变化时重新计算':'扫描范围内尚未找到；不代表之后不会出现';

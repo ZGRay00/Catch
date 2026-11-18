@@ -94,15 +94,14 @@
             e.log(`先为${context.label}补练：${plan.targets.map(m=>`${MONS.get(m.id)?.name} Lv.${m.level}→${m.goal}`).join('、')||'刷新爬塔阵容'}${plan.capLimited?'（受当前等级上限限制）':''}`);
             e.status=recovering?'战败后先补齐可提升等级，再继续原任务':'等级不足，准备补练后继续原任务';e.persist();return true;
         }
-        adventure(s){
+        adventure(s,outcome=adventureTaskOutcome(s,this.e)){
             const e=this.e,mode=e.settings.mode,a=s.adv;
-            if(a.event||a.zone||a.tower||a.league||e.raidProbe||e.raidReturn||FLOW_MODES.has(mode)||['legend','train'].includes(mode))return null;
+            if(outcome||a.event||a.zone||a.tower||a.league||e.raidProbe||e.raidReturn||FLOW_MODES.has(mode)||['legend','train'].includes(mode))return null;
             let row;
             if(mode==='progress'){
-                if(e.progressReached(s)||!e.canProgress(s))return null;
+                if(!e.canProgress(s))return null;
                 const c=CHAPTERS.get(a.unlocked);row={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(x=>x.loop===c.loop).map(x=>x.id):[c.id]};
             }else{
-                if(mode==='money'&&e.settings.moneyTarget&&s.money>=e.settings.moneyTarget||mode==='shiny'&&shinyOwned(s,e.settings.shinyId)||mode==='item'&&itemCounter(s,e.settings.itemId)-e.startItems>=e.settings.itemQuantity||mode==='dex'&&(e.settings.afterDex==='stop'||e.queueRunning)&&!dexStatus(s,e.settings).missing.length)return null;
                 row=e.driver.pendingMap&&!e.driver.pendingMap.options?.zone?e.driver.pendingMap.row:e.target;
                 if(!row)return null;
             }

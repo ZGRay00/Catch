@@ -48,3 +48,27 @@ test('an ongoing dex route refills boosts only between native battles',async t=>
 test('daily raid preparation takes precedence without consuming a wild collection boost',async t=>{
     const {s,e,calls,save}=fixture(t,{raids:true});s.adv.badges=['Maître'];e.nextRaid=0;save();await e.step();assert.equal(e.raidProbe,true);assert.equal(calls.buff,0);e.stop();
 });
+test('dex cancels a pending departure when a target ripple appears on the active route',async t=>{
+    const {s,e,calls,save}=fixture(t,{mode:'dex'});catchAll(s);delete s.dex[594];
+    Object.assign(s.adv,{chapter:74,unlocked:83,nodes:[{name:'Route 8',type:'wild',phenom:'ripple',bg:'lake'}]});
+    s.travel.to=['unova'];e.driver.pendingMap={row:{id:83},options:{},started:Date.now()};save();
+    await e.step();assert.equal(e.driver.pendingMap,null);assert.match(e.status,/保姆曼波/);assert.equal(calls.buff,0);e.stop();
+});
+test('dex waits for a Larvesta egg and finishes only after the hatch is registered',async t=>{
+    const {s,e,calls,save}=fixture(t,{mode:'dex',autoEggs:false,afterDex:'stop'});catchAll(s);delete s.dex[636];
+    s.travel.to=['unova'];Object.assign(s.adv,{chapter:69,unlocked:83,badges:['Maître Unys']});
+    s.pension={eggs:[{id:636,hatchAt:Date.now()+600000}],open:{eggs:1}};save();
+    await e.step();assert.equal(e.running,true);assert.match(e.status,/培育屋领取/);assert.equal(calls.money,0);
+    s.pension.eggs=[];s.dex[636]={caught:1};save();await e.step();assert.equal(e.running,false);assert.match(e.status,/已全部捕获/);
+});
+test('dex keeps a generated sunny desert item roll for Larvesta and resumes travel for fixed loot',async t=>{
+    const {s,e,calls,save}=fixture(t,{mode:'dex'});catchAll(s);delete s.dex[636];s.travel.to=['unova'];
+    const node={name:'Désert Délassant',type:'item',weather:'sun',loot:{'egg:636':.2}};
+    Object.assign(s.adv,{chapter:69,unlocked:83,badges:['Maître Unys'],nodes:[node]});
+    let mapCalls=0;e.driver.map=()=>{mapCalls++;return false;};
+    const pending=()=>({row:{id:83},options:{},started:Date.now()});
+    e.driver.pendingMap=pending();save();await e.step();
+    assert.equal(mapCalls,0);assert.equal(e.driver.pendingMap,null);assert.match(e.status,/道具节点.*获得蛋.*燃烧虫/);assert.equal(calls.buff,0);
+    node.find='star-piece';e.driver.pendingMap=pending();save();await e.step();
+    assert.equal(mapCalls,1);e.stop();
+});

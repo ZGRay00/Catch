@@ -115122,7 +115122,7 @@
           "id": 610,
           "once": "axew-nest",
           "needs": "axew-fang",
-          "needN": 5
+          "needN": 10
         }
       ],
       "wild": 10,
@@ -142172,9 +142172,10 @@
         {
           "ch": 72,
           "kind": "loot",
-          "expected": 0.24499999999999997,
-          "once": "axew-fang",
-          "repeat": false
+          "expected": 0.02145,
+          "upTo": 10,
+          "until": "axew-nest",
+          "repeat": true
         }
       ]
     },

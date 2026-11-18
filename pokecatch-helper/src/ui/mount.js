@@ -56,7 +56,7 @@
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
-            <div class="tabs"><button data-tab="maps" class="on">目标与收益</button><button data-tab="queue">任务队列</button><button data-tab="dex">图鉴</button><button data-tab="logs">日志</button></div><div id="view" class="list"></div>
+            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="dex" aria-controls="dex-panel">图鉴</button><button data-tab="logs" aria-controls="view">日志</button></div><div id="dex-panel" hidden></div><div id="view" class="list"></div>
             </section>
             <section id="pane-settings" aria-label="设置" hidden>
             <h3>配队与自动化</h3>
@@ -136,6 +136,16 @@
         for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
         selectWorkspace(ui.workspace, false);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
+        const dexPanel=mountDexPanel(root,render);
+        function selectActivityTab(name){
+            tab=name;
+            for(const button of root.querySelectorAll('[data-tab]')){
+                const active=button.dataset.tab===name;
+                button.classList.toggle('on',active);
+                button.setAttribute('aria-pressed',String(active));
+            }
+        }
+        selectActivityTab(tab);
         function place() {
             const position = ui.folded ? ui.mini : ui.panel;
             host.style.left = 'auto'; host.style.right = '14px'; host.style.bottom = 'auto';
@@ -151,7 +161,7 @@
             const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
             query('#execution-route').textContent=model.decision.route;query('#execution-team').textContent=model.decision.team;query('#execution-reason').textContent=model.decision.reason;
-            query('#execution-environment').textContent=backgroundKeepalive(now)?'已检测到后台支持心跳。浏览器暂停画面时，助手保留任务并等待恢复。':pageHidden()?'游戏标签已在后台，返回后继续。要在其他标签页使用期间继续推图，可启用包内的 PokéCatch 保持激活。':'当前游戏页面可操作。切走后要继续推图，可加载完整包里的 pokecatch-keep-active，并在游戏页开启。';
+            query('#execution-environment').textContent=backgroundKeepalive(now)?'保活扩展已启用，心跳有效，助手拥有后台运行许可。浏览器冻结时会保留任务并等待恢复。':pageHidden()?'当前标签在后台，等待回到游戏后继续。可在游戏页启用包内的保持激活扩展。':'当前游戏页面可操作。切走后要继续推图，可加载完整包里的 pokecatch-keep-active，并在游戏页开启。';
             if(query('#probability-info').open){
                 const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;
@@ -269,7 +279,10 @@
             query('#import-profile').disabled=locked||!engine.account;
             root.querySelectorAll('[data-setting], [data-mode], #item-search').forEach(input => input.disabled = locked);
             if(wait?.reason==='ready'&&engine.running&&!pageHidden()&&!engine.timer)engine.schedule(50);
-            if (!s?.adv) { query('#support-info').classList.add('hidden');query('#view').textContent = '等待进入游戏；助手不会自动登录或新建存档。'; return; }
+            if (!s?.adv) {
+                query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;
+                const view=query('#view');view.hidden=false;viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';return;
+            }
             // Keep commands and the dock current; rebuild hidden details only when visible.
             if(ui.folded||pageHidden())return;
             partyOptions(s); updateBreedingOptions(s);
@@ -278,7 +291,7 @@
                 const levels=preparation.targets.map(target=>({...target,level:s.mons.find(m=>m.uid===target.uid)?.level||target.level}));
                 query('#prepare-target').textContent=`完成后返回：${preparation.context.label}${preparation.capLimited?' · 目标受当前等级上限限制':''}`;
                 query('#prepare-route').textContent=preparation.route?`练级地图：${preparation.route.name}${engine.manual?' · 恢复后重新评估':preparation.route.league?' · 联盟试刷，按完整轮次实测校正':''}`:'练级地图：正在评估可用路线';
-                query('#prepare-levels').textContent=levels.map(m=>`${MONS.get(m.id)?.name}${engine.settings.autoEvolve&&m.potentialId&&m.potentialId!==m.id?' → '+(MONS.get(m.potentialId)?.name||m.potentialId):''} ${m.level}/${m.goal}`).join('、')||'更新原生战斗阵容';
+                query('#prepare-levels').textContent=levels.map(target=>preparationEvolutionLabel(s,target,engine,now)).join('、')||'更新原生战斗阵容';
                 const adaptive=['map','progress'].includes(preparation.context.kind)&&engine.settings.autoTeam,assessment=preparation.assessment;
                 const fit=assessment?.fit,remaining=levels.reduce((total,target)=>{const mon=s.mons.find(mon=>mon.uid===target.uid),gap=mon&&candyXpGap(s,mon,target.goal);return gap==null?null:total==null?null:total+gap;},0);
                 query('#prepare-assessment').textContent=adaptive?[assessment?.reason||'按实际战力复查，达标可提前返回原任务',fit?`保守预计 ${fit.turns.toFixed(1)} 回合/对手`:'',remaining>0?`当前培养目标剩余 ${Math.round(remaining).toLocaleString()} EXP`:''].filter(Boolean).join(' · '):'按所选阵容完成当前补练等级目标';
@@ -300,6 +313,7 @@
             query('#money-value').textContent = (net > 0 ? '+' : '') + net.toLocaleString();
             const seconds = engine.started ? Math.max(0, Math.floor(((engine.running ? Date.now() : engine.stoppedAt || Date.now()) - engine.started) / 1000)) : 0;
             query('#time-value').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+            const shinyRoutes=mode==='shiny'?shinyRanking(s,settings,engine.cooldowns,now):null;
             let primary = `${status.complete}/${status.roots.length}`, primaryLabel = '进化链完成', goalLabel = '基础形态收集', goalValue = `${status.missing.length} 条待完成`, percent = status.complete / Math.max(1,status.roots.length) * 100;
             let hint = mode === 'money' ? '按整轮金币净增实测排名，轮换采样后优先高收益地图；未测地图显示估算。' : mode === 'progress' ? '关闭章节循环，自动适配队伍并推进至目标章节；开启跨地区开局后会按游戏规则分开管理新地区的钱包和队伍。' : '基础形态曾捕获即完成整条进化链；幼年形态不另设目标。';
             if (mode === 'legend') {
@@ -320,7 +334,7 @@
                 primary = gained.toLocaleString(); primaryLabel = settings.trainUid==='team'?'本次全队 EXP':'练级对象 EXP'; goalLabel = `目标 Lv.${settings.trainLevel} · 上限 ${p.cap || '—'}`; goalValue = `${p.targets.filter(m=>m.level>=settings.trainLevel).length}/${p.targets.length} 达标`; percent = p.targets.length ? p.targets.reduce((n,m)=>n+Math.min(1,m.level/settings.trainLevel),0)/p.targets.length*100 : 0;
                 hint = p.missing ? '所选目标不在当前冒险队伍中，请重新选择。' : `当前 ${p.targets.map(m=>`${MONS.get(m.id)?.name || m.id} Lv.${m.level}`).join('、')}。按全队经验/分钟选图，达到目标或当前等级上限时停止；不使用糖果。`;
             } else if (mode === 'money') { goalLabel = '金币目标'; goalValue = settings.moneyTarget ? `${s.money.toLocaleString()} / ${settings.moneyTarget.toLocaleString()}` : '持续刷钱'; percent = settings.moneyTarget ? s.money/settings.moneyTarget*100 : 0; }
-            else if(mode==='shiny'){const done=shinyOwned(s,settings.shinyId);primary=done?'已捕获':'寻找中';primaryLabel='目标异色';goalLabel=MONS.get(settings.shinyId)?.name;goalValue=`${shinyRanking(s,settings).length} 个野生来源`;percent=done?100:0;hint='只规划普通野生遭遇；遇到目标异色由游戏自动捕获。已拥有该异色即完成；神兽、赠送和固定遭遇不列入此模式。';}
+            else if(mode==='shiny'){const done=shinyOwned(s,settings.shinyId);primary=done?'已捕获':'寻找中';primaryLabel='目标异色';goalLabel=MONS.get(settings.shinyId)?.name;goalValue=`${shinyRoutes.length} 张可刷地图`;percent=done?100:0;hint='按当前野生遭遇表、轮换与特殊现象选图。运行实况显示各地图每轮预计遇到目标物种的次数，捕获目标异色后完成。';}
             else if(mode==='breed'){const flow=engine.automation.state,plan=pensionPlan(s,settings.breedId);primary=`${flow.hatched||0}/${settings.breedShiny?'✦':settings.breedGoal}`;primaryLabel='目标孵化';goalLabel=MONS.get(settings.breedId)?.name;goalValue=`寄养 ${s.pension?.mons?.length||0} · 蛋 ${s.pension?.eggs?.length||0}`;percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;hint=(plan.missing?plan.missing+'。':'优先异色亲本，配置百变怪和对应亲本。')+'游戏自动产蛋并放入孵化器；成熟后点击孵化，重复个体仍计入本次目标。蛋成熟后自动孵化，异色可能需要多轮。';}
             else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint='优先领取已归队成员与奖励，存档确认后才计数；按实际槽位的三人队伍补练和派遣，达到次数或槽位限制后等待返回/巴黎次日。不购买次数、槽位或起始楼层。';}
             else if(mode==='tower'){const p=towerProgress(s,now),reached=Math.max(p.best,p.cleared);primary=`${reached}/${settings.towerFloor}`;primaryLabel='本周已过楼层';goalLabel='已结束尝试';goalValue=`${engine.automation.state.towerWeek===p.week?engine.automation.state.towerAttempts||0:0}/${settings.towerRuns}`;percent=reached/settings.towerFloor*100;hint='按原生收藏排序、同种族限制和休息等级核对实际前六名，只为真正会上场的成员补练。暂停场次继续，不计失败；周记录与尝试次数按 UTC 周一重置，奖励结算后再结束任务。';}
@@ -333,10 +347,16 @@
             query('#goal-label').textContent = goalLabel; query('#goal-value').textContent = goalValue;
             percent = Math.max(0,Math.min(100,percent || 0)); query('#task-progress i').style.width = `${percent}%`; query('#task-progress').setAttribute('aria-valuenow', String(Math.round(percent)));
             query('#build').textContent = window.BUILD && window.BUILD !== DATA.build ? `游戏构建 ${window.BUILD} 与数据快照 ${DATA.build} 不同，预估可能需要更新。` : '';
-            if (ui.workspace === 'activity') renderView(s,status);
+            if (ui.workspace === 'activity') renderView(s,status,shinyRoutes);
         }
         function textCell(row, value) { const cell = document.createElement('td'); cell.textContent = value; row.appendChild(cell); }
-        function renderView(s, status) {
+        function renderView(s, status, shinyRoutes) {
+            query('#dex-panel').hidden=tab!=='dex';query('#view').hidden=tab==='dex';
+            if(tab==='dex'){dexPanel.renderDex(s,status,engine.settings,Date.now());return;}
+            const moneyAfterDex=!status.missing.length&&engine.settings.afterDex==='money'&&!engine.queueRunning;
+            if(tab==='maps'&&engine.settings.mode==='dex'&&!moneyAfterDex){
+                viewSignature=null;dexPanel.renderRoutes(query('#view'),s,status,engine);return;
+            }
             const signature=tab==='queue'?JSON.stringify([tab,engine.running,!!engine.suspended,!!engine.manual,engine.queueRunning,engine.queueIndex,engine.queue.map(job=>[job.id,job.title,job.status,job.result])]):tab==='logs'?JSON.stringify([tab,engine.logs]):null;
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -352,8 +372,8 @@
                     const steps={breed:['安排百变怪与目标亲本','游戏自动产蛋、进入孵化器','等待成熟并孵化至目标'],underground:['按主题配队并派遣','等待原生远征返回','领取奖励、按设置开启晶洞'],tower:['核对本周进度与实际原生阵容','确认启动后记录已过楼层','达标原生退出、结算后切换任务'],candy:['读取今日主题并配置独立阵容','补练达标后开始今日免费场次','到目标营地退出或尽力挑战，核对真实结算'],elite:['配置整座联盟的专属队伍','逐阶挑战未完成阶级','选择宝石并领取奖励'],world:['进入本期活动并提交攻击','等待护盾击破与捕获阶段','配置捕获队伍并捕获首领'],resource:['核对目标、余额与预算','逐份购买或使用','核对新增与消耗数量']}[mode];
                     const list=document.createElement('div');list.className='flow-list';for(const [i,label]of steps.entries()){const row=document.createElement('div');row.className='step';const n=document.createElement('b');n.textContent=String(i+1).padStart(2,'0');row.append(n,label);list.appendChild(row);}view.appendChild(list);
                 } else if(mode==='shiny'){
-                    const rows=shinyRanking(s,engine.settings),table=document.createElement('table');table.innerHTML='<thead><tr><th>地图</th><th>目标遭遇权重</th></tr></thead><tbody></tbody>';
-                    for(const row of rows){const tr=document.createElement('tr');textCell(tr,row.name);textCell(tr,row.expected.toFixed(2));table.tBodies[0].appendChild(tr);}view.appendChild(table);if(!rows.length)view.append('当前范围和时段没有目标来源。');
+                    const table=document.createElement('table');table.innerHTML='<thead><tr><th>地图</th><th>预计目标遭遇 / 轮</th></tr></thead><tbody></tbody>';
+                    for(const row of shinyRoutes){const tr=document.createElement('tr');textCell(tr,row.name);textCell(tr,row.expected.toLocaleString('zh-CN',{maximumSignificantDigits:3}));table.tBodies[0].appendChild(tr);}view.appendChild(table);if(!shinyRoutes.length)view.append('当前范围、时段和地图退避条件下暂无可用路线。');
                 } else {
                     const rank = mode === 'item' ? itemRanking : mode === 'train' ? xpRanking : moneyRanking;
                     const rows = rank(s,engine.settings,engine.metrics,engine.cooldowns), table = document.createElement('table');
@@ -371,10 +391,6 @@
                     const actions=document.createElement('div');actions.className='job-actions';for(const[action,label]of [['up','↑'],['down','↓'],['edit','编辑'],['retry','重置'],['remove','移除']]){const button=document.createElement('button');button.dataset.job=job.id;button.dataset.jobAction=action;button.textContent=label;button.disabled=engine.running||!!engine.suspended;actions.appendChild(button);}el.appendChild(actions);view.appendChild(el);
                 }
                 if(!engine.queue.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='设置一个任务后点击“加入队列”。任务按顺序执行，失败时保留进度并暂停；持续刷钱项需设置目标金币，后续任务才能开始。';view.appendChild(empty);}
-            } else if (tab === 'dex') {
-                const found = new Set(dexRanking(s,engine.settings).flatMap(r=>r.targets.map(t=>t.id))), wrap = document.createElement('div'); wrap.className = 'missing';
-                for (const m of status.missing) { const chip = document.createElement('span'); chip.className = 'chip'; chip.textContent = `#${m.id} ${m.name}${found.has(m.id)?' · 可规划':ROAMING_DATA.groups.some(group=>group.ids.includes(m.id))?' · 请选择游荡捕获':m.legend?' · 传说':' · 条件'}`; wrap.appendChild(chip); }
-                view.appendChild(wrap); if (!status.missing.length) view.append('所选范围的基础形态已全部捕获。');
             } else {
                 for (const item of engine.logs) { const el = document.createElement('div'); el.className = 'log'; const time = document.createElement('time'); time.textContent = item.time; el.append(time,item.text); view.appendChild(el); }
                 if (!engine.logs.length) view.append('开始运行后将在这里记录切图、收益与停止原因。');
@@ -393,7 +409,8 @@
             const button=event.target.closest('button');if(!button)return;
             if(button.dataset.category)showCategory(button.dataset.category);
             if(button.dataset.mode)changeSetting('mode',button.dataset.mode);
-            if(button.dataset.tab){tab=button.dataset.tab;root.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('on',el===button));render();}
+            if(button.dataset.tab){selectActivityTab(button.dataset.tab);render();}
+            if(button.dataset.lookup){selectActivityTab('dex');dexPanel.search('#'+button.dataset.lookup);}
             if(button.dataset.jobAction&&!engine.running&&!engine.suspended){const i=engine.queue.findIndex(job=>job.id===button.dataset.job);if(i<0)return;const job=engine.queue[i],action=button.dataset.jobAction;
                 if(action==='remove'){engine.queue.splice(i,1);if(editingJob===job.id){editingJob=null;query('#add-job').textContent='＋ 加入队列';}}
                 if(action==='retry'){job.status='pending';job.result='';delete job.progress;}
@@ -432,7 +449,7 @@
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,shiny:MONS.get(cfg.shinyId)?.name,breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
         function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid','shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil'].map(key=>cfg[key]));}
-        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);tab='queue';selectWorkspace('activity');root.querySelectorAll('[data-tab]').forEach(el=>el.classList.toggle('on',el.dataset.tab===tab));engine.status='任务已保存到队列';render();};
+        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
         query('#start-queue').onclick=()=>{engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start();engine.sessionItemId=engine.settings.itemId;syncSettings();render();};
         query('#stop').onclick=()=>{engine.stop();syncSettings();render();};

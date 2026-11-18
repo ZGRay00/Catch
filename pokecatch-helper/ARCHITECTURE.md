@@ -19,6 +19,9 @@
 | `src/models/facilities.js` | 对战塔、地下通道及活动候选模型 |
 | `src/services/background.js` | 并行服务排程与地下探险事务规划 |
 | `src/models/farming.js` | 普通刷闪、地图候选与基础目标选择 |
+| `src/models/task-goals.js` | 前台任务结束条件，供调度、后台服务和补练判断共用 |
+| `data/unova.json`、`src/models/unova.js` | 合众特殊现象与赠蛋的原生路段、条件、权重和当前路线标记 |
+| `src/ui/dex-panel.js` | 图鉴搜索、进化链登记与地点查询 |
 | `src/models/nursery-model.js` | 只读蛋判定、实际亲本池和条件下闪预测 |
 | `src/models/nursery-ledger.js` | 有界观测台账、原生孵化增量、刷新和回档分段 |
 | `src/services/nursery-monitor.js` | 账号独立存储、最新存档检查和多标签写前核对 |

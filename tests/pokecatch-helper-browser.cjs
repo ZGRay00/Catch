@@ -67,6 +67,45 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
+        const dexGuide=await evaluate(`(()=>{
+            const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,e=__pcTest.engine;
+            const tab=id=>root.querySelector('[data-tab="'+id+'"]').click();
+            root.querySelector('[data-workspace="activity"]').click();tab('dex');
+            const input=root.querySelector('#dex-search'),results=root.querySelector('#dex-results');
+            const search=value=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));return results.textContent;};
+            const locked=search('ALOMOMOLA'),lockedHeading=results.querySelector('.dex-section')?.textContent;
+            mock.state.dex[636]={caught:1};mock.save();
+            const alias=search('火神虫');
+            results.querySelector('[data-species="636"]').click();const base=results.textContent;
+            const id=search('#0594');
+            input.focus();e.onChange();const retained=root.activeElement===input&&input.value==='#0594';
+            const none=search('没有这种宝可梦');
+            root.querySelector('#dex-clear').click();
+            const missing=!!results.querySelector('[data-species]')&&root.activeElement===input&&input.value==='';
+            const before=e.settings,adv=mock.state.adv,to=mock.state.travel.to;
+            mock.state.adv={...adv,chapter:74,unlocked:83};mock.state.travel.to=[...to,'unova'];mock.save();
+            const available=search('594');const readyHeading=results.querySelector('.dex-section')?.textContent;
+            e.settings={...before,mode:'shiny',shinyId:594,region:'current'};tab('maps');
+            const shinySelect=root.querySelector('[data-setting="shinyId"]');
+            const rareSpecies=['424','41301'].every(id=>shinySelect.querySelector('option[value="'+id+'"]'));
+            const projected=[...root.querySelectorAll('#view tbody tr')].map(tr=>tr.lastElementChild.textContent);
+            e.settings={...before,mode:'dex',region:'current'};e.onChange();
+            const species=root.querySelector('#view details [data-lookup]');const wanted=species.dataset.lookup;
+            species.closest('details').open=true;species.focus();e.onChange();
+            const stable=root.activeElement===species&&species.isConnected;
+            species.click();const fromRoute=input.value==='#'+wanted&&root.activeElement===input&&root.querySelector('[data-tab="dex"]').getAttribute('aria-pressed')==='true';
+            e.settings=before;mock.state.adv=adv;mock.state.travel.to=to;
+            delete mock.state.dex[636];mock.save();tab('maps');root.querySelector('[data-workspace="tasks"]').click();
+            return {locked,lockedHeading,alias,base,id,retained,none,missing,available,readyHeading,projected,stable,fromRoute,rareSpecies};
+        })()`);
+        assert.match(dexGuide.locked,/#594 保姆曼波/);assert.match(dexGuide.id,/特殊现象.*合众/);
+        assert.match(dexGuide.alias,/#637 火神蛾 · 未捕获/);assert.match(dexGuide.alias,/进化链已完成/);assert.match(dexGuide.alias,/59/);
+        assert.match(dexGuide.base,/#636 燃烧虫 · 已捕获/);assert.match(dexGuide.base,/蛋/);
+        assert.ok(dexGuide.retained);assert.ok(dexGuide.missing);assert.match(dexGuide.none,/未找到/);
+        assert.equal(dexGuide.lockedHeading,'其他获取条件');assert.equal(dexGuide.readyHeading,'当前可尝试');
+        assert.ok(dexGuide.rareSpecies,'rotating-only wild targets are selectable');
+        assert.ok(dexGuide.projected.includes('0.006')&&dexGuide.projected.includes('0.009'),'distinct rare encounter estimates stay distinguishable');
+        assert.ok(dexGuide.stable&&dexGuide.fromRoute,'live updates preserve keyboard focus and a route target opens its dex entry');
         // A separate active tab exercises real Page Visibility and the same Chromium
         // focus command used by the optional extension. No game account is involved.
         const {targetId:otherTab}=await send('Target.createTarget',{url:'about:blank',background:false});

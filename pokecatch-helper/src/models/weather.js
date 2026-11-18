@@ -1,4 +1,43 @@
     const WEATHER_POOL_CACHE = new Map();
+    const WILD_SHINY_IDS = new Set(UNOVA_WILD_IDS);
+    const WILD_HABITATS = new Map();
+    const WILD_PHASES = ['morning','day','night'];
+    for(const c of DATA.chapters){
+        const habitat=new Map(),weather=WEATHER_DATA.chapters[c.id];
+        function record(id,phase,rotation){
+            if(!habitat.has(id))habitat.set(id,{phases:new Set(),ordinary:false,rotations:new Set()});
+            const hit=habitat.get(id);
+            hit.phases.add(phase);
+            if(rotation===null)hit.ordinary=true;
+            else if(!hit.ordinary)hit.rotations.add(rotation);
+            WILD_SHINY_IDS.add(id);
+        }
+        if(weather?.pools){
+            // The base tables must be visited first. Species added solely by a daily
+            // spot are still known sources on days when the spot is elsewhere.
+            for(const [key,variant] of [['',weather],...Object.entries(weather.variants||{})]){
+                const rotation=key?Number(key.split(':',1)[0]):null;
+                for(const phase of WILD_PHASES){
+                    const tables=new Set();
+                    for(const conditions of [variant.pools,variant.direct]){
+                        for(const season of Object.values(conditions||{})){
+                            for(const table of Object.values(season[phase]||{}))tables.add(table);
+                        }
+                    }
+                    for(const table of tables)for(const [id] of WEATHER_DATA.tables[table])record(id,phase,rotation);
+                }
+            }
+        }else{
+            for(const [phase,pool] of Object.entries(c.shinyPools||c.pools)){
+                for(const [id,weight] of pool)if(weight>0)record(id,phase,null);
+            }
+        }
+        WILD_HABITATS.set(c.id,habitat);
+    }
+    function hasWildSource(s,settings,id){
+        const specialChapters=(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter);
+        return candidates(s,settings).some(row=>row.members.some(ch=>WILD_HABITATS.get(ch)?.has(id)||specialChapters.includes(ch)));
+    }
     function weatherEncounterPool(s,chapter,now=Date.now()) {
         const sky=chapterWeather(s,chapter,now),data=WEATHER_DATA.chapters[chapter];
         if(!sky.known||!data)return null;
@@ -8,13 +47,26 @@
         if(!WEATHER_POOL_CACHE.has(table))WEATHER_POOL_CACHE.set(table,new Map(WEATHER_DATA.tables[table]));
         return WEATHER_POOL_CACHE.get(table);
     }
+    function currentWildPool(s,chapter,now){
+        const pool=weatherEncounterPool(s,chapter,now);
+        if(pool)return pool;
+        const c=CHAPTERS.get(chapter),phase=phaseAt(s,now,chapter);
+        return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
+    }
     function nextWildWindow(s,settings,ids,now=Date.now(),hours=48) {
         const targets=ids instanceof Set?ids:new Set(ids),rows=candidates(s,settings),slot=WEATHER_DATA.slotMs;
+        const phenomenonIds=[...targets].filter(id=>UNOVA_WILD_IDS.has(id));
         for(let n=1;n<=hours;n++){
             const at=Math.floor(now/slot)*slot+n*slot;
             for(const row of rows)for(const chapter of row.members){
-                const pool=weatherEncounterPool(s,chapter,at),id=pool&&[...targets].find(id=>(pool.get(id)||0)>0);
+                const pool=currentWildPool(s,chapter,at),id=[...targets].find(id=>(pool.get(id)||0)>0);
                 if(id)return{at,row,id,weather:chapterWeather(s,chapter,at).key};
+            }
+            for(const id of phenomenonIds){
+                for(const source of unovaAcquisitionSources(s,id,at,false)){
+                    const row=source.available&&rows.find(r=>r.members.includes(source.chapter));
+                    if(row)return{at,row,id,weather:chapterWeather(s,source.chapter,at).key};
+                }
             }
         }
         return null;

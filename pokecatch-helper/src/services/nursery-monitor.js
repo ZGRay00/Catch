@@ -1,10 +1,15 @@
     const NURSERY_STORE_PREFIX='pokecatch-helper:nursery:v1:';
     function nurseryRuntimeOptions(){
         if(typeof document==='undefined')return{};
-        if(typeof window!=='undefined'&&typeof window.BUILD==='string'&&window.BUILD)return{build:window.BUILD};
-        const scripts=[...(document.querySelectorAll?.('script[src]')||[])],bundle=scripts.map(node=>/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).find(Boolean);
+        const declared=typeof window!=='undefined'&&typeof window.BUILD==='string'?window.BUILD:'';
+        const scripts=[...(document.querySelectorAll?.('script[src]')||[])];
+        const hashes=new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
         const builds={'6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690'};
-        return{build:bundle?builds[bundle]||'unverified:'+bundle:'unverified:missing'};
+        if(hashes.size>1)return{build:'unverified:mixed-bundles'};
+        if(!hashes.size)return{build:declared||'unverified:missing'};
+        const [bundle]=hashes;
+        if(declared&&declared!==builds[bundle])return{build:'unverified:'+bundle};
+        return{build:builds[bundle]||'unverified:'+bundle};
     }
     class NurseryMonitor {
         constructor(engine){this.e=engine;this.account=null;this.key=null;this.raw=null;this.ledger=new NurseryLedger();this.error='';}
@@ -39,7 +44,7 @@
                     if(!this.fresh(s)){this.restore(raw);this.error='游戏存档已更新，本次旧快照未写入统计';return this.ledger.snapshot();}
                     const encoded=JSON.stringify(this.ledger.serialize());
                     this.e.storage.setItem(this.key,encoded);this.raw=encoded;this.ledger.markClean();this.error='';
-                    if(this.ledger.stats.shinyObserved>before)this.e.log(`培育屋观测到新异色蛋 +${this.ledger.stats.shinyObserved-before}`);
+                    if(this.ledger.stats.shinyObserved>before)this.e.log(`培育屋本段已确认的异色蛋 +${this.ledger.stats.shinyObserved-before}`);
                     return this.ledger.snapshot();
                 }
                 this.error='另一个标签页正在更新蛋统计，下一次重新核对';

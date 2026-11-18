@@ -50,8 +50,11 @@ test('ordinary and shiny-parent hypotheses remain separate from actual predictio
  assert.equal(f.scenarios.plainParents.nextShiny.rate,1/512);assert.equal(f.scenarios.shinyParents.nextShiny.rate,1/16);
  const bx=f.scenarios.berryNext.nextShiny;assert.equal(bx.rate,N.nurseryEggRate({sp:bx.parent.shiny?2:0,bx:bx.offset===0}));
 });
-test('future counters are never guessed from hatch counts or array length',()=>{
- const s=state();delete s.pension.laid;s.stats.hatched=999;s.pension.eggs=[{uid:'x'}];const f=N.nurseryForecast(s);assert.equal(f.known,false);assert.equal(f.counter,null);assert.equal(f.nextShiny,null);
+test('legacy initialization follows the native counter rule only with both operands on an audited build',()=>{
+ const s=state();delete s.pension.laid;s.stats.hatched=999;s.pension.eggs=[{uid:'x'}];const f=N.nurseryForecast(s,{build:N.NURSERY_RULES.build});assert.equal(f.known,true);assert.equal(f.counter,1000);assert.equal(f.counterSource,'native-initializer');
+ assert.equal(N.nurseryForecast(s,{build:'unverified',estimateUnverified:true}).counter,null);
+ const copy=structuredClone(s);delete copy.stats.hatched;assert.equal(N.nurseryForecast(copy).counter,null);
+ delete s.pension.eggs;assert.equal(N.nurseryForecast(s).counter,null);
  for(const modify of [s=>delete s.trainer,s=>s.pension.mons=[],s=>s.pension.mons=[{mon:{id:132,uid:'ditto'}}],s=>s.pension.mons=[{mon:{id:6,uid:'fire'}}]]){const s=state();modify(s);assert.equal(N.nurseryForecast(s).known,false);}
 });
 test('forecast limits bound computation and an empty search is not a no-shiny promise',()=>{

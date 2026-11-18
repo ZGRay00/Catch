@@ -37,43 +37,158 @@
         const row=valid?{...chapter,key:String(chapter.loop),members:[chapter.id],roamId:progress.target.id}:null;
         return{...progress,row,marked,index,active,restart:!!row&&row.id===s.adv.chapter&&!marked&&Number(s.adv.node)>0};
     }
-    function specialAvailable(s,special,now=Date.now(),chapter=s?.adv?.chapter){
-        if(special.once&&s.adv.gifts?.[special.once]||special.after&&!s.adv.gifts?.[special.after])return false;
-        if(special.needs&&(Number(s.items?.[special.needs])||0)<(special.needN||1))return false;
+    function specialBlockReason(s,special,now,chapter){
+        if(special.once&&s.adv.gifts?.[special.once])return '已领取一次性奖励';
+        if(special.after&&!s.adv.gifts?.[special.after])return '需要先完成前置事件';
+        if(special.needs&&(Number(s.items?.[special.needs])||0)<(special.needN||1))return `需要 ${special.needN||1} 个${ITEMS.get(special.needs)?.name||special.needs}`;
         const phase=phaseAt(s,now,chapter);
-        if(special.night&&phase!=='night'||special.day&&phase==='night')return false;
-        if(special.skies?.length){const node=WEATHER_DATA.chapters[chapter]?.nodes.find(node=>node.kind==='static'&&node.id===special.id&&(!special.once||node.once===special.once));if(!special.skies.includes(node?nodeWeather(s,chapter,node,now):chapterWeather(s,chapter,now).key))return false;}
-        if(special.caught?.some(id=>!s.dex?.[id]))return false;
-        return true;
+        if(special.night&&phase!=='night')return '需在夜间前往';
+        if(special.day&&phase==='night')return '需在白天前往';
+        if(special.skies?.length){const node=WEATHER_DATA.chapters[chapter]?.nodes.find(node=>node.kind==='static'&&node.id===special.id&&(!special.once||node.once===special.once));if(!special.skies.includes(node?nodeWeather(s,chapter,node,now):chapterWeather(s,chapter,now).key))return '地点天气条件尚未满足';}
+        if(special.caught?.some(id=>!s.dex?.[id]))return '需先登记前置宝可梦';
+        return '';
+    }
+    function specialAvailable(s,special,now=Date.now(),chapter=s?.adv?.chapter){
+        return !specialBlockReason(s,special,now,chapter);
+    }
+    function acquisitionSources(s,id,now=Date.now()){
+        if(!s?.adv||!MONS.has(id))return [];
+        const result=[],unlocked=new Set(availableChapters(s,{region:'all'}).map(c=>c.id));
+        const eggs=s.pension?.eggs||[],full=eggs.length>=Math.max(1,Number(s.pension?.open?.eggs)||1);
+        if(eggs.some(egg=>egg.id===id)){
+            const ready=eggs.some(egg=>egg.id===id&&Number.isFinite(egg.hatchAt)&&now>=egg.hatchAt);
+            result.push({kind:'incubating',chapter:null,place:'培育屋',available:ready,detail:ready?'已有成熟蛋，可领取后登记图鉴':'目标蛋正在孵化，领取后登记图鉴'});
+        }
+        for(const c of DATA.chapters){
+            const add=(kind,detail,block='')=>result.push({kind,chapter:c.id,place:c.name,available:unlocked.has(c.id)&&!block,
+                detail:[!unlocked.has(c.id)&&'章节未开放',block,detail].filter(Boolean).join(' · ')});
+            const habitat=WILD_HABITATS.get(c.id)?.get(id);
+            if(habitat){
+                const phases={morning:'清晨',day:'白天',night:'夜间'};
+                const times=WILD_PHASES.filter(phase=>habitat.phases.has(phase));
+                const daily=!habitat.ordinary;
+                const location=daily&&[...habitat.rotations].some(i=>WEATHER_DATA.dailySpots[i]?.honey)?'每日轮换的涂蜜树':
+                    daily?'每日轮换的出没地点':'普通野生遭遇';
+                const detail=times.length<3?location+' · '+times.map(phase=>phases[phase]).join('、'):location;
+                const active=currentWildPool(s,c.id,now).get(id)>0;
+                add('wild',detail,active?'':daily?'等待本章轮换地点和出没条件':'等待出没时段、季节或天气');
+            }
+            for(const gift of c.gifts){
+                if(!gift.ids.includes(id))continue;
+                const blocked=s.adv.gifts?.[gift.key]?'本次赠送已领取':gift.badge&&!s.adv.badges?.includes(gift.badge)?'需要前置徽章':
+                    !giftChoices(s,gift).includes(id)?'初始伙伴决定的本次赠送不含此物种':'';
+                add('gift','章节赠送',blocked);
+            }
+            for(const special of c.special){
+                const offer=special.offers?.find(([,species])=>species===id);
+                if(offer){
+                    const item=ITEMS.get(offer[0])?.name||offer[0];
+                    add('trade','使用'+item+'复原化石',s.items?.[offer[0]]>0?'':'当前背包缺少'+item);
+                }
+                if(![].concat(special.id||[]).includes(id))continue;
+                const block=specialBlockReason(s,special,now,c.id);
+                if(special.kind==='static')add('static','固定遭遇',block);
+                if(special.kind==='egg')add('egg',Array.isArray(special.id)?'一次性随机赠蛋':'章节赠蛋',block||(full?'孵化器已满':''));
+            }
+        }
+        const phenomena={ripple:'水面波纹',grass:'晃动的草丛',dust:'尘土',shadow:'桥上阴影'};
+        for(const source of unovaAcquisitionSources(s,id,now)){
+            const detail=source.kind==='lootEgg'
+                ? `获得合众冠军徽章后，大晴天在此地点探索道具节点有 ${Math.round(source.chance*100)}% 概率获得一次性赠蛋`
+                : `${phenomena[source.phenomenon]}触发野生遭遇时，当前天气下直接抽中${MONS.get(id).name}的概率为 ${Math.round(source.chance*1000)/10}%`;
+            const marked=source.marked?(source.kind==='lootEgg'?'当前路线已生成道具节点':'当前路线已生成此现象'):'';
+            result.push({...source,place:source.nodeName,detail:[detail,source.reason||marked].filter(Boolean).join(' · ')});
+        }
+        for(const [from,rules] of Object.entries(EVOLUTION_DATA.rules)){
+            for(const rule of rules.filter(edge=>edge.to===id)){
+                const species=Number(from),members=(s.mons||[]).filter(mon=>mon.id===species).sort((a,b)=>(a.rank||0)-(b.rank||0)||b.level-a.level);
+                const checks=members.map(mon=>evolutionStatus(s,mon,{now},rule)),available=checks.some(check=>check.rule);
+                let detail=rule.item==='link-cable'?'交换进化':(rule.level?'Lv.'+rule.level:ITEMS.get(rule.item)?.name||rule.item)+' 进化';
+                const time=EVOLUTION_DATA.time[id];
+                if(time)detail+=' · '+(time==='night'?'夜间':'白天');
+                if(rule.party)detail+=' · 同行队友需要'+(MONS.get(rule.party)?.name||rule.party);
+                if(!members.length)detail+=' · 需先取得前置形态';
+                else if(!available)detail+=' · '+checks[0].reason;
+                else if(rule.item||rules.length>1)detail+=' · 可手动进化';
+                result.push({kind:'evolution',chapter:null,place:MONS.get(species)?.name||String(species),fromId:species,available,detail});
+            }
+        }
+        const residents=(s.pension?.mons||[]).map(slot=>slot.mon).filter(Boolean);
+        const parents=[...residents,...(s.mons||[])].filter(mon=>mon.id!==id&&breedableOffspring(s,mon)===id);
+        if(parents.length){
+            const plan=pensionPlan(s,id);
+            const parentNames=[...new Set(parents.map(mon=>MONS.get(mon.id)?.name||mon.id))];
+            result.push({kind:'breed',chapter:null,place:'培育屋',available:!plan.missing&&!full,
+                detail:parentNames.join('、')+' 可与百变怪培育此物种的蛋'+(plan.missing?' · '+plan.missing:full?' · 孵化器已满':' · 可使用繁殖任务')});
+        }
+        for(const zone of DATA.zones.filter(z=>!z.eliteOnly&&(z.forms||[z.id]).includes(id))){
+            result.push({kind:'legend',chapter:null,place:zone.name,available:false,detail:(zone.condition||'传说战')+' · 开放状态以游戏地图为准'});
+        }
+        const roam=roamingProgress(s,{roamId:id},now);
+        if(roam.target)result.push({kind:'roam',chapter:roam.location?.ch??null,place:DATA.regions.find(r=>r.key===roam.group.reg).name,
+            available:!!roam.location,detail:roam.location?'游荡中 · '+CHAPTERS.get(roam.location.ch).name:roam.unlocked?'等待在线游荡出现':'取得本地区冠军后开放游荡'});
+        return result.sort((a,b)=>Number(b.available)-Number(a.available));
+    }
+    function markedDexSource(s,settings,now){
+        if(currentRegion(s)!=='unova'||!s.adv.nodes?.length)return null;
+        const nodes=s.adv.nodes.slice(s.adv.node||0);
+        let missing;
+        for(const [species,routes] of UNOVA_SOURCE_INDEX){
+            const matches=routes.some(route=>route.chapter===s.adv.chapter&&nodes.some(node=>node.name===route.name&&
+                (route.egg?.id===species?node.type==='item'&&!node.find&&node.loot?.['egg:'+species]:
+                    node.type==='wild'&&!node.roamer&&node.phenom===route.phenomenon)));
+            if(!matches)continue;
+            missing??=dexStatus(s,settings).ids;
+            if(!missing.has(species)||s.pension?.eggs?.some(egg=>egg.id===species))continue;
+            const marked=unovaAcquisitionSources(s,species,now).find(source=>source.marked);
+            if(marked)return marked;
+        }
+        return null;
     }
     function dexRanking(s, settings, cooldowns = {}, now = Date.now()) {
         const status = dexStatus(s, settings);
-        return candidates(s, settings).filter(c => (cooldowns[c.key] || 0) <= now).map(row => {
-            const hits = new Map(); let score = 0;
+        const wanted=new Set(status.ids),specialByChapter=new Map();
+        for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
+        for(const species of wanted){
+            for(const source of unovaAcquisitionSources(s,species,now)){
+                if(!source.available)continue;
+                if(!specialByChapter.has(source.chapter))specialByChapter.set(source.chapter,[]);
+                specialByChapter.get(source.chapter).push(source);
+            }
+        }
+        return candidates(s, settings).map(row => {
+            const hits = new Map(); let score = 0,marked=false,hasWild=false;
             for (const id of row.members) {
                 const c = CHAPTERS.get(id);
-                const pool=weatherEncounterPool(s,id,now);
-                for (const [mon, best, clear, when] of c.pools[phaseAt(s,now,id)] || []) {
-                    if (!status.ids.has(mon)) continue;
-                    const weight = pool?pool.get(mon)||0:clear;
-                    if (weight <= 0) continue;
+                const phaseRows=c.pools[phaseAt(s,now,id)]||[];
+                for (const [mon,weight] of currentWildPool(s,id,now)) {
+                    if (!wanted.has(mon)||weight<=0) continue;
+                    hasWild=true;
                     score += weight * Math.max(.08, MONS.get(mon).rate / 255);
                     const old = hits.get(mon);
-                    hits.set(mon, { id: mon, weather: clear === 0 && !old?.normal ? when : [], normal: clear > 0 || !!old?.normal });
+                    const data=phaseRows.find(entry=>entry[0]===mon),normal=(data?.[2]||0)>0||!!old?.normal;
+                    hits.set(mon, { id: mon, weather: normal?[]:data?.[3]||[], normal });
                 }
                 for (const gift of c.gifts) {
                     if (!settings.gifts || s.adv.gifts?.[gift.key] || gift.badge && !s.adv.badges?.includes(gift.badge)) continue;
-                    const id = giftChoices(s,gift).find(id => status.ids.has(id));
+                    const id = giftChoices(s,gift).find(id => wanted.has(id));
                     if (id) { score += 6; hits.set(id, { id, gift: true }); }
                 }
                 for (const special of c.special) {
-                    if (special.kind !== 'static' || !status.ids.has(special.id) || !specialAvailable(s,special,now,id)) continue;
+                    if (special.kind !== 'static' || !wanted.has(special.id) || !specialAvailable(s,special,now,id)) continue;
                     score += special.skies?.length ? .05 : Math.max(.05, special.chance || .5);
                     hits.set(special.id, { id: special.id, special: true });
                 }
+                for(const source of specialByChapter.get(id)||[]){
+                    const egg=source.kind==='lootEgg';
+                    const catchFactor=egg?1:Math.max(.08,MONS.get(source.id).rate/255);
+                    score+=source.weight*catchFactor;
+                    marked||=!!source.marked;
+                    hits.set(source.id,{id:source.id,special:true,kind:source.kind,place:source.nodeName,marked:!!source.marked||!!hits.get(source.id)?.marked});
+                }
             }
-            return { ...row, targets: [...hits.values()], score: score / Math.max(15, row.units) };
-        }).filter(row => row.targets.length).sort((a, b) => b.score - a.score || a.id - b.id);
+            return { ...row, targets: [...hits.values()], marked, hasWild, score: score / Math.max(15, row.units) };
+        }).filter(row => row.targets.length&&(row.marked||(cooldowns[row.key]||0)<=now)).sort((a, b) => Number(b.marked)-Number(a.marked)||b.score - a.score || a.id - b.id);
     }
     function parisDay(now = Date.now()) {
         const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now).map(p => [p.type, p.value]));

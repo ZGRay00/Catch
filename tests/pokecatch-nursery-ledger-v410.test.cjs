@@ -15,6 +15,27 @@ test('new egg observations have independent shiny, ordinary and unknown counts',
  assert.equal(s.stats.eggsObserved,3);assert.equal(s.stats.shinyObserved,1);assert.equal(s.stats.plainObserved,1);assert.equal(s.stats.unknownObserved,1);assert.equal(s.current.shiny,1);assert.equal(s.current.unknown,1);
  ledger.markClean();ledger.observe(save([egg('shiny',true),egg('plain'),{uid:'unknown',id:1}],500),3000);assert.equal(ledger.dirty,false);assert.equal(ledger.snapshot().stats.eggsObserved,3);
 });
+
+test('an observed unknown outcome is refined once, including across reloads and a later hatch',()=>{
+ const waiting={nativeBuild:'unsupported'},verified={nativeBuild:'supported'};
+ const preexisting={uid:'baseline',id:1,k:2},fresh={uid:'new',id:1,k:4};
+ let ledger=new NurseryLedger();ledger.observe(save([preexisting]),1000,waiting);
+ ledger.observe(save([preexisting,fresh]),2000,waiting);
+ ledger=new NurseryLedger(plain(ledger.serialize()));
+ for(const now of [3000,4000])ledger.observe(save([preexisting,fresh]),now,verified);
+ assert.equal(ledger.stats.eggsObserved,1);assert.equal(ledger.stats.unknownObserved,0);assert.equal(ledger.stats.shinyObserved,1);
+ ledger.observe(save([preexisting],501),5000,verified);
+ assert.equal(ledger.stats.shinyHatched,1);assert.equal(ledger.stats.shinyObserved,1);
+});
+test('an unverified observation can gain explicit save evidence or be resolved while waiting for the hatch counter',()=>{
+ const waiting={nativeBuild:'unsupported'},verified={nativeBuild:'supported'},ledger=ready();
+ const unknown={uid:'first',id:1,k:3},second={uid:'second',id:1,k:2};
+ ledger.observe(save([unknown,second]),1500,waiting);
+ ledger.observe(save([{...unknown,shiny:false}]),2000,waiting);
+ assert.equal(ledger.stats.plainObserved,1);assert.equal(ledger.stats.unknownObserved,1);
+ ledger.observe(save([{...unknown,shiny:false}],501),3000,verified);
+ assert.equal(ledger.stats.shinyObserved,1);assert.equal(ledger.stats.unknownObserved,0);assert.equal(ledger.stats.shinyHatched,1);
+});
 test('egg disappearance alone never proves an ordinary or shiny hatch',()=>{
  const ledger=ready(save([egg('shiny',true)]));const s=ledger.observe(save([],500),2000);assert.equal(s.current.pendingDisappearances,1);assert.equal(s.stats.hatched,0);assert.equal(s.stats.shinyHatched,0);assert.equal(s.stats.plainHatched,0);
 });

@@ -107,3 +107,15 @@ test('the screenshot species use actual game evolution thresholds',()=>{
         const m=mon(id,level),s=state([m]);assert.equal(H.projectEvolution(s,m,level,noon).id,expected);
     }
 });
+
+test('preparation explains Wingull at 68/72 using its live identity, eligibility and scheduler',()=>{
+    const gull=mon(278,68),s=state([gull]),target={uid:gull.uid,id:278,level:50,goal:72};
+    const engine={settings:{autoEvolve:true},running:true};
+    const label=()=>H.preparationEvolutionLabel(s,target,engine,noon);
+    assert.match(label(),/长翅鸥 → 大嘴鸥 68\/72（已满足进化条件/);
+    s.adv.battle={};assert.match(label(),/等待当前战斗/);delete s.adv.battle;
+    s.mons.push(mon(279,70));assert.match(label(),/家族容量/);s.mons.pop();
+    gull.rank=1;assert.match(label(),/已升阶/);delete gull.rank;
+    engine.settings.autoEvolve=false;assert.match(label(),/自动进化已关闭/);
+    gull.id=279;assert.equal(label(),'大嘴鸥 68/72');
+});

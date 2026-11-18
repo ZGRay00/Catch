@@ -10,7 +10,6 @@
         if(!saved)return false;try{const [reg,id,date]=JSON.parse(saved);return JSON.stringify([reg||currentRegion(s),id,date||parisDay()])===raidIdentity(s);}catch{return false;}
     }
     const RESOURCE_IDS = new Set([...DATA.automation.shop.map(x=>x.id),...Object.keys(DATA.automation.buffs),'rare-candy','link-cable','up-grade','shed-shell']);
-    const WILD_SHINY_IDS = new Set(DATA.chapters.flatMap(c=>Object.values(c.shinyPools||{}).flatMap(pool=>pool.map(([id])=>id))));
     function encounterDataErrors(data = DATA) {
         const errors = [];
         if (data.poolSchema !== 1) errors.push('野外数据版本缺失');

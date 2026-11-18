@@ -1,10 +1,9 @@
     function shinyRanking(s,settings,cooldowns={},now=Date.now()){
         const target=settings.shinyId;
+        const phenomena=unovaAcquisitionSources(s,target,now).filter(source=>source.kind==='phenomenon'&&source.available);
         return candidates(s,settings).filter(row=>(cooldowns[row.key]||0)<=now).map(row=>{
-            const expected=row.members.reduce((n,id)=>{
-                const pool=weatherEncounterPool(s,id,now);
-                return n+(pool?pool.get(target)||0:(CHAPTERS.get(id).shinyPools?.[phaseAt(s,now,id)]||[]).filter(([mon])=>mon===target).reduce((n,[,,clear])=>n+clear,0));
-            },0);
+            const expected=row.members.reduce((n,id)=>n+(currentWildPool(s,id,now).get(target)||0),0)
+                +phenomena.filter(source=>row.members.includes(source.chapter)).reduce((n,source)=>n+source.weight,0);
             return{...row,expected,rate:expected/Math.max(20,row.units*2.8/2.5)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }

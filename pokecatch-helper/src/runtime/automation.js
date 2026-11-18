@@ -107,7 +107,8 @@
                 const ready=pool.map(mon=>({mon,rule:levelEvolution(s,mon,{now})})).filter(entry=>entry.rule);
                 if(!ready.length)return false;
                 const preferred=[...(e.preparation?.targets||[]).map(mon=>mon.uid),...(s.team||[])];
-                let choice=ready.find(entry=>preferred.includes(entry.mon.uid));
+                const readyByUid=new Map(ready.map(entry=>[entry.mon.uid,entry]));
+                let choice=preferred.map(uid=>readyByUid.get(uid)).find(Boolean);
                 const specialSelection=FLOW_MODES.has(cfg.mode)||cfg.mode==='legend'||!['map','progress'].includes(context.kind);
                 const manualSelection=specialSelection?!cfg.optimizeRaid:!cfg.autoTeam;
                 if(!choice&&!manualSelection){

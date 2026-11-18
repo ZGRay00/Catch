@@ -51,6 +51,19 @@
     summary { font-size:12px; color:#c2d3df }
     .field,.setting { min-height:28px }
     .list { max-height:min(38dvh,330px) }
+    #dex-panel .field { margin-top:10px }
+    #dex-clear { flex:none; padding:6px; font-size:11px }
+    #dex-results, .dex-routes { overflow-wrap:anywhere }
+    .dex-heading { display:block; font-size:13px; color:#d8ede7 }
+    .dex-section { font-size:11px; font-weight:650; color:#a9c2d8; margin:12px 0 2px }
+    .dex-source { padding:7px 0; border-top:1px solid #304157; font-size:12px }
+    .dex-source .hint { margin:2px 0 }
+    .dex-routes details { padding:0; margin:0; border-top:0; border-bottom:1px solid #304157 }
+    .dex-routes summary { padding:7px 4px; color:#d8e8f1; font-weight:600; min-height:32px }
+    .dex-routes summary:focus-visible, .tabs button:focus-visible { outline-offset:-3px }
+    .dex-route-count { float:right; margin-left:6px; color:#a1c8b8; font-size:11px; font-weight:400 }
+    .dex-routes .missing { padding:0 4px 8px }
+    .dex-routes .chip, #dex-results .chip { min-height:27px }
     .actions { flex-wrap:wrap }
     .actions button { flex:1 1 26%; min-height:30px; font-size:11px }
     .commandbar { padding:8px 12px; background:#192b39 }
@@ -60,5 +73,13 @@
         .content { padding:8px 10px }
         .workspace-nav button { min-height:32px }
         .commandbar { padding:6px 10px }
+    }
+    @media(max-width:360px) {
+        #dex-panel .field { flex-wrap:wrap; gap:5px }
+        #dex-panel .field label { flex:0 0 100% }
+        .service-row { grid-template-columns:minmax(0,1fr) auto }
+        .service-label { font-weight:600 }
+        .service-detail { grid-column:1/-1 }
+        .setting input[type=number],.setting select { width:40% }
     }
     `;

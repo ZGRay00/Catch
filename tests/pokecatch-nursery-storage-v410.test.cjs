@@ -62,6 +62,10 @@ test('browser prediction requires a recognized game build while saved legacy fla
         srcs=['/bundle/app.ac708615ae.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
         srcs=['/bundle/app.0123456789.js'];assert.equal(H.nurseryRuntimeOptions().build,'unverified:0123456789');
         assert.equal(H.eggOutcome({}, {shiny:true},H.nurseryRuntimeOptions()).shiny,true);
-        global.window.BUILD=H.NURSERY_RULES.build;assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
+        global.window.BUILD=H.NURSERY_RULES.build;
+        assert.equal(H.nurseryRuntimeOptions().build,'unverified:0123456789');
+        srcs=['/bundle/app.ac708615ae.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
+        srcs.push('/bundle/app.84beed0145.js');assert.equal(H.nurseryRuntimeOptions().build,'unverified:mixed-bundles');
+        srcs=[];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
     }finally{if(previousDocument===undefined)delete global.document;else global.document=previousDocument;if(previousWindow===undefined)delete global.window;else global.window=previousWindow;}
 });

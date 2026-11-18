@@ -23,6 +23,8 @@
       "kind": "source",
       "file": "src/core/catalog.js"
     },
+    {"kind":"json","file":"data/unova.json","constant":"UNOVA_ENCOUNTERS"},
+    {"kind":"source","file":"src/models/unova.js"},
     {
       "kind": "source",
       "file": "src/data/candy.js"
@@ -35,6 +37,7 @@
       "kind": "source",
       "file": "src/models/facilities.js"
     },
+    {"kind":"source","file":"src/models/task-goals.js"},
     {
       "kind": "source",
       "file": "src/services/background.js"
@@ -113,6 +116,7 @@
       "file": "src/runtime/node-exports.js"
     },
     {"kind":"source","file":"src/ui/panel-style.js"},
+    {"kind":"source","file":"src/ui/dex-panel.js"},
     {"kind":"source","file":"src/ui/nursery-panel.js"},
     {
       "kind": "source",

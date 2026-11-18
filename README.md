@@ -1,8 +1,12 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **4.3.1**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **4.6.0**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v4.3.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v4.6.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+在「运行实况 → 目标与收益」查看补图路线，点击缺少的宝可梦即可查获取条件。「图鉴」可搜索火神蛾或保姆曼波，查看燃烧虫赠蛋的天气与徽章要求，或五处水纹地点。野生刷闪覆盖每日轮换遇敌表；队列切换会重新计时游荡搜寻，保留整次运行的预算和原循环。
+
+「培育屋 · 闪蛋计数」显示已生成蛋的闪色依据，并区分已核对构建的条件预测与参考结果。
 
 4.3.1 修复切换标签页后补练误报页面超时的问题。需要在其他标签页使用期间持续推图时，可启用完整包中的「PokéCatch 保持激活」。[后台运行设置](./pokecatch-keep-active/使用说明.txt)
 
@@ -11,7 +15,7 @@
 ## 安装和更新
 
 1. 在浏览器中启用 Tampermonkey，打开上面的脚本链接并确认安装。
-2. 进入游戏或刷新游戏页，确认助手面板显示 `4.3.1`。
+2. 进入游戏或刷新游戏页，确认助手面板显示 `4.6.0`。
 3. 后续点击面板顶部“在线更新”。发现新版后再次点击“安装新版”，在油猴确认安装，完成后刷新游戏。
 
 从旧版手动复制安装的用户，需要先安装这一次新版。脚本也配置了油猴原生 `@updateURL` 和 `@downloadURL`。

@@ -34,6 +34,36 @@ async function main(){
             }
             return views})()`);
         assert.deepEqual(panes,[['pane-tasks'],['pane-settings'],['pane-activity']]);checks.push('workspace navigation exposes one page at a time with task commands available');
+        const calendar=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,r=${root},panel=r.querySelector('#season-calendar'),clock=Date.now;
+            const read=()=>({key:panel.dataset.season,name:panel.querySelector('strong').textContent,
+                remaining:panel.querySelector('.season-remaining').textContent,end:Date.parse(panel.querySelector('time:last-of-type').dateTime)});
+            const before=read();panel.open=true;
+            try{
+                Date.now=()=>before.end-1;e.onChange();const last=read();
+                Date.now=()=>before.end;e.onChange();return {before,last,after:read(),open:panel.open,cycle:panel.querySelector('.season-next').textContent};
+            }finally{Date.now=clock;panel.open=false;e.onChange();}
+        })()`);
+        assert.equal(calendar.last.name,calendar.before.name);assert.match(calendar.last.remaining,/1分钟/);
+        assert.notEqual(calendar.before.key,calendar.after.key);assert.ok(calendar.after.end>calendar.before.end);
+        assert.ok(calendar.open);assert.match(calendar.cycle,/3 个日历日.*12 天/);
+        checks.push('the visible season, local changeover and countdown roll over at midnight while the disclosure stays open');
+        const seasonalDex=await evaluate(`(()=>{
+            const r=${root},input=r.querySelector('#dex-search'),results=r.querySelector('#dex-results');
+            const lookup=id=>{input.value=id;input.dispatchEvent(new Event('input',{bubbles:true}));};
+            const originalSeasons=fixtureState.seasons;
+            try{
+                fixtureState.seasons={585:['spring','winter']};commitExecution();r.querySelector('[data-tab="dex"]').click();
+                lookup('#585');const forms=[...results.querySelectorAll('.season-forms li')].map(el=>[el.dataset.seen,el.textContent]);
+                lookup('#522');return {forms,summer:results.textContent,otherForms:!!results.querySelector('.season-forms')};
+            }finally{
+                fixtureState.seasons=originalSeasons;lookup('');r.querySelector('[data-tab="maps"]').click();commitExecution();
+            }
+        })()`);
+        assert.equal(seasonalDex.forms.length,4);assert.equal(seasonalDex.forms.filter(([seen])=>seen==='true').length,2);
+        assert.equal(seasonalDex.forms.filter(([,label])=>label.includes('本季')).length,1);
+        assert.equal(seasonalDex.otherForms,false);assert.match(seasonalDex.summer,/夏季限定/);
+        checks.push('the dex distinguishes a summer-only encounter source from four separately tracked seasonal sightings');
         const expedition=await evaluate(`(()=>{
             const r=${root},e=__pcExecutionTest.engine,selector='[data-setting="underAutoStart"]';
             const task=r.querySelector('#pane-tasks '+selector),settings=r.querySelector('#pane-settings '+selector);
@@ -56,6 +86,17 @@ async function main(){
             e.raidCheckNote='';r.querySelector('[data-workspace="activity"]').click();return result;
         })()`);
         assert.equal(raidNote.visible,true);assert.match(raidNote.text,/已按设置跳过拥有的异色目标/);checks.push('the daily raid setting explains why the most recent check skipped the target');
+        const raidDone=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,previous=fixtureState.raids;
+            const day=new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Paris'}).format(new Date());
+            try{
+                fixtureState.raids={seen:day,done:{['kanto|'+day]:1},doneBoss:{['kanto|'+day]:35}};
+                commitExecution();r.querySelector('[data-workspace="settings"]').click();
+                return {text:r.querySelector('#raid-check').textContent,running:e.running};
+            }finally{fixtureState.raids=previous;commitExecution();r.querySelector('[data-workspace="activity"]').click();}
+        })()`);
+        assert.equal(raidDone.running,false);assert.match(raidDone.text,/已完成.*下次刷新.+月.+日 \d{2}:\d{2}（本地时间）/);
+        checks.push('the idle settings panel shows the next local refresh for a completed Paris raid without starting a task');
         const preparationRanking=await evaluate(`(async()=>{
             const e=__pcExecutionTest.engine,r=${root},s=fixtureState,initial=s.adv;
             const previousSettings=e.settings,initialLevel=s.mons[0].level;
@@ -121,6 +162,30 @@ async function main(){
         const environment=await evaluate(`(async()=>{const e=__pcExecutionTest.engine,r=${root};e.running=true;e.started=Date.now();e.tabToken=localStorage.getItem('pokecatch-tab');e.manual=null;e.preparation=null;e.raidPreparation=null;e.driver.teamTask=null;e.driver.navigation=null;e.lastProgress=Date.now();Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.documentElement.setAttribute('data-pc-helper-background-at',String(Date.now()));e.onChange();const active=r.querySelector('#execution-environment').textContent;document.documentElement.setAttribute('data-pc-helper-background-at',String(Date.now()-90000));e.onChange();await e.step();e.onChange();const expired=r.querySelector('#execution-environment').textContent,status=e.status;document.documentElement.removeAttribute('data-pc-helper-background-at');delete document.hidden;e.stop('environment fixture complete');e.onChange();return{active,expired,status}})()`);
         assert.match(environment.active,/保活扩展已启用.*后台运行许可/);assert.match(environment.expired,/当前标签在后台.*等待回到游戏/);assert.match(environment.status,/后台等待/);checks.push('a fresh companion heartbeat grants background status while an expired heartbeat restores the ordinary hidden-tab wait');
         const expandedScreenshot=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(dir,'probability-profile-mobile.png'),Buffer.from(expandedScreenshot.data,'base64'));
+        const ended=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,r=${root},s=fixtureState;
+            r.querySelector('[data-workspace="tasks"]').click();
+            e.settings={...e.settings,mode:'train',trainUid:'team',trainLevel:100,raids:false};
+            s.mons[0].xp=0;s.money=1000;commitExecution();e.start();if(!e.running)throw Error(e.status);e.onChange();
+            s.adv.paused=true;commitExecution();
+            const nativePause=[r.querySelector('#run-state').textContent,r.querySelector('#mini-state').textContent,r.querySelector('#resume').classList.contains('hidden')];
+            s.adv.paused=false;commitExecution();
+            const resumed=r.querySelector('#run-state').textContent;
+            s.money+=300;s.mons[0].xp+=120;
+            localStorage.setItem('gachamon-save-v1',JSON.stringify(s));
+            r.querySelector('#stop').click();
+            s.money+=700;s.mons[0].xp+=400;commitExecution();
+            const training=[r.querySelector('#money-value').textContent,r.querySelector('#dex-value').textContent];
+            e.settings={...e.settings,mode:'item',itemId:'rare-candy'};s.stats.itemIn={'rare-candy':6};
+            commitExecution();e.start();if(!e.running)throw Error(e.status);
+            s.stats.itemIn['rare-candy']+=2;commitExecution();r.querySelector('#stop').click();
+            s.stats.itemIn['rare-candy']+=5;commitExecution();
+            return {nativePause,resumed,training,items:r.querySelector('#dex-value').textContent,money:r.querySelector('#money-value').textContent};
+        })()`);
+        assert.deepEqual(ended.training,['+300','120']);assert.match(ended.items,/^2\//);assert.equal(ended.money,'0');
+        assert.match(ended.nativePause[0],/游戏暂停/);assert.match(ended.nativePause[1],/游戏已暂停/);assert.equal(ended.nativePause[2],true);assert.match(ended.resumed,/运行中/);
+        checks.push('the full panel and minimized label reflect native pause and resume without offering the manual takeover button');
+        checks.push('final wallet, trainee EXP and item gains freeze at Stop while the native game continues, and the next task gets a fresh baseline');
         console.log('PASS: '+checks.length+' execution/concurrency UI checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

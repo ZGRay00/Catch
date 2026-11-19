@@ -59,6 +59,7 @@ test('White Forest day restriction applies to map generation; already generated 
 
 test('Axew fang collection stops when the bag contains ten or the nest has been visited', () => {
     const s = state(72), source = H.ITEMS.get('axew-fang').sources.find(row => row.ch === 72);
+    assert.ok(Math.abs(source.expected - 0.03575) < 1e-10);
     s.items['axew-fang'] = 9;
     assert.equal(H.sourceAvailable(s,source,'axew-fang'),true);
     s.items['axew-fang'] = 10;
@@ -66,4 +67,16 @@ test('Axew fang collection stops when the bag contains ten or the nest has been 
     s.items['axew-fang'] = 0;
     s.adv.gifts['axew-nest'] = true;
     assert.equal(H.sourceAvailable(s,source,'axew-fang'),false);
+});
+
+test('towns can yield a first regional stone, and roaming berries enter their pool after a roaming group unlocks', () => {
+    const s=state(0);
+    const rank=id=>H.itemRanking(s,H.normalizeSettings({mode:'item',itemId:id}));
+    assert.deepEqual(rank('rowap-berry'),[]);
+    const find=()=>rank('fire-stone').find(row=>row.id===0);
+    assert.ok(find().sources.some(source=>source.kind==='town'&&source.stone));
+    s.stonesFound={'r:kanto':['fire-stone']};
+    assert.equal(find(),undefined);
+    s.adv.badges=['Maître Johto'];
+    assert.ok(rank('rowap-berry').some(row=>row.id===0&&row.expected>0));
 });

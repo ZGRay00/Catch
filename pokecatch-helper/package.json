@@ -1,6 +1,6 @@
 {
   "name": "pokecatch-auto-helper",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "private": true,
   "description": "PokéCatch helper source, deterministic userscript build and offline regression tools",
   "engines": { "node": ">=22" },

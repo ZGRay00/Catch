@@ -86,7 +86,7 @@ test('telemetry records realized XP and item intake only after a complete warm-u
     const s=state();s.mons[0].xp=0;s.stats.itemIn={};const row=H.candidates(s,H.DEFAULTS)[0],t=new H.Telemetry();
     t.begin(s,row,H.DEFAULTS,0);s.adv.node=1;t.observe(s,row,H.DEFAULTS,10000);s.adv.runs++;t.observe(s,row,H.DEFAULTS,20000);
     s.adv.node=2;t.observe(s,row,H.DEFAULTS,30000);s.mons[0].xp+=345;s.stats.itemIn['berry-oran']=2;s.adv.runs++;
-    const result=t.observe(s,row,H.DEFAULTS,50000),m=t.metrics[H.metricsKey(s,row,H.DEFAULTS)];
+    const result=t.observe(s,row,H.DEFAULTS,50000),m=t.metrics[H.metricsKey(s,row,H.DEFAULTS,50000)];
     assert.equal(result.valid,true);assert.equal(result.xp,345);assert.equal(m.xp,345);assert.equal(m.itemCounts['berry-oran'],2);assert.equal(m.itemSeconds,30);
 });
 
@@ -953,7 +953,7 @@ test('telemetry discards partial entry and measures complete loops including los
     s.adv.runs++; s.adv.node = 0; s.money += 600; s.adv.deaths[0] = 1;
     const result = t.observe(s, row, H.DEFAULTS, 90000);
     assert.equal(result.valid, true); assert.equal(result.net, 600); assert.equal(result.seconds, 60); assert.equal(result.deaths, 1);
-    assert.equal(t.metrics[H.metricsKey(s, row, H.DEFAULTS)].net, 600);
+    assert.equal(t.metrics[H.metricsKey(s, row, H.DEFAULTS, 90000)].net, 600);
     s.adv.event = { raid: true }; assert.equal(t.observe(s, row, H.DEFAULTS, 100000), null); assert.equal(t.sample, null);
 });
 test('league accounting waits through every council member', () => {

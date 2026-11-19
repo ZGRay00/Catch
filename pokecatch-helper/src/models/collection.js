@@ -63,7 +63,7 @@
             result.push({kind:'incubating',chapter:null,place:'培育屋',available:ready,detail:ready?'已有成熟蛋，可领取后登记图鉴':'目标蛋正在孵化，领取后登记图鉴'});
         }
         for(const c of DATA.chapters){
-            const add=(kind,detail,block='')=>result.push({kind,chapter:c.id,place:c.name,available:unlocked.has(c.id)&&!block,
+            const add=(kind,detail,block='',extra={})=>result.push({kind,chapter:c.id,place:c.name,available:unlocked.has(c.id)&&!block,...extra,
                 detail:[!unlocked.has(c.id)&&'章节未开放',block,detail].filter(Boolean).join(' · ')});
             const habitat=WILD_HABITATS.get(c.id)?.get(id);
             if(habitat){
@@ -72,9 +72,18 @@
                 const daily=!habitat.ordinary;
                 const location=daily&&[...habitat.rotations].some(i=>WEATHER_DATA.dailySpots[i]?.honey)?'每日轮换的涂蜜树':
                     daily?'每日轮换的出没地点':'普通野生遭遇';
-                const detail=times.length<3?location+' · '+times.map(phase=>phases[phase]).join('、'):location;
+                const seasons=SEASON_KEYS.filter((_,index)=>habitat.seasonMask&(1<<index));
+                const seasonal=habitat.seasonMask!==15;
+                const detail=[location,seasonal&&seasons.map(key=>SEASON_NAMES[key]).join('、')+'限定',
+                    times.length<3&&times.map(phase=>phases[phase]).join('、')].filter(Boolean).join(' · ');
                 const active=currentWildPool(s,c.id,now).get(id)>0;
-                add('wild',detail,active?'':daily?'等待本章轮换地点和出没条件':'等待出没时段、季节或天气');
+                let block=active?'':daily?'等待本章轮换地点和出没条件':'等待出没时段或天气';
+                if(seasonal&&!seasons.includes(weatherSeason(now))){
+                    let next=seasonWindow(now);
+                    do { next=seasonWindow(next.endsAt); } while(!seasons.includes(next.key));
+                    block=next.name+'从 '+new Date(next.startsAt).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+' 开始';
+                }
+                add('wild',detail,block,{seasons});
             }
             for(const gift of c.gifts){
                 if(!gift.ids.includes(id))continue;
@@ -86,7 +95,7 @@
                 const offer=special.offers?.find(([,species])=>species===id);
                 if(offer){
                     const item=FOSSIL_NAMES[offer[0]]||ITEMS.get(offer[0])?.name||offer[0];
-                    add('trade','使用'+item+'复原化石',s.items?.[offer[0]]>0?'':'当前背包缺少'+item);
+                    add('trade','使用'+item+'复原化石',ownedItems(s,offer[0])>0?'':'缺少'+item);
                     if(Object.hasOwn(FOSSIL_NAMES,offer[0])){
                         const region=DATA.regions.find(region=>region.key===c.reg);
                         const open=(c.reg==='kanto'||s.travel?.to?.includes(c.reg))&&s.adv.unlocked>=region.start;
@@ -165,12 +174,14 @@
         const wanted=new Set(status.ids);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
         const inputs=[huntRankingInputs(s,settings,[...wanted],now),settings.gifts,s.adv.gifts,s.adv.badges,s.items,
+            settings.gifts&&Object.keys(FOSSIL_NAMES).map(item=>s.link?.stash?.items?.[item]||0),
             s.pension?.eggs?.length,s.pension?.open?.eggs,dexPrerequisites.map(id=>!!s.dex?.[id]),
             settings.gifts&&branchedGifts.map(gift=>giftChoices(s,gift))];
         return rankedRoutes('dex',inputs,()=>rankDexTargets(s,settings,wanted,now),cooldowns,now);
     }
     function rankDexTargets(s,settings,wanted,now){
         const specialByChapter=new Map();
+        const eggSpace=(s.pension?.eggs?.length||0)<Math.max(1,Number(s.pension?.open?.eggs)||1);
         for(const species of wanted){
             for(const source of unovaAcquisitionSources(s,species,now)){
                 if(!source.available)continue;
@@ -197,9 +208,18 @@
                     if (id) { score += 6; hits.set(id, { id, gift: true }); }
                 }
                 for (const special of c.special) {
-                    if (special.kind !== 'static' || !wanted.has(special.id) || !specialAvailable(s,special,now,id)) continue;
-                    score += special.skies?.length ? .05 : Math.max(.05, special.chance || .5);
-                    hits.set(special.id, { id: special.id, special: true });
+                    if(special.kind==='trade'&&settings.gifts){
+                        const offers=special.offers.filter(([item,species])=>wanted.has(species)&&ownedItems(s,item)>0);
+                        if(offers.length)score+=6; // The native gift selector restores one fossil per visit.
+                        for(const [,species] of offers)hits.set(species,{id:species,gift:true,kind:'trade'});
+                    }else if(special.kind==='egg'&&eggSpace&&!s.adv.gifts?.[special.once]){
+                        const options=[].concat(special.id),desired=options.filter(species=>wanted.has(species));
+                        score+=desired.length/options.length;
+                        for(const species of desired)hits.set(species,{id:species,special:true,kind:'egg'});
+                    }else if(special.kind==='static'&&wanted.has(special.id)&&specialAvailable(s,special,now,id)){
+                        score+=special.skies?.length ? .05 : Math.max(.05,special.chance||.5);
+                        hits.set(special.id,{id:special.id,special:true});
+                    }
                 }
                 for(const source of specialByChapter.get(id)||[]){
                     const egg=source.kind==='lootEgg';

@@ -1,3 +1,31 @@
+    function localCalendarTime(at){
+        const date=new Date(at),pad=n=>String(n).padStart(2,'0');
+        return (date.getMonth()+1)+'月'+date.getDate()+'日 '+pad(date.getHours())+':'+pad(date.getMinutes());
+    }
+    function mountSeasonCalendar(panel){
+        const title=panel.querySelector('strong'),remaining=panel.querySelector('.season-remaining');
+        const period=panel.querySelector('.season-period'),next=panel.querySelector('.season-next');
+        let previousMinute,previousOffset,previousStart;
+        return now=>{
+            const minute=Math.floor(now/60000),offset=new Date(now).getTimezoneOffset();
+            if(minute===previousMinute&&offset===previousOffset)return;
+            previousMinute=minute;
+            const season=seasonWindow(now);
+            if(season.startsAt!==previousStart||offset!==previousOffset){
+                previousStart=season.startsAt;previousOffset=offset;
+                panel.dataset.season=season.key;title.textContent=season.name;
+                const dateLabel=at=>{
+                    const time=document.createElement('time');
+                    time.dateTime=new Date(at).toISOString();time.textContent=localCalendarTime(at);
+                    return time;
+                };
+                period.replaceChildren('本季（本地时间） ',dateLabel(season.startsAt),' 至 ',dateLabel(season.endsAt));
+                next.textContent='下季为'+season.nextName+'。每季 3 个日历日，四季共 12 天。';
+            }
+            const minutes=Math.ceil((season.endsAt-now)/60000),hours=Math.floor(minutes/60);
+            remaining.textContent='剩 '+(hours>=24?Math.floor(hours/24)+'天 '+hours%24+'小时':hours?hours+'小时 '+minutes%60+'分':minutes+'分钟');
+        };
+    }
     function mountWeatherPanel(panel,ui,save,refresh){
         panel.innerHTML=`<fieldset class="forecast-filters"><legend>筛选地图天气</legend><div class="forecast-skies"></div></fieldset>
             <div class="forecast-options"><label>预报范围 <select aria-label="预报范围"><option value="0">本时段</option><option value="6">本时段及随后 6 小时</option><option value="24">本时段及随后 24 小时</option></select></label>

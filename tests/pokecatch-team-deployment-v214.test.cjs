@@ -7,7 +7,7 @@ function training(autoSwitch=true){
 const route={reg:'kanto',foes:[foe]};
 
 test('the current native learning levels prevent crediting an unlearned high-power move',()=>{
-    assert.equal(H.DATA.combat.build,'1a16948eef');
+    assert.equal(H.DATA.combat.build,'1125894b9a');
     assert.equal(H.MONS.get(6).learn.find(([,key])=>key==='fire-blast')[0],74);
     assert.ok(!H.MONS.get(6).learn.some(([level,key])=>key==='fire-blast'&&level<=70));
 });

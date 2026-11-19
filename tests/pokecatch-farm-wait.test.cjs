@@ -39,6 +39,19 @@ test('night-only shiny targets wait for their real phase and continue when it op
 test('a target with no source in the chosen region still stops instead of waiting indefinitely',async t=>{
     const {e}=fixture(t,{mode:'shiny',shinyId:504});await e.step();assert.equal(e.running,false);assert.match(e.status,/没有该物种的野生来源/);
 });
+test('both seasonal hunts survive a multi-day wait, reuse the forecast, and plan the target map when it opens',async t=>{
+    for(const mode of ['dex','shiny']){
+        const {s,e,save}=fixture(t,{mode,[mode+'Species']:[522],[mode+'Weather']:['rain'],legends:false});
+        Object.assign(s.adv,{chapter:67,unlocked:83});s.travel.to=['unova'];save();
+        const autumn=new Date(2026,10,9,12,15).getTime();
+        await e.step(autumn);const window=e.weatherWindow;
+        assert.ok(window.at>autumn+48*3600000);assert.equal(e.nextDelay(autumn),6000);
+        await e.step(autumn+240000);assert.equal(e.running,true);assert.equal(e.weatherWindow,window);
+        assert.equal(e.driver.pendingMap,undefined);assert.match(e.status,/出没时段.*夏季/);
+        await e.step(window.at);assert.equal(e.running,true);assert.equal(e.driver.pendingMap.row.id,67);
+        assert.equal(e.driver.pendingMap.options.huntSeason,'summer');e.stop();
+    }
+});
 test('a tidal item waits through high tide, then plans the available source at low tide',async t=>{
     const {s,e,save}=fixture(t,{mode:'item',itemId:'prism-scale'}),tide=H.DATA.tideMs,high=(Math.floor(Date.now()/tide/2)*2+1)*tide+1000,low=(Math.floor(high/tide)+1)*tide+1;
     Object.assign(s.adv,{chapter:39,unlocked:39});s.travel.to=['hoenn'];save();assert.equal(H.itemRanking(s,e.settings,{}, {},high).length,0);assert.ok(H.itemRanking(s,e.settings,{}, {},low).length);

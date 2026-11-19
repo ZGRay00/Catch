@@ -44,7 +44,41 @@ async function main(){
             for(const [i,rank]of [0,3].entries())for(const [j,lv]of [1,20,40,99].entries()){assert.equal(H.DATA.xpThresholds[H.economicRegion(s)][rank][lv],native.xp[i][j],c.name+' XP');checks++;}
             assert.equal(H.DATA.automation.candies['exp-candy-m'].xp[H.economicRegion(s)],native.candy,c.name+' candy');checks++;
         }
-        console.log(`PASS: ${checks} native comparisons across ${cases.length} region/wallet states (money, ranked XP thresholds, candy).`);
+        const regions=H.DATA.regions.map(r=>r.key);
+        const full=await evaluate(`(()=>{
+            const {Game:G,STORY:S,CONFIG:C}=__pcResearch,rs=S.REGIONS.filter(r=>r.key);
+            const caps=[],badges=[],xp={},candies={};G.S.link=null;
+            for(let i=0;i<S.CHAPTERS.length;i++){
+                G.S.adv.unlocked=i;G.S.adv.chapter=i;
+                G.S.adv.badges=S.CHAPTERS.slice(0,i).flatMap(c=>c.steps).filter(n=>n.kind==='gym'&&n.badge).map(n=>n.badge);
+                badges.push(G.S.adv.badges);
+                for(const r of rs)r.open=S.firstChapterOf(r.key)<=i;
+                caps[i]={main:S.levelCap(G.S.adv),...Object.fromEntries(rs.map(r=>[r.key,S.regionCap(G.S.adv,r.key)]))};
+            }
+            for(const r of rs){
+                G.S.link={side:'from',from:r.key};
+                xp[r.key]=Array.from({length:C.UNDERGROUND.RANK_MAX+1},(_,rank)=>Array.from({length:99},(_,i)=>G.xpForNext(i+1,{rank})));
+                candies[r.key]=Object.fromEntries(Object.keys(C.EXP_CANDIES).map(id=>[id,G.expCandyXp(id)]));
+            }
+            return {caps,badges,xp,candies};
+        })()`);
+        assert.deepEqual(H.DATA.caps,full.caps,'global and per-member caps at every frontier');
+        checks+=full.caps.length*(regions.length+1);
+        for(const [id,cap] of full.caps.entries()){
+            const opened=H.DATA.regions.filter(r=>r.start<=id).map(r=>r.key);
+            const s={travel:{to:opened},adv:{chapter:id,unlocked:id,badges:full.badges[id]}};
+            assert.equal(H.trainingCap(s,{reg:'kanto'}),cap.main,'shared wallet cap at frontier '+id);checks++;
+            s.link={side:'to',to:opened.at(-1),from:opened.at(-2)||'kanto'};
+            for(const reg of regions){assert.equal(H.trainingCap(s,{reg}),cap[reg],reg+' member cap at frontier '+id);checks++;}
+        }
+        for(const reg of regions){
+            assert.deepEqual(H.DATA.xpThresholds[reg].map(row=>row.slice(1,100)),full.xp[reg],reg+' XP for each level and rank');
+            checks+=full.xp[reg].length*99;
+            for(const [id,xp]of Object.entries(full.candies[reg])){
+                assert.equal(H.DATA.automation.candies[id].xp[reg],xp,reg+' '+id);checks++;
+            }
+        }
+        console.log(`PASS: ${checks} native comparisons across ${cases.length} wallet states, ${full.caps.length} frontiers and all ranked XP curves / candies.`);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

@@ -25,6 +25,31 @@ test('a capable below-cap party ends ordinary preparation without levelling ever
     assert.ok(s.mons.every(mon=>mon.level===92));assert.equal(e.ensurePrepared(s,context,{},now+1200),false);assert.equal(e.preparation,null);
 });
 
+test('a money goal reached in a training detour cancels pending PC swaps and avoids restarting the farm',async t=>{
+    const {s,e,p,now}=fixture(t,[61,60,61,62,60,61],{mode:'money',moneyTarget:100000});
+    p.mode='money';p.context.kind='map';p.resume={row:p.route};
+    e.driver.teamTask={started:now,uids:[...s.team].reverse(),members:[42]};
+    e.driver.adventureTeam=()=>assert.fail('a completed farm must not issue another PC drag');
+    e.driver.switchInBattle=()=>assert.fail('a completed farm must not switch battlers');
+    e.settings.activeSwitch=true;
+    await e.step(now+1200);
+    assert.equal(e.running,false);assert.match(e.status,/达到目标金币/);assert.equal(e.preparation,null);
+    assert.equal(e.driver.pendingMap,null);assert.equal(e.budget.used,2);
+});
+
+test('a completed detour waits for issued candy before restoring an original special party and advancing the queue',async t=>{
+    const {s,e,p,now,save}=fixture(t,[61,60,61,62,60,61],{mode:'item',itemId:'rare-candy',itemQuantity:1});
+    e.queueRunning=true;e.queueIndex=0;e.queue=[{settings:{...e.settings},status:'running'},{title:'刷钱',settings:{...e.settings,mode:'money',moneyTarget:0},status:'pending'}];
+    e.startItems=0;s.stats.itemIn={'rare-candy':1};s.items={'rare-candy':1};save();
+    p.mode='item';p.context.kind='raid';p.resume={type:'raid'};p.originalTeam=s.team.slice(0,-1);
+    p.candyTx={uid:s.team[0],id:'exp-candy-s',kind:'buy',stock:0,counter:0,at:now};
+    await e.step(now+1200);assert.equal(e.queueIndex,0);assert.ok(p.candyTx);assert.equal(e.driver.teamTask,null);
+    s.items['exp-candy-s']=1;save();await e.step(now+2400);
+    assert.equal(p.candyTx,undefined);assert.deepEqual(e.driver.teamTask.uids,p.originalTeam);
+    s.team=[...p.originalTeam];s.road=[...s.team];save();await e.step(now+3600);await e.step(now+4800);
+    assert.equal(e.queueIndex,1);assert.equal(e.queue[0].status,'done');assert.equal(e.raidProbe,false);assert.equal(e.driver.pendingMap,null);
+});
+
 for(const blocker of ['battle','choice','road','candy','owner','buddy','buff'])test(`early return waits for the native ${blocker} boundary`,t=>{
     const {s,e,p,now}=fixture(t);
     if(blocker==='battle')s.adv.battle={steps:1};if(blocker==='choice')s.adv.pending={type:'gift'};if(blocker==='road')s.road=['m0'];

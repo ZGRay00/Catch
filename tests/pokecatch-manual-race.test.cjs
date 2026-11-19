@@ -14,6 +14,19 @@ function runtime(t){
     return{e,state,now,save,actions,storage,readFailure:()=>{corrupt=true;},gameWrites:()=>gameWrites};
 }
 
+for(const lost of ['native tab','assistant lease']){
+    test('explicit resume in the old tab checks the '+lost+' before accepting a dialog',t=>{
+        const {e,storage,now}=runtime(t);e.manualInput(now);
+        const key='pokecatch-helper:v1:lease:'+e.account;
+        if(lost==='native tab')storage.setItem('pokecatch-tab','new-tab');
+        else storage.setItem(key,JSON.stringify({token:'new-owner',expires:now+9000}));
+        let calls=0;e.manualStep=()=>{calls++;};
+        e.resumeManual(now+100);assert.equal(e.running,false);assert.equal(calls,0);
+        assert.match(e.status,/另一个标签页/);
+        if(lost==='assistant lease')assert.equal(JSON.parse(storage.getItem(key)).token,'new-owner');
+    });
+}
+
 test('manual handoff snapshots a helper raid saved after the last engine tick',async t=>{
     const {e,state,now,save,actions,gameWrites}=runtime(t);
     e.driver.raid={reg:'kanto',boss:35,date:H.parisDay(),started:now};

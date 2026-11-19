@@ -119,6 +119,7 @@
     {"kind":"source","file":"src/ui/dex-panel.js"},
     {"kind":"source","file":"src/ui/weather-panel.js"},
     {"kind":"source","file":"src/ui/nursery-panel.js"},
+    {"kind":"source","file":"src/ui/manual-input.js"},
     {
       "kind": "source",
       "file": "src/ui/mount.js"

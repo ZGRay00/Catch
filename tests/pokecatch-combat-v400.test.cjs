@@ -18,6 +18,39 @@ test('level-100 Reshiram uses the current native Blue Flare strength and adjuste
     assert.ok(Math.abs(hit.accuracy-9/11)<1e-12);
 });
 
+test('native signature move updates change the chosen attacks of fully evolved level 100 attackers',()=>{
+    const powers={
+        130:['sacred-sword','secret-sword','psystrike','mist-ball','luster-purge'],
+        140:['spacial-rend','roar-of-time','magma-storm'],150:['aeroblast'],160:['sacred-fire','origin-pulse']
+    };
+    for(const [power,keys]of Object.entries(powers))for(const key of keys){
+        assert.equal(H.DATA.combat.moves[key].power,Number(power),key);
+        assert.equal(H.DATA.combat.moves[key].acc,({130:83.63636363636364,140:81.81818181818181,150:80,160:80})[power],key);
+    }
+    for(const [id,opponent,key]of [[150,65,'psystrike'],[250,65,'sacred-fire'],[382,65,'origin-pulse'],[484,68,'spacial-rend'],[647,68,'secret-sword']]){
+        const mon={id,level:100},foe={id:opponent,level:100};
+        assert.equal(H.matchupDetails(mon,foe).attack.key,key);
+    }
+});
+
+test('mainline preparation applies its damage margin to the actual incoming knockout probability',()=>{
+    const mon={id:65,uid:'a',level:100},foe={id:409,level:97,chapter:0,weight:1};
+    const s={mons:[mon],team:['a'],adv:{chapter:0,unlocked:10}};
+    const context={kind:'progress',id:0,reg:'kanto',foes:[foe],now:new Date(2026,10,19,13).getTime()};
+    const guarded={...foe,hpMult:1.3*6**.7};
+    const d=H.matchupDetails(mon,guarded,H.effectiveStats(mon),H.effectiveStats(guarded),H.combatWeather(s,foe,context,context.now));
+    assert.ok(d.incoming.minHit*1.3<d.hp&&d.hp<d.incoming.maxHit*1.3);
+    let followup=0;
+    for(let i=0;i<10000;i++){
+        const roll=Math.floor(d.incoming.singleRollMax*(.85+.15*(i+.5)/10000));
+        if(roll*1.3<d.hp)followup++;
+    }
+    const survivalTurns=(1+followup/10000)*(2-d.incoming.accuracy);
+    const fractionDealt=(survivalTurns-(1-d.first))*d.attack.sustainedDamage/d.foeHp;
+    const assessment=H.preparationReadiness(s,{autoTeam:true},context);
+    assert.ok(Math.abs(assessment.fit.coverage-fractionDealt/2)<.0001);
+});
+
 test('per-strike native rounding and random hit counts reproduce isolated browser evidence',()=>{
     for(const duel of native.duels){
         const actual=H.expectedDamage(duel.mon,duel.foe,H.effectiveStats(duel.mon),H.effectiveStats(duel.foe),{details:true,weather:duel.weather});

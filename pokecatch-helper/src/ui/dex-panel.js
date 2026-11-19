@@ -67,12 +67,23 @@
             }
             const mon=matches[0],base=MONS.get(mon.root)||mon;
             const caught=captured(s,mon.id),chainComplete=captured(s,base.id);
+            const forms=seasonFormProgress(s,mon.id),currentSeason=forms&&weatherSeason(now);
             const sources=acquisitionSources(s,mon.id,now).sort((a,b)=>Number(!!b.marked)-Number(!!a.marked));
-            if(!changed(['detail',mon.id,caught,chainComplete,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
+            if(!changed(['detail',mon.id,caught,chainComplete,forms?.seen,currentSeason,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
             results.append(label('strong','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading'));
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
             if(base.id!==mon.id)family.append(' ',speciesButton(base,'查'+base.name+'来源'));
             results.append(family);
+            if(forms){
+                results.append(label('h4','季节外观 · 已遇见 '+forms.seen.length+'/4','dex-section'));
+                const list=label('ul','','season-forms');
+                for(const [key,name] of Object.entries(SEASON_NAMES)){
+                    const seen=forms.seen.includes(key);
+                    const entry=label('li',name+' · '+(seen?'已遇见':'未记录')+(currentSeason===key?'（本季）':''));
+                    entry.dataset.seen=String(seen);list.append(entry);
+                }
+                results.append(list);
+            }
             let priorState;
             for(const row of sources){
                 const state=row.marked?'当前路线已生成':row.available?'当前可尝试':'其他获取条件';

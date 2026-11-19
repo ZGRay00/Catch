@@ -49,6 +49,27 @@ test('underground readiness distinguishes returned, recalled and still-running t
     const status=H.undergroundStatus({under:{slots:[ready,recalled,running,{id:'unknown'}]}},now);
     assert.deepEqual(status.ready,[ready,recalled]);assert.equal(status.running.length,2);assert.equal(status.nextReturn,running.end);assert.equal(status.capacity,4);
 });
+
+test('a spent daily quota avoids page visits until reset while a newly free dispatch can proceed',t=>{
+    const f=fixture(t,{underRuns:3}),pages=[];
+    f.e.automation.page=screen=>{pages.push(screen);return false;};
+    f.s.under.sent=8;f.tick();f.advance(6000);f.tick();
+    assert.deepEqual(pages,[]);assert.equal(f.e.nextWake,H.nextParisReset(f.now()));
+    f.s.under.extra=1;f.tick();assert.deepEqual(pages,['underground']);
+    f.s.under.extra=0;pages.length=0;f.advance(H.nextParisReset(f.now())-f.now());f.tick();
+    assert.deepEqual(pages,['underground']);
+});
+
+test('exhausted dispatches can still collect an early recall and show the sooner reset when bays remain',t=>{
+    const f=fixture(t,{underRuns:3}),reset=H.nextParisReset(f.now()),pages=[];
+    const slot=f.job('late',0,reset+120000);f.s.under.extra=1;f.s.under.sent=9;f.s.under.slots=[slot];
+    f.e.automation.page=screen=>{pages.push(screen);return false;};
+    f.tick();assert.deepEqual(pages,[]);assert.equal(f.e.nextWake,reset);
+    f.e.settings.mode='money';
+    assert.equal(H.taskExecutionState(f.s,f.e,f.now()).services.find(row=>row.id==='underground').nextAt,reset);
+    f.e.settings.mode='underground';slot.recalled=f.now();f.tick();
+    assert.deepEqual(pages,['underground']);
+});
 test('visible bay allocation matches native explicit, old, duplicate and out-of-range slots',()=>{
     const a={id:'a',bay:2},b={id:'b'},c={id:'c',bay:2},d={id:'d',bay:99},s={under:{extra:3,slots:[a,b,c,d]}};
     assert.equal(H.undergroundBay(s,2),a);assert.equal(H.undergroundBay(s,0),b);assert.equal(H.undergroundBay(s,1),c);assert.equal(H.undergroundBay(s,3),d);

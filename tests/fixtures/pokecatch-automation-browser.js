@@ -89,7 +89,75 @@
         const go=q('[data-wbz-go]');if(go)go.onclick=()=>{s.wb.tryEd=s.wb.ed;s.adv.zone={id:493};save();window.nav('adventure');};}
     function elite(){q('#map-root').innerHTML='<button class="rg open active" data-rg="kanto">Kanto</button><button class="mp-row sel" data-ch="L">League</button><button class="on" data-lg-view="elite">Elite</button><button data-lg-team="kanto">Team</button><button data-league="kanto" data-tier="'+((s.eliteLeague.kanto?.t||0)+1)+'">Go</button>';
         q('[data-lg-team]').onclick=mock.team;q('[data-league]').onclick=()=>{s.adv.league={reg:'kanto',tier:(s.eliteLeague.kanto?.t||0)+1};save();window.nav('adventure');};}
-    function departure(){q('#map-root').innerHTML='<button data-depart="johto">Depart</button>';q('[data-depart]').onclick=()=>{const root=q('#modal-root');root.className='open';root.innerHTML='<div class="modal dp-modal"><div class="modal-actions"><button class="primary">Depart</button></div></div>';root.querySelector('.primary').onclick=()=>{s.adv.chapter=14;s.adv.unlocked=14;s.travel.to=['johto'];root.className='';root.replaceChildren();save();window.nav('adventure');};};}
+    let unovaDeparture=null;
+    function departure(){
+        if(unovaDeparture){
+            if(s.travel.to.includes('unova'))return originalMap();
+            q('#map-root').innerHTML='<button class="rg open depart" data-depart="unova">合众</button>';
+            q('[data-depart]').onclick=()=>{unovaDeparture.opens++;unovaDeparture.modal();};
+            return;
+        }
+        q('#map-root').innerHTML='<button data-depart="johto">Depart</button>';q('[data-depart]').onclick=()=>{const root=q('#modal-root');root.className='open';root.innerHTML='<div class="modal dp-modal"><div class="modal-actions"><button class="primary">Depart</button></div></div>';root.querySelector('.primary').onclick=()=>{s.adv.chapter=14;s.adv.unlocked=14;s.travel.to=['johto'];root.className='';root.replaceChildren();save();window.nav('adventure');};};
+    }
+    function starterDepartureFixture(presentation){
+        const starters=[[495,'藤藤蛇'],[498,'暖暖猪'],[501,'水水獭']];
+        const art=id=>`<img class="art" src="assets/pokemon/art/still/${id}.png" alt="">`;
+        let queuedReceipt=null;
+        const close=()=>{
+            const root=q('#modal-root');root.className='';root.replaceChildren();
+            if(queuedReceipt){const id=queuedReceipt;queuedReceipt=null;showReceipt(id);}
+        };
+        const session={opens:0,confirmations:0,cancels:0,picks:[],grants:0,receipts:0};
+        function showReceipt(id){
+            const root=q('#modal-root');
+            if(root.classList.contains('open')){queuedReceipt=id;return;}
+            root.className='open';
+            root.innerHTML=`<div class="modal dexcard-modal"><div class="modal-body"><div class="dexcard v2"><div class="dc-head"><div class="dc-sum"><span>编号 <b>${String(id).padStart(4,'0')}</b></span></div></div><div class="dc-top"><div class="dc-hero caught">${art(id)}</div></div></div></div><div class="modal-actions solo"><button class="btn gold">太好了！</button></div></div>`;
+            root.querySelector('.gold').onclick=()=>{session.receipts++;close();};
+        }
+        session.modal=(destination='unova')=>{
+            const destinationName=destination==='unova'?'合众':'城都';
+            const shownStarters=destination==='unova'?starters:[[152,'菊草叶'],[155,'火球鼠'],[158,'小锯鳄']];
+            const root=q('#modal-root');root.className='open';
+            root.innerHTML=`<div class="modal dexcard-modal oc-modal dp-modal"><div class="modal-body"><div class="dc-head"><h2>出发前往${destinationName}！</h2><button class="dc-x">×</button></div><div class="dp-banner"><div class="dp-starters">`+
+                shownStarters.map(([id,name])=>`<figure>${art(id)}<figcaption>${name}</figcaption></figure>`).join('')+
+                `</div></div></div><div class="modal-actions"><button class="btn ghost">稍后</button><button class="btn primary">前往${destinationName}</button></div></div>`;
+            root.querySelector('.ghost').onclick=root.querySelector('.dc-x').onclick=()=>{session.cancels++;close();};
+            root.querySelector('.primary').onclick=()=>{
+                session.confirmations++;close();
+                if(!q('.tv-fx'))document.body.appendChild(Object.assign(document.createElement('div'),{className:'tv-fx',textContent:'神奥 → 合众'}));
+            };
+        };
+        session.arrive=({stale=false,knownReceipt=false}={})=>{
+            q('.tv-fx')?.remove();
+            // The departure button resolves its modal before travel FX and the native save.
+            s.link={side:'to',from:'sinnoh',to:'unova',stash:{mons:s.mons,team:s.team,items:s.items,money:s.money}};
+            s.mons=[];s.team=[];s.road=[];s.money=3000;s.travel.to.push('unova');
+            Object.assign(s.adv,{chapter:66,unlocked:66,node:0,nodes:[{type:'gift',name:'Renouet',gift:{key:'starter-unova',choices:starters.map(([id])=>id),level:5}}],pending:null});
+            delete s.adv.gifts['starter-unova'];save();window.nav('adventure');
+            // A previously queued departure dialog can still be visible below the gift FX.
+            if(stale)session.modal();
+            const fx=document.createElement('div'),link=presentation==='link';
+            const title='在鹿子镇的家里，红豆杉博士送来的礼物：选择你的宝可梦吧！';
+            fx.className=link?'rc-fx lk-fx lk-choice multi':'hatch-fx gift';
+            fx.innerHTML=link?`<div class="rc-title lk-title">${title}</div><div class="lk-stage">${starters.map(([id])=>`<div class="lk-slot pick"><span class="lk-pad"></span><div class="lk-mon">${art(id)}</div></div>`).join('')}</div><button class="btn primary lg lk-go" disabled>选择一只宝可梦</button>`:
+                `<div class="hx-title">${title}</div><div class="gift-balls">${starters.map(([id,name])=>`<button class="gift-ball ready sway" data-id="${id}" aria-label="${name}"><div class="gb-mon"><div class="gb-art">${art(id)}</div></div></button>`).join('')}</div><button class="btn primary lg gift-go" disabled>选择一只宝可梦</button>`;
+            document.body.appendChild(fx);
+            const go=fx.querySelector('.gift-go,.lk-go'),buttons=[...fx.querySelectorAll('.gift-ball,.pick')];let chosen=null;
+            buttons.forEach((button,index)=>button.onclick=()=>{
+                chosen=starters[index][0];session.picks.push(chosen);buttons.forEach(other=>other.classList.toggle('on',button===other));go.disabled=false;
+            });
+            go.onclick=()=>{
+                if(!chosen||go.disabled)return;
+                go.disabled=true;session.grants++;fx.remove();
+                const mon={uid:'starter-'+chosen,id:chosen,level:5,reg:'unova',xp:0};
+                s.mons=[mon];s.team=[mon.uid];s.road=[mon.uid];s.adv.gifts['starter-unova']=chosen;s.adv.node=1;
+                s.dex[chosen]={caught:(s.dex[chosen]?.caught||0)+1};save();
+                if(knownReceipt)showReceipt(chosen);
+            };
+        };
+        return session;
+    }
     let bagFolded=false,buddyChanges=0;
     function buffBag(){
         let root=q('#bag-panel');if(!root){root=document.createElement('div');root.id='bag-panel';q('#screen-adventure').appendChild(root);}
@@ -373,6 +441,49 @@
         const pausedResourceSettings={...engine.settings},pausedResourceProgress=engine.progressSnapshot();engine.queue=[{id:'prior-money',title:'Prior money',settings:{...engine.settings,mode:'money'},status:'running',result:''},{id:'reordered-resource',title:'Paused resource',settings:pausedResourceSettings,status:'pending',result:'',progress:pausedResourceProgress}];engine.queueRunning=true;engine.queueIndex=0;engine.settings={...engine.settings,mode:'money'};engine.completeTask('previous task completed');assert(engine.automation.owner?.kind==='mon','queue advancement restores a paused native resource card owner');await until(()=>!engine.running,30);assert(s.stats.itemOut['exp-candy-m']===2&&engine.queue[1].status==='done','reordered paused resource task completes without losing its native card');
         reset('progress',{progressUntil:29,autoPrepare:false,autoTeam:false});s.adv.chapter=24;s.adv.unlocked=25;s.adv.loops=[0];s.travel.to=['johto'];save();window.nav('map');q('#map-root .rg[data-rg="kanto"]').click();for(let i=0;i<12;i++)await tick();assert(s.adv.chapter===25&&q('#map-root .rg.active')?.dataset.rg==='johto'&&!s.adv.loops.length,'mainline returns to Johto before launching its shared league row after closing Kanto loops');
         reset('progress',{progressUntil:15,autoTravel:true});s.adv.chapter=13;s.adv.unlocked=14;save();await until(()=>s.adv.chapter===14);assert(s.travel.to.includes('johto'),'new region departure confirms native dialog');
+        async function openUnova(presentation,gifts){
+            reset('progress',{progressUntil:83,autoTravel:true,autoPrepare:false,autoEggs:false,gifts,manualPause:!gifts,manualResume:true});
+            unovaDeparture=starterDepartureFixture(presentation);
+            s.travel.to=['johto','hoenn','sinnoh'];s.adv.chapter=65;s.adv.unlocked=66;
+            s.dex[495]={caught:1};save();
+            await until(()=>unovaDeparture.confirmations>0);
+            assert(unovaDeparture.confirmations===1,'departure confirmation reaches the native travel animation for '+presentation);
+            for(let i=0;i<5;i++)await tick();
+            assert(unovaDeparture.opens===1&&unovaDeparture.confirmations===1,'slow native travel never opens or confirms Unova twice');
+            return unovaDeparture;
+        }
+        for(const presentation of ['reduced','link']){
+            const journey=await openUnova(presentation,true);
+            const known=presentation==='link';
+            if(known){s.dex[498]={caught:1};s.dex[501]={caught:1};}
+            journey.arrive({stale:true,knownReceipt:known});
+            assert(q('#modal-root.open .dp-modal')&&s.adv.pending===null,'starter FX and queued modal overlap before a gift pending record is available');
+            if(presentation==='reduced'){
+                engine.stop('simulate the previously timed out installation');engine.start();
+                assert(engine.running,'restarting on an empty destination team can adopt the native starter picker');
+            }
+            await until(()=>!!s.adv.gifts['starter-unova']);
+            assert(journey.picks.join(',')===(known?'495':'498')&&journey.grants===1,'prefers a missing starter when available and grants exactly once in '+presentation+' presentation');
+            await until(()=>engine.target?.reg==='unova'&&!!q('#screen-adventure.active')&&!q('#modal-root.open'));
+            if(known)assert(journey.receipts===1,'the registered starter receipt queued after the stale modal is acknowledged before mainline resumes');
+            assert(journey.confirmations===1&&journey.cancels===1&&engine.running&&engine.target?.reg==='unova','only the stale departure is dismissed and mainline resumes in the new region');
+            unovaDeparture=null;
+        }
+        {
+            const journey=await openUnova('reduced',false);
+            s.dex[501]={caught:1};journey.arrive({stale:true,knownReceipt:true});
+            await tick();engine.lastProgress=Date.now()-240000;engine.modalWaitSince=Date.now()-240000;await tick();
+            assert(engine.running&&journey.picks.length===0&&journey.grants===0,'manual starter selection waits beyond the generic modal timeout without choosing a gift');
+            engine.manualInput();engine.manual.until=0;await tick();
+            assert(engine.manual&&journey.grants===0&&journey.cancels===0,'a player in control can inspect the starter without losing the picker to its underlying modal');
+            q('.gift-ball[data-id="501"]').click();q('.gift-go').click();
+            await until(()=>engine.target?.reg==='unova'&&!q('#modal-root.open'));
+            assert(engine.running&&!engine.manual&&engine.target?.reg==='unova'&&s.adv.gifts['starter-unova']===501&&journey.grants===1&&journey.receipts===1,'a manual starter choice acknowledges only its registered starter receipt and returns automatically to Unova mainline');
+            journey.modal('johto');await tick();await tick();
+            assert(q('#modal-root.open .dp-modal')&&journey.confirmations===1&&journey.cancels===1,'an unrelated destination dialog remains untouched after reaching Unova');
+            q('#modal-root .dc-x').click();
+            unovaDeparture=null;
+        }
         reset('progress',{progressUntil:1,autoPrepare:true,autoTeam:false,prepareGap:0});s.adv.unlocked=1;s.mons[0].level=5;save();await until(()=>engine.preparation?.phase==='train',45);assert(!!engine.preparation&&engine.settings.mode==='progress'&&s.adv.chapter<=1&&engine.preparation.uids.includes('a'),'weak mainline member uses its temporary training party on an eligible route');
         assert(s.team.join('|')==='a'&&engine.preparation.uids.join('|')==='a'&&engine.preparation.targets.every(target=>target.uid==='a'),'manual training keeps its chosen one-member lineup without adding available high-level carriers');
         s.road=[...s.team];for(const target of engine.preparation.targets)s.mons.find(m=>m.uid===target.uid).level=target.goal;save();await until(()=>!engine.preparation,35);await until(()=>s.adv.chapter===1,35);assert(s.adv.chapter===1&&s.team.length===1&&s.team[0]==='a','trained manual party is restored and resumes the original frontier');

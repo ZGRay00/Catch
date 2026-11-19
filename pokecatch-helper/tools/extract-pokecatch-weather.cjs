@@ -1,9 +1,11 @@
 // Rebuild weather metadata from a downloaded public native bundle using synthetic state.
 // The VM has isolated memory storage, inert timers, and no external network access.
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict'),nativeRuntime=require('./pokecatch-native-vm.cjs'),{validateData}=require('./build.cjs');
+const {createHash}=require('node:crypto');
 function main(){
  const out=process.argv[3]||path.resolve(__dirname,'../data/weather.json');assert.ok(process.argv[2],'Usage: node tools/extract-pokecatch-weather.cjs bundle.js [output.json]');
  const runtime=nativeRuntime(process.argv[2]);
+ const build=process.env.POKECATCH_BUILD?.trim()||'sha256:'+createHash('sha256').update(fs.readFileSync(process.argv[2])).digest('hex');
  const result=runtime.run(`(()=>{
    const N=__pcResearch,G=N.Game,A=N.Adventure,S=N.STORY,D=N.DAYTIME,W=N.WEATHER,C=N.CONFIG.WEATHER;G.load();A.ensure();G.stopSaving();G.S.adv.unlocked=S.CHAPTERS.length-1;
    const tables=[],refs=new Map(),intern=pool=>{const text=JSON.stringify(pool);if(!refs.has(text)){refs.set(text,tables.length);tables.push(pool);}return refs.get(text);};
@@ -35,7 +37,7 @@ function main(){
     chapters.push({id,weights:Object.keys(weights).length?weights:null,fixed:chapter.weather||null,...collect(fixed),variants,nodes:metadata});
    }
    N.CONFIG.DAILY_SPOTS=dailySpots;D.force(null);D.forceSeason(null);W.force(null);
-   return{schema:2,build:${JSON.stringify(process.env.POKECATCH_BUILD||'0a26d39c19')},slotMs:C.SLOT_MS,chance:C.CHANCE,types:C.TYPES,translate:C.TRANSLATE,nightDamage:N.CONFIG.NIGHT_DAMAGE,roamingWeather:N.CONFIG.ROAMING.WEATHER,dailySpots,chapters,tables};
+   return{schema:2,build:${JSON.stringify(build)},slotMs:C.SLOT_MS,chance:C.CHANCE,types:C.TYPES,translate:C.TRANSLATE,nightDamage:N.CONFIG.NIGHT_DAMAGE,roamingWeather:N.CONFIG.ROAMING.WEATHER,dailySpots,chapters,tables};
   })()`);
  assert.equal(result.chapters.length,84);assert.equal(result.chance,.54);assert.ok(result.tables.length>100);
  validateData('WEATHER_DATA',result);fs.mkdirSync(path.dirname(path.resolve(out)),{recursive:true});fs.writeFileSync(out,JSON.stringify(result,null,2)+'\n');console.log(`Extracted ${result.chapters.length} chapters / ${result.tables.length} unique tables to ${out}`);

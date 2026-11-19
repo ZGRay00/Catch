@@ -1,5 +1,7 @@
 // Optional differential: node tests/pokecatch-unova-native.cjs PUBLIC_APP_JS
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const nativeRuntime = require('../tools/pokecatch-native-vm.cjs');
 const helper = require('../Pokecatch自动助手.user.js');
 
@@ -62,5 +64,9 @@ assert.equal(source.upTo,native.fang.upTo);
 assert.equal(source.until,native.fang.until);
 const expectedFangs = (native.itemNodeChance + meanChance*native.itemFraction)*native.fang.p;
 assert.ok(Math.abs(source.expected - expectedFangs) < 1e-10);
+const extract = fs.readFileSync(path.join(__dirname,'fixtures','pokecatch-export-targets.js'),'utf8');
+const items = JSON.parse(vm.run(extract)).items;
+assert.equal(helper.ITEMS.size,items.length);
+for (const item of items) assert.deepEqual(helper.ITEMS.get(item.id)?.sources,item.sources,'Item route and town pools for '+item.id);
 
-console.log('Passed native Unova comparison for %d routes, %d ripple habitats, phenomenon weights, Larvesta egg/evolution and Axew quest.', native.routes.length, ripples.length);
+console.log('Passed native comparison for %d Unova routes, %d ripple habitats, Larvesta, Axew and all %d item source tables.', native.routes.length, ripples.length, items.length);

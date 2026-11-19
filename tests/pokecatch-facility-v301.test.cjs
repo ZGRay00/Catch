@@ -113,6 +113,24 @@ test('an unconfirmed factory launch stops rather than replaying the entry',t=>{
     assert.equal(f.clicks.filter(action=>action.el===go).length,1);assert.equal(f.e.automation.state.candyDone||0,0);assert.equal(f.e.running,false);
 });
 
+test('only the native daily lock suppresses factory visits and a same-day native reopening wins',t=>{
+    const f=fixture(t);f.s.candy.played=f.day();
+    f.candy();f.candy();
+    assert.deepEqual(f.pages,['candy','candy'],'loading or an absent button is inconclusive');
+    f.show('#candy-root [data-cr-timer]');f.candy();
+    f.elements.delete('#candy-root [data-cr-timer]');f.pages.length=0;
+    f.advance(6000);f.candy();
+    assert.deepEqual(f.pages,[]);assert.equal(f.e.nextWake,H.nextParisReset(f.now()));
+    const go=f.show('#candy-root [data-cr-go]');f.candy();
+    assert.deepEqual(f.pages,['candy']);assert.equal(f.clicks.at(-1).el,go);
+});
+
+test('the first factory tick of a new Paris day ignores the previous lock',t=>{
+    const f=fixture(t);f.s.candy.played=f.day();f.show('#candy-root [data-cr-timer]');
+    f.candy();f.pages.length=0;f.advance(H.nextParisReset(f.now())-f.now());f.candy();
+    assert.deepEqual(f.pages,['candy']);
+});
+
 test('factory floor is the next room and cannot count an unfinished target room',t=>{
     const f=fixture(t,{candyFloor:20});f.candyRun(20,true);const stop=f.show('#candy-root [data-cr-stop]');f.candy();
     assert.equal(f.clicks.some(action=>action.el===stop),false);assert.equal(f.completed.length,0);assert.equal(f.e.running,true);

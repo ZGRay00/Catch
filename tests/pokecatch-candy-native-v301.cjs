@@ -1,5 +1,5 @@
 // Read-only extraction from a downloaded public game bundle in a network-blocked profile.
-// Usage: node tests/pokecatch-candy-native-v301.cjs PATH_TO_PUBLIC_APP_JS
+// Usage: node tests/pokecatch-candy-native-v301.cjs PATH_TO_PUBLIC_APP_JS [OUTPUT_JSON]
 const fs=require('node:fs'),os=require('node:os'),path=require('node:path'),net=require('node:net');
 const {spawn}=require('node:child_process'),{pathToFileURL}=require('node:url'),assert=require('node:assert/strict');
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
@@ -28,7 +28,7 @@ async function main(){
         const result=await evaluate(`(()=>{
             const t=__pcResearch,G=t.Game,C=t.CandyRun;if(!G.S)G.load();t.Adventure.ensure();
             const caps=[151,251,386,493,649],floors=[...new Set([1,5,10,25,50,56,60,65,80,100].flatMap(floor=>floor%5===0?[floor-1,floor]:[floor]))].sort((a,b)=>a-b);
-            return{build:'1a16948eef',checked:'2026-11-17',config:t.CONFIG.CANDY_RUN,rankMax:t.CONFIG.UNDERGROUND.RANK_MAX,
+            return{config:t.CONFIG.CANDY_RUN,rankMax:t.CONFIG.UNDERGROUND.RANK_MAX,
                 pools:Object.fromEntries(caps.map(cap=>[cap,Object.fromEntries(C.TYPES.map(type=>[type,C.poolOf(type,cap).map(mon=>mon.id)]))])),
                 levels:floors.map(floor=>({floor,level:C.levelOf(floor),rank:C.rankOf(floor),statMult:C.statMultOf(floor),rare:C.isSB(floor)})),
                 examples:['normal','water','steel'].map(type=>({type,one:C.floorOf(1,{day:'2026-11-17',type}),fifty:C.floorOf(50,{day:'2026-11-17',type})})),
@@ -37,9 +37,13 @@ async function main(){
         assert.equal(result.config.TEAM,6);assert.equal(result.config.SB_DAY,25);assert.equal(result.levels.find(row=>row.floor===60).rank,1);
         assert.equal(result.levels.find(row=>row.floor===50).level,97);
         assert.notEqual(result.identities[0].being,result.identities[1].being,'Normal and shiny species use different default being identities');
-        const target=path.join(__dirname,'fixtures/pokecatch-candy-native-v301.json');
-        fs.writeFileSync(target,JSON.stringify(result,null,2)+'\n');
-        console.log('PASS: native candy configuration, 90 theme pools, floor progression and default being identities. '+target);
+        const target=path.join(dir,'results.json');
+        const build=require('node:crypto').createHash('sha256').update(source).digest('hex').slice(0,10);
+        fs.writeFileSync(target,JSON.stringify({build,checked:new Date().toISOString().slice(0,10),...result},null,2)+'\n');
+        const baseline=require('./fixtures/pokecatch-candy-native-v301.json');
+        for(const key of Object.keys(result))assert.deepEqual(result[key],baseline[key],`Native candy ${key} differs from the reference model; inspect ${target}`);
+        if(process.argv[3])fs.copyFileSync(target,process.argv[3]);
+        console.log('PASS: native candy configuration, 90 theme pools, floor progression and default being identities. '+(process.argv[3]||target));
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

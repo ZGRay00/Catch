@@ -50,6 +50,13 @@ test('weather metadata has full seasons, phases and referenced finite encounter 
  for(const chapter of H.WEATHER_DATA.chapters)for(const kind of ['pools','direct'])for(const season of ['spring','summer','autumn','winter'])for(const phase of ['morning','day','night'])for(const ref of Object.values(chapter[kind][season][phase]))assert.ok(H.WEATHER_DATA.tables[ref]);
  assert.ok(H.WEATHER_DATA.tables.every(table=>table.every(([id,expected])=>Number.isInteger(id)&&Number.isFinite(expected)&&expected>0)));
 });
+test('Unova opening route includes the Ogoesse encounters in both dry and rainy pools',()=>{
+ const weather=H.WEATHER_DATA,chapter=weather.chapters[66];
+ assert.ok(chapter.nodes.some(node=>node.kind==='route'&&node.name==='Ogoesse'));
+ const day=chapter.pools.autumn.day;
+ assert.equal(new Map(weather.tables[day.clear]).get(504),3.638062);
+ assert.equal(new Map(weather.tables[day.rain]).get(504),3.549173);
+});
 test('chapter weather is deterministic and fixed weather takes priority over roaming',()=>{
  const s=state(),now=new Date(2026,10,17,12).getTime(),ch=H.WEATHER_DATA.chapters.find(c=>c.fixed);
  assert.deepEqual(H.chapterWeather(s,49,now),H.chapterWeather(s,49,now));

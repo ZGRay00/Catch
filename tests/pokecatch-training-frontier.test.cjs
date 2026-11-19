@@ -8,6 +8,22 @@ function fixture(){
 }
 const preparation=(s,p,settings=H.DEFAULTS,metrics={},now=Date.now())=>H.preparationRoutes(s,settings,p,metrics,now);
 
+test('all-region XP training stays on the side that fields the trainee until wallets merge',()=>{
+    const {s,settings}=fixture(),now=1000000;
+    s.mons=[{uid:'new',id:52,reg:'sinnoh',level:5},{uid:'old',id:143,reg:'hoenn',level:90}];
+    s.team=['new'];s.road=['new'];s.adv.chapter=48;s.adv.unlocked=49;
+    s.travel.to.push('sinnoh');s.link={from:'hoenn',to:'sinnoh',side:'to',stash:{team:['old'],money:1000}};
+    for(const trainUid of ['new','team']){
+        const rows=H.xpRanking(s,{...settings,region:'all',trainUid},{},{},now);
+        assert.ok(rows.length);assert.ok(rows.every(row=>row.reg==='sinnoh'));
+    }
+    s.team=['old'];s.road=['old'];s.adv.chapter=31;s.link.side='from';s.link.stash.team=['new'];
+    const cfg={...settings,region:'all',trainUid:'old'};
+    const from=H.xpRanking(s,cfg,{},{},now);assert.ok(from.length);assert.ok(from.every(row=>row.reg!=='sinnoh'));
+    delete s.link;
+    assert.ok(H.xpRanking(s,cfg,{},{},now).some(row=>row.reg==='sinnoh'));
+});
+
 test('the level-69 screenshot party can train on the opened Victory Road frontier rather than being limited to the previous gym',()=>{
     const {s,p,settings}=fixture(),rows=preparation(s,p,settings),frontier=rows.find(row=>row.id===42),gym=rows.find(row=>row.id===41);
     assert.ok(frontier);assert.equal(rows[0].id,42);assert.equal(frontier.trainingFrontier,true);assert.ok(frontier.rate>gym.rate*1.15);assert.ok(frontier.battleFit.coverage>=.9);assert.ok(frontier.battleFit.turns<=3);

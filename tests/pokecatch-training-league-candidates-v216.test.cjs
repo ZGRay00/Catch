@@ -28,7 +28,7 @@ test('the source-stage screenshot gets one whole league candidate rather than on
     assert.equal(rows.filter(row=>row.key==='L:hoenn').length,1);assert.equal(row.name,'丰缘 · 联盟');
     assert.ok(row.members.includes(47),'the still-future champion belongs to the risk/reward forecast');
     assert.equal(row.reward,members.reduce((sum,chapter)=>sum+chapter.reward,0));assert.equal(row.units,members.reduce((sum,chapter)=>sum+chapter.units,0));
-    assert.equal(row.members.reduce((sum,id)=>sum+H.DATA.chapters[id].xpEstimate,0),838352);
+    assert.equal(row.members.reduce((sum,id)=>sum+H.DATA.chapters[id].xpEstimate,0),937910);
 });
 
 test('a mature league candidate is not duplicated or relabeled as a new frontier',()=>{

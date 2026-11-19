@@ -36,10 +36,12 @@
     function itemRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         const item = ITEMS.get(settings.itemId); if (!item) return [];
         const metricKey=routeMetricKey(s,settings,now);
+        const roamingOpen=ROAMING_DATA.groups.some(group=>s.adv.badges?.includes(group.badge));
+        const sourceYield=source=>roamingOpen?source.expected:source.beforeRoaming??source.expected;
         return candidates(s, settings).filter(row => (cooldowns[row.key] || 0) <= now).map(row => {
-            const sources = item.sources.filter(source => row.members.includes(source.ch) && sourceAvailable(s, source, item.id, now));
+            const sources = item.sources.filter(source => row.members.includes(source.ch) && sourceYield(source)>0 && sourceAvailable(s, source, item.id, now));
             const seconds = estimatedRouteSeconds(row,settings.speed);
-            const expected = sources.reduce((n, source) => n + source.expected * (source.kind === 'town' ? Math.min(1, seconds * 1000 / Math.max(1, DATA.townCooldown || 1)) : 1), 0);
+            const expected = sources.reduce((n, source) => n + sourceYield(source) * (source.kind === 'town' ? Math.min(1, seconds * 1000 / Math.max(1, DATA.townCooldown || 1)) : 1), 0);
             const m = metrics[metricKey(row)], measured = m?.itemSeconds > 0;
             const count = Number(m?.itemCounts?.[item.id]) || 0;
             const estimate = expected / seconds * 60;
@@ -48,13 +50,15 @@
             return { ...row, rate, expected, measured, actualRate: measured ? count / m.itemSeconds * 60 : null, samples: m?.itemRuns || 0, sources };
         }).filter(row => row.expected > 0).sort((a, b) => b.rate - a.rate || a.id - b.id);
     }
+    const leagueBadgesByRegion = new Map(DATA.regions.map(region => [region.key,
+        DATA.chapters.filter(chapter => chapter.reg === region.key && chapter.league).flatMap(chapter => chapter.badges || [])]));
     function trainingCap(s, mon) {
         const caps = DATA.caps?.[s.adv.unlocked];
         if(!caps)return 100;
-        const regional=reg=>DATA.chapters.some(c=>c.reg===reg&&c.league&&c.badges?.some(b=>s.adv.badges?.includes(b)))?100:caps[reg]??caps.main;
+        const regional=reg=>leagueBadgesByRegion.get(reg)?.some(badge=>s.adv.badges?.includes(badge))?100:caps[reg]??caps.main;
         if(s.link)return Math.min(100,regional(monRegion(mon)));
         // A shared wallet still obeys the next gym cap of every opened, reached region.
-        // Snapshot main caps were exported before the isolated runtime opened later regions.
+        // An older save can have fewer regions open than the reference frontier.
         const open=new Set(['kanto',...(s.travel?.to||[]),currentRegion(s)]);
         const values=DATA.regions.filter(r=>open.has(r.key)&&r.start<=s.adv.unlocked).map(r=>regional(r.key));
         return Math.min(100,...(values.length?values:[caps.main]));
@@ -82,12 +86,21 @@
         const order=new Map((s.team||[]).map((uid,i)=>[uid,i]));
         return eligible.sort((a,b)=>a.level-b.level||(order.get(a.uid)??999)-(order.get(b.uid)??999)||String(a.uid).localeCompare(String(b.uid)))[0]?.uid||null;
     }
+    function recordedXpCompatible(region, multiplier) {
+        // Untagged checkpoints and samples used the former 1× Unova curve.
+        return multiplier == null ? region !== 'unova' : multiplier === DATA.economy.xpMultipliers[region];
+    }
+    function rankedXpTable(tables, mon) {
+        if (!tables) return null;
+        const rank = Math.floor(Number(mon.rank) || 0);
+        return tables[Math.min(tables.length - 1, Math.max(0, rank))];
+    }
     function experienceTotal(s, uids = s.team || []) {
+        const tables = DATA.xpThresholds?.[economicRegion(s)];
         let total = 0;
         for (const uid of uids) {
             const mon = (s.mons || []).find(m => m.uid === uid); if (!mon) return null;
-            const tables = DATA.xpThresholds?.[economicRegion(s)]; if (!tables) return null;
-            const table = tables[Math.min(tables.length - 1, Math.max(0, Number(mon.rank) || 0))];
+            const table = rankedXpTable(tables, mon);
             if (!table) return null;
             for (let level = 1; level < mon.level; level++) total += table[level] || 0;
             total += Number(mon.xp) || 0;
@@ -124,7 +137,8 @@
         const battleFit=yield* battleRouteFitSearch(s,row,s.team||[],now,sliced);
         const experience=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0)*yieldMembers*xpMult;
         const leagueTraining=row.league?yield* leagueTrainingSearch(s,settings,row,battleFit,now,sliced):null;
-        const estimate=leagueTraining?leagueTraining.xpPerMember*yieldMembers*xpMult/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
+        const model=leagueTraining?leagueTraining.xpPerMember*yieldMembers*xpMult/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
+        const estimate=estimateWithHistory(model,m?.historicalRate);
         const actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
         const levels=party.filter(mon=>teamEligible(s,mon,row.reg)).map(mon=>mon.level).sort((a,b)=>b-a);
         const lead=(levels[0]||1)*.75+(levels[1]||levels[0]||1)*.25,maxLevel=Math.max(...row.members.map(id=>CHAPTERS.get(id)?.ace||1));
@@ -141,8 +155,35 @@
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
     }
     function yieldRankingRequest(kind,s,settings,metrics,now){
-        const maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
-        return makeYieldRankingRequest(kind,s,settings,metrics,now,maps);
+        let maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
+        let otherWallet=null;
+        if(s.link){
+            const onCurrentSide=row=>(row.reg===s.link.to)===(s.link.side==='to');
+            // Entering the other side replaces the entire adventure team. A named
+            // trainee or a protected training party cannot earn XP on that trip.
+            if(kind==='money'&&maps.some(row=>!onCurrentSide(row))&&!(settings.mode==='money'&&settings.moneyTarget>0)){
+                otherWallet=otherMoneyParty(s);
+            }
+            if(!otherWallet)maps=maps.filter(onCurrentSide);
+        }
+        return makeYieldRankingRequest(kind,s,settings,metrics,now,maps,undefined,otherWallet);
+    }
+    function otherMoneyParty(s){
+        // Native Game.enterRegion swaps the team and wallet while both groups'
+        // Pokémon stay in S.mons. It drops missing UIDs before applying side rules.
+        const link=s.link,stored=link.stash?.team;
+        if(!Array.isArray(stored)||!['from','to'].includes(link.side))return null;
+        const side=link.side==='to'?'from':'to',reg=side==='to'?link.to:link.from;
+        if(!reg)return null;
+        const index=new Map(s.mons.map(mon=>[mon.uid,mon]));
+        const existing=stored.map(uid=>index.get(uid)).filter(Boolean);
+        let members=existing.filter(mon=>teamEligible(s,mon,reg));
+        if(existing.length&&!members.length){
+            const backup=s.mons.filter(mon=>teamEligible(s,mon,reg)).sort((a,b)=>b.level-a.level)[0];
+            if(backup)members=[backup];
+        }
+        if(!members.length)return null;
+        return {...s,team:members.map(mon=>mon.uid),link:{...link,side}};
     }
     function preparationRankingRequest(s,settings,preparation,metrics,now){
         const options={...settings,region:'all'},reg=preparation.context.reg;
@@ -152,22 +193,29 @@
         request.ceiling=preparation.routeCeiling;
         return request;
     }
-    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg){
+    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null){
         const xp=kind!=='money';
         const metricKey=routeMetricKey(s,settings,now);
+        const otherKey=otherWallet&&routeMetricKey(otherWallet,settings,now);
+        const states=maps.map(row=>otherWallet&&(row.reg===s.link.to)===(otherWallet.link.side==='to')?otherWallet:s);
         // The telemetry object mutates in place. Pin precisely the fields read by
         // this search so a sample crossing two slices cannot mix measurements.
-        const samples=maps.map(row=>{
-            const m=metrics[metricKey(row)];
-            return m&&(xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs});
+        const samples=maps.map((row,i)=>{
+            const key=states[i]===s?metricKey:otherKey,exact=key(row),m=metrics[exact];
+            if(xp?m?.xpSeconds>0:m?.seconds>0)return xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs};
+            const legacy=key(row,false);
+            if(exact===legacy)return;
+            const mixed=metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
+            if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
         });
-        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),samples]);
+        const otherInputs=otherWallet&&yieldRankingInputs(otherWallet,settings,[],now);
+        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
             : maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
         return {kind,reg,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced)};
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states)};
     }
-    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced){
+    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states){
         let rows=[];
         let projection;
         if(kind!=='money'){
@@ -178,8 +226,8 @@
         for(const [i,row] of maps.entries()){
             if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,samples[i],now,sliced,projection));
             else{
-                const fit=yield* battleRouteFitSearch(s,row,s.team||[],now,sliced);
-                rows.push(moneyRouteScore(s,row,samples[i],fit,now,settings.speed));
+                const state=states[i],fit=yield* battleRouteFitSearch(state,row,state.team||[],now,sliced);
+                rows.push(moneyRouteScore(state,row,samples[i],fit,now,settings.speed));
             }
             if(sliced)yield;
         }
@@ -215,7 +263,7 @@
     function candyRegion(s){return economicRegion(s);}
     function candyXpGap(s,mon,goal){
         goal=Math.min(goal,trainingCap(s,mon));if(mon.level>=goal)return 0;
-        const tables=DATA.xpThresholds[economicRegion(s)],table=tables?.[Math.min(tables.length-1,Math.max(0,Number(mon.rank)||0))];
+        const table=rankedXpTable(DATA.xpThresholds[economicRegion(s)],mon);
         if(!table)return null;let need=-(Number(mon.xp)||0);
         for(let lv=mon.level;lv<goal;lv++){if(!(table[lv]>0))return null;need+=table[lv];}return Math.max(0,need);
     }
@@ -448,8 +496,10 @@
         for(const foe of foes){
             const guarded={...foe,hpMult:(foe.hpMult||1)*hpMargin},defense=effectiveStats(guarded),weather=combatWeather(s,foe,context,context.now??Date.now());
             const details=allies.map(({mon,stats})=>{
-                const detail=matchupDetails(mon,guarded,stats,defense,weather),incoming=detail.incoming;
-                return{...detail,incoming:{...incoming,damage:incoming.damage*damageMargin,sustainedDamage:incoming.sustainedDamage*damageMargin,hit:incoming.hit*damageMargin,minHit:incoming.minHit*damageMargin,maxHit:incoming.maxHit*damageMargin}};
+                const detail=matchupDetails(mon,guarded,stats,defense,weather);
+                // Apply the margin to the HP threshold so each native integer
+                // damage roll, including borderline one-hit KOs, stays intact.
+                return {...detail,hp:detail.hp/damageMargin};
             });
             const battle=deployedBattle(details,s.autoSwitch!==false);
             weight+=foe.weight;turns+=foe.weight*battle.turns;deaths+=foe.weight*battle.deaths;coverage+=foe.weight*battle.coverage;

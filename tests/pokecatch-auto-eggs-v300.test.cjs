@@ -105,6 +105,29 @@ test('explicit opt-out never navigates or hatches a ready egg', t => {
     assert.equal(f.s.pension.eggs.length, 1);
 });
 
+test('enough incubating target eggs leave the current page alone and wake for the earliest egg', t => {
+    const f = fixture(t, { mode: 'breed', breedId: 1, breedGoal: 1, breedShiny: false });
+    const due = f.now() + 15000;
+    f.s.pension.eggs = [{ uid: 'other', id: 4, hatchAt: due }, { uid: 'target', id: 1, hatchAt: due + 60000 }];
+    f.e.automation.breed(f.s, f.now());
+    f.advance(6000);
+    f.e.automation.breed(f.s, f.now());
+    assert.equal(f.actions.length, 0);
+    assert.equal(f.e.nextWake, due);
+    f.advance(9000);
+    f.e.automation.breed(f.s, f.now());
+    assert.equal(f.ui.screen, 'pension');
+    assert.deepEqual(f.clicks().map(click => click.uid), ['other']);
+});
+
+test('the visible native hatch signal precedes the predicted clock during a breeding wait', t => {
+    const f = fixture(t, { mode: 'breed', breedId: 1, breedGoal: 1, breedShiny: false }, { forceReady: true });
+    f.s.pension.eggs[0].hatchAt = f.now() + 60000;
+    f.ui.screen = 'pension';
+    f.e.automation.breed(f.s, f.now());
+    assert.deepEqual(f.clicks().map(click => click.uid), ['egg-a']);
+});
+
 test('a manually chosen incomplete party does not start native auto-fill through egg collection', t => {
     const f = fixture(t, { autoTeam: false }), before = [...f.s.team];
     assert.equal(f.service(), false);
@@ -153,8 +176,38 @@ test('disappearance without native hatch-count growth does not invent a complete
     const f = fixture(t, {}, { deferCommit: true });
     f.service(); f.s.pension.eggs = []; f.save(); f.advance(1200); f.service();
     assert.equal(f.e.automation.state.autoHatched || 0, 0);
+    f.advance(15000);f.service();
     assert.equal(f.e.automation.state.eggService, undefined);
     assert.equal(f.ui.screen, 'adventure');
+});
+
+test('background hatching waits for a split counter save before taking the next egg', t => {
+    const f=fixture(t,{}, {deferCommit:true});
+    f.s.pension.eggs.push({uid:'egg-b',id:4,hatchAt:f.now()-1000});
+    f.service();
+    f.s.pension.eggs.shift();f.save();f.advance(1200);f.service();
+    assert.deepEqual(f.clicks().map(click=>click.uid),['egg-a']);
+    f.s.stats.hatched++;f.save();f.advance(1200);f.service();
+    assert.equal(f.e.automation.state.autoHatched,1);
+    assert.deepEqual(f.clicks().map(click=>click.uid),['egg-a','egg-b']);
+    f.commit('egg-b');f.advance(1200);f.service();
+    assert.equal(f.e.automation.state.autoHatched,2);assert.equal(f.ui.screen,'adventure');
+});
+
+test('a breeding task finishes its incubating target even without either parent', t => {
+    const f=fixture(t,{mode:'breed',breedId:1,breedGoal:1,breedShiny:false});
+    const future=f.now()+12000;
+    f.s.pension.eggs[0].hatchAt=future;
+    f.e.automation.breed(f.s,f.now());
+    assert.ok(f.e.running,f.e.status);assert.equal(f.e.nextWake,future);
+    assert.equal(f.e.driver.teamTask,null);assert.equal(f.clicks().length,0);
+    f.advance(12000);
+    f.s.pension.eggs.unshift({uid:'other',id:4,hatchAt:f.now()});
+    f.e.automation.breed(f.s,f.now());
+    assert.deepEqual(f.clicks().map(click=>click.uid),['egg-a']);
+    f.e.automation.breed(f.s,f.now()+1200);
+    assert.equal(f.e.automation.state.hatched,1);assert.match(f.e.status,/目标已完成/);
+    assert.deepEqual(f.s.pension.eggs.map(egg=>egg.uid),['other']);
 });
 
 test('duplicate hatch without a receipt continues and a batch counts each UID exactly once', t => {

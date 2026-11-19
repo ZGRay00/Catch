@@ -11,6 +11,15 @@ test('the current snapshot covers Unova and keeps all structural references usab
 test('mainline settings support the full current story and preserve an explicitly saved older goal',()=>{
     assert.equal(H.DEFAULTS.progressUntil,83);assert.equal(H.normalizeSettings({progressUntil:999}).progressUntil,83);assert.equal(H.normalizeSettings({progressUntil:65}).progressUntil,65);
 });
+test('Unova planning includes the expanded routes, the new gym member and the actual first league room',()=>{
+    const basic=H.DATA.chapters[67],electric=H.DATA.chapters[70],league=H.DATA.chapters[77];
+    assert.deepEqual([basic.wild,basic.trainers,basic.reward,basic.xpEstimate],[10,14,7398,3493]);
+    assert.ok(electric.gymFoes.some(([id,level])=>id===596&&level===36));
+    const trainers=[[510,74],[20,74],[505,75],[531,75],[553,76],[167,76],[518,76],[168,77],[609,77],[552,77]];
+    const expected=[...league.gymFoes.map(([id,level])=>[id,level,3]),...trainers.map(([id,level])=>[id,level,1])];
+    assert.deepEqual(league.foes,expected);
+    assert.equal(league.xpEstimate,126517);
+});
 test('Unova dex completion uses basic forms and current-region map planning',()=>{
     const s=state(),cfg={...H.DEFAULTS,region:'current'};let dex=H.dexStatus(s,cfg);
     assert.ok(dex.roots.some(m=>m.id===495));assert.ok(!dex.roots.some(m=>m.id===497));assert.ok(dex.roots.every(m=>m.id>=494&&m.id<=649));

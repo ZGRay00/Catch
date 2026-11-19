@@ -65,6 +65,18 @@
     .dex-routes .missing { padding:0 4px 8px }
     .dex-routes .chip, #dex-results .chip { min-height:27px }
     #hunt-forecast { padding:5px 9px; color:#a5ecd6; font-size:12px }
+    .season-calendar { --season:#a1deaf; border-block:1px solid #344757; margin:6px 0 10px; font-size:12px }
+    .season-calendar[data-season=summer] { --season:#f4cf74 }
+    .season-calendar[data-season=autumn] { --season:#efa781 }
+    .season-calendar[data-season=winter] { --season:#a2d9f2 }
+    .season-calendar summary { padding:6px 2px; color:#a7bdc9 }
+    .season-calendar strong { color:var(--season); margin-inline:7px }
+    .season-remaining { font-variant-numeric:tabular-nums; white-space:nowrap }
+    .season-period,.season-next { color:#b9cbd7; padding:2px 8px; overflow-wrap:anywhere }
+    .season-next { padding-bottom:7px }
+    .season-forms { display:flex; flex-wrap:wrap; gap:4px; padding:0; margin:5px 0; list-style:none }
+    .season-forms li { padding:2px 6px; border:1px solid #3c5263; border-radius:5px; color:#b1c1d0; font-size:11px }
+    .season-forms [data-seen=true] { border-color:#49776a; color:#9be7c7 }
     .forecast-filters { border:0; padding:0; margin:12px 0 8px }
     .forecast-filters legend { color:#d8e8f1; margin-bottom:6px; font-weight:650 }
     .forecast-skies { display:flex; flex-wrap:wrap; gap:5px }

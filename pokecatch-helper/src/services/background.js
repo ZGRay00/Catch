@@ -46,12 +46,12 @@
             return '先适配冒险阵容，再派遣空闲队员';
         return '';
     }
-    function undergroundDispatchReason(s,e,now=Date.now()){
+    function undergroundDispatchReason(s,e,now=Date.now(),status){
         if(!e.settings.autoUnderDispatch)return '后台自动派遣已关闭';
         if(!undergroundBackgroundUnlocked(s))return '进入神奥后自动启用后台派遣';
         if(!s.adv.badges?.includes('Forêt'))return '神奥森林徽章后开放地下探险';
         if(['exit','team','restore','travel','travelFirst'].includes(e.preparation?.phase))return '先完成补练队伍与原任务的切换';
-        const status=undergroundStatus(s,now);
+        status??=undergroundStatus(s,now);
         if(!status.left)return '今日派遣额度已用完，等待次日';
         if(status.slots.length>=status.capacity)return '派遣位置已满，等待归队';
         const wait=adventureDispatchWait(s,e,now);
@@ -124,15 +124,17 @@
         return '';
     }
     function readyBackgroundEggs(s,now=Date.now()){
-        const eggs=s?.pension?.eggs||[],native=new Set(typeof document==='undefined'?[]:$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled).map(el=>String(el.dataset.egg)));
-        return eggs.filter(egg=>native.has(String(egg.uid))||Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now);
+        const eggs=s?.pension?.eggs||[];
+        const due=egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now;
+        if(eggs.every(due))return eggs;
+        const native=new Set(typeof document==='undefined'?[]:$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled).map(el=>String(el.dataset.egg)));
+        return eggs.filter(egg=>due(egg)||native.has(String(egg.uid)));
     }
-    function parallelPlan(s,e,now=Date.now()){
+    function parallelPlan(s,e,now=Date.now(),eggs=readyBackgroundEggs(s,now),under=s?.under?undergroundStatus(s,now):null){
         const flow=e.automation?.state||{},services=e.services||normalizeServiceState(),c=e.settings||{};
         const active=services.underground?'underground':flow.eggService?'eggs':flow.evolution?'evolution':null;
-        const eggs=readyBackgroundEggs(s,now);
-        const under=s?.under?undergroundStatus(s,now):{ready:[]};
-        const underDispatch=!(c.autoUnderCollect&&under.ready.length)&&c.mode!=='underground';
+        const returned=under?.ready.length||0;
+        const underDispatch=!(c.autoUnderCollect&&returned)&&c.mode!=='underground';
         const mainComplete=mainGoalReached(s,e,now),blocked={},ready=[];
         const common=backgroundBlockReason(s,e,now),manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
         for(const id of ['eggs','underground','evolution']){
@@ -140,7 +142,7 @@
             if(id==='eggs'&&(!c.autoEggs||c.mode==='breed'))reason=c.mode==='breed'?'由当前繁殖任务管理':'自动收蛋已关闭';
             if(id==='underground'){
                 if(c.mode==='underground')reason='由当前地下任务管理';
-                else if(underDispatch)reason=reason||undergroundDispatchReason(s,e,now);
+                else if(underDispatch)reason=reason||undergroundDispatchReason(s,e,now,under);
                 else if(!c.autoUnderCollect)reason='后台归队领取已关闭';
             }
             if(id==='evolution'&&!c.autoEvolve)reason='自动免费进化已关闭';
@@ -149,14 +151,17 @@
             const retry=id==='eggs'?Math.max(flow.eggRetryAt||0,services.retryAt?.eggs||0):id==='evolution'?flow.evolutionRetryAt||0:services.retryAt?.underground||0;
             if(!reason&&retry>now)reason='等待服务重试时间';
             if(reason)blocked[id]=reason;
-            else if(id==='eggs'?eggs.length:id==='underground'?underDispatch||under.ready.length:!['breed','resource'].includes(c.mode))ready.push(id);
+            else if(id==='eggs'?eggs.length:id==='underground'?underDispatch||returned:!['breed','resource'].includes(c.mode))ready.push(id);
         }
         // Mature eggs free incubator capacity first; finish any existing transaction
         // before starting this ordered list: eggs, underground receipts, evolution.
-        return{active,ready,blocked,mainComplete,pendingCount:Number(eggs.length>0)+Number(under.ready.length>0)};
+        return{active,ready,blocked,mainComplete,pendingCount:Number(eggs.length>0)+Number(returned>0)};
     }
     function taskExecutionState(s,e,now=Date.now()){
-        const c=e.settings||{},a=s?.adv||{},flow=e.automation?.state||{},plan=parallelPlan(s,e,now),services=e.services||{};
+        const due=readyBackgroundEggs(s,now),under=undergroundStatus(s||{},now);
+        const c=e.settings||{},a=s?.adv||{},flow=e.automation?.state||{},plan=parallelPlan(s,e,now,due,under),services=e.services||{};
+        const nativePaused=e.running&&!!a.paused;
+        const paused=!!(e.manual||e.suspended||nativePaused);
         const planned=MODE_NAMES[c.mode]||'主任务';let label=planned,detail='同一冒险路线的规划按顺序执行';
         if(a.event?.raid)label='团体战';else if(a.zone)label=a.zone.elite?'精英传说战':'传说捕获';else if(a.league)label='精英联盟';else if(a.tower)label=a.tower.kind==='candy'?'糖果工厂':'对战塔';else if(a.event)label='游戏活动';
         if(label!==planned)detail=`实际前台：${label} · 原任务：${planned}`;
@@ -168,23 +173,23 @@
             label='未启动主任务';
         }
         else if(e.manual||e.suspended)detail='助手已让出控制，原生计时不因此暂停';
+        else if(nativePaused)detail='在游戏中继续冒险后恢复当前任务';
         else if(e.nextWake>now)detail=`主任务等待结算 · 后台可处理安全派遣与领取`;
         let uiOwner=plan.active==='underground'?(services.underground?.action==='dispatch'?'地下自动派遣':'地下归队领取'):plan.active==='eggs'?'成熟蛋领取':plan.active==='evolution'?'免费进化':e.driver?.ownedDialog?'特殊队伍/盟友弹窗':e.driver?.teamTask?'队伍调整':e.automation?.owner?'游戏弹窗确认':e.automation?.buffUI?'树果操作':e.preparation?.candyTx?'升级糖果确认':e.driver?.pendingMap?'地图切换':e.driver?.navigation?'页面切换':a.battle?'游戏原生战斗':'空闲';
-        if(e.manual||e.suspended)uiOwner='手动控制 / 等待恢复';else if(!e.running)uiOwner=plan.active?'已停止，原事务待核对':'助手未操作页面';
+        if(e.manual||e.suspended)uiOwner='手动控制 / 等待恢复';else if(nativePaused)uiOwner='游戏暂停 / 等待继续';else if(!e.running)uiOwner=plan.active?'已停止，原事务待核对':'助手未操作页面';
         const entries=[];
-        const nativeEggs=s?.pension?.eggs||[],due=readyBackgroundEggs(s,now),nextEgg=Math.min(...nativeEggs.filter(egg=>!due.includes(egg)).map(egg=>Number(egg.hatchAt)).filter(at=>at>now));
+        const nativeEggs=s?.pension?.eggs||[],nextEgg=Math.min(...nativeEggs.filter(egg=>!due.includes(egg)).map(egg=>Number(egg.hatchAt)).filter(at=>at>now));
         const make=(id,enabled,configured,count,nextAt,task,managed,base)=>{
             let state=!configured?'unconfigured':count?'ready':'timing',text=base;
             if(!enabled){state='disabled';text+=(configured?'；原生计时/成熟状态保留，自动领取已关闭':'；未配置');}
             else if(managed){state='waiting';text+='；由当前主任务管理';}
-            else if(task){state=e.running&&!e.manual&&!e.suspended?'running':'waiting';text+='；'+(state==='running'?'正在领取并归还页面':'事务保留，等待恢复核对');}
+            else if(task){state=e.running&&!paused?'running':'waiting';text+='；'+(state==='running'?'正在领取并归还页面':'事务保留，等待恢复核对');}
             else if(count&&plan.blocked[id]){state=/手动队伍/.test(plan.blocked[id])?'blocked':'waiting';text+='；'+plan.blocked[id];}
             else if(count&&id==='eggs')text+='；成熟蛋优先，可在普通战斗期间领取';
             entries.push({id,label:id==='eggs'?'培育屋 / 孵蛋':'地下派遣',state,detail:text,nextAt:Number.isFinite(nextAt)?nextAt:null});
         };
         const residents=(s?.pension?.mons||[]).map(slot=>slot?.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>breedableOffspring(s,mon)!=null);
         make('eggs',c.autoEggs!==false,nativeEggs.length||residents.length,due.length,nextEgg,flow.eggService,c.mode==='breed',nativeEggs.length?`孵化中 ${nativeEggs.length-due.length} · 已成熟 ${due.length}`:breeding?'已配置寄养亲本，产糖 / 产蛋计时中':residents.length?'寄养产糖计时中，尚未配置可产蛋组合':'未配置蛋或寄养亲本');
-        const under=undergroundStatus(s||{},now);
         const nextUnder=Math.min(...under.running.map(slot=>Number(slot.end)).filter(at=>Number.isFinite(at)&&at>now));
         const dispatchOn=c.autoUnderDispatch!==false,collectOn=c.autoUnderCollect!==false,underTask=services.underground,unlocked=undergroundBackgroundUnlocked(s);
         let underState=under.slots.length?(under.ready.length?'ready':'timing'):'unconfigured',underLabel='',underAt=Number.isFinite(nextUnder)?nextUnder:null;
@@ -196,7 +201,7 @@
         }
         if(services.underDispatched||services.underClaimed)underText+=` · 后台累计已派 ${services.underDispatched||0} / 已领 ${services.underClaimed||0} 队`;
         if(underTask){
-            underState=e.running&&!e.manual&&!e.suspended?'running':'waiting';
+            underState=e.running&&!paused?'running':'waiting';
             underLabel=underState==='running'?(underTask.action==='dispatch'?'派遣中':'领取中'):'等待恢复';
             underText+='；'+(underState==='running'?(underTask.action==='dispatch'?'仅用空闲队员派遣，确认后返回原任务':'领取归队奖励，确认后返回原任务'):'事务保留，恢复后先核对存档');
         }else if(c.mode==='underground'){
@@ -207,7 +212,7 @@
         }else if(dispatchOn){
             if(!unlocked){underState=under.slots.length?'timing':'waiting';underLabel=under.slots.length?'探险中':'待神奥';underText+='；进入神奥后自动派遣';}
             else if(under.slots.length>=under.capacity&&under.slots.length){underState=under.ready.length?'waiting':'timing';underLabel=under.ready.length?'待归队领取':'探险中';underText+='；派遣位已占用，等待归队'+(under.ready.length&&!collectOn?'或手动领取':'');}
-            else if(!under.left){underState=under.running.length?'timing':'waiting';underLabel=under.running.length?'探险中':'等待次日';underText+='；今日派遣额度已用完，等待巴黎次日';if(!underAt&&under.nextReset>now)underAt=under.nextReset;}
+            else if(!under.left){underState=under.running.length?'timing':'waiting';underLabel=under.running.length?'探险中':'等待次日';underText+='；今日派遣额度已用完，等待巴黎次日';underAt=Math.min(underAt??Infinity,under.nextReset);}
             else{
                 const idle=undergroundIdleMembers(s,e,now).length,required=DATA.automation.under.team||3,why=plan.blocked.underground;
                 if(why){underState=/手动队伍/.test(why)?'blocked':'waiting';underLabel=/冒险阵容|冒险配队|补练阵容/.test(why)?'等待冒险配队':/不足|空闲.*队员/.test(why)?'等空闲队员':'等待前台';underText+=`；空闲可派遣 ${idle} 只，${why}`;}
@@ -219,7 +224,7 @@
             underText+='；'+(!collectOn?'后台派遣和领取均已关闭，原生计时保留':under.slots.length?'只领取已派出队伍':'尚无派遣队伍，可开启神奥后自动派遣');
         }
         entries.push({id:'underground',label:'地下探险',state:underState,...underLabel?{stateLabel:underLabel}:{},detail:underText,nextAt:underAt});
-        return{foreground:{label,detail,state:e.manual||e.suspended?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
+        return{foreground:{label,detail,state:paused?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
     }
     function executionDecision(s,e){
         if(!s?.adv)return{route:'进入游戏后显示实际路线',team:'进入游戏后显示配队状态',reason:''};

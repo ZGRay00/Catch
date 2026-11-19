@@ -123,9 +123,29 @@
         n^=n>>>16;n=Math.imul(n,2246822507);n^=n>>>13;n=Math.imul(n,3266489909);n^=n>>>16;
         return(n>>>0)/4294967296;
     }
-    function weatherSeason(now) {
-        const date=new Date(now),day=Math.floor(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())/86400000);
-        return ['spring','summer','autumn','winter'][((Math.floor(day/3)%4)+4)%4];
+    const SEASON_KEYS=['spring','summer','autumn','winter'];
+    const SEASON_NAMES={spring:'春季',summer:'夏季',autumn:'秋季',winter:'冬季'};
+    function seasonBlock(now) {
+        const date=new Date(now);
+        return Math.floor(Date.UTC(date.getFullYear(),date.getMonth(),date.getDate())/(3*86400000));
+    }
+    function weatherSeason(now=Date.now()) {
+        return SEASON_KEYS[((seasonBlock(now)%4)+4)%4];
+    }
+    function seasonWindow(now=Date.now()) {
+        const block=seasonBlock(now),index=((block%4)+4)%4;
+        const key=SEASON_KEYS[index],nextKey=SEASON_KEYS[(index+1)%4];
+        // Native seasons count local calendar days. Across a clock change their elapsed length varies.
+        function midnight(b) {
+            const d=new Date(b*3*86400000);
+            return new Date(d.getUTCFullYear(),d.getUTCMonth(),d.getUTCDate()).getTime();
+        }
+        return {key,name:SEASON_NAMES[key],nextKey,nextName:SEASON_NAMES[nextKey],startsAt:midnight(block),endsAt:midnight(block+1)};
+    }
+    function seasonFormProgress(s,id) {
+        if(id!==585&&id!==586)return null;
+        const seen=SEASON_KEYS.filter(key=>Array.isArray(s?.seasons?.[id])&&s.seasons[id].includes(key));
+        return {seen,missing:SEASON_KEYS.filter(key=>!seen.includes(key))};
     }
     const WEATHER_SPOT_CACHE = new WeakMap();
     function weatherDailySpot(spot,now=Date.now()) {

@@ -61,3 +61,64 @@ test('legacy speed two follows the hosted game and a mixed-speed cycle cannot su
     s.adv.speed=1;t.begin(s,r,cfg,2000);t.sample.full=true;t.sample.advanced=true;
     s.adv.speed=4;s.adv.runs++;assert.equal(t.observe(s,r,cfg,62000),null);assert.deepEqual(t.metrics,{});
 });
+
+test('Hoenn rain and clear full cycles retain separate XP and money rates across hours',()=>{
+    const s=state();Object.assign(s.adv,{chapter:41,unlocked:43});Object.assign(s.mons[0],{id:9,level:70,reg:'hoenn'});
+    const row={id:41,key:'41',members:[41]};
+    const times=[],hour=3600000;
+    for(let i=0;i<3*24;i++){
+        const at=new Date(2026,10,19,10,15).getTime()+i*hour;
+        if(new Date(at).getHours()>=10&&new Date(at).getHours()<20)times.push({at,sky:H.chapterWeather(s,41,at).key});
+    }
+    const index=times.findIndex((item,i)=>!item.sky&&times[i+1]?.sky==='rain'&&times[i+1].at===item.at+hour);
+    assert.ok(index>=0,'fixture contains a daytime clear → rain transition');
+    const clear=times[index].at,rain=times[index+1].at,key=H.metricsKey(s,row,settings,clear);
+    const repeat=times.find(({at,sky})=>at!==clear&&!sky&&H.metricsKey(s,row,settings,at)===key);
+    assert.ok(repeat,'another hour can reuse an identical encounter distribution and damage modifiers');
+    assert.notEqual(key,H.metricsKey(s,row,settings,rain));
+    const sample={net:9999999,seconds:60,runs:3,xp:99999999,xpSeconds:60,xpRuns:3};
+    for(const ranking of [H.xpRanking,H.moneyRanking]){
+        const score=(metrics,at)=>ranking(s,settings,metrics,{},at).find(r=>r.id===41);
+        assert.equal(score({[key]:sample},repeat.at).samples,3);
+        assert.equal(score({[key]:sample},rain).measured,false);
+        const base=score({},clear),mixed=score({[key.split('|rules')[0]]:sample},clear);
+        assert.equal(mixed.samples,0);assert.equal(mixed.measured,false);
+        assert.ok(Math.abs(mixed.rate/base.rate-1.25)<1e-8,'mixed history is a bounded prior');
+    }
+    const t=new H.Telemetry();t.begin(s,row,settings,clear);t.sample.full=true;t.sample.advanced=true;
+    s.adv.runs++;s.money+=999;
+    assert.equal(t.observe(s,row,settings,rain),null);assert.equal(t.sample,null);assert.deepEqual(t.metrics,{});
+});
+
+test('indoor leagues ignore outdoor weather, distinguish damage-relevant nights and support key-only lookups',()=>{
+    const s=state();s.adv.unlocked=14;
+    const league=H.candidates(s,settings,true).find(r=>r.league),at=hour=>new Date(2026,10,19,hour,15).getTime();
+    const day=H.metricsKey(s,league,settings,at(10));
+    assert.equal(H.metricsKey(s,league,settings,at(18)),day);
+    assert.equal(H.metricsKey(s,{key:league.key},settings,at(18)),day);
+    assert.notEqual(H.metricsKey(s,league,settings,at(22)),day);
+});
+
+test('a fixed indoor route with no relevant attacks reuses current yields across nights and discounts pre-rebalance history',t=>{
+    const s=state();s.adv.unlocked=57;s.adv.chapter=56;
+    Object.assign(s.mons[0],{id:129,level:5,reg:'sinnoh'});
+    const chapter=H.DATA.chapters[56],original=chapter.foes;chapter.foes=[[129,5,1]];t.after(()=>{chapter.foes=original;});
+    const row={key:'56',members:[56]},at=hour=>new Date(2026,10,19,hour,15).getTime();
+    const key=H.metricsKey(s,row,settings,at(14));assert.ok(!key.includes('|env'));
+    assert.equal(H.metricsKey(s,row,settings,at(21)),key);
+    const measured={net:600,seconds:60,runs:3},score=(metrics)=>H.moneyRanking(s,settings,metrics,{},at(21)).find(r=>r.id===56);
+    assert.equal(score({[key]:measured}).rate,600);
+    const legacy=score({[key.split('|rules')[0]]:measured});
+    assert.equal(legacy.measured,false);assert.equal(legacy.samples,0);
+    assert.equal(score({[key.replace(/\|rules[^|]+/,'|rulesold-payouts')]:measured}).rate,score({}).rate);
+});
+
+test('unlocking roaming separates town drop samples only on chapters with a changed shop pool',()=>{
+    const s=state();s.mons[0].level=5;s.adv.badges=[];
+    const source=H.ITEMS.get('rowap-berry').sources.find(entry=>entry.beforeRoaming===0&&entry.expected>0);
+    assert.ok(source);const town={key:String(source.ch),members:[source.ch]},indoor={key:'9',members:[9]},at=1000;
+    const townBefore=H.metricsKey(s,town,settings,at),indoorBefore=H.metricsKey(s,indoor,settings,at);
+    s.adv.badges.push(H.ROAMING_DATA.groups[0].badge);
+    assert.notEqual(H.metricsKey(s,town,settings,at),townBefore);
+    assert.equal(H.metricsKey(s,indoor,settings,at),indoorBefore);
+});

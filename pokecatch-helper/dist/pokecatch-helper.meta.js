@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.0.0
-// @description  原生伤害智能配队、天气窗口收集、闪蛋计数与产蛋预测、后台孵蛋地下探险、配置备份与五源在线更新。
+// @version      5.1.0
+// @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
 // @grant        GM_registerMenuCommand

@@ -1,3 +1,14 @@
+    function regionalStarter(reg) {
+        const region=DATA.regions.find(region=>region.key===reg);
+        return CHAPTERS.get(region?.start)?.gifts.find(gift=>gift.key===(reg==='kanto'?'starter':'starter-'+reg));
+    }
+    function pendingRegionalStarter(s) {
+        const reg=currentRegion(s),chapter=CHAPTERS.get(s.adv.chapter);
+        const starter=regionalStarter(reg);
+        if(!starter||!chapter?.gifts.some(gift=>gift.key===starter.key)||s.adv.gifts?.[starter.key])return false;
+        const event=s.adv.pending||s.adv.nodes?.[s.adv.node];
+        return event?.type==='gift'&&event.gift?.key===starter.key;
+    }
     class Automation {
         get buddyTask(){return this.state.buddyTask||null;}
         set buddyTask(value){if(value)this.state.buddyTask=value;else delete this.state.buddyTask;}
@@ -16,10 +27,10 @@
             e.budget.charge(cost,uses);e.persist();return d.click(el,label);
         }
         own(kind,selector,extra={}){this.owner={kind,selector,started:Date.now(),...extra};}
-        snapshotOwner(){const o=this.owner;return o?{kind:o.kind,selector:o.selector,uid:o.uid,match:o.match?.source}:null;}
+        snapshotOwner(){const o=this.owner;return o?{kind:o.kind,selector:o.selector,uid:o.uid,reg:o.reg,match:o.match?.source}:null;}
         restoreOwner(o){
             if(!o||!['mon','coachCandy','buddy','evolution','travel','receipt','gem','confirm'].includes(o.kind)||typeof o.selector!=='string')return;
-            this.own(o.kind,o.selector,{uid:o.uid,reopen:['mon','coachCandy','buddy','evolution'].includes(o.kind),...o.kind==='confirm'?{match:new RegExp(o.match||'(?!)','i')}:{}});
+            this.own(o.kind,o.selector,{uid:o.uid,reg:o.reg,reopen:['mon','coachCandy','buddy','evolution'].includes(o.kind),...o.kind==='confirm'?{match:new RegExp(o.match||'(?!)','i')}:{}});
         }
         dialog(s){
             const e=this.e,d=e.driver,o=this.owner,root=$('#modal-root.open');
@@ -38,14 +49,28 @@
             }
             const modal=owned;
             if(!visible(modal))return false;
+            if(o.kind==='travel'){
+                // The map's native departure control supplied the destination before this dialog opened.
+                const starter=regionalStarter(o.reg);
+                if(!e.settings.autoTravel||!starter||modal.classList.contains('mkc-modal')||this.departureArrived(s,o.reg)){
+                    this.owner=null;return false;
+                }
+                const banner=modal.querySelector('.dp-starters');
+                if(banner&&!this.departureBannerMatches(modal,starter)){this.owner=null;return false;}
+                if(d.click(modal.querySelector('.modal-actions .primary'),'确认跨地区出发')){
+                    this.state.departure={reg:o.reg,at:Date.now()};
+                    this.owner=null;e.persist();
+                }
+                return true;
+            }
             if(o.kind==='confirm'&&!o.match.test(modal.textContent)){this.wait('弹窗内容与当前动作不符，等待手动处理');return true;}
             if(o.kind==='gem'){
                 const options=[...modal.querySelectorAll('.rk-gems .pl-opt')].filter(enabled);
                 if(options.length&&!options.some(el=>el.classList.contains('on'))){if(d.click(options[0],'选择精英联盟奖励宝石'))o.started=Date.now();return true;}
             }
             const actions=[...modal.querySelectorAll('.modal-actions button')];
-            const button=modal.querySelector(o.kind==='travel'?'.modal-actions .primary':o.kind==='confirm'?'.modal-actions .danger,.modal-actions .gold,.modal-actions .primary':'.modal-actions .gold,.modal-actions .primary')||(o.kind==='confirm'&&actions.length===2?actions[1]:null);
-            if(d.click(button,o.kind==='travel'?'确认跨地区出发':'确认流程结果'))this.owner=null;
+            const button=modal.querySelector(o.kind==='confirm'?'.modal-actions .danger,.modal-actions .gold,.modal-actions .primary':'.modal-actions .gold,.modal-actions .primary')||(o.kind==='confirm'&&actions.length===2?actions[1]:null);
+            if(d.click(button,'确认流程结果'))this.owner=null;
             return true;
         }
         page(name){return this.e.driver.nav(name);}
@@ -229,6 +254,7 @@
             if(tx){
                 if(!eggs.some(egg=>String(egg.uid)===String(tx.uid))){
                     if((s.stats?.hatched||0)>tx.before){this.state.autoHatched=(this.state.autoHatched||0)+1;e.log(`自动收蛋完成 · 本任务累计 ${this.state.autoHatched} 枚`);}
+                    else if(now-tx.at<15000){e.status='自动收蛋 · 蛋已离开孵化器，等待孵化计数确认';return true;}
                     else e.log('蛋已不在孵化器，未确认孵化计数，继续原任务');
                     delete task.tx;e.persist();
                 }else if(now-tx.at<15000){e.status='自动收蛋 · 等待游戏存档确认';return true;}
@@ -267,7 +293,7 @@
                 if(e.settings.mode==='underground'||e.services.retryAt.underground>now)return false;
                 const status=undergroundStatus(s,now),tab=$('#tabs [data-screen="underground"]');
                 const collect=e.settings.autoUnderCollect&&status.ready.length;
-                if(backgroundBlockReason(s,e,now,collect?'':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now))return false;
+                if(backgroundBlockReason(s,e,now,collect?'':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now,status))return false;
                 if(collect&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
                 if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
@@ -408,12 +434,26 @@
             }
             if(cfg.breedShiny?shinyOwned(s,cfg.breedId):(this.state.hatched||0)>=cfg.breedGoal){this.done('繁殖孵蛋目标已完成');return;}
             if(this.state.hatchRetryAt>now){this.wait('等待孵蛋重试',this.state.hatchRetryAt);return;}
+            const targetEggs=eggs.filter(egg=>egg.id===cfg.breedId);
+            const outstanding=cfg.breedGoal-(this.state.hatched||0);
+            // No parent changes are needed to meet this target. A native ready
+            // button on an already-visible daycare still takes precedence over our clock.
+            if(!cfg.breedShiny&&targetEggs.length>=outstanding&&eggs.every(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>now)&&!readyBackgroundEggs(s,now).length){
+                this.wait(`等待已有目标蛋孵化 · ${targetEggs.length} 枚`,Math.min(...eggs.map(egg=>egg.hatchAt)));return;
+            }
             if(!this.page('pension'))return;
-            const ready=$$('#pen-eggs .pen-egg.ready[data-egg]').find(enabled);
-            if(ready){const egg=eggs.find(x=>String(x.uid)===ready.dataset.egg);if(!egg)return;this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(ready,'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
+            const readyButtons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled);
+            const buttonFor=egg=>readyButtons.find(el=>el.dataset.egg===String(egg.uid));
+            const egg=targetEggs.find(buttonFor)||eggs.find(buttonFor);
+            if(egg){this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
-            const plan=pensionPlan(s,cfg.breedId);if(plan.missing){
+            const plan=pensionPlan(s,cfg.breedId);
+            if(targetEggs.length&&(plan.missing||!cfg.breedShiny&&targetEggs.length>=outstanding)){
+                const next=Math.min(...eggs.map(egg=>Number(egg.hatchAt)||now+60000));
+                this.wait(`等待已有目标蛋孵化 · ${targetEggs.length} 枚`,Math.max(now+1200,next));return;
+            }
+            if(plan.missing){
                 const all=s.mons||[];
                 const parent=plan.parents.length ? null : all.find(m=>breedableOffspring(s,m)===cfg.breedId);
                 const ditto=plan.ditto ? null : all.find(m=>m.id===132);
@@ -475,8 +515,14 @@
                 else{this.fail('地下通道领取未获完整存档确认，已暂停以免误计或重复领取');return;}
             }
             if(this.state.collectId){delete this.state.collectId;e.log('已清理旧版地下领取标记；仅确认队员归队后累计本次领取');e.persist();}
+            const completed=this.state.underDone||0,running=status.running.length;
+            const untilReturn=Math.min(status.nextReturn,status.nextReset);
+            if(completed<cfg.underRuns&&!status.ready.length){
+                if(running+completed>=cfg.underRuns||running>=status.capacity){this.wait(`地下通道等待归队 · 已领取 ${completed}/${cfg.underRuns}`,status.nextReturn);return;}
+                if(!status.left){this.wait(`今日地下派遣次数已用完 · ${status.sent}/${status.perDay}，等待巴黎时间次日`,running?untilReturn:status.nextReset);return;}
+            }
             if(!this.page('underground'))return;
-            if((this.state.underDone||0)>=cfg.underRuns){
+            if(completed>=cfg.underRuns){
                 if(cfg.underOpenGeodes&&this.openGeodes(s))return;
                 this.done('地下通道派遣与领取目标已完成');return;
             }
@@ -489,9 +535,6 @@
             }
             if(status.ready.length){this.wait('地下通道已归队，等待领取按钮刷新',now+2000);return;}
             const ownedFx=$('.gd-fx .gd-ok:not([hidden])')||$('.gd-fx .gd-skip');if(enabled(ownedFx)){d.click(ownedFx,'完成晶洞奖励动画');return;}
-            const running=status.slots.length,untilReturn=Math.min(status.nextReturn,status.nextReset);
-            if(running+(this.state.underDone||0)>=cfg.underRuns||running>=status.capacity){this.wait(`地下通道等待归队 · 已领取 ${this.state.underDone||0}/${cfg.underRuns}`,untilReturn);return;}
-            if(!status.left){this.wait(`今日地下派遣次数已用完 · ${status.sent}/${status.perDay}，等待巴黎时间次日`,running?untilReturn:status.nextReset);return;}
             if(cfg.optimizeRaid&&undergroundMembers(s,now).length<DATA.automation.under.team){this.wait('可派遣队员不足，等待归队或巴黎时间次日恢复',running?untilReturn:status.nextReset);return;}
             const goes=$$('#ug-root [data-ug-go]').filter(enabled);
             for(const go of goes){
@@ -598,8 +641,19 @@
                 e.preparation=p;e.persist();return;
             }
             if((this.state.candyDone||0)>=cfg.candyRuns){this.done('糖果工厂目标场次已完成，奖励已由游戏发放');return;}
+            const day=parisDay(now),played=s.candy?.played===day;
+            const dailyKey=JSON.stringify([accountId(s),day,identity(last)]);
+            // The server can explicitly reopen the factory on the same day. Only a
+            // rendered native lock proves exhaustion; reload checks the server again.
+            if(played&&this.candyClosed===dailyKey&&!enabled($('#candy-root [data-cr-go]'))){
+                this.wait('今日糖果工厂机会已用，等待巴黎时间次日刷新',nextParisReset(now));return;
+            }
             if(!this.raidPage('candy'))return;
-            if(s.candy?.played===parisDay(now)&&!enabled($('#candy-root [data-cr-go]'))){this.wait('今日糖果工厂机会已用，等待巴黎时间次日刷新',nextParisReset(now));return;}
+            if(played&&!enabled($('#candy-root [data-cr-go]'))){
+                if(visible($('#candy-root [data-cr-timer]')))this.candyClosed=dailyKey;
+                this.wait('今日糖果工厂机会已用，等待巴黎时间次日刷新',nextParisReset(now));return;
+            }
+            this.candyClosed=null;
             const type=$('#candy-root .cr-type [data-type]')?.dataset.type;
             if(!type||!DATA.types[type]){this.wait('等待糖果工厂今日主题加载；请确认活动已解锁并登录');return;}
             const context=candyGoalContext(s,cfg,type);
@@ -881,11 +935,44 @@
             if(enabled(open)){this.e.driver.click(open,'展开增益树果');return true;}
             this.buffUI=null;(this.buffRetry||={})[family]=now+60000;return false;
         }
+        departureBannerMatches(modal,starter){
+            if(!starter||!modal||modal.classList.contains('mkc-modal'))return false;
+            const ids=[...modal.querySelectorAll('.dp-starters figure')].map(monIdFrom);
+            return ids.length===starter.ids.length&&starter.ids.every(id=>ids.includes(id));
+        }
+        departureArrived(s,reg){
+            return currentRegion(s)===reg&&(s.travel?.to?.includes(reg)||s.link?.side==='to'&&s.link.to===reg);
+        }
+        dismissCompletedDeparture(s,modal,resuming=false){
+            const reg=currentRegion(s),starter=regionalStarter(reg);
+            if(!visible(modal)||!this.departureArrived(s,reg)||!starter||!s.adv.gifts?.[starter.key]||!this.departureBannerMatches(modal,starter))return false;
+            const close=modal.querySelector('.modal-actions .ghost')||modal.querySelector('.dc-x');
+            if(!enabled(close))return false;
+            this.e.driver.click(close,'关闭已完成的跨地区出发提示',false,resuming);
+            this.wait('已领取初始伙伴，正在返回冒险');return true;
+        }
+        finishDeparture(s,now){
+            const tx=this.state.departure;
+            const modal=$('#modal-root.open .dp-modal');
+            if(!tx&&!visible(modal))return false;
+            const reg=tx?.reg||currentRegion(s),starter=regionalStarter(reg);
+            if(this.departureArrived(s,reg)){
+                if(this.dismissCompletedDeparture(s,modal))return true;
+                if(!tx)return false;
+                if(s.team?.length||s.adv.gifts?.[starter?.key]){
+                    delete this.state.departure;this.e.persist();return false;
+                }
+            }
+            if(!tx)return false;
+            if(now-tx.at>=120000){this.fail('已确认跨地区出发，游戏尚未完成转场或发放初始伙伴，请检查游戏画面');return true;}
+            this.wait('已确认跨地区出发，等待游戏转场和初始伙伴');return true;
+        }
         travel(s,now){
             const e=this.e,d=e.driver;if(!e.settings.autoTravel)return false;
+            if(this.state.departure)return this.finishDeparture(s,now);
             if(!d.nav('map'))return true;
-            const depart=$$('#map-root [data-depart]').find(enabled);if(!depart)return false;
-            if(d.click(depart,'准备跨地区开局'))this.own('travel','.dp-modal');
+            const depart=$$('#map-root [data-depart]').find(el=>enabled(el)&&regionalStarter(el.dataset.depart)&&!s.travel?.to?.includes(el.dataset.depart));if(!depart)return false;
+            if(d.click(depart,'准备跨地区开局'))this.own('travel','.dp-modal',{reg:depart.dataset.depart});
             e.telemetry.sample=null;this.wait('跨地区开局：新队伍与钱包由游戏分开管理');return true;
         }
     }

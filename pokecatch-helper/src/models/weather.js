@@ -34,9 +34,10 @@
     const WILD_PHASES = ['morning','day','night'];
     for(const c of DATA.chapters){
         const habitat=new Map(),weather=WEATHER_DATA.chapters[c.id];
-        function record(id,phase,rotation){
-            if(!habitat.has(id))habitat.set(id,{phases:new Set(),ordinary:false,rotations:new Set()});
+        function record(id,phase,rotation,seasonMask){
+            if(!habitat.has(id))habitat.set(id,{phases:new Set(),ordinary:false,rotations:new Set(),seasonMask:0});
             const hit=habitat.get(id);
+            hit.seasonMask|=seasonMask;
             hit.phases.add(phase);
             if(rotation===null)hit.ordinary=true;
             else if(!hit.ordinary)hit.rotations.add(rotation);
@@ -48,18 +49,19 @@
             for(const [key,variant] of [['',weather],...Object.entries(weather.variants||{})]){
                 const rotation=key?Number(key.split(':',1)[0]):null;
                 for(const phase of WILD_PHASES){
-                    const tables=new Set();
+                    const tables=new Map();
                     for(const conditions of [variant.pools,variant.direct]){
-                        for(const season of Object.values(conditions||{})){
-                            for(const table of Object.values(season[phase]||{}))tables.add(table);
+                        for(const [season,phases] of Object.entries(conditions||{})){
+                            const bit=1<<SEASON_KEYS.indexOf(season);
+                            for(const table of Object.values(phases[phase]||{}))tables.set(table,(tables.get(table)||0)|bit);
                         }
                     }
-                    for(const table of tables)for(const [id] of WEATHER_DATA.tables[table])record(id,phase,rotation);
+                    for(const [table,mask] of tables)for(const [id] of WEATHER_DATA.tables[table])record(id,phase,rotation,mask);
                 }
             }
         }else{
             for(const [phase,pool] of Object.entries(c.shinyPools||c.pools)){
-                for(const [id,weight] of pool)if(weight>0)record(id,phase,null);
+                for(const [id,weight] of pool)if(weight>0)record(id,phase,null,15);
             }
         }
         WILD_HABITATS.set(c.id,habitat);
@@ -119,11 +121,24 @@
         const specialChapters=(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter);
         return candidates(s,settings).some(row=>row.members.some(ch=>WILD_HABITATS.get(ch)?.has(id)||specialChapters.includes(ch)));
     }
+    const chapterSpotIndices=new WeakMap();
+    function weatherEncounterTable(data,sky,phase,now){
+        let indices=chapterSpotIndices.get(data);
+        if(!indices){
+            indices=[...new Set(Object.keys(data.variants||{}).map(key=>Number(key.split(':')[0])))].sort((a,b)=>a-b);
+            chapterSpotIndices.set(data,indices);
+        }
+        let variant=data;
+        for(const i of indices){
+            const selected=data.variants[i+':'+weatherDailySpot(WEATHER_DATA.dailySpots[i],now)];
+            if(selected){variant=selected;break;}
+        }
+        return (sky.source==='natural'?variant.pools:variant.direct)?.[weatherSeason(now)]?.[phase]?.[sky.key||'clear'];
+    }
     function weatherEncounterPool(s,chapter,now=Date.now()) {
         const sky=chapterWeather(s,chapter,now),data=WEATHER_DATA.chapters[chapter];
         if(!sky.known||!data)return null;
-        const variant=WEATHER_DATA.dailySpots.map((spot,i)=>data.variants?.[i+':'+weatherDailySpot(spot,now)]).find(Boolean)||data;
-        const table=(sky.source==='natural'?variant.pools:variant.direct)?.[weatherSeason(now)]?.[phaseAt(s,now,chapter)]?.[sky.key||'clear'];
+        const table=weatherEncounterTable(data,sky,phaseAt(s,now,chapter),now);
         if(!Number.isInteger(table))return null;
         if(!WEATHER_POOL_CACHE.has(table))WEATHER_POOL_CACHE.set(table,new Map(WEATHER_DATA.tables[table]));
         return WEATHER_POOL_CACHE.get(table);
@@ -135,20 +150,38 @@
         return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
     }
     let wildForecastCache;
-    function nextWildWindow(s,settings,ids,now=Date.now(),hours=48) {
+    function nextWildWindow(s,settings,ids,now=Date.now(),hours) {
         const targets=Array.from(new Set(ids));
         const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught]);
         if(wildForecastCache?.signature===signature&&now>=wildForecastCache.from&&now<wildForecastCache.until)return wildForecastCache.result;
         const slot=WEATHER_DATA.slotMs,firstHour=(Math.floor(now/slot)+1)*slot;
-        const result=searchWildWindow(s,settings,targets,now,firstHour,firstHour+(Math.floor(hours)-1)*slot);
+        const result=searchWildWindow(s,settings,targets,now,firstHour,hours);
         wildForecastCache={signature,from:now,until:Math.min(firstHour,result?.at??Infinity),result};
         return result;
     }
-    function searchWildWindow(s,settings,targets,now,firstHour,end){
+    function searchWildWindow(s,settings,targets,now,firstHour,hours){
         const phenomenonIds=targets.filter(id=>UNOVA_WILD_IDS.has(id));
-        const specialChapters=new Set(phenomenonIds.flatMap(id=>(UNOVA_SOURCE_INDEX.get(id)||[]).map(route=>route.chapter)));
-        const rows=candidates(s,settings).filter(row=>row.members.some(ch=>specialChapters.has(ch)||targets.some(id=>WILD_HABITATS.get(ch)?.has(id))));
+        const specialChapters=new Set(phenomenonIds.flatMap(id=>(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter)));
+        const rowsBySeason=SEASON_KEYS.map(()=>[]),rows=[];
+        let hasSeasonal=false;
+        for(const row of candidates(s,settings)){
+            let mask=0;
+            for(const ch of row.members){
+                if(specialChapters.has(ch))mask=15;
+                for(const id of targets){
+                    const habitat=WILD_HABITATS.get(ch)?.get(id);
+                    if(habitat){mask|=habitat.seasonMask;hasSeasonal||=habitat.seasonMask!==15;}
+                }
+            }
+            if(!mask)continue;
+            rows.push(row);
+            rowsBySeason.forEach((list,index)=>{if(mask&(1<<index))list.push(row);});
+        }
         if(!rows.length)return null;
+        // A seasonal source can be nine days away. Scan a full local cycle only when needed.
+        const cycle=new Date(now);
+        cycle.setDate(cycle.getDate()+12);
+        const end=hours===undefined&&hasSeasonal?cycle.getTime():firstHour+(Math.floor(hours??48)-1)*WEATHER_DATA.slotMs;
         const chapters=new Set(rows.flatMap(row=>row.members));
         const boundaries=new Set();
         for(let at=firstHour;at<=end;at+=WEATHER_DATA.slotMs)boundaries.add(at);
@@ -165,15 +198,17 @@
             if(chapters.has(pos?.ch)&&WEATHER_DATA.roamingWeather[id]&&!s.roam?.caught?.includes(+id)&&at>now&&at<=end)boundaries.add(at);
         }
         for(const at of [...boundaries].sort((a,b)=>a-b)){
-            const matching=rows.filter(row=>huntRouteMatches(s,settings,row,at));
+            const season=weatherSeason(at),possible=rowsBySeason[SEASON_KEYS.indexOf(season)];
+            if(!possible.length)continue;
+            const matching=possible.filter(row=>huntRouteMatches(s,settings,row,at));
             for(const row of matching)for(const chapter of row.members){
                 const pool=currentWildPool(s,chapter,at),id=targets.find(id=>(pool.get(id)||0)>0);
-                if(id)return{at,row,id,weather:chapterWeather(s,chapter,at).key};
+                if(id)return{at,row,id,season,weather:chapterWeather(s,chapter,at).key};
             }
             for(const id of phenomenonIds){
                 for(const source of unovaAcquisitionSources(s,id,at,false)){
                     const row=source.kind==='phenomenon'&&source.available&&matching.find(r=>r.members.includes(source.chapter));
-                    if(row)return{at,row,id,weather:chapterWeather(s,source.chapter,at).key};
+                    if(row)return{at,row,id,season,weather:chapterWeather(s,source.chapter,at).key};
                 }
             }
         }
@@ -181,19 +216,35 @@
     }
     // Only native battle state is evidence of a real wild shiny. UI badges, sprites,
     // previews and daily raid cards cannot activate this guard.
-    function wildShinyEncounter(s) {
+    function wildEncounter(s,matches) {
         const adv=s?.adv,battle=adv?.battle;
         if(!adv||adv.event||adv.zone||adv.tower||adv.league||battle?.kind!=='wild'||battle.raid)return null;
-        const enemies=(Array.isArray(battle.enemies)?battle.enemies:[]).filter(mon=>mon?.shiny===true&&Number.isInteger(mon.id)&&MONS.has(mon.id));
+        const enemies=(Array.isArray(battle.enemies)?battle.enemies:[]).filter(mon=>Number.isInteger(mon?.id)&&MONS.has(mon.id)&&matches(mon));
         if(!enemies.length)return null;
         return{chapter:adv.chapter,node:adv.node,enemies,key:JSON.stringify([adv.chapter,adv.node,adv.runs||0,enemies.map(mon=>[mon.id,mon.uid??null,mon.level??null])])};
     }
+    function wildShinyEncounter(s){return wildEncounter(s,mon=>mon.shiny===true);}
+    function seasonalDexEncounter(s,settings){
+        if(settings.mode!=='dex'||s?.adv?.battle?.kind!=='wild'||!huntRegionMatches(s,settings,currentRegion(s)))return null;
+        const habitats=WILD_HABITATS.get(s.adv.chapter);
+        let missing;
+        return wildEncounter(s,mon=>{
+            const mask=habitats?.get(mon.id)?.seasonMask;
+            if(!mask||mask===15)return false;
+            missing??=dexStatus(s,settings).ids;
+            return missing.has(mon.id);
+        });
+    }
     function nodeWeather(s,chapter,node,now=Date.now()) {
+        if(!node||node.weather!==undefined||node.indoor)return node?.weather??null;
+        return resolveNodeSky(node,chapterWeather(s,chapter,now),phaseAt(s,now,chapter));
+    }
+    function resolveNodeSky(node,sky,phase){
         if(!node)return null;
         if(node.weather!==undefined)return node.weather;
         if(node.indoor)return null;
-        const sky=chapterWeather(s,chapter,now);if(sky.source!=='natural')return sky.key;
-        const allowed=key=>node.climate?.[key]&&!(phaseAt(s,now,chapter)==='night'&&WEATHER_DATA.types[key]?.daylight);
+        if(sky.source!=='natural')return sky.key;
+        const allowed=key=>node.climate?.[key]&&!(phase==='night'&&WEATHER_DATA.types[key]?.daylight);
         return allowed(sky.key)?sky.key:(WEATHER_DATA.translate[sky.key]||[]).find(allowed)||null;
     }
     function weatherDamageContext(s,chapter=s?.adv?.chapter,now=Date.now(),node=null) {
@@ -289,10 +340,112 @@
         const buffs=Object.keys(s.buffs||{}).sort().filter(family=>activeYieldBuff(s,family,now)).map(family=>[family,s.buffs[family].key]);
         return JSON.stringify([s.buddy?.uid||'',buffs,s.adv.capture||null]);
     }
+    const metricClimates=new WeakMap(),nightMoveLevels=new WeakMap(),nightFoeLists=new WeakMap();
+    const metricPools=new WeakMap(),metricDamage=new WeakMap();
+    function conditionDigest(entries){
+        return (weatherHash(JSON.stringify(entries))*4294967296).toString(36);
+    }
+    function poolCondition(index){
+        const pool=WEATHER_DATA.tables[index];
+        if(!pool)return '?';
+        // Bundle exports can renumber the pool dictionary without changing a single encounter.
+        if(!metricPools.has(pool))metricPools.set(pool,conditionDigest([...pool].sort((a,b)=>a[0]-b[0])));
+        return metricPools.get(pool);
+    }
+    function damageCondition(key){
+        const damage=WEATHER_DATA.types[key]?.damage;
+        if(!damage)return '-';
+        if(!metricDamage.has(damage))metricDamage.set(damage,conditionDigest(Object.entries(damage).sort()));
+        return metricDamage.get(damage);
+    }
+    function canUseNightMove(id,level){
+        const model=MONS.get(id);
+        if(!model)return false;
+        if(!nightMoveLevels.has(model)){
+            const moves=damagingMoves(model).filter(entry=>WEATHER_DATA.nightDamage[entry.move.type]);
+            nightMoveLevels.set(model,Math.min(Infinity,...moves.map(entry=>entry.level)));
+        }
+        return level>=nightMoveLevels.get(model);
+    }
+    function metricClimate(data){
+        let info=metricClimates.get(data);
+        if(info)return info;
+        const nodes=new Map();
+        for(const node of data.nodes){
+            if(node.indoor||node.weather!==undefined||node.weatherDamage||!['route','trainer','gym','static'].includes(node.kind))continue;
+            nodes.set(Object.keys(node.climate||{}).sort().join(','),node);
+        }
+        const pools=new Set();
+        for(const variant of [data,...Object.values(data.variants||{})]){
+            for(const seasons of [variant.pools,variant.direct])for(const phases of Object.values(seasons||{}))
+                for(const skies of Object.values(phases))for(const pool of Object.values(skies))pools.add(pool);
+        }
+        info={nodes:[...nodes.values()],poolChanges:pools.size>1};
+        metricClimates.set(data,info);
+        return info;
+    }
+    function metricChapterEnvironment(s,id,now,partyUsesNight){
+        const data=WEATHER_DATA.chapters[id],chapter=CHAPTERS.get(id);
+        if(!data||!chapter)return '';
+        const info=metricClimate(data),phase=phaseAt(s,now,id),foes=chapterFoes(s,chapter);
+        if(!nightFoeLists.has(foes))nightFoeLists.set(foes,foes.some(([enemy,level])=>canUseNightMove(enemy,level)));
+        const nightVaries=!(chapter.day&&s.adv.unlocked<=id)&&(partyUsesNight||nightFoeLists.get(foes));
+        const night=nightVaries?(phase==='night'?'n':'d'):'';
+        if(!info.poolChanges&&!info.nodes.length)return night;
+        const sky=chapterWeather(s,id,now);
+        // Cache once per chart environment, even as battle autosaves replace S.
+        // The hour selects the native table, but is never part of a history key.
+        const stamp=[sky.at,new Date(now).getDate(),sky.source,sky.key,phase].join('/');
+        if(stamp!==info.stamp){
+            const table=info.poolChanges?poolCondition(weatherEncounterTable(data,sky,phase,now)):'';
+            const damage=info.nodes.map(node=>damageCondition(resolveNodeSky(node,sky,phase))).join('.');
+            info.stamp=stamp;info.signature=table+'/'+damage;
+        }
+        return info.signature+night;
+    }
+    const metricLoopMembers=new Map();
+    for(const chapter of DATA.chapters){
+        const key=String(chapter.loop);
+        if(!metricLoopMembers.has(key))metricLoopMembers.set(key,[]);
+        metricLoopMembers.get(key).push(chapter.id);
+    }
+    const metricRules=new WeakMap(),roamingDropChapters=new Set();
+    let metricDropsByChapter;
+    function chapterYieldRules(id){
+        const chapter=CHAPTERS.get(id);
+        if(!chapter)return '?';
+        if(metricRules.has(chapter))return metricRules.get(chapter);
+        if(!metricDropsByChapter){
+            metricDropsByChapter=new Map();
+            for(const item of DATA.items)for(const source of item.sources){
+                if(!metricDropsByChapter.has(source.ch))metricDropsByChapter.set(source.ch,[]);
+                metricDropsByChapter.get(source.ch).push(JSON.stringify([item.id,Object.entries(source).sort()]));
+                if(source.beforeRoaming!=null&&source.beforeRoaming!==source.expected)roamingDropChapters.add(source.ch);
+            }
+        }
+        // A re-export with the same payouts and encounters keeps its samples.
+        // Changed trainer rewards, levels or loot tables need their own completed rounds.
+        const digest=conditionDigest([chapter.reward,chapter.xpEstimate,chapter.units,chapter.foes,chapter.foesByStarter,
+            DATA.economy.xpMultipliers[chapter.reg],DATA.economy.behindMoney,DATA.townCooldown,DATA.tideMs,
+            (metricDropsByChapter.get(id)||[]).sort()]);
+        metricRules.set(chapter,digest);
+        return digest;
+    }
     function routeMetricKey(s,settings,now){
         const prefix=`e4|${economicRegion(s)}|${yieldFingerprint(s,now)}|${teamFingerprint(s)}|sw${helperSwitchEnabled(s,settings)?'helper':+(s.autoSwitch!==false)}|${settings.speed}|`;
         const suffix='|u'+s.adv.unlocked;
-        return row=>prefix+row.key+suffix;
+        const partyUsesNight=partyMons(s).some(mon=>canUseNightMove(mon.id,mon.level));
+        const roamingOpen=ROAMING_DATA.groups.some(group=>s.adv.badges?.includes(group.badge));
+        return (row,scoped=true)=>{
+            const base=prefix+row.key+suffix;
+            if(!scoped)return base;
+            const members=row.members||metricLoopMembers.get(String(row.key))||[];
+            const rules=members.map(chapterYieldRules).join('.');
+            const roaming=roamingOpen&&members.some(id=>roamingDropChapters.has(id))?'+roam':'';
+            const environments=members.map(id=>metricChapterEnvironment(s,id,now,partyUsesNight));
+            const conditions=environments.some(Boolean)?'|env'+environments.join(';'):'';
+            return base+'|rules'+rules+roaming+conditions;
+        };
     }
     function metricsKey(s,row,settings,now=Date.now()){return routeMetricKey(s,settings,now)(row);}
     function yieldRankingInputs(s,settings,rows,now){
@@ -308,6 +461,11 @@
         return Math.max(20,row.units*2.8/(Number(speed)===4?2.5:1));
     }
     function estimateRate(row,speed) { return row.reward / estimatedRouteSeconds(row,speed) * 60; }
+    function estimateWithHistory(model,historical){
+        // Old loops mixed weather and could use earlier payouts. Cap their influence at 25%;
+        // only matching full cycles may count toward a proven route switch.
+        return Number.isFinite(historical)?model*.75+Math.max(0,Math.min(model*2,historical))*.25:model;
+    }
     function moneyRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('money',s,settings,metrics,now),cooldowns,now);
     }
@@ -315,6 +473,6 @@
         const measured=m?.seconds>0&&m?.runs>0;
         const coverage=battleFit.coverage==null?1:Math.min(1,Math.max(0,battleFit.coverage));
         // Slow victories and an inability to finish encounters are separate costs.
-        const rate=measured?m.net/m.seconds*60:estimateRate(row,speed)*moneyFactor(s,row)*(activeYieldBuff(s,'money',now)?.mult||1)*battleFit.factor*coverage;
+        const rate=measured?m.net/m.seconds*60:estimateWithHistory(estimateRate(row,speed)*moneyFactor(s,row)*(activeYieldBuff(s,'money',now)?.mult||1)*battleFit.factor*coverage,m?.historicalRate);
         return {...row,rate,battleFit,measured,samples:m?.runs||0,seconds:m?.seconds||0};
     }

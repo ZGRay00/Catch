@@ -25,6 +25,16 @@ function fixture() {
     <section class="screen active" id="screen-adventure"><h1>离线游戏夹具</h1><div id="speed-btns"><button data-speed="1">×1</button><button data-speed="2">×2</button><button data-speed="4">×3</button></div></section>
     <section class="screen" id="screen-map"><div id="map-root"></div></section><section class="screen" id="screen-raid"><div id="raid-root"></div></section><section class="screen" id="screen-team"><div id="team-slots" style="display:flex;gap:4px"></div><div id="team-mini" hidden></div><input id="pc-search"><div id="pc-active"></div><div id="pc-grid" style="min-height:110px"></div></section><div id="modal-root"></div>
     <script>
+    // A game handler installed before the userscript may consume a release at window capture.
+    // Other tests leave the handler disabled and see the normal browser events.
+    for(const type of ['pointerup','pointercancel','lostpointercapture','mouseup','click','keyup']){
+        window.addEventListener(type,event=>{
+            if(event.isTrusted&&window.missedRelease?.has(type)){
+                window.missedReleaseCount[type]=(window.missedReleaseCount[type]||0)+1;
+                event.stopImmediatePropagation();
+            }
+        },true);
+    }
     const previousHelperUI=localStorage.getItem('pokecatch-helper:v1:ui'),preserveResume=localStorage.getItem('pc-regression-resume');if(!preserveResume)localStorage.clear();if(previousHelperUI)localStorage.setItem('pokecatch-helper:v1:ui',previousHelperUI);window.BUILD=${JSON.stringify(H.DATA.build)};
     const state=preserveResume?JSON.parse(localStorage.getItem('gachamon-save-v1')):${JSON.stringify(s)}, chapters=${JSON.stringify(H.DATA.chapters.map(c => ({ id: c.id, reg: c.reg, loop: c.loop, name: c.name, league: c.league }))) },zones=${JSON.stringify(H.DATA.zones)};
     let region='kanto', selected='0', allies=0, phase='home';let actions=0;const save=()=>localStorage.setItem('gachamon-save-v1',JSON.stringify(state));localStorage.setItem('pokecatch-tab','offline');save();
@@ -408,6 +418,63 @@ async function main() {
         assert.ok(await evaluate('!!__pcTest.engine.manual'));assert.match(await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector("#mini-state").textContent'),/选词中/);
         await send('Input.imeSetComposition',{text:'',selectionStart:0,selectionEnd:0});assert.equal(await evaluate('__pcTest.engine.inputComposing'),false,'closing native IME composition releases its blocker');
         await evaluate('__pcTest.engine.manual.until=Date.now()-1');await tick();assert.equal(await evaluate('__pcTest.engine.manual'),null);
+        // Chrome owns the pressed/released states. Only the delivery of release events is interrupted.
+        const inputPoint=await evaluate(`(()=>{
+            const button=document.createElement('button');button.id='manual-hold';
+            button.textContent='Hold';button.style.cssText='position:fixed;top:6px;left:6px;z-index:999';document.body.append(button);
+            const r=button.getBoundingClientRect(),original=Date.now;let offset=0;
+            Date.now=()=>original()+offset;
+            window.inputClock={advance:ms=>offset+=ms,restore:()=>{Date.now=original;}};
+            window.missedRelease=new Set(['pointerup','pointercancel','lostpointercapture','mouseup','click','keyup']);
+            window.missedReleaseCount={};
+            return {x:r.left+r.width/2,y:r.top+r.height/2};
+        })()`);
+        const mouse=(type,buttons)=>send('Input.dispatchMouseEvent',{type,...inputPoint,button:'left',buttons,clickCount:1});
+        const key=(type,autoRepeat=false)=>send('Input.dispatchKeyEvent',{type,key:'q',code:'KeyQ',autoRepeat});
+        const advanceInput=async ms=>{await evaluate(`inputClock.advance(${ms})`);await tick();};
+        try{
+            await mouse('mousePressed',1);
+            assert.ok(await evaluate('document.querySelector("#manual-hold").matches(":active")&&__pcTest.engine.inputHeld'));
+            const heldActions=await evaluate('mock.actions');
+            await advanceInput(60000);
+            assert.ok(await evaluate('!!__pcTest.engine.manual'),'a genuine stationary mouse hold survives an expired idle deadline');
+            await evaluate('(()=>{const button=document.querySelector("#manual-hold");button.replaceWith(button.cloneNode(true));})()');
+            assert.ok(await evaluate('document.documentElement.matches(":active")'),'the document remains pressed after the game redraws the clicked button');
+            await advanceInput(60000);
+            assert.ok(await evaluate('!!__pcTest.engine.manual'),'redrawing the game UI does not release a genuine hold');
+            assert.equal(await evaluate('mock.actions'),heldActions,'automation leaves the game alone throughout a genuine hold');
+            await mouse('mouseReleased',0);
+            assert.ok(await evaluate('missedReleaseCount.pointerup===1&&!document.querySelector("#manual-hold").matches(":active")'),'the browser released the mouse and the native capture handler swallowed pointerup');
+            await advanceInput(60000);await advanceInput(4000);
+            assert.equal(await evaluate('__pcTest.engine.manual'),null,'a missed release recovers without mouse movement or the Resume button');
+            await mouse('mousePressed',1);await mouse('mouseReleased',0);
+            await advanceInput(60000);await advanceInput(4000);
+            assert.equal(await evaluate('__pcTest.engine.manual'),null,'a quick click may finish between two scheduler ticks');
+
+            await key('keyDown');
+            for(let i=0;i<8;i++){
+                await evaluate('inputClock.advance(1500)');await key('keyDown',true);await tick();
+                assert.ok(await evaluate('!!__pcTest.engine.manual'),'real repeat input keeps keyboard control with the player');
+            }
+            await advanceInput(4000);
+            assert.ok(await evaluate('__pcTest.engine.inputHeld&&!!__pcTest.engine.manual'),'a repeat extends the keyboard hold past the original keydown lifetime');
+            await key('keyUp');
+            assert.equal(await evaluate('missedReleaseCount.keyup'),1,'the early game listener swallowed the trusted key release');
+            await advanceInput(60000);await advanceInput(4000);
+            assert.equal(await evaluate('__pcTest.engine.manual'),null,'a quiet non-modifier key recovers without another input');
+            assert.equal(await evaluate('__pcTest.engine.started'),session.started,'automatic recovery preserves the original session');
+
+            await key('keyDown');
+            await evaluate(`(()=>{const frame=document.createElement('iframe');frame.id='manual-focus-frame';document.body.append(frame);frame.contentWindow.focus();})()`);
+            assert.ok(await evaluate('document.activeElement?.id==="manual-focus-frame"'),'keyboard focus moved into another document before release');
+            await key('keyUp');
+            await evaluate('document.querySelector("#manual-focus-frame").remove();document.querySelector("#manual-hold").focus()');
+            await advanceInput(60000);await advanceInput(4000);
+            assert.equal(await evaluate('__pcTest.engine.manual'),null,'a key released after focus leaves the game cannot strand the task');
+        }finally{
+            await evaluate('inputClock.restore();delete window.inputClock;delete window.missedRelease;delete window.missedReleaseCount;document.querySelector("#manual-focus-frame")?.remove();document.querySelector("#manual-hold").remove()');
+        }
+        await tick();assert.ok(await evaluate('__pcTest.engine.running&&!__pcTest.engine.manual'),'the same task keeps running with the ordinary browser clock');
         await nativeClick('#tabs [data-screen="map"]');assert.ok(await evaluate('!!__pcTest.engine.manual'));
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});
         await tick();assert.equal(await evaluate('__pcTest.engine.running'),false);assert.equal(await evaluate('__pcTest.engine.manual'),null,'Esc permanently cancels resume');
@@ -425,7 +492,10 @@ async function main() {
         assert.equal(await evaluate('__pcTest.engine.teamCheck.key'),'1','automatic chapter advance re-evaluates its enemy profile');
         await evaluate(`(()=>{const e=__pcTest.engine;e.stop();const s=mock.state;s.adv.chapter=0;s.adv.unlocked=8;s.team=['weak0','strong6'];s.road=[...s.team];mock.save();e.onChange()})()`);
         await setUI({mode:'train',trainUid:'weak0',trainLevel:50,autoTeam:true});await begin();await tick();
-        for(let n=0;n<40&&await evaluate('!!__pcTest.engine.driver.teamTask');n++)await tick();
+        for(let n=0;n<40&&await evaluate('!!__pcTest.engine.driver.teamTask');n++){
+            await tick();
+            assert.ok(await evaluate('mock.state.team.includes("weak0")'),'each PC swap keeps the selected trainee on the team');
+        }
         assert.ok(await evaluate('mock.state.team.includes("weak0")&&mock.state.team.length===6'),'single trainee is retained while supports are optimized');
         assert.notEqual(await evaluate('mock.state.team[0]'),'weak0','a protected trainee does not displace its carrier from the lead');
         await evaluate(`(()=>{const e=__pcTest.engine;e.stop();const s=mock.state;s.autoSwitch=false;s.mons=s.mons.filter(m=>['weak0','strong6'].includes(m.uid));s.team=['weak0','strong6'];s.road=[...s.team];mock.save();e.onChange()})()`);

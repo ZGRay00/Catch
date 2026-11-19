@@ -1,21 +1,28 @@
     // Validate each measurement independently. Older profiles can contain XP-only
     // samples, and a damaged item history should not erase a valid wallet sample.
-    function readRouteMetric(value) {
+    function readRouteMetric(value, region) {
         if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
         const positive = n => Number.isFinite(n) && n > 0;
         const nonnegative = n => Number.isFinite(n) && n >= 0;
         const money = positive(value.seconds) && positive(value.runs) && Number.isFinite(value.net);
-        const xp = positive(value.xpSeconds) && positive(value.xpRuns) && nonnegative(value.xp);
+        // Older Unova records counted level-ups using the former 1× curve.
+        // Balances alone cannot recover how many levels were crossed in a sample.
+        const multiplier = DATA.economy.xpMultipliers[region];
+        const compatibleXp = recordedXpCompatible(region, value.xpMultiplier);
+        const xp = compatibleXp && positive(value.xpSeconds) && positive(value.xpRuns) && nonnegative(value.xp);
         const items = positive(value.itemSeconds) && positive(value.itemRuns) && value.itemCounts &&
             typeof value.itemCounts === 'object' && !Array.isArray(value.itemCounts);
         if (!money && !xp && !items) return null;
         const metric = { net: money ? value.net : 0, seconds: money ? value.seconds : 0,
             runs: money ? value.runs : 0, deaths: nonnegative(value.deaths) ? value.deaths : 0,
             at: nonnegative(value.at) ? value.at : 0 };
-        if (xp) Object.assign(metric, { xp: value.xp, xpSeconds: value.xpSeconds, xpRuns: value.xpRuns });
+        if (xp) {
+            Object.assign(metric, { xp: value.xp, xpSeconds: value.xpSeconds, xpRuns: value.xpRuns });
+            if (multiplier != null) metric.xpMultiplier = multiplier;
+        }
         if (items) {
             metric.itemCounts = Object.fromEntries(Object.entries(value.itemCounts)
-                .filter(([id, count]) => ITEMS.has(id) && nonnegative(count)));
+                .filter(([id, count]) => ITEMS.has(id) && positive(count)));
             metric.itemSeconds = value.itemSeconds;
             metric.itemRuns = value.itemRuns;
         }
@@ -23,21 +30,39 @@
     }
     function readRouteHistory(raw) {
         if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
-        return Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, readRouteMetric(value)])
+        return Object.fromEntries(Object.entries(raw).map(([key, value]) => [key, readRouteMetric(value, key.split('|', 2)[1])])
             .filter(([, metric]) => metric).sort((a, b) => b[1].at - a[1].at).slice(0, 200));
+    }
+    function itemLedger(s) {
+        const intake = s.stats?.itemIn;
+        return intake && typeof intake === 'object' ? intake : null;
+    }
+    function itemSnapshot(s, ledger) {
+        const ids = ledger ? Object.keys(ledger) : new Set([...Object.keys(s.items || {}), ...Object.keys(s.link?.stash?.items || {})]);
+        const counts = {};
+        for (const id of ids) {
+            if (!ITEMS.has(id)) continue;
+            const count = itemCounter(s, id);
+            if (count > 0 && Number.isFinite(count)) counts[id] = count;
+        }
+        return counts;
     }
     class Telemetry {
         constructor(metrics = {}) { this.metrics = metrics; this.sample = null; }
         begin(s, row, settings, now) {
             if(s.adv.speed!=null&&s.adv.speed!==settings.speed){this.sample=null;return;}
+            const ledger=itemLedger(s);
             this.sample = { key: metricsKey(s, row, settings,now), route: row.key, wallet: Number(s.money) || 0,
                 run: s.adv.runs || 0, startNode: s.adv.node, started: now, advanced: false, deaths: totalDeaths(s, row),
-                xp: experienceTotal(s), party: JSON.stringify(s.team || []), items: Object.fromEntries([...ITEMS.keys()].map(id => [id, itemCounter(s, id)])) };
+                xp: experienceTotal(s), party: JSON.stringify(s.team || []), ledger: !!ledger, items: itemSnapshot(s,ledger) };
         }
         observe(s, row, settings, now) {
             const old = this.sample;
             if (!old || !row || old.route !== row.key || old.key !== metricsKey(s, row, settings,now) || old.party !== JSON.stringify(s.team || []) || s.adv.speed!=null&&s.adv.speed!==settings.speed || s.adv.event || s.adv.zone || s.adv.tower || s.adv.league || !row.members.includes(s.adv.chapter)) { this.sample = null; return null; }
             if ((s.adv.runs || 0) < old.run) { this.sample = null; return null; }
+            const ledger=itemLedger(s);
+            // Older saves start with inventory balances and may acquire lifetime intake counters mid-run.
+            if(old.ledger!==!!ledger)old.items=null;
             old.advanced ||= s.adv.node !== old.startNode || !!s.adv.battle;
             const crossed = (s.adv.runs || 0) > old.run && (!row.league || s.adv.chapter === row.members[0]);
             if (!crossed) return null;
@@ -48,15 +73,20 @@
             // Ordinary leagues increment runs once per chapter. A return to the
             // first room alone is not evidence that all league chapters were cleared.
             const completeLoop=!row.league||(s.adv.runs||0)-old.run>=row.members.length;
-            const result = { valid: valid && !!old.full && completeLoop, seconds, net, deaths: Math.max(0, totalDeaths(s, row) - old.deaths), xp: old.xp != null && currentXp != null ? Math.max(0, currentXp - old.xp) : null };
+            const result = { valid: valid && !!old.full && completeLoop, seconds, net, deaths: Math.max(0, totalDeaths(s, row) - old.deaths), xp: old.xp != null && currentXp != null && currentXp>=old.xp ? currentXp-old.xp : null };
             if (result.valid) {
                 const m = this.metrics[old.key] || { net: 0, seconds: 0, runs: 0 };
                 m.deaths ??= 0;
                 if (m.runs >= 8) { m.net *= .75; m.seconds *= .75; m.runs *= .75; m.deaths *= .75; if (m.xpSeconds) { m.xp *= .75; m.xpSeconds *= .75; m.xpRuns *= .75; } if (m.itemSeconds) { m.itemSeconds *= .75; m.itemRuns *= .75; for (const id of Object.keys(m.itemCounts)) m.itemCounts[id] *= .75; } }
                 m.net += net; m.seconds += seconds; m.runs += 1; m.deaths += result.deaths; m.at = now;
-                if (result.xp != null) { m.xp = (m.xp || 0) + result.xp; m.xpSeconds = (m.xpSeconds || 0) + seconds; m.xpRuns = (m.xpRuns || 0) + 1; }
-                m.itemCounts ||= {}; m.itemSeconds = (m.itemSeconds || 0) + seconds; m.itemRuns = (m.itemRuns || 0) + 1;
-                for (const id of ITEMS.keys()) m.itemCounts[id] = (m.itemCounts[id] || 0) + Math.max(0, itemCounter(s, id) - (old.items[id] || 0));
+                if (result.xp != null) { m.xp = (m.xp || 0) + result.xp; m.xpSeconds = (m.xpSeconds || 0) + seconds; m.xpRuns = (m.xpRuns || 0) + 1; m.xpMultiplier = DATA.economy.xpMultipliers[economicRegion(s)]; }
+                if(old.items && (!ledger || Object.entries(old.items).every(([id,count])=>itemCounter(s,id)>=count))){
+                    m.itemCounts ||= {}; m.itemSeconds = (m.itemSeconds || 0) + seconds; m.itemRuns = (m.itemRuns || 0) + 1;
+                    for(const [id,count] of Object.entries(itemSnapshot(s,ledger))){
+                        const gain=count-(old.items[id]||0);
+                        if(gain>0)m.itemCounts[id]=(m.itemCounts[id]||0)+gain;
+                    }
+                }
                 this.metrics[old.key] = m;
             }
             this.begin(s, row, settings, now); this.sample.full = true;

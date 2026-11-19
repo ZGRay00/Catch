@@ -142,7 +142,14 @@
                 if(!card){this.e.status='等待PC列表显示配队成员';return true;}
                 const rect=card.getBoundingClientRect();
                 if(rect.top<0||rect.bottom>innerHeight){card.scrollIntoView({block:'center'});return true;}
-                return move(card,slotNodes()[mismatch],`派出${MONS.get(mon.id)?.name}`);
+                // A PC drop replaces the occupant. Bring the newcomer onto the team
+                // first, then reorder within the team so retained trainees stay on it.
+                let destination=mismatch;
+                if(task.uids.includes(s.team[mismatch])){
+                    const outgoing=s.team.findIndex(member=>!task.uids.includes(member));
+                    destination=outgoing<0?s.team.length:outgoing;
+                }
+                return move(card,slotNodes()[destination],`派出${MONS.get(mon.id)?.name}`);
             }else{
                 const index=s.team.findIndex(uid=>!task.uids.includes(uid));
                 if(index>=0)return move(slotNodes()[index],$('#pc-grid'),'移出多余冒险队员');
@@ -176,7 +183,7 @@
             if (!this.e.settings.animations) return false;
             const skip = $$('.fx-skip:not([data-gone])').find(enabled);
             if (skip) return this.click(skip, '跳过过场动画', true);
-            const selectors = ['.lk-fx:not(.lk-choice) .rc-tap', '.hatch-fx:not(.gift) .hx-tap', '.gift.auto .gift-tap'];
+            const selectors = ['.lk-fx:not(.lk-choice) .rc-tap', '.hatch-fx:not(.gift) .hx-tap'];
             const tap = selectors.flatMap(sel => $$(sel)).find(enabled);
             if (tap) return this.click(tap, '继续游戏动画', true);
             return false;
@@ -185,7 +192,23 @@
             // Fresh capture cards have a single acknowledgement action, not purchases or item use.
             const card = $('#modal-root.open .modal.dexcard-modal:has(.dc-new)');
             const buttons = card ? [...card.querySelectorAll('.modal-actions button')] : [];
-            if (buttons.length === 1 && buttons[0].classList.contains('gold')) return this.click(buttons[0], '确认新捕获宝可梦',false,resuming);
+            if (buttons.length === 1 && buttons[0].classList.contains('gold')) {
+                const acknowledged=this.click(buttons[0], '确认新捕获宝可梦',false,resuming);
+                if(acknowledged)this.giftReceipt=null;
+                return acknowledged;
+            }
+            // A regional starter can already be registered from an earlier adventure.
+            // Its receipt uses the same Dex card without the "new" badge.
+            const expected=this.giftReceipt;
+            if(!expected)return false;
+            if(Date.now()-expected.at>120000){this.giftReceipt=null;return false;}
+            const receipt=$('#modal-root.open .modal.dexcard-modal:has(.dexcard.v2)'),
+                id=Number(receipt?.querySelector('.dc-head .dc-sum b')?.textContent?.trim()),
+                actions=receipt?.querySelector('.modal-actions.solo');
+            if(!receipt||id!==expected.id||!receipt.querySelector('.dc-top .dc-hero')||actions?.children.length!==1)return false;
+            if(this.click(actions.querySelector('button.gold'),'确认已登记宝可梦的赠送结果',false,resuming)){
+                this.giftReceipt=null;return true;
+            }
             return false;
         }
         dismissInformation(s,resuming=false){
@@ -207,20 +230,82 @@
             }
             return false;
         }
-        gift(s) {
-            if (!this.e.settings.gifts || s.adv.pending?.type !== 'gift') return false;
-            const gift = s.adv.pending.gift, choices = gift?.choices || gift?.items || [];
-            const missing = dexStatus(s, this.e.settings).ids;
-            const desired = choices.find(id => missing.has(Number(id))) || choices.find(id => MONS.has(+id) && !captured(s, MONS.get(+id).root)) || choices[0];
-            const balls = $$('.gift-ball.ready');
-            const ball = balls.find(el => String(el.dataset.id) === String(desired));
-            if (ball && !ball.classList.contains('on')) return this.click(ball, `选择赠送：${MONS.get(+desired)?.name || desired}`);
-            const go = $('.gift-go'); if (enabled(go)) return this.click(go, '确认赠送选择');
-            const pick = $$('.lk-choice .pick');
-            const choice = pick.find(el => monIdFrom(el) === Number(desired)) || pick[choices.indexOf(desired)];
-            if (choice && !choice.classList.contains('on')) return this.click(choice, `选择赠送：${MONS.get(+desired)?.name || desired}`);
-            if (enabled($('.lk-choice .lk-go'))) return this.click($('.lk-choice .lk-go'), '确认赠送选择');
-            return false;
+        giftChoice(s) {
+            const pending=s?.adv?.pending;
+            const overlay=$$('.hatch-fx.gift,.lk-fx.lk-choice,#arena .berry-fx.item-choice').filter(visible).at(-1);
+            if(!overlay)return null;
+            const event=pending||s.adv.nodes?.[s.adv.node];
+            const gift=event?.type==='gift'&&!s.adv.gifts?.[event.gift?.key]?event.gift:null;
+            const balls=overlay.matches('.hatch-fx.gift'),items=overlay.matches('.item-choice');
+            if(items&&!gift?.items?.length)return null;
+            const slots=[...overlay.querySelectorAll(balls?'.gift-balls .gift-ball':items?'.ic-item':'.lk-slot')];
+            const saved=gift?.choices||gift?.items||[];
+            const isItem=items||balls&&slots.some(el=>el.classList.contains('gift-item'));
+            const ids=slots.map(el=>{
+                if(balls&&el.dataset.id)return isItem?el.dataset.id:Number(el.dataset.id);
+                if(!isItem){
+                    const sprite=el.querySelector('.lk-mon');
+                    return sprite?.querySelector('img')?monIdFrom(sprite):null;
+                }
+                return el.querySelector('img')?.getAttribute('src')?.split('/').pop()?.split('.')[0]||null;
+            });
+            // LinkFx slots keep their native order. Use saved IDs only when visible
+            // IDs agree, so a delayed previous gift cannot identify a new set of slots.
+            const agrees=saved.length===ids.length&&ids.every((id,i)=>id==null||String(id)===String(saved[i]));
+            const choices=agrees?ids.map((id,i)=>id??saved[i]):ids;
+            const region=DATA.regions.find(({key})=>{
+                const starter=regionalStarter(key);
+                return starter&&(gift?.key===starter.key&&(!slots.length||agrees)||
+                    starter.ids.length===choices.length&&starter.ids.every(id=>choices.includes(id)));
+            });
+            const starter=region&&regionalStarter(region.key);
+            const savedOffer=gift&&gift.key!=='demo'&&agrees&&isItem===!!gift.items;
+            let authorized=!!savedOffer;
+            if(!authorized&&starter&&!s.adv.gifts?.[starter.key]&&(!pending||gift?.key===starter.key)&&event?.gift?.key!=='demo'&&
+                starter.ids.length===choices.length&&starter.ids.every(id=>choices.includes(id))){
+                const automation=this.e.automation;
+                const entry=s.adv.chapter===region.start&&!s.adv.gifts?.[starter.key]&&(!s.team?.length||pendingRegionalStarter(s));
+                const departure=$('#modal-root.open .dp-modal');
+                authorized=entry||automation?.state?.departure?.reg===region.key||
+                    !!(visible(departure)&&automation?.departureBannerMatches(departure,starter));
+            }
+            if(authorized&&starter&&!(this.observedGifts??=new WeakSet()).has(overlay)){
+                // Manual confirmation may open an already-known Dex card before the next save.
+                this.observedGifts.add(overlay);
+                overlay.addEventListener('click',event=>{
+                    if(!this.e.running||!enabled(event.target.closest?.('.gift-go,.lk-go')))return;
+                    const selected=overlay.querySelector('.gift-ball.on,.lk-slot.pick.on');
+                    const id=Number(selected?.dataset.id)||monIdFrom(selected?.querySelector('.lk-mon'));
+                    if(starter.ids.includes(id))this.giftReceipt={id,at:Date.now()};
+                },true);
+            }
+            return {overlay,kind:balls?'balls':items?'items':'link',reg:region?.key,slots,choices,authorized};
+        }
+        gift(s,scene=this.giftChoice(s)) {
+            if(!scene||!this.e.settings.gifts)return false;
+            const {overlay,kind,slots,choices,authorized}=scene;
+            this.e.status='等待赠送界面就绪';
+            if(!authorized||!choices.length||choices.some(id=>id==null)){
+                if(slots.some(el=>el.matches('.ready,.pick')))this.e.status='请在游戏中确认赠送选项，选择后继续任务';
+                return true;
+            }
+            if(kind==='balls'&&overlay.classList.contains('auto')){
+                const tap=overlay.querySelector('.gift-tap');
+                if(slots[0]?.classList.contains('on')&&this.click(tap,'领取游戏赠送',true)&&MONS.has(choices[0]))
+                    this.giftReceipt={id:choices[0],at:Date.now()};
+                return true;
+            }
+            const settings=this.e.settings;
+            const missing=settings.mode==='dex'?dexStatus(s,settings).ids:null;
+            const desired=choices.find(id=>missing?.has(id))??choices.find(id=>MONS.has(id)&&!captured(s,MONS.get(id).root))??choices[0];
+            const slot=slots[choices.indexOf(desired)],go=overlay.querySelector(kind==='balls'?'.gift-go':kind==='items'?'.ic-go':'.lk-go');
+            const ready=kind==='balls'?slot.classList.contains('ready'):kind==='items'?overlay.classList.contains('ready'):slot.classList.contains('pick');
+            if(!ready)return true;
+            const name=MONS.get(desired)?.name||FOSSIL_NAMES[desired]||desired;
+            this.e.status=`正在选择赠送 · ${name}`;
+            if(!slot.classList.contains('on'))this.click(slot,`选择赠送 · ${name}`);
+            else if(this.click(go,`确认赠送 · ${name}`)&&MONS.has(desired))this.giftReceipt={id:desired,at:Date.now()};
+            return true;
         }
         clearLoops(s, keep = null) {
             const unwanted = (s.adv.loops || []).find(key => String(key) !== String(keep));
@@ -308,6 +393,13 @@
             }
             own.started ||= Date.now();
             if(Date.now()-own.started>120000){this.ownedDialog=null;this.e.failTask('特殊战配队或盟友弹窗等待超时，请检查页面');return true;}
+            if(this.e.raidProbe&&own.key?.startsWith('raid:')&&this.raid?.date&&this.raid.date!==parisDay()&&!s.adv?.event?.raid){
+                const close=own.type==='team'?ownedRoot.querySelector('[data-evt-close]'):ownedRoot.querySelector('.dc-x');
+                if(this.click(close,'关闭上一日团体战的选择窗口')){
+                    this.ownedDialog=null;this.e.deferRaid('团体战已换日，重新检查今日目标');
+                }
+                return true;
+            }
             if(own.type==='factoryTeam')return this.factoryTeam(s,own);
             if (own.type === 'team') {
                 if (!visible($('#evt-pick'))) { this.ownedDialog = null; return false; }
@@ -328,7 +420,8 @@
                 if (!choices.length) {
                     this.e.status='等待可选团体战同伴';
                     if(Date.now()-own.started>=10000&&this.click(ownedRoot.querySelector('.dc-x'),'暂无可用同伴，返回主任务')){
-                        this.e.raidCooldown[parisDay()+'|'+this.raid?.reg]=Date.now()+10*60000;
+                        const now=Date.now(),day=this.raid?.date||parisDay(now);
+                        if(this.raid?.reg)this.e.raidCooldown[day+'|'+this.raid.reg]=raidRetryAt(now,day);
                         this.ownedDialog=null;this.e.deferRaid('团体战同伴列表为空，10 分钟后再检查');
                     }
                     return true;
@@ -355,7 +448,7 @@
         }
         confirmRaidLaunch(s,own){
             const modal=$('#modal-root.open .modal'),body=modal?.querySelector('.modal-body > p');
-            if(!body||own.confirmed||this.raid.date!==parisDay())return false;
+            if(!body||own.confirmed)return false;
             const launch=modal.querySelector('.modal-actions.duo button.primary'),cancel=modal.querySelector('.modal-actions.duo button.ghost');
             if(!launch||!cancel)return false;
             // Only the notice(s) emitted by the native daily raid launch may be accepted.
@@ -365,7 +458,9 @@
                 '你已经有异色的{name}了：捕获后会变成其家族的经验值。仍要开始团体战吗？').replace('{name}',name);
             const text=body.textContent.trim(),owned=duplicate&&(text===duplicate||text===reroll+duplicate);
             if(text!==reroll&&!owned)return false;
-            if(!safeRaidDeparture(s)){
+            if(this.raid.date!==parisDay()){
+                if(this.click(cancel,'关闭上一日团体战的启动确认')){this.ownedDialog=null;this.e.deferRaid('团体战已换日，重新检查今日目标');}
+            }else if(!safeRaidDeparture(s)){
                 if(this.click(cancel,'先处理当前战斗或待选事件')){this.ownedDialog=null;this.e.deferRaid('保留当前战斗或待选事件，稍后再检查团体战');}
             }else if(owned&&this.e.settings.skipOwnedShiny){
                 if(this.click(cancel,'已拥有今日异色，跳过团体战')){this.ownedDialog=null;this.e.deferRaid('原生游戏确认已拥有今日异色，按设置跳过');}
@@ -430,9 +525,9 @@
             if(next<=grid.scrollTop+1)return fail(background?'安全空闲成员未出现在原生地下候选列表':'工厂候选成员未出现在可用PC中，请检查地区和收藏');
             grid.scrollTop=next;grid.dispatchEvent(new Event('scroll',{bubbles:true}));own.lookup.scanned++;return true;
         }
-        raidStep(s) {
-            if(this.navigation?.screen==='raid'&&Date.now()-this.navigation.started>=60000&&!visible($('#screen-raid.active'))){
-                this.e.deferRaid('团体战入口没有响应，10 分钟后再检查');return false;
+        raidStep(s,now=Date.now()) {
+            if(this.navigation?.screen==='raid'&&now-this.navigation.started>=60000&&!visible($('#screen-raid.active'))){
+                this.e.deferRaid('团体战入口没有响应，稍后再检查',now);return false;
             }
             if (!this.nav('raid')) return false;
             const draw = $('#raid-root [data-raid-draw]');
@@ -441,43 +536,51 @@
                 const chroma = $('#raid-root [data-raid-page="chroma"]');
                 if (enabled(chroma)) return this.click(chroma, '打开每日异色团体战');
                 if ($('#raid-root [data-p]')) {
-                    this.e.deferRaid('异色团体战需要游戏内登录，10 分钟后再检查');return false;
+                    this.e.deferRaid('异色团体战需要游戏内登录，稍后再检查',now);return false;
                 }
                 const empty=$('#raid-root .map-body > .pg-empty');
                 if(empty?.textContent.trim()===raidText('Chargement…','加载中…')){this.e.status='等待游戏加载每日团体战';return false;}
                 if(empty?.textContent.trim()===raidText('Raids indisponibles pour le moment.','团体战暂时不可用。')){
-                    this.e.deferRaid('游戏暂未提供每日团体战，10 分钟后再检查');return false;
+                    this.e.deferRaid('游戏暂未提供每日团体战，稍后再检查',now);return false;
                 }
                 const home=$('#raid-root [data-raid-page="home"]');
                 if(enabled(home))return this.click(home,'返回活动首页，准备每日团体战');
                 this.e.status = '团体战未解锁、未登录或今日目标尚未加载';
                 return false;
             }
-            const cards = $$('#raid-root .rc-card:not(.done)').filter(card => enabled(card.querySelector('[data-raid-go]')));
-            const day=parisDay(),bossOf=card=>monIdFrom(card.querySelector('.boss'))||monIdFrom(card.querySelector('h3'));
+            const entries=$$('#raid-root .rc-card[data-rc]');
+            const cards=entries.filter(card=>!card.classList.contains('done')&&enabled(card.querySelector('[data-raid-go]')));
+            const day=parisDay(now),bossOf=card=>monIdFrom(card.querySelector('.boss'))||monIdFrom(card.querySelector('h3'));
+            if(entries.length===1)this.e.rememberDraw(s,entries[0].dataset.rc,bossOf(entries[0]),now);
             let skippedOwned=false,skippedCooldown=false;
             const card = cards.find(card => {
                 const reg=card.dataset.rc,boss=bossOf(card);
                 if(this.e.raidReturn&&(this.e.raidReturn.date!==day||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
-                if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > Date.now()){skippedCooldown=true;return false;}
+                if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > now){skippedCooldown=true;return false;}
                 if(this.e.settings.skipOwnedShiny&&(card.querySelector('.chip-own')||s.dex?.[boss]?.shiny)){skippedOwned=true;return false;}
                 return true;
             });
             if (!card) {
-                const reason=skippedOwned?'已按设置跳过拥有的异色目标':skippedCooldown?'团体战目标仍在重试冷却中':this.e.raidReturn?'补练前的团体战目标已不可用':$('#raid-root .rc-card.done')?'今日可挑战的团体战已完成':'当前没有开放且可挑战的团体战';
-                this.e.deferRaid(reason);return false;
+                const rest=this.e.raidDailyStatus(s,now);
+                if(rest)this.e.deferRaid(rest.reason,now,0);
+                else{
+                    const displayedDone=entries.length>0&&entries.every(entry=>entry.classList.contains('done'));
+                    const reason=skippedCooldown?'团体战目标仍在重试冷却中':skippedOwned?'已按设置跳过拥有的异色目标':this.e.raidReturn?'补练前的团体战目标已不可用':displayedDone?'团体战页面显示已捕获，等待存档确认':'当前没有开放且可挑战的团体战';
+                    this.e.deferRaid(reason,now);
+                }
+                return false;
             }
             const reg = card.dataset.rc, boss = bossOf(card);
-            const sameRaid=this.raid?.reg===reg&&this.raid?.boss===boss&&this.raid?.date===parisDay();
-            this.raid = { reg, boss, date:parisDay(), started: sameRaid ? this.raid.started : Date.now() };
-            const key = `raid:${parisDay()}|${reg}|${boss}|${rosterFingerprint(s)}`;
+            const sameRaid=this.raid?.reg===reg&&this.raid?.boss===boss&&this.raid?.date===day;
+            this.raid = { reg, boss, date:day, started: sameRaid ? this.raid.started : now };
+            const key = `raid:${day}|${reg}|${boss}|${rosterFingerprint(s)}`;
             const edit = card.querySelector('[data-raid-edit]');
             if (this.e.settings.optimizeRaid && !this.recent.has(key) && enabled(edit)) {
                 if(!this.click(edit, '按团体战对手优化队伍'))return false;
                 this.ownedDialog = { type: 'team', key, optimized: false, openingUntil:Date.now()+5000 };
                 return true;
             }
-            if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},Date.now())){
+            if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},now)){
                 this.e.raidCheckNote='优先团体战：正在为'+MONS.get(boss).name+'准备队伍';return false;
             }
             const go = card.querySelector('[data-raid-go]');

@@ -34,3 +34,13 @@ test('the configured task-wide stop limit still applies during a native pause',a
     const {s,e,save,actions}=fixture(t,{stopMinutes:1}),now=e.started;s.adv.paused=true;save();await e.step(now);await e.step(now+60001);
     assert.equal(e.running,false);assert.match(e.status,/定时运行上限/);assert.equal(actions(),0);
 });
+
+test('native pause freezes an open owned dialog and its timeout until the next active tick',async t=>{
+    const {s,e,save}=fixture(t),now=Date.now(),calls=[];
+    e.driver.ownedDialog={type:'team',started:now-5000};
+    e.driver.dialog=()=>{calls.push('handle picker');return true;};
+    s.adv.paused=true;save();await e.step(now);await e.step(now+180000);
+    assert.deepEqual(calls,[]);assert.match(e.status,/游戏已暂停/);
+    s.adv.paused=false;save();await e.step(now+181200);
+    assert.deepEqual(calls,['handle picker']);assert.equal(e.driver.ownedDialog.started,now+176200);e.stop();
+});

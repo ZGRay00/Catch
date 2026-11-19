@@ -1,7 +1,7 @@
     const MODE_NAMES = { dex: '补齐图鉴', money: '自动刷钱', legend: '指定传说战', roam: '游荡捕获', item: '指定道具', train: '目标练级', progress: '推进主线',
         breed:'繁殖孵蛋',shiny:'指定野生刷闪',underground:'地下通道',tower:'对战塔',candy:'糖果工厂',elite:'精英联盟',world:'世界首领',resource:'采购与使用' };
     const FLOW_MODES = new Set(['breed','underground','tower','candy','elite','world','resource']);
-    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','lastExplore'];
+    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','lastExplore'];
     function raidIdentity(s,value=s?.adv?.event){
         if(!value?.raid)return null;
         return JSON.stringify([value.reg||currentRegion(s),value.id,value.date||parisDay()]);

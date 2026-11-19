@@ -162,7 +162,7 @@ test('ranked members are not credited with evolution potential unavailable in th
     assert.equal(plan.members[0].id,129);assert.equal(plan.members[0].potentialId,undefined);assert.equal(plan.targets[0].uid,'ranked');
 });
 
-test('forest route alone stays stable, but the grass gym replaces two quadruple weaknesses',()=>{
+test('forest trainers can justify a rock reserve, while the grass gym replaces both quadruple weaknesses',()=>{
     // Approximation only: a screenshot does not contain the player's map, rank or full save.
     const ids=[397,400,396,42,74,95,427,459,299,92,433,456,307,433,27,422,417,433,453,403,118,399,63,129,403,393,54];
     const levels=[22,22,22,22,22,22,17,21,22,20,20,19,18,17,19,20,17,17,21,16,16,15,9,10,18,8,16];
@@ -174,5 +174,13 @@ test('forest route alone stays stable, but the grass gym replaces two quadruple 
     assert.equal(route.changed,false);assert.deepEqual(route.uids,s.team);
     const plan=H.planAdventureTeam(s,settings,[],{now});
     assert.equal(plan.changed,true);
-    assert.ok(!plan.uids.includes('m4')&&!plan.uids.includes('m5'));
+    assert.ok(!plan.uids.includes('m4')||!plan.uids.includes('m5'));
+    // The updated forest adds a Lv22 Stunky trainer. Geodude can clear it in two
+    // hits with Magnitude; the grass leader's Roserade can instead KO Geodude in one.
+    const skunk=foes.find(f=>f.id===434&&f.level===22),rose=foes.find(f=>f.id===407&&f.gymCount);
+    const vsSkunk=H.matchupDetails(mons[4],skunk),vsRose=H.matchupDetails(mons[4],rose);
+    assert.equal(vsSkunk.attack.key,'magnitude');assert.ok(vsSkunk.attack.minHit*2>=vsSkunk.foeHp);
+    assert.equal(vsRose.incoming.key,'magical-leaf');assert.ok(vsRose.incoming.minHit>=vsRose.hp);
+    const gym=H.planAdventureTeam(s,settings,[],{now,foes:foes.filter(f=>f.gymCount)});
+    assert.ok(!gym.uids.includes('m4')&&!gym.uids.includes('m5'));
 });

@@ -152,16 +152,18 @@
         candyPending(s,p,now){
             const tx=p.candyTx;if(!tx)return false;
             const mon=s.mons.find(m=>m.uid===tx.uid),xp=mon?experienceTotal(s,[tx.uid]):null;
+            const comparable=recordedXpCompatible(economicRegion(s),tx.xpMultiplier);
+            const gained=comparable&&xp!=null&&tx.xp!=null&&xp>tx.xp;
             const changed=tx.kind==='buy'?(Number(s.items?.[tx.id])||0)>tx.stock||itemCounter(s,tx.id)>tx.counter:
-                (Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.counter||xp>tx.xp;
-            if(changed){delete p.candyTx;p.candyAt=now;if(tx.kind==='use'&&!(xp>tx.xp))this.candyFallback(p,'道具已消耗但目标经验未增加');return false;}
+                (Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.counter||gained;
+            if(changed){delete p.candyTx;p.candyAt=now;if(tx.kind==='use'&&!gained)this.candyFallback(p,comparable?'道具已消耗但目标经验未增加':'道具已消耗，经验曲线变化后无法核实原经验增量');return false;}
             if(now-tx.at>10000){this.candyFallback(p,'操作未确认，不重复购买或使用');return false;}
             p.lastGrowth=now;this.e.status='主线经验糖果 · 等待游戏确认'+(tx.kind==='buy'?'到账':'经验增长');return true;
         }
         candyClick(s,p,el,uid,id,kind,cost,now){
             const e=this.e,uses=kind==='use'?1:0,why=e.budget.check(s,cost,uses);
             if(why){this.candyFallback(p,why);return false;}
-            p.candyTx={uid,id,kind,stock:Number(s.items?.[id])||0,counter:kind==='buy'?itemCounter(s,id):Number(s.stats?.itemOut?.[id])||0,xp:experienceTotal(s,[uid]),at:now};
+            p.candyTx={uid,id,kind,stock:Number(s.items?.[id])||0,counter:kind==='buy'?itemCounter(s,id):Number(s.stats?.itemOut?.[id])||0,xp:experienceTotal(s,[uid]),xpMultiplier:DATA.economy.xpMultipliers[economicRegion(s)],at:now};
             if(e.automation.spentClick(el,s,cost,uses,kind==='buy'?'购买一份主线补练经验糖果':'使用一份主线补练经验糖果'))return true;
             delete p.candyTx;return false;
         }
@@ -201,7 +203,7 @@
             const close=()=>{if(d.click(card.querySelector('.dc-x'),'关闭主线补练糖果面板')){e.automation.owner=null;if(p)delete p.candy;}return true;};
             if(!p||!p.candy)return close();p.phaseAt=now;
             if(this.candyPending(s,p,now))return true;
-            if(p.candyDisabled)return close();
+            if(p.candyDisabled||adventureTaskOutcome(s,e,now))return close();
             const mon=s.mons.find(m=>m.uid===p.candy.uid),choice=mon&&candyChoice(s,mon,p.candy.goal);
             if(!choice||!choice.owned)return close();
             const why=e.budget.check(s,0,1);if(why){this.candyFallback(p,why);return close();}
@@ -328,11 +330,16 @@
             const e=this.e;
             e.cancelTeamSearch?.();
             e.cancelRankingJob('preparation');
-            if(['map','progress'].includes(p.context.kind)){
+            if(!p.terminalGoal&&['map','progress'].includes(p.context.kind)){
                 this.rememberReady(s,p.context,p.targets,!!p.earlyReady,now);
             }
             e.preparation=null;e.target=null;e.visit=null;e.telemetry.sample=null;e.driver.pendingMap=null;e.teamCheck=null;e.teamRetryAt=0;e.driver.recent?.clear();this.checked=null;
             e.zoneId=null;e.zoneStarted=null;e.driver.raid=null;e.raidProbe=false;e.raidReturn=null;this.preparationReview=null;
+            if(p.terminalGoal){
+                if(p.terminalGoal.failed)e.failTask(p.terminalGoal.reason);
+                else e.completeTask(p.terminalGoal.reason);
+                return;
+            }
             e.status=p.returnReason||`补练完成，继续${p.context.label}`;e.log(e.status);
             if(p.resume.type==='raid'){e.raidReturn={reg:p.context.reg,boss:p.context.id,date:p.resume.date||parisDay()};e.raidProbe=true;e.raidProbeStarted=now;e.nextRaid=now;}
             else if(p.resume.row)e.travel(p.resume.row,now,p.resume.options||{});
@@ -347,9 +354,12 @@
             if(gap>5000)p.phaseAt=Math.min(now,p.phaseAt+gap-1200);
             if(gap>60000){p.lastGrowth=now;if(p.candyAt)p.candyAt=now;if(p.roadWait)p.roadWait.at=now;}p.lastTick=now;
             const index=new Map((s.mons||[]).map(m=>[m.uid,m]));
-            if(p.targets.some(m=>!index.has(m.uid))){e.failTask('补练目标已离开PC，请取回成员或重新规划任务');return;}
-            for(const target of p.targets){const mon=index.get(target.uid);target.id=mon.id;target.goal=Math.min(target.goal,trainingCap(s,mon));}
-            if(e.settings.autoTeam===false){
+            if(!p.terminalGoal)for(const target of p.targets){
+                const mon=index.get(target.uid);
+                if(!mon){e.failTask('补练目标已离开PC，请取回成员或重新规划任务');return;}
+                target.id=mon.id;target.goal=Math.min(target.goal,trainingCap(s,mon));
+            }
+            if(!p.terminalGoal&&e.settings.autoTeam===false){
                 if(p.targets.some(target=>index.get(target.uid).level<target.goal)&&this.manualTrainingWait(s,p.targets,p.context.reg,now))return;
                 p.uids=[...(s.team||[])];p.originalTeam=[...(s.team||[])];
             }
@@ -392,8 +402,7 @@
                 if(p.uids.length!==s.team.length||p.uids.some((uid,i)=>s.team[i]!==uid)){this.team(s,p.uids,now);e.status='准备用现成战力继续原任务，等待队伍配置';}
                 else{e.status='现成战力已配置，等待治疗点应用后继续原任务';d.nav('adventure');}return;
             }
-            const complete=p.targets.every(m=>index.get(m.uid).level>=m.goal);
-            if(complete&&p.phase!=='restore')this.setPhase(p,'restore',now);
+            if(p.phase!=='restore'&&p.targets.every(m=>index.get(m.uid).level>=m.goal))this.setPhase(p,'restore',now);
             if(p.phase==='restore'){
                 if(!['map','progress'].includes(p.context.kind)&&p.originalLocation?.reg!==currentRegion(s)){d.map(p.originalLocation,s);return;}
                 const original=p.originalTeam.filter(uid=>index.has(uid)&&teamEligible(s,index.get(uid)));

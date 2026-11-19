@@ -2,6 +2,8 @@ const test=require('node:test'),assert=require('node:assert/strict'),H=require('
 const preparationTick=require('./fixtures/pokecatch-preparation-tick.cjs');
 
 function fixture(t,settings={},unlocked=38){
+    // Keep the simulated 33-second switch hysteresis inside the same weather slot.
+    t.mock.method(Date,'now',()=>new Date(2026,10,19,12,10).getTime());
     const before=global.document;global.document={hidden:false,querySelector:()=>null,querySelectorAll:()=>[]};t.after(()=>{if(before===undefined)delete global.document;else global.document=before;});
     const now=Date.now(),s={trainer:{id:'training-upgrade'},money:10000,mons:[289,282,330,257,310,275].map((id,i)=>({uid:'h'+i,id,level:[52,52,52,52,44,43][i],reg:'hoenn',xp:0})),team:[],road:[],dex:{},items:{},stats:{},travel:{to:['johto','hoenn']},link:{to:'hoenn',side:'to'},
         adv:{layout:H.DATA.layout,chapter:35,unlocked,node:0,runs:0,speed:4,loops:[35],badges:[],gifts:{},deaths:{}}};

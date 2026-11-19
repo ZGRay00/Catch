@@ -24,3 +24,32 @@ test('native daytime flags allow morning while ghost registration and prerequisi
     assert.equal(H.specialAvailable(s,special,now(8)),false);s.adv.gifts.scope=true;assert.equal(H.specialAvailable(s,special,now(8)),true);
     assert.equal(H.specialAvailable(s,special,now(22)),false);delete s.dex[92];assert.equal(H.specialAvailable(s,special,now(12)),false);
 });
+
+test('fossil restoration enters the actual dex routing list with a fossil in either wallet',()=>{
+    const s=state(),cfg={...H.DEFAULTS,mode:'dex',region:'all',dexSpecies:[566]};
+    delete s.dex[566];s.link={to:'unova',side:'to',stash:{items:{'plume-fossil':1}}};
+    const route=()=>H.dexRanking(s,cfg,{},now(12)).find(row=>row.id===67)?.targets.find(hit=>hit.id===566);
+    const details=()=>H.acquisitionSources(s,566,now(12)).find(row=>row.kind==='trade'&&row.chapter===67);
+    assert.ok(details().available);assert.equal(route()?.kind,'trade');
+    cfg.gifts=false;assert.equal(route(),undefined);cfg.gifts=true;
+    delete s.link.stash.items['plume-fossil'];assert.equal(details().available,false);assert.equal(route(),undefined);
+    s.items['plume-fossil']=1;assert.ok(details().available);assert.equal(route()?.kind,'trade');
+});
+
+test('story egg routing respects target, capacity, pending egg and one-time receipt',()=>{
+    const s=state(),cfg={...H.DEFAULTS,mode:'dex',region:'all',dexSpecies:[447],gifts:false};
+    delete s.dex[447];s.pension={eggs:[],open:{eggs:1}};
+    const eggRoute=()=>H.dexRanking(s,cfg,{},now(12)).find(row=>row.id===54)?.targets.find(hit=>hit.id===447);
+    assert.equal(eggRoute()?.kind,'egg');
+    s.pension.eggs=[{uid:'other',id:1}];assert.equal(eggRoute(),undefined);
+    s.pension.open.eggs=2;assert.equal(eggRoute()?.kind,'egg');
+    s.pension.eggs=[{uid:'target',id:447}];assert.equal(eggRoute(),undefined);
+    s.pension.eggs=[];s.adv.gifts['riolu-sinnoh']=true;assert.equal(eggRoute(),undefined);
+});
+
+test('random Odd Egg can plan an eligible target from its complete native pool',()=>{
+    const s=state(),cfg={...H.DEFAULTS,mode:'dex',region:'all',dexSpecies:[172,239]};
+    delete s.dex[172];delete s.dex[239];
+    const row=H.dexRanking(s,cfg,{},now(12)).find(row=>row.id===16);
+    assert.deepEqual(row?.targets.filter(hit=>hit.kind==='egg').map(hit=>hit.id).sort((a,b)=>a-b),[172,239]);
+});

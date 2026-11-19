@@ -48,27 +48,59 @@
                 const pool = A.zonePool({ ...route, ch: id, lv: band }, id, true, null, true).filter(p => p.on !== false);
                 const meanXp = pool.reduce((n, p) => n + xp(level, p.id) * p.pct, 0) || xp(level, 19);
                 experience += (route.wild || 0) * meanXp;
-                if (chapter.league) {
-                    C.LEAGUE_TRAINERS.below.forEach((below, i) => experience += C.LEAGUE_TRAINERS.sizes[i] * xp(S.aceOf(id) - below, pool[0]?.id || 19, true, reg));
-                } else {
-                    const size = 1 + Math.min(2, Math.floor((id - S.firstChapterOf(reg)) / 2) + 1) / 2;
+                if (!chapter.league) {
+                    const size = route.tsize ? avg(route.tsize) : 1 + Math.min(2, Math.floor((id - S.firstChapterOf(reg)) / 2) + 1) / 2;
                     experience += (route.trainers || 0) * size * meanXp * 1.5;
                 }
-                if (route.item) {
-                    for (const row of odds) if (row.item) add(row.item, { ch: id, kind: 'route', expected: C.ITEM_EVENT_CHANCE * row.p * avg(row.n), repeat: true });
-                    for (const stone of stones) add(stone, { ch: id, kind: 'stone', expected: C.ITEM_EVENT_CHANCE * stoneProbability / stones.length, repeat: false, stone: true });
+                // An eligible phenomenon can convert a wild encounter into another item node.
+                const phenomena = C.PHENOMENA;
+                const hasPhenomenon = route.wild > 0 && phenomena?.REGIONS.includes(reg)
+                    && Object.values(phenomena.KINDS).some(rule => rule.bg.includes(route.bg));
+                const itemNodes = chapter.league ? 0 : (route.item ? C.ITEM_EVENT_CHANCE : 0)
+                    + (hasPhenomenon ? avg(phenomena.CHANCE) * phenomena.ITEM : 0);
+                if (itemNodes > 0) {
+                    for (const row of odds) if (row.item) add(row.item, { ch: id, kind: 'route', expected: itemNodes * row.p * avg(row.n), repeat: true, tide: route.tide });
+                    for (const stone of stones) add(stone, { ch: id, kind: 'stone', expected: itemNodes * stoneProbability / stones.length, repeat: false, stone: true, tide: route.tide });
                     for (const [item, value] of Object.entries(route.loot || {})) {
                         const rule = typeof value === 'number' ? { p: value } : value;
-                        add(item, { ch: id, kind: 'loot', expected: C.ITEM_EVENT_CHANCE * rule.p, once: item, repeat: false, badge: rule.badge, owns: rule.owns, tide: route.tide });
+                        const limit = rule.upTo ? { upTo: rule.upTo, until: rule.until, repeat: true } : { once: item, repeat: false };
+                        add(item, { ch: id, kind: 'loot', expected: itemNodes * rule.p, ...limit, badge: rule.badge, owns: rule.owns, tide: route.tide });
                     }
                 }
                 if (route.candy) add('rare-candy', { ch: id, kind: 'find', expected: 1, once: route.candy, repeat: false });
             });
-            const town = A.townOdds(id);
-            for (const row of town.list) add(row.item, { ch: id, kind: 'town', expected: town.towns * row.p * (row.item.startsWith('exp-candy') ? 2 : 1), repeat: true });
+            // The offline VM ends before Roaming loads. Ask native townOdds for both unlock states.
+            const townOdds = unlocked => {
+                const roaming = t.Roaming;
+                try { t.Roaming = { unlocked: () => unlocked }; return A.townOdds(id); }
+                finally { if (roaming === undefined) delete t.Roaming; else t.Roaming = roaming; }
+            };
+            const early = townOdds(false), town = townOdds(true);
+            for (const row of town.list) {
+                const count = town.towns * (row.item.startsWith('exp-candy') ? 2 : 1);
+                const expected = count * row.p, beforeRoaming = count * (early.list.find(entry => entry.item === row.item)?.p || 0);
+                add(row.item, { ch: id, kind: 'town', expected, ...(beforeRoaming !== expected ? { beforeRoaming } : {}), repeat: true });
+            }
+            // townOdds omits the generic stone row. Native towns draw it from the same stone list as routes.
+            if (stones.length && town.towns && C.TOWN_EVENT.itemWeights.stone > 0) {
+                const event = C.TOWN_EVENT;
+                const itemChance = event.chance * event.weights.item / Object.values(event.weights).reduce((sum, weight) => sum + weight, 0);
+                const perStone = odds => Math.max(0,itemChance - odds.list.reduce((sum, row) => sum + row.p, 0)) * odds.towns / stones.length;
+                const expected = perStone(town), beforeRoaming = perStone(early);
+                for (const stone of stones) add(stone, { ch: id, kind: 'town', expected, beforeRoaming, repeat: false, stone: true });
+            }
             for (const step of chapter.steps) {
                 if (step.kind === 'find') add(step.item, { ch: id, kind: 'find', expected: 1, once: step.once, repeat: !step.once });
+                if (step.kind === 'trainer') for (const [mon, level] of S.trainerTeam(id, step)) experience += xp(level, mon, true);
                 if (step.kind !== 'gym') continue;
+                if (chapter.league) {
+                    const guards = t.LEAGUE_TEAMS?.[`${reg}:${step.leader}`];
+                    if (!guards?.length) throw Error(`Missing league team for chapter ${id}, leader ${step.leader}`);
+                    guards.forEach((guard,i) => {
+                        const level = S.aceOf(id) - C.LEAGUE_TRAINERS.below[i];
+                        for (const mon of guard.team) experience += xp(level, mon, true, reg);
+                    });
+                }
                 const team = S.gymTeam(id, step);
                 experience += team.reduce((n, [mon, level]) => n + xp(level, mon, true, chapter.league ? reg : null), 0);
                 if (!chapter.league && step.badge && !step.champion) {

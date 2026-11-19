@@ -13,6 +13,36 @@
         resetAt=high*60000;
         return resetAt;
     }
+    // The native raid list opens a region when its last league chapter is cleared.
+    const RAID_CHAMPIONS=DATA.regions.map(region=>DATA.chapters.filter(c=>c.reg===region.key&&c.league).at(-1)).filter(Boolean);
+    function raidRetryAt(now,day,wait=600000){
+        if(day&&day!==parisDay(now))return now;
+        return Math.min(now+wait,nextParisReset(now));
+    }
+    function dailyRaidStatus(s,skipOwned,draw,now){
+        const raids=s?.raids,adv=s?.adv;
+        if(!raids||!adv?.badges?.includes('Maître')||adv.event?.raid)return null;
+        const day=parisDay(now),reroll=raids.reroll?.day===day?raids.reroll.to:null;
+        const eligible=RAID_CHAMPIONS.filter(c=>adv.unlocked>c.id||c.badges.some(b=>adv.badges.includes(b))).map(c=>c.reg);
+        if(!eligible.length)return null;
+        const drawn=raids.seen===day||!!reroll;
+        const observed=drawn&&draw?.day===day&&draw.reroll===reroll&&eligible.includes(draw.reg)&&
+            (!reroll||reroll===draw.reg)&&MONS.has(draw.boss)?draw:null;
+        const completed=reg=>{
+            const key=reg+'|'+day;
+            if(!(Number(raids.done?.[key])>0))return false;
+            const boss=raids.doneBoss?.[key];
+            return !observed||reg!==observed.reg||boss==null||boss===observed.boss;
+        };
+        // Draw mode awards one region per day. Older multi-region schedules must finish every unlocked region.
+        const reg=observed?.reg||reroll;
+        const done=drawn?(reg?eligible.includes(reg)&&completed(reg):eligible.some(completed)):eligible.every(completed);
+        if(done)return {reason:'今日可挑战的团体战已完成',until:nextParisReset(now)};
+        if(skipOwned&&observed&&s.dex?.[observed.boss]?.shiny){
+            return {reason:'已按设置跳过今日已拥有的异色目标',until:nextParisReset(now)};
+        }
+        return null;
+    }
     function towerProgress(s,now=Date.now()){
         const week=towerWeek(now),saved=s.tower?.run,run=saved?.week===week?saved:null;
         const best=s.tower?.best?.week===week?Math.max(0,Number(s.tower.best.floor)||0):0;

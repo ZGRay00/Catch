@@ -29,13 +29,14 @@ async function main(){
         assert.deepEqual(await evaluate('[__pcExecutionTest.engine.settings.spendBudget,__pcExecutionTest.engine.settings.autoPurchase]'),[20000,true]);
         checks.push('a pre-switch account with a saved positive procurement budget retains that authorization');
         const panes=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;const views=[];
-            for(const key of ['tasks','dex','weather','settings','activity']){
+            for(const key of ['tasks','dex','weather','eggs','settings','activity']){
                 r.querySelector('[data-workspace="'+key+'"]').click();
                 views.push([...r.querySelectorAll('[id^=pane-]')].filter(el=>el.getClientRects().length).map(el=>el.id));
-                if(!r.querySelector('.commandbar #start').getClientRects().length||e.running)throw Error('Workspace changed execution');
+                const lookup=['dex','weather','eggs'].includes(key);
+                if(Boolean(r.querySelector('.commandbar #start').getClientRects().length)===lookup||e.running)throw Error('Unexpected workspace controls');
             }
             return views})()`);
-        assert.deepEqual(panes,[['pane-tasks'],['pane-dex'],['pane-weather'],['pane-settings'],['pane-activity']]);checks.push('workspace navigation exposes one page at a time with task commands available');
+        assert.deepEqual(panes,[['pane-tasks'],['pane-dex'],['pane-weather'],['pane-eggs'],['pane-settings'],['pane-activity']]);checks.push('lookup workspaces hide idle task commands and preserve the selected task');
         const calendar=await evaluate(`(()=>{
             const e=__pcExecutionTest.engine,r=${root},panel=r.querySelector('#season-calendar'),clock=Date.now;
             const read=()=>({key:panel.dataset.season,name:panel.querySelector('strong').textContent,
@@ -144,6 +145,30 @@ async function main(){
         await evaluate(`__pokecatchHelper.show();${root}.querySelector('#fold').click();fixtureState.pension.eggs[0].hatchAt=Date.now()+600000;commitExecution()`);
         current=await state();assert.ok(current.mini?.length>0);assert.ok(current.host.left>=0&&current.host.right<=1280&&current.host.bottom<=900);checks.push('the folded dock remains reachable and its status can update');
         await send('Emulation.setDeviceMetricsOverride',{width:360,height:780,deviceScaleFactor:1,mobile:true});await evaluate('__pokecatchHelper.show()');
+        const previous=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,r=${root},prior={settings:e.settings,adv:fixtureState.adv,to:fixtureState.travel.to,page:r.querySelector('[data-workspace][aria-pressed=true]').dataset.workspace};
+            fixtureState.adv={...fixtureState.adv,chapter:76,unlocked:83};fixtureState.travel.to=[...fixtureState.travel.to,'unova'];
+            e.settings={...e.settings,mode:'dex',dexSpecies:[529,530]};commitExecution();
+            r.querySelector('[data-workspace="dex"]').click();
+            const input=r.querySelector('#dex-search');input.value='';input.dispatchEvent(new Event('input'));
+            return prior;
+        })()`);
+        const shortList=await evaluate(`(()=>{
+            const r=${root},rows=[...r.querySelectorAll('.dex-target')],visible=el=>el.getClientRects().length>0;
+            const data={names:rows.map(b=>b.querySelector('strong').textContent),fits:rows.every(b=>b.clientHeight>=44&&b.scrollWidth<=b.clientWidth+1),idle:!visible(r.querySelector('.commandbar'))};
+            rows[1].click();data.detail=r.activeElement===r.querySelector('.dex-heading');
+            r.querySelector('#dex-clear').click();data.returned=r.activeElement?.dataset.species==='530';
+            return data;
+        })()`);
+        assert.deepEqual(shortList,{names:['螺钉地鼠','龙头地鼠'],fits:true,idle:true,detail:true,returned:true});
+        const dexImage=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(dir,'dex-short-list.png'),Buffer.from(dexImage.data,'base64'));
+        const restored=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,prior=${JSON.stringify(previous)};
+            e.running=true;e.onChange();const shown=!!r.querySelector('#stop').getClientRects().length&&!r.querySelector('.queue-tools').getClientRects().length;
+            e.running=false;e.settings=prior.settings;fixtureState.adv=prior.adv;fixtureState.travel.to=prior.to;commitExecution();
+            r.querySelector('[data-workspace="'+prior.page+'"]').click();return shown;
+        })()`);
+        assert.ok(restored);checks.push('two-species mobile dex retains detail and return focus, active Stop, and full-width tap targets');
         const lookupFits=await evaluate(`(()=>{const r=${root},content=r.querySelector('.content');
             const open=page=>r.querySelector('[data-workspace="'+page+'"]').click();
             function firstScreen(selector){

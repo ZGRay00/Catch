@@ -8,11 +8,12 @@
         return candidates(s,settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row=>{
             const members=row.members;
             const sources=phenomena.filter(source=>members.includes(source.chapter));
-            const expected=members.reduce((n,id)=>{
+            const ordinary=members.reduce((n,id)=>{
                 const pool=currentWildPool(s,id,now);
                 return n+targets.reduce((sum,target)=>sum+(pool.get(target)||0),0);
-            },0)+sources.reduce((n,source)=>n+source.weight,0);
-            return{...row,expected,marked:sources.some(source=>source.marked),rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
+            },0);
+            const expected=ordinary+sources.reduce((n,source)=>n+source.weight,0);
+            return{...row,expected,specialNodesOnly:ordinary===0,marked:sources.some(source=>source.marked),rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.rate-a.rate);
     }
     function pensionPlan(s,id,shinyGoal=false){

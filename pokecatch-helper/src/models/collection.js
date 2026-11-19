@@ -150,6 +150,20 @@
             available:!!roam.location,detail:roam.location?'游荡中 · '+CHAPTERS.get(roam.location.ch).name:roam.unlocked?'等待在线游荡出现':'取得本地区冠军后开放游荡'});
         return result.sort((a,b)=>Number(b.available)-Number(a.available));
     }
+    const giftEggParents=new Map();
+    for(const {egg} of UNOVA_ENCOUNTERS.routes){
+        if(egg)for(const rule of EVOLUTION_DATA.rules[egg.id]||[])giftEggParents.set(rule.to,egg.id);
+    }
+    function dexSearchIds(s,settings,status){
+        const wanted=new Set(status.ids);
+        if(settings.dexSpecies?.length){
+            for(const id of status.ids){
+                const parent=giftEggParents.get(id);
+                if(parent&&!captured(s,parent))wanted.add(parent);
+            }
+        }
+        return wanted;
+    }
     function markedDexSource(s,settings,now){
         if(!huntRegionMatches(s,settings,currentRegion(s))||!huntWeatherMatches(s,settings,s.adv.chapter,now))return null;
         if(currentRegion(s)!=='unova'||!s.adv.nodes?.length)return null;
@@ -160,7 +174,7 @@
                 (route.egg?.id===species?node.type==='item'&&!node.find&&node.loot?.['egg:'+species]:
                     node.type==='wild'&&!node.roamer&&node.phenom===route.phenomenon)));
             if(!matches)continue;
-            missing??=dexStatus(s,settings).ids;
+            missing??=dexSearchIds(s,settings,dexStatus(s,settings));
             if(!missing.has(species)||s.pension?.eggs?.some(egg=>egg.id===species))continue;
             const marked=unovaAcquisitionSources(s,species,now).find(source=>source.marked);
             if(marked)return marked;
@@ -170,7 +184,7 @@
     const dexPrerequisites=[...new Set(DATA.chapters.flatMap(c=>c.special.flatMap(source=>source.caught||[])))];
     const branchedGifts=DATA.chapters.flatMap(c=>c.gifts.filter(gift=>gift.byStarter));
     function dexRanking(s, settings, cooldowns = {}, now = Date.now(), status = dexStatus(s, settings)) {
-        const wanted=new Set(status.ids);
+        const wanted=dexSearchIds(s,settings,status);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
         const inputs=[huntRankingInputs(s,settings,[...wanted],now),settings.gifts,s.adv.gifts,s.adv.badges,s.items,
             settings.gifts&&Object.keys(FOSSIL_NAMES).map(item=>s.link?.stash?.items?.[item]||0),
@@ -189,8 +203,9 @@
             }
         }
         return candidates(s, settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row => {
-            const hits = new Map(); let score = 0,marked=false,hasWild=false;
+            const hits = new Map(); let score = 0,marked=false,hasWild=false,specialNodesOnly=true;
             for (const id of row.members) {
+                const beforeOrdinarySources=score;
                 const c = CHAPTERS.get(id);
                 const phaseRows=c.pools[phaseAt(s,now,id)]||[];
                 for (const [mon,weight] of currentWildPool(s,id,now)) {
@@ -220,16 +235,17 @@
                         hits.set(special.id,{id:special.id,special:true});
                     }
                 }
+                if(score>beforeOrdinarySources)specialNodesOnly=false;
                 for(const source of specialByChapter.get(id)||[]){
                     const egg=source.kind==='lootEgg';
                     hasWild ||= !egg;
                     const catchFactor=egg?1:Math.max(.08,MONS.get(source.id).rate/255);
                     score+=source.weight*catchFactor;
                     marked||=!!source.marked;
-                    hits.set(source.id,{id:source.id,special:true,kind:source.kind,place:source.nodeName,marked:!!source.marked||!!hits.get(source.id)?.marked});
+                    if(!hits.get(source.id)?.marked)hits.set(source.id,{id:source.id,special:true,kind:source.kind,place:source.nodeName,marked:!!source.marked});
                 }
             }
-            return { ...row, targets: [...hits.values()], marked, hasWild, score: score / Math.max(15, row.units) };
+            return { ...row, targets: [...hits.values()], marked, hasWild, specialNodesOnly, score: score / Math.max(15, row.units) };
         }).filter(row=>row.targets.length).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.score-a.score||a.id-b.id);
     }
     const PARIS_CALENDAR=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Paris',year:'numeric',month:'2-digit',day:'2-digit'});

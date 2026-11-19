@@ -93,7 +93,7 @@ async function main() {
             input.focus();e.onChange();const retained=root.activeElement===input&&input.value==='#0594';
             const none=search('没有这种宝可梦');
             root.querySelector('#dex-clear').click();
-            const missing=!!results.querySelector('[data-species]')&&root.activeElement===input&&input.value==='';
+            const missing=!!results.querySelector('[data-species]')&&root.activeElement===results&&input.value==='';
             const before=e.settings,adv=mock.state.adv,to=mock.state.travel.to;
             mock.state.adv={...adv,chapter:74,unlocked:83};mock.state.travel.to=[...to,'unova'];mock.save();
             const available=search('594');const readyHeading=results.querySelector('.dex-section')?.textContent;
@@ -140,7 +140,7 @@ async function main() {
             if(previous===undefined)delete mock.state.dex[recorded];else mock.state.dex[recorded]=previous;
             mock.save();e.onChange();
             if(!capturedUpdated)throw Error('An already open route retained a captured target');
-            root.querySelector('#view [data-lookup="'+wanted+'"]').click();const fromRoute=input.value==='#'+wanted&&root.activeElement===input&&root.querySelector('[data-workspace="dex"]').getAttribute('aria-pressed')==='true';
+            root.querySelector('#view [data-lookup="'+wanted+'"]').click();const fromRoute=input.value==='#'+wanted&&root.activeElement===results.querySelector('.dex-heading')&&root.querySelector('[data-workspace="dex"]').getAttribute('aria-pressed')==='true';
             e.settings=before;mock.state.adv=adv;mock.state.travel.to=to;
             delete mock.state.dex[636];mock.save();tab('maps');root.querySelector('[data-workspace="tasks"]').click();
             return {locked,lockedHeading,alias,base,id,retained,none,missing,available,readyHeading,projected,stable,fromRoute,rareSpecies,multi,inherited,independent,future};

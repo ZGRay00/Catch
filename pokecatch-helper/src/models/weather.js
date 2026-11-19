@@ -153,7 +153,9 @@
     let wildForecastCache;
     function nextWildWindow(s,settings,ids,now=Date.now(),hours) {
         const targets=Array.from(new Set(ids));
-        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught]);
+        const eggState=settings.mode==='dex'&&targets.some(id=>UNOVA_SOURCE_INDEX.get(id)?.some(route=>route.egg?.id===id))
+            ? [s.adv.badges,s.adv.gifts,s.pension?.eggs?.map(egg=>egg.id),s.pension?.open?.eggs] : null;
+        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings.mode,settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught,eggState]);
         if(wildForecastCache?.signature===signature&&now>=wildForecastCache.from&&now<wildForecastCache.until)return wildForecastCache.result;
         const slot=WEATHER_DATA.slotMs,firstHour=(Math.floor(now/slot)+1)*slot;
         const result=searchWildWindow(s,settings,targets,now,firstHour,hours);
@@ -161,8 +163,9 @@
         return result;
     }
     function searchWildWindow(s,settings,targets,now,firstHour,hours){
-        const phenomenonIds=targets.filter(id=>UNOVA_WILD_IDS.has(id));
-        const specialChapters=new Set(phenomenonIds.flatMap(id=>(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter)));
+        const allowEgg=settings.mode==='dex';
+        const specialIds=targets.filter(id=>UNOVA_WILD_IDS.has(id)||allowEgg&&UNOVA_SOURCE_INDEX.has(id));
+        const specialChapters=new Set(specialIds.flatMap(id=>UNOVA_SOURCE_INDEX.get(id).filter(route=>allowEgg||route.egg?.id!==id).map(route=>route.chapter)));
         const rowsBySeason=SEASON_KEYS.map(()=>[]),rows=[];
         let hasSeasonal=false;
         for(const row of candidates(s,settings)){
@@ -206,10 +209,10 @@
                 const pool=currentWildPool(s,chapter,at),id=targets.find(id=>(pool.get(id)||0)>0);
                 if(id)return{at,row,id,season,weather:chapterWeather(s,chapter,at).key};
             }
-            for(const id of phenomenonIds){
+            for(const id of specialIds){
                 for(const source of unovaAcquisitionSources(s,id,at,false)){
-                    const row=source.kind==='phenomenon'&&source.available&&matching.find(r=>r.members.includes(source.chapter));
-                    if(row)return{at,row,id,season,weather:chapterWeather(s,source.chapter,at).key};
+                    const row=(allowEgg||source.kind==='phenomenon')&&source.available&&matching.find(r=>r.members.includes(source.chapter));
+                    if(row)return{at,row,id,season,weather:chapterWeather(s,source.chapter,at).key,...(source.kind==='lootEgg'?{eggPlace:source.nodeName}:{})};
                 }
             }
         }

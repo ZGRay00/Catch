@@ -149,6 +149,7 @@
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null;
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
+        const lookupTask=document.createElement('span');lookupTask.className='lookup-task';commandbar.querySelector('.row').prepend(lookupTask);
         const updater=new UpdateChecker({onChange:renderUpdate});let updateTouched=false;
         function renderUpdate(){
             const button=query('#check-update'),notice=query('#update-notice');
@@ -482,6 +483,11 @@
             if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(now);
             if(document.hidden)return;
             const nativePaused=engine.running&&!!s?.adv?.paused;
+            commandbar.classList.toggle('has-task',locked);
+            if(locked&&['dex','weather','eggs'].includes(ui.workspace)){
+                const label=(resumable||nativePaused?'已暂停 · ':'运行中 · ')+MODE_NAMES[engine.settings.mode];
+                if(lookupTask.textContent!==label)lookupTask.textContent=label;
+            }
             const paused=resumable||nativePaused;
             query('#status').textContent = engine.suspended?engine.status:wait?.status||(nativePaused?'游戏已暂停':engine.status);
             for(const indicator of [query('.status'),query('.mini')]){

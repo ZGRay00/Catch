@@ -1,8 +1,14 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.3.1**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.3.4**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.3.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.3.4.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+5.3.4 搜寻仅靠现象或随机道具节点的目标时，完成一轮后若新路线仍未生成目标节点，会尝试另一张合条件的地图。燃烧虫的赠蛋天气纳入图鉴预报，单选进化形时显示进化条件。
+
+5.3.3 指定物种补图鉴及刷闪先选出没地图，到达后再适配冒险队伍。普通遭遇可切图，需要保留的战斗或选项会显示结算后要去的地图。
+
+5.3.2 图鉴缺少一至六个目标时逐行显示名称、状态和可规划地图。查看结果时保留阅读焦点。图鉴、天气和孵蛋页在空闲时收起任务栏，有任务时显示当前任务和控制按钮。
 
 5.3.1 新增独立的「孵蛋」页，可查蛋位、成熟时间和靛莓果影响闪色的蛋序号。预测分片运行，切换页面会取消未完成的计算。普通战斗更新存档时减少重复核对孵蛋历史。每个队列任务单独计算采购和道具额度，补练买糖遇到商店按钮暂不可用时会稍后重新核价。
 
@@ -27,7 +33,7 @@
 ## 安装和更新
 
 1. 在浏览器中启用 Tampermonkey，打开上面的脚本链接并确认安装。
-2. 进入游戏或刷新游戏页，确认助手面板显示 `5.3.1`。
+2. 进入游戏或刷新游戏页，确认助手面板显示 `5.3.4`。
 3. 后续点击面板顶部“在线更新”。发现新版后再次点击“安装新版”，在油猴确认安装，完成后刷新游戏。
 
 从旧版手动复制安装的用户，需要先安装这一次新版。脚本也配置了油猴原生 `@updateURL` 和 `@downloadURL`。

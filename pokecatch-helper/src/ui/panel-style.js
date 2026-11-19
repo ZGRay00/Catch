@@ -69,7 +69,12 @@
     .content section[hidden] { display:none }
     .lookup-page .content > .status, .lookup-page .metrics, .lookup-page #prepare-info,
     .lookup-page #support-info, .lookup-page #season-calendar { display:none }
-    #pane-dex .field input[type=search] { min-width:0; flex:1 }
+    .commandbar .lookup-task, .lookup-page .commandbar:not(.has-task),
+    .lookup-page .commandbar .queue-tools, .lookup-page .commandbar #start { display:none }
+    .lookup-page .commandbar .lookup-task { display:block; flex:1; color:#b4cbd4; font-size:12px; overflow-wrap:anywhere }
+    .lookup-page .commandbar .row button { flex:0 1 auto; min-height:36px }
+    .dex-searchbar { display:flex; align-items:center; gap:6px; margin:2px 0 12px }
+    .dex-searchbar input { flex:1; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #465b70; border-radius:8px; background:#0f1927; color:#edf4f8 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
     #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
     .nursery-heading, .nursery-tools { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap }
@@ -95,8 +100,21 @@
     summary { font-size:12px; color:#c2d3df }
     .field,.setting { min-height:28px }
     .list { max-height:min(38dvh,330px) }
-    #dex-panel .field { margin-top:10px }
-    #dex-clear { flex:none; padding:6px; font-size:11px }
+    #dex-clear { flex:none; min-height:38px; padding:5px 8px; font-size:12px }
+    .dex-list-title, .dex-heading { margin:0 0 8px; line-height:1.5 }
+    .dex-list-title { font-size:13px; color:#cedeeb }
+    .dex-targets, .dex-compact { display:grid; gap:5px; padding:2px }
+    .dex-target { display:grid; grid-template-columns:4ch minmax(0,1fr) auto 7px; gap:10px; align-items:center; min-height:46px; padding:8px 10px; text-align:left; background:#19283a; border-color:#33485b }
+    .dex-target::after { content:''; width:6px; height:6px; border-top:1.5px solid #91aaba; border-right:1.5px solid #91aaba; transform:rotate(45deg) }
+    .dex-number { font:11px ui-monospace,monospace; color:#a4b7c6 }
+    .dex-target-body { min-width:0; display:grid; gap:2px }
+    .dex-target-body strong { font-size:14px; color:#e1ebef }
+    .dex-target-body small { color:#a7b7c6; font-size:12px }
+    .dex-method { color:#bfcfda; font-size:11px }
+    .dex-target[data-planned=true] .dex-method { color:#93e2bf }
+    .dex-compact { grid-template-columns:repeat(auto-fit,minmax(min(145px,100%),1fr)) }
+    #dex-results .dex-compact button { min-height:35px; text-align:left }
+    #dex-results button:focus-visible { outline-offset:-2px }
     #dex-results, .dex-routes { overflow-wrap:anywhere }
     .dex-heading { display:block; font-size:13px; color:#d8ede7 }
     .dex-section { font-size:11px; font-weight:650; color:#a9c2d8; margin:12px 0 2px }
@@ -146,8 +164,6 @@
         .commandbar { padding:6px 10px }
     }
     @media(max-width:360px) {
-        #dex-panel .field { flex-wrap:wrap; gap:5px }
-        #dex-panel .field label { flex:0 0 100% }
         .service-row { grid-template-columns:minmax(0,1fr) auto }
         .service-label { font-weight:600 }
         .service-detail { grid-column:1/-1 }

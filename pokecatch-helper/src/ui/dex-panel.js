@@ -1,20 +1,28 @@
     function mountDexPanel(root,refresh){
         const panel=root.querySelector('#dex-panel');
-        panel.innerHTML='<div class="field"><label for="dex-search">查询获取方式</label><input id="dex-search" type="search" placeholder="名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>缺失列表</button></div><div class="list" id="dex-results"></div>';
+        panel.innerHTML='<div class="dex-searchbar"><input id="dex-search" type="search" aria-label="搜索宝可梦的获取方式" placeholder="搜索名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>返回缺失列表</button></div><div class="list" id="dex-results" tabindex="-1" aria-label="图鉴结果"></div>';
         const input=panel.querySelector('#dex-search'),results=panel.querySelector('#dex-results'),clear=panel.querySelector('#dex-clear');
         const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
-        let signature=null;
+        let signature=null,returnSpecies=null;
         function search(value, showResults = refresh){
+            if(showResults!==refresh)returnSpecies=null;
             input.value=value;
             results.scrollTop=0;
             showResults();
-            input.focus({preventScroll:true});
+            const destination=value?results.querySelector('.dex-heading'):
+                returnSpecies&&results.querySelector('[data-species="'+returnSpecies+'"]');
+            (destination||results).focus({preventScroll:true});
+            if(!value&&destination)destination.scrollIntoView({block:'nearest'});
+            if(!value)returnSpecies=null;
         }
         clear.onclick=()=>search('');
-        input.addEventListener('input',()=>{results.scrollTop=0;refresh();});
+        input.addEventListener('input',()=>{returnSpecies=null;results.scrollTop=0;refresh();});
         results.addEventListener('click',event=>{
             const button=event.target.closest('button[data-species]');
-            if(button)search('#'+button.dataset.species);
+            if(button){
+                if(!input.value.trim())returnSpecies=button.dataset.species;
+                search('#'+button.dataset.species);
+            }
         });
         function label(tag,text,className){
             const element=document.createElement(tag);element.textContent=text;
@@ -45,17 +53,33 @@
             clear.hidden=!term;
             if(!term){
                 const status=dexStatus(s,settings);
-                const planned=new Set(dexRanking(s,settings,{},now,status).flatMap(row=>row.targets.map(target=>target.id)));
+                const planned=new Map();
+                for(const route of dexRanking(s,settings,{},now,status)){
+                    for(const target of route.targets)if(!planned.has(target.id))planned.set(target.id,route);
+                }
+                const expanded=status.missing.length<=6;
                 const rows=status.missing.map(mon=>{
                     const tag=planned.has(mon.id)?'可规划':ROAMING_DATA.groups.some(group=>group.ids.includes(mon.id))?'游荡':mon.legend?'传说':'查看来源';
-                    return[mon.id,tag];
+                    const route=expanded&&planned.get(mon.id);
+                    return[mon.id,tag,route?route.name:''];
                 });
                 const countUnit=settings.mode==='dex'&&settings.dexSpecies?.length?' 种目标宝可梦':' 条进化链';
                 if(!changed(['missing',countUnit,rows]))return;
                 if(!rows.length){results.append(label('p','所选收集目标已全部捕获。'));return;}
-                results.append(label('div','所选范围缺少 '+rows.length+countUnit,'hint'));
-                const wrap=label('div','','missing');
-                for(const [id,tag] of rows){const mon=MONS.get(id);wrap.append(speciesButton(mon,'#'+id+' '+mon.name+' · '+tag));}
+                results.append(label('h3','待收集 · '+rows.length+countUnit,'dex-list-title'));
+                const wrap=label('div','',expanded?'dex-targets':'dex-compact');
+                for(const [id,tag,place] of rows){
+                    const mon=MONS.get(id);
+                    if(!expanded){wrap.append(speciesButton(mon,'#'+id+' '+mon.name+' · '+tag));continue;}
+                    const button=speciesButton(mon,'');button.className='dex-target';
+                    const body=label('span','','dex-target-body');
+                    body.append(label('strong',mon.name));
+                    if(place)body.append(label('small',place));
+                    button.append(label('span','#'+id,'dex-number'),body,label('span',tag,'dex-method'));
+                    button.dataset.planned=String(planned.has(id));
+                    button.setAttribute('aria-label','查看'+mon.name+'的获取方式，'+tag+(place?'，'+place:''));
+                    wrap.append(button);
+                }
                 results.append(wrap);return;
             }
             const matches=searchSpecies(term);
@@ -71,7 +95,8 @@
             const forms=seasonFormProgress(s,mon.id),currentSeason=forms&&weatherSeason(now);
             const sources=acquisitionSources(s,mon.id,now).sort((a,b)=>Number(!!b.marked)-Number(!!a.marked));
             if(!changed(['detail',mon.id,caught,chainComplete,forms?.seen,currentSeason,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
-            results.append(label('strong','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading'));
+            const heading=label('h3','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading');
+            heading.tabIndex=-1;results.append(heading);
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
             if(base.id!==mon.id)family.append(' ',speciesButton(base,'查'+base.name+'来源'));
             results.append(family);

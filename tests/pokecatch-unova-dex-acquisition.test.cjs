@@ -2,6 +2,19 @@ const test=require('node:test'),assert=require('node:assert/strict');
 const H=require('../Pokecatch自动助手.user.js');
 const cfg={...H.DEFAULTS,region:'current'};
 const noon=new Date(2026,10,18,12).getTime();
+
+test('desert egg forecasts require an available incubator and champion, and never count toward wild shiny hunts',()=>{
+    const s=state(636),settings={...cfg,mode:'dex',dexSpecies:[636]};
+    const window=H.nextWildWindow(s,settings,[636],noon,168);
+    assert.equal(window?.row.id,69);assert.equal(window.eggPlace,'沙漠地带');
+    assert.ok(H.unovaAcquisitionSources(s,636,window.at,false)[0].available);
+    s.adv.badges=[];assert.equal(H.nextWildWindow(s,settings,[636],noon,168),null);
+    s.adv.badges=['Maître Unys'];s.pension.eggs=[{id:25}];
+    assert.equal(H.nextWildWindow(s,settings,[636],noon,168),null);
+    s.pension.eggs=[];s.adv.gifts['egg:636']=true;
+    assert.equal(H.nextWildWindow(s,settings,[636],noon,168),null);
+    delete s.adv.gifts['egg:636'];assert.equal(H.nextWildWindow(s,{...settings,mode:'shiny'},[636],noon,168),null);
+});
 function state(missing){
     const dex=Object.fromEntries(H.ROOTS.filter(m=>m.id!==missing).map(m=>[m.id,{caught:1}]));
     return {mons:[],team:[],dex,items:{},travel:{to:['johto','hoenn','sinnoh','unova']},pension:{eggs:[],open:{eggs:1}},

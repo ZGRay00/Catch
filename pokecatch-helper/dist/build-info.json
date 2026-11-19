@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.3.1",
-  "scriptSha256": "889ee7525f84c9f2141382864c70838223d01900ee64291bd3a3e78cad1c402d",
-  "metadataSha256": "00a0ebc6f219d2247d01cbb33c965df8cac4a50585602a4f877255f2d5411197",
+  "version": "5.3.4",
+  "scriptSha256": "d444e73a475124da2f3cb7d8a92b388208342a292baee945179a15fd6d1332cb",
+  "metadataSha256": "05e2616fae20b97a5d5a564324c6d17f544037eec670ce45b9dd9ba06ea469c5",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "e4ec6e8c7b7b7ea6564274cca2004599eb95da559bad00ab9c9493fbd4af47eb"
+      "sha256": "fa56a3af93ff96b4e773f6f50227c693aa89c16b5b67605e1b3e6dfefe645df0"
     },
     {
       "file": "build.manifest.json",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/models/farming.js",
-      "sha256": "03246c211f05a49c076955d31871d1d851294f917949b2ec013a0dc91ed419cb"
+      "sha256": "787be47ae616e4f7ba137513c478c3cf18d098bd16434cac67837e831f0e0a3e"
     },
     {
       "file": "src/models/nursery-model.js",
@@ -90,7 +90,7 @@
     },
     {
       "file": "src/models/weather.js",
-      "sha256": "a41f19ec68d30603fdf8b0b3c9df3d085fce5f11813d64566745e44468d50fd9"
+      "sha256": "bfeff938277bdfe1b735384a6c829e5320fca02774564a101264bf3d3252b35a"
     },
     {
       "file": "src/models/roster.js",
@@ -118,7 +118,7 @@
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "894aa97e00462a4663fc15a8b61d36778e5ecb7733944f1f930557f731777a7c"
+      "sha256": "1c88d26d6706eb0eb88359118afed656a8e6c99d6d349bd7b2b9ff7ca01beb5e"
     },
     {
       "file": "src/core/telemetry.js",
@@ -138,7 +138,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "dd02e78afd48bb7705b24fd58d918387536492bbc5bf2cd075e33d9796a4516f"
+      "sha256": "a96e2a325cf1bba2e91ea9c944d99d6e89d24ca3f24286f4562bb1f070ad22a3"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -146,11 +146,11 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "c3fa67fec19c6e1d391dcbcea2e9852276e23fdc90ecb634125474ae27a8407d"
+      "sha256": "54d3eb037387792448dbdd0cab9876966077f523dd2202aba89c644a262ddc00"
     },
     {
       "file": "src/ui/dex-panel.js",
-      "sha256": "ce0634ccb244b9f9869ada47ebcc4ea91ed428ab7d372cdb52e4f1578f3d9e58"
+      "sha256": "bdaea1c77d4b98e74a3fde62983d3d20b1ba3dc08daa31401bdad70e2150bac1"
     },
     {
       "file": "src/ui/weather-panel.js",
@@ -166,7 +166,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "367e47cd4994a2e5c11589d2b7199a4af3217c52141ee11ac2b88f1e16963bc7"
+      "sha256": "c950d3f814516b5fc6a14a61aec2e2923a6241b5d39cf7909db711f54c7e1428"
     }
   ]
 }

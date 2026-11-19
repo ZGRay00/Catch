@@ -13,6 +13,75 @@ function fixture(t,settings={}){
 }
 function catchAll(s){s.dex=Object.fromEntries(H.ROOTS.map(m=>[m.id,{caught:1}]));}
 
+for(const mode of ['dex','shiny']){
+    test(mode+' rotates an empty ice badge roll only after a run and keeps existing wild dust',async t=>{
+        const {s,e,save}=fixture(t,{mode,[mode+'Species']:[529,530]});
+        e.automation.autoBuff=()=>false;
+        const now=Date.now();
+        Object.assign(s.adv,{chapter:73,unlocked:83,runs:4,nodes:[{type:'wild',name:'Route 7'}]});
+        s.travel.to=['unova'];save();
+        const rank=mode==='dex'?H.dexRanking:H.shinyRanking;
+        const current=rank(s,e.settings,{},now).find(row=>row.id===73);
+        e.target=current;e.visit={started:now,runs:4,deaths:0};
+        await e.step(now);assert.equal(e.driver.pendingMap,undefined);
+        s.adv.runs++;s.adv.nodes[0].phenom='dust';save();await e.step(now+1200);
+        assert.match(e.status,/现象遭遇/);assert.equal(e.driver.pendingMap,null);
+        s.adv.nodes[0].type='item';save();await e.step(now+2400);
+        const next=e.driver.pendingMap.row;
+        assert.notEqual(next.id,73);assert.ok(rank(s,e.settings,{},now).some(row=>row.key===next.key));
+        assert.ok(e.cooldowns[current.key]>now);e.stop();
+    });
+}
+
+test('Alomomola routes leave the ice badge for a ripple chapter',async t=>{
+    const {s,e,save}=fixture(t,{mode:'dex',dexSpecies:[594]});e.automation.autoBuff=()=>false;
+    Object.assign(s.adv,{chapter:73,unlocked:83,nodes:[{type:'wild',name:'Route 7',phenom:'dust'}]});
+    s.travel.to=['unova'];save();await e.step();
+    assert.ok([74,83].includes(e.driver.pendingMap.row.id));e.stop();
+});
+
+test('Volcarona alone routes to the desert egg, then waits for its evolution without counting the parent',async t=>{
+    const {s,e,save}=fixture(t,{mode:'dex',dexSpecies:[637],afterDex:'stop'});
+    Object.assign(s.adv,{chapter:73,unlocked:83,badges:['Maître Unys']});s.travel.to=['unova'];save();
+    const window=H.nextWildWindow(s,e.settings,[636],Date.now(),168);
+    await e.step(window.at);assert.equal(e.driver.pendingMap.row.id,69);
+    Object.assign(s.adv,{chapter:69,nodes:[{type:'item',name:'Désert Délassant',weather:'sun',loot:{'egg:636':{p:.2}}}]});
+    save();await e.step(window.at+1200);assert.match(e.status,/沙漠地带.*蛋/);
+    s.adv.gifts['egg:636']=true;s.adv.nodes=[];s.pension={eggs:[{id:636}]};save();
+    await e.step(window.at+2400);assert.match(e.status,/已有蛋，等待孵化/);
+    s.dex[636]={caught:1};s.pension.eggs=[];save();await e.step(window.at+3600);
+    assert.equal(e.running,true);assert.match(e.status,/59.*培养进化/);
+    s.dex[637]={caught:1};save();await e.step(window.at+4800);assert.equal(e.running,false);
+});
+
+test('selecting the whole egg family reports its shared incubating egg',async t=>{
+    const {s,e,save}=fixture(t,{mode:'dex',dexSpecies:[636,637]});
+    Object.assign(s.adv,{chapter:69,unlocked:83,badges:['Maître Unys']});s.travel.to=['unova'];s.pension={eggs:[{id:636}]};
+    save();await e.step();assert.match(e.status,/已在孵化器/);assert.equal(e.driver.pendingMap,undefined);e.stop();
+});
+
+for(const scene of ['between','trainer','boss']){
+    test('specified dust family leaves Shauntal and fits only the confirmed hunting route: '+scene,async t=>{
+        const {s,e,save}=fixture(t,{mode:'dex',region:'all',dexSpecies:[529,530],autoTeam:true});
+        s.travel.to=['unova'];Object.assign(s.adv,{chapter:77,unlocked:77,loops:['L:unova']});
+        if(scene!=='between'){
+            s.adv.nodes=[{type:scene}];s.adv.battle={kind:'trainer',enemies:[{id:563}]};
+        }
+        const fitted=[];e.fitTeam=state=>{fitted.push(state.adv.chapter);return true;};
+        save();await e.step();
+        if(scene==='boss'){
+            assert.match(e.status,/等待当前遭遇.*再前往/);assert.equal(e.driver.pendingMap,undefined);
+            s.adv.battle=null;save();await e.step();
+        }
+        const route=e.driver.pendingMap?.row;
+        assert.ok(route&&!route.league&&route.targets.some(hit=>hit.kind==='phenomenon'&&[529,530].includes(hit.id)));
+        assert.deepEqual(fitted,[]);
+        e.driver.map=row=>{assert.equal(row.key,route.key);return true;};await e.step();
+        Object.assign(s.adv,{chapter:route.id,battle:null,nodes:[]});save();await e.step();
+        assert.deepEqual(fitted,[route.id]);e.stop();
+    });
+}
+
 test('starting a hunt plans its route during the original ordinary battle, before background work',async t=>{
     const {s,e,save}=fixture(t,{mode:'dex',dexSpecies:[529]});
     s.travel.to=['unova'];

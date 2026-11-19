@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.3.1
+// @version      5.3.4
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.3.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '5.3.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -965,11 +965,12 @@
         return candidates(s,settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row=>{
             const members=row.members;
             const sources=phenomena.filter(source=>members.includes(source.chapter));
-            const expected=members.reduce((n,id)=>{
+            const ordinary=members.reduce((n,id)=>{
                 const pool=currentWildPool(s,id,now);
                 return n+targets.reduce((sum,target)=>sum+(pool.get(target)||0),0);
-            },0)+sources.reduce((n,source)=>n+source.weight,0);
-            return{...row,expected,marked:sources.some(source=>source.marked),rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
+            },0);
+            const expected=ordinary+sources.reduce((n,source)=>n+source.weight,0);
+            return{...row,expected,specialNodesOnly:ordinary===0,marked:sources.some(source=>source.marked),rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.rate-a.rate);
     }
     function pensionPlan(s,id,shinyGoal=false){
@@ -1878,7 +1879,9 @@
     let wildForecastCache;
     function nextWildWindow(s,settings,ids,now=Date.now(),hours) {
         const targets=Array.from(new Set(ids));
-        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught]);
+        const eggState=settings.mode==='dex'&&targets.some(id=>UNOVA_SOURCE_INDEX.get(id)?.some(route=>route.egg?.id===id))
+            ? [s.adv.badges,s.adv.gifts,s.pension?.eggs?.map(egg=>egg.id),s.pension?.open?.eggs] : null;
+        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings.mode,settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught,eggState]);
         if(wildForecastCache?.signature===signature&&now>=wildForecastCache.from&&now<wildForecastCache.until)return wildForecastCache.result;
         const slot=WEATHER_DATA.slotMs,firstHour=(Math.floor(now/slot)+1)*slot;
         const result=searchWildWindow(s,settings,targets,now,firstHour,hours);
@@ -1886,8 +1889,9 @@
         return result;
     }
     function searchWildWindow(s,settings,targets,now,firstHour,hours){
-        const phenomenonIds=targets.filter(id=>UNOVA_WILD_IDS.has(id));
-        const specialChapters=new Set(phenomenonIds.flatMap(id=>(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter)));
+        const allowEgg=settings.mode==='dex';
+        const specialIds=targets.filter(id=>UNOVA_WILD_IDS.has(id)||allowEgg&&UNOVA_SOURCE_INDEX.has(id));
+        const specialChapters=new Set(specialIds.flatMap(id=>UNOVA_SOURCE_INDEX.get(id).filter(route=>allowEgg||route.egg?.id!==id).map(route=>route.chapter)));
         const rowsBySeason=SEASON_KEYS.map(()=>[]),rows=[];
         let hasSeasonal=false;
         for(const row of candidates(s,settings)){
@@ -1931,10 +1935,10 @@
                 const pool=currentWildPool(s,chapter,at),id=targets.find(id=>(pool.get(id)||0)>0);
                 if(id)return{at,row,id,season,weather:chapterWeather(s,chapter,at).key};
             }
-            for(const id of phenomenonIds){
+            for(const id of specialIds){
                 for(const source of unovaAcquisitionSources(s,id,at,false)){
-                    const row=source.kind==='phenomenon'&&source.available&&matching.find(r=>r.members.includes(source.chapter));
-                    if(row)return{at,row,id,season,weather:chapterWeather(s,source.chapter,at).key};
+                    const row=(allowEgg||source.kind==='phenomenon')&&source.available&&matching.find(r=>r.members.includes(source.chapter));
+                    if(row)return{at,row,id,season,weather:chapterWeather(s,source.chapter,at).key,...(source.kind==='lootEgg'?{eggPlace:source.nodeName}:{})};
                 }
             }
         }
@@ -3678,6 +3682,20 @@
             available:!!roam.location,detail:roam.location?'游荡中 · '+CHAPTERS.get(roam.location.ch).name:roam.unlocked?'等待在线游荡出现':'取得本地区冠军后开放游荡'});
         return result.sort((a,b)=>Number(b.available)-Number(a.available));
     }
+    const giftEggParents=new Map();
+    for(const {egg} of UNOVA_ENCOUNTERS.routes){
+        if(egg)for(const rule of EVOLUTION_DATA.rules[egg.id]||[])giftEggParents.set(rule.to,egg.id);
+    }
+    function dexSearchIds(s,settings,status){
+        const wanted=new Set(status.ids);
+        if(settings.dexSpecies?.length){
+            for(const id of status.ids){
+                const parent=giftEggParents.get(id);
+                if(parent&&!captured(s,parent))wanted.add(parent);
+            }
+        }
+        return wanted;
+    }
     function markedDexSource(s,settings,now){
         if(!huntRegionMatches(s,settings,currentRegion(s))||!huntWeatherMatches(s,settings,s.adv.chapter,now))return null;
         if(currentRegion(s)!=='unova'||!s.adv.nodes?.length)return null;
@@ -3688,7 +3706,7 @@
                 (route.egg?.id===species?node.type==='item'&&!node.find&&node.loot?.['egg:'+species]:
                     node.type==='wild'&&!node.roamer&&node.phenom===route.phenomenon)));
             if(!matches)continue;
-            missing??=dexStatus(s,settings).ids;
+            missing??=dexSearchIds(s,settings,dexStatus(s,settings));
             if(!missing.has(species)||s.pension?.eggs?.some(egg=>egg.id===species))continue;
             const marked=unovaAcquisitionSources(s,species,now).find(source=>source.marked);
             if(marked)return marked;
@@ -3698,7 +3716,7 @@
     const dexPrerequisites=[...new Set(DATA.chapters.flatMap(c=>c.special.flatMap(source=>source.caught||[])))];
     const branchedGifts=DATA.chapters.flatMap(c=>c.gifts.filter(gift=>gift.byStarter));
     function dexRanking(s, settings, cooldowns = {}, now = Date.now(), status = dexStatus(s, settings)) {
-        const wanted=new Set(status.ids);
+        const wanted=dexSearchIds(s,settings,status);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
         const inputs=[huntRankingInputs(s,settings,[...wanted],now),settings.gifts,s.adv.gifts,s.adv.badges,s.items,
             settings.gifts&&Object.keys(FOSSIL_NAMES).map(item=>s.link?.stash?.items?.[item]||0),
@@ -3717,8 +3735,9 @@
             }
         }
         return candidates(s, settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row => {
-            const hits = new Map(); let score = 0,marked=false,hasWild=false;
+            const hits = new Map(); let score = 0,marked=false,hasWild=false,specialNodesOnly=true;
             for (const id of row.members) {
+                const beforeOrdinarySources=score;
                 const c = CHAPTERS.get(id);
                 const phaseRows=c.pools[phaseAt(s,now,id)]||[];
                 for (const [mon,weight] of currentWildPool(s,id,now)) {
@@ -3748,16 +3767,17 @@
                         hits.set(special.id,{id:special.id,special:true});
                     }
                 }
+                if(score>beforeOrdinarySources)specialNodesOnly=false;
                 for(const source of specialByChapter.get(id)||[]){
                     const egg=source.kind==='lootEgg';
                     hasWild ||= !egg;
                     const catchFactor=egg?1:Math.max(.08,MONS.get(source.id).rate/255);
                     score+=source.weight*catchFactor;
                     marked||=!!source.marked;
-                    hits.set(source.id,{id:source.id,special:true,kind:source.kind,place:source.nodeName,marked:!!source.marked||!!hits.get(source.id)?.marked});
+                    if(!hits.get(source.id)?.marked)hits.set(source.id,{id:source.id,special:true,kind:source.kind,place:source.nodeName,marked:!!source.marked});
                 }
             }
-            return { ...row, targets: [...hits.values()], marked, hasWild, score: score / Math.max(15, row.units) };
+            return { ...row, targets: [...hits.values()], marked, hasWild, specialNodesOnly, score: score / Math.max(15, row.units) };
         }).filter(row=>row.targets.length).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.score-a.score||a.id-b.id);
     }
     const PARIS_CALENDAR=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Paris',year:'numeric',month:'2-digit',day:'2-digit'});
@@ -6992,7 +7012,7 @@
                     if (pending.options?.zone) { this.zoneId = pending.row.id; this.zoneStarted = now; }
                     else {
                         this.target=pending.row;
-                        this.visit={started:now,deaths:totalDeaths(s,pending.row)};
+                        this.visit={started:now,deaths:totalDeaths(s,pending.row),runs:s.adv.runs||0};
                         if(this.settings.mode==='train')this.visit.trainingProfile=pending.trainingProfile??trainingRouteFingerprint(s);
                         this.telemetry.sample=null;
                         if(pending.options?.roamId){this.roamStarted??=now;if(pending.options.restart)this.roamRestartAt=now;}
@@ -7011,7 +7031,9 @@
             }
             const speed = $(`#speed-btns [data-speed="${this.settings.speed}"]`);
             if (s.adv.speed !== this.settings.speed && this.driver.nav('adventure')) { this.driver.click(speed, '设置游戏内速度'); return; }
-            if(this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
+            const dex=this.settings.mode==='dex'?dexStatus(s,this.settings):null;
+            const directedHunt=this.settings.mode==='shiny'||(dex?.missing.length>0&&this.settings.dexSpecies.length>0);
+            if(!directedHunt&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(roadPending)this.telemetry.sample=null;
             if (this.target && this.target.members.includes(s.adv.chapter) && !roadPending) {
@@ -7028,26 +7050,30 @@
                 const rows=shinyRanking(s,this.settings,this.cooldowns,now),current=rows.find(row=>row.key===this.target?.key);
                 if(rows.length)this.weatherWindow=null;
                 if(safeBoundary&&rows.length&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;}
-                if(!safeBoundary&&!startingBattle){this.driver.nav('adventure');return;}if(!rows.length){
+                const alternate=this.huntAlternate(s,current,rows,now);
+                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&!alternate){
+                    if(this.settings.autoTeam&&this.fitTeam(s,now))return;
+                    this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;
+                }
+                if(!safeBoundary&&!startingBattle&&!this.ordinaryBattleKey(s)){this.waitForHuntBoundary(rows[0]);return;}if(!rows.length){
                     const eligible=shinyRanking(s,this.settings,{},now);
                     if(eligible.length){this.waitForFarm('刷闪地图暂时退避，等待后重试',now);return;}
                     if(this.waitForWildWindow(s,remaining,now))return;
                     const possible=remaining.some(id=>hasWildSource(s,this.settings,id));
                     if(possible){this.waitForFarm('已确认野生来源，等待天气、季节或出没时段；不会放弃任务',now);return;}
                     this.failTask('当前范围没有该物种的野生来源；请检查地区、时段和天气');return;
-                }this.travel(rows[0],now);return;
+                }this.travelHunt(alternate||rows[0],alternate,now);return;
             }
             if (this.settings.mode === 'item') { this.farm(s, now, 'item'); return; }
             if (this.settings.mode === 'train') { this.farm(s, now, 'train'); return; }
             if (this.settings.mode === 'dex') {
-                const status = dexStatus(s, this.settings);
+                const status = dex;
                 if (!status.missing.length) {
                     const done=this.settings.dexSpecies?.length?'指定物种已全部捕获':'所选范围的基础形态已全部捕获';
                     if (this.settings.afterDex === 'stop'||this.queueRunning) { this.completeTask(done); return; }
                     this.status = done+'，转为刷钱'; this.money(s, now); return;
                 }
-                const rows = dexRanking(s, this.settings, this.cooldowns, now);
+                const rows = dexRanking(s, this.settings, this.cooldowns, now, status);
                 if(rows.length)this.weatherWindow=null;
                 const stillNeeded = rows.find(r => r.key === this.target?.key);
                 if(!rows.length&&status.missing.every(mon=>s.pension?.eggs?.some(egg=>egg.id===mon.id))){
@@ -7055,26 +7081,38 @@
                     this.status=this.settings.autoEggs?'补图鉴 · 剩余目标均已取得蛋，等待成熟并领取':'补图鉴 · 剩余目标均已取得蛋，成熟后请在培育屋领取';
                     this.driver.nav('adventure');return;
                 }
-                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && now - this.visit.started < this.settings.rotateMinutes * 60000) {
+                const alternate=this.huntAlternate(s,stillNeeded,rows,now);
+                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
+                    if(directedHunt&&this.settings.autoTeam&&this.fitTeam(s,now))return;
                     if(safeBoundary&&stillNeeded.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                    this.status = `补图鉴 · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}`; this.driver.nav('adventure'); return;
+                    const detail=stillNeeded.specialNodesOnly?' · 等待生成目标节点':'';
+                    this.status = `补图鉴 · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}${detail}`; this.driver.nav('adventure'); return;
                 }
-                if (!safeBoundary&&!startingBattle) {this.driver.nav('adventure');return;}
-                let next=rows[0];
-                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && now - this.visit.started >= this.settings.rotateMinutes * 60000) {
-                    this.cooldowns[this.target.key] = now + 5 * 60000; this.log('目标地图达到轮换时间，尝试其他缺失进化链');
-                    next=rows.find(row=>row.key!==this.target.key);
-                }
+                if (!safeBoundary&&!startingBattle&&!(directedHunt&&this.ordinaryBattleKey(s))) {this.waitForHuntBoundary(rows[0]);return;}
+                const next=alternate||rows[0];
                 if (next) {
-                    if(safeBoundary&&next.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                    this.travel(next, now); return;
+                    if(!directedHunt&&safeBoundary&&next.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
+                    this.travelHunt(next,alternate,now); return;
                 }
                 if (this.settings.legends && !this.settings.dexWeather?.length && now >= this.nextLegend && this.findLegend(s, status, now)) return;
                 if(this.settings.dexWeather?.length||this.settings.dexSpecies?.length||this.settings.dexRegions?.length){
                     this.target=null;this.visit=null;this.telemetry.sample=null;
                     if(this.settings.dexSpecies?.length&&!dexRanking(s,this.settings,{},now).length){
                         const hatchedLater=new Set((s.pension?.eggs||[]).map(egg=>egg.id));
-                        if(this.waitForWildWindow(s,[...status.ids].filter(id=>!hatchedLater.has(id)),now))return;
+                        if(this.waitForWildWindow(s,[...dexSearchIds(s,this.settings,status)].filter(id=>!hatchedLater.has(id)),now))return;
+                        // A selected parent and its evolution share the same pending gift egg.
+                        const remaining=status.missing.filter(mon=>!status.ids.has(giftEggParents.get(mon.id)));
+                        if(remaining.length===1){
+                            const id=remaining[0].id;
+                            const egg=unovaAcquisitionSources(s,id,now).find(source=>source.kind==='lootEgg'&&!source.available);
+                            if(egg){this.waitForFarm(`${MONS.get(id).name} · ${CHAPTERS.get(egg.chapter).name} / ${egg.nodeName} · ${egg.reason}`,now);return;}
+                            const from=giftEggParents.get(id);
+                            if(from){
+                                const rule=EVOLUTION_DATA.rules[from].find(rule=>rule.to===id);
+                                const reason=unovaAcquisitionSources(s,from,now)[0]?.reason;
+                                this.waitForFarm(`${MONS.get(id).name} · 由${MONS.get(from).name} Lv.${rule.level} 进化；${hatchedLater.has(from)?'已有蛋，等待孵化':captured(s,from)?'请确认前置形态并安排培养进化':reason||'等待符合筛选的赠蛋地点'}`,now);return;
+                            }
+                        }
                     }
                     this.waitForFarm('所选范围暂无可刷目标，等待天气、退避结束或开放来源；可在图鉴查看获取条件',now);return;
                 }
@@ -7339,12 +7377,27 @@
             }
             this.travel(next, now);
         }
+        huntAlternate(s,current,rows,now){
+            if(!current?.members.includes(s.adv.chapter)||!this.visit||current.marked||rows.length<2)return null;
+            const newRoll=current.specialNodesOnly&&s.adv.nodes?.length>0&&s.adv.runs>this.visit.runs;
+            if(!newRoll&&now-this.visit.started<this.settings.rotateMinutes*60000)return null;
+            return rows.find(row=>row.key!==current.key);
+        }
+        travelHunt(row,alternate,now){
+            if(alternate&&this.target){
+                this.cooldowns[this.target.key]=now+5*60000;
+                this.log(`搜寻轮换 · ${this.target.name} → ${row.name}`);
+            }
+            this.travel(row,now);
+        }
         waitForWildWindow(s,targets,now){
             const window=nextWildWindow(s,this.settings,targets,now);
             this.weatherWindow=window;
             if(!window)return false;
             const when=new Date(window.at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
-            this.waitForFarm(`等待野生出没时段 · ${MONS.get(window.id).name} · ${window.row.name} · ${SEASON_NAMES[window.season]} ${when}`,now);
+            const label=window.eggPlace?'等待赠蛋天气':'等待野生出没时段';
+            const place=window.eggPlace?`${window.row.name} / ${window.eggPlace}`:window.row.name;
+            this.waitForFarm(`${label} · ${MONS.get(window.id).name} · ${place} · ${SEASON_NAMES[window.season]} ${when}`,now);
             return true;
         }
         ordinaryBattleKey(s) {
@@ -7356,6 +7409,10 @@
         }
         canStartRoute(s) {
             return !s.adv.pending && (!s.adv.battle || !!this.startBattle && this.startBattle===this.ordinaryBattleKey(s));
+        }
+        waitForHuntBoundary(row) {
+            this.status=row?`等待当前遭遇或选项结算，再前往${row.name}`:'等待当前遭遇或选项结算后重新规划搜寻';
+            this.driver.nav('adventure');
         }
         followMarkedHunt(s,now) {
             const mode=this.settings.mode;
@@ -7636,7 +7693,12 @@
     .content section[hidden] { display:none }
     .lookup-page .content > .status, .lookup-page .metrics, .lookup-page #prepare-info,
     .lookup-page #support-info, .lookup-page #season-calendar { display:none }
-    #pane-dex .field input[type=search] { min-width:0; flex:1 }
+    .commandbar .lookup-task, .lookup-page .commandbar:not(.has-task),
+    .lookup-page .commandbar .queue-tools, .lookup-page .commandbar #start { display:none }
+    .lookup-page .commandbar .lookup-task { display:block; flex:1; color:#b4cbd4; font-size:12px; overflow-wrap:anywhere }
+    .lookup-page .commandbar .row button { flex:0 1 auto; min-height:36px }
+    .dex-searchbar { display:flex; align-items:center; gap:6px; margin:2px 0 12px }
+    .dex-searchbar input { flex:1; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #465b70; border-radius:8px; background:#0f1927; color:#edf4f8 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
     #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
     .nursery-heading, .nursery-tools { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap }
@@ -7662,8 +7724,21 @@
     summary { font-size:12px; color:#c2d3df }
     .field,.setting { min-height:28px }
     .list { max-height:min(38dvh,330px) }
-    #dex-panel .field { margin-top:10px }
-    #dex-clear { flex:none; padding:6px; font-size:11px }
+    #dex-clear { flex:none; min-height:38px; padding:5px 8px; font-size:12px }
+    .dex-list-title, .dex-heading { margin:0 0 8px; line-height:1.5 }
+    .dex-list-title { font-size:13px; color:#cedeeb }
+    .dex-targets, .dex-compact { display:grid; gap:5px; padding:2px }
+    .dex-target { display:grid; grid-template-columns:4ch minmax(0,1fr) auto 7px; gap:10px; align-items:center; min-height:46px; padding:8px 10px; text-align:left; background:#19283a; border-color:#33485b }
+    .dex-target::after { content:''; width:6px; height:6px; border-top:1.5px solid #91aaba; border-right:1.5px solid #91aaba; transform:rotate(45deg) }
+    .dex-number { font:11px ui-monospace,monospace; color:#a4b7c6 }
+    .dex-target-body { min-width:0; display:grid; gap:2px }
+    .dex-target-body strong { font-size:14px; color:#e1ebef }
+    .dex-target-body small { color:#a7b7c6; font-size:12px }
+    .dex-method { color:#bfcfda; font-size:11px }
+    .dex-target[data-planned=true] .dex-method { color:#93e2bf }
+    .dex-compact { grid-template-columns:repeat(auto-fit,minmax(min(145px,100%),1fr)) }
+    #dex-results .dex-compact button { min-height:35px; text-align:left }
+    #dex-results button:focus-visible { outline-offset:-2px }
     #dex-results, .dex-routes { overflow-wrap:anywhere }
     .dex-heading { display:block; font-size:13px; color:#d8ede7 }
     .dex-section { font-size:11px; font-weight:650; color:#a9c2d8; margin:12px 0 2px }
@@ -7713,8 +7788,6 @@
         .commandbar { padding:6px 10px }
     }
     @media(max-width:360px) {
-        #dex-panel .field { flex-wrap:wrap; gap:5px }
-        #dex-panel .field label { flex:0 0 100% }
         .service-row { grid-template-columns:minmax(0,1fr) auto }
         .service-label { font-weight:600 }
         .service-detail { grid-column:1/-1 }
@@ -7723,21 +7796,29 @@
     `;
     function mountDexPanel(root,refresh){
         const panel=root.querySelector('#dex-panel');
-        panel.innerHTML='<div class="field"><label for="dex-search">查询获取方式</label><input id="dex-search" type="search" placeholder="名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>缺失列表</button></div><div class="list" id="dex-results"></div>';
+        panel.innerHTML='<div class="dex-searchbar"><input id="dex-search" type="search" aria-label="搜索宝可梦的获取方式" placeholder="搜索名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>返回缺失列表</button></div><div class="list" id="dex-results" tabindex="-1" aria-label="图鉴结果"></div>';
         const input=panel.querySelector('#dex-search'),results=panel.querySelector('#dex-results'),clear=panel.querySelector('#dex-clear');
         const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
-        let signature=null;
+        let signature=null,returnSpecies=null;
         function search(value, showResults = refresh){
+            if(showResults!==refresh)returnSpecies=null;
             input.value=value;
             results.scrollTop=0;
             showResults();
-            input.focus({preventScroll:true});
+            const destination=value?results.querySelector('.dex-heading'):
+                returnSpecies&&results.querySelector('[data-species="'+returnSpecies+'"]');
+            (destination||results).focus({preventScroll:true});
+            if(!value&&destination)destination.scrollIntoView({block:'nearest'});
+            if(!value)returnSpecies=null;
         }
         clear.onclick=()=>search('');
-        input.addEventListener('input',()=>{results.scrollTop=0;refresh();});
+        input.addEventListener('input',()=>{returnSpecies=null;results.scrollTop=0;refresh();});
         results.addEventListener('click',event=>{
             const button=event.target.closest('button[data-species]');
-            if(button)search('#'+button.dataset.species);
+            if(button){
+                if(!input.value.trim())returnSpecies=button.dataset.species;
+                search('#'+button.dataset.species);
+            }
         });
         function label(tag,text,className){
             const element=document.createElement(tag);element.textContent=text;
@@ -7768,17 +7849,33 @@
             clear.hidden=!term;
             if(!term){
                 const status=dexStatus(s,settings);
-                const planned=new Set(dexRanking(s,settings,{},now,status).flatMap(row=>row.targets.map(target=>target.id)));
+                const planned=new Map();
+                for(const route of dexRanking(s,settings,{},now,status)){
+                    for(const target of route.targets)if(!planned.has(target.id))planned.set(target.id,route);
+                }
+                const expanded=status.missing.length<=6;
                 const rows=status.missing.map(mon=>{
                     const tag=planned.has(mon.id)?'可规划':ROAMING_DATA.groups.some(group=>group.ids.includes(mon.id))?'游荡':mon.legend?'传说':'查看来源';
-                    return[mon.id,tag];
+                    const route=expanded&&planned.get(mon.id);
+                    return[mon.id,tag,route?route.name:''];
                 });
                 const countUnit=settings.mode==='dex'&&settings.dexSpecies?.length?' 种目标宝可梦':' 条进化链';
                 if(!changed(['missing',countUnit,rows]))return;
                 if(!rows.length){results.append(label('p','所选收集目标已全部捕获。'));return;}
-                results.append(label('div','所选范围缺少 '+rows.length+countUnit,'hint'));
-                const wrap=label('div','','missing');
-                for(const [id,tag] of rows){const mon=MONS.get(id);wrap.append(speciesButton(mon,'#'+id+' '+mon.name+' · '+tag));}
+                results.append(label('h3','待收集 · '+rows.length+countUnit,'dex-list-title'));
+                const wrap=label('div','',expanded?'dex-targets':'dex-compact');
+                for(const [id,tag,place] of rows){
+                    const mon=MONS.get(id);
+                    if(!expanded){wrap.append(speciesButton(mon,'#'+id+' '+mon.name+' · '+tag));continue;}
+                    const button=speciesButton(mon,'');button.className='dex-target';
+                    const body=label('span','','dex-target-body');
+                    body.append(label('strong',mon.name));
+                    if(place)body.append(label('small',place));
+                    button.append(label('span','#'+id,'dex-number'),body,label('span',tag,'dex-method'));
+                    button.dataset.planned=String(planned.has(id));
+                    button.setAttribute('aria-label','查看'+mon.name+'的获取方式，'+tag+(place?'，'+place:''));
+                    wrap.append(button);
+                }
                 results.append(wrap);return;
             }
             const matches=searchSpecies(term);
@@ -7794,7 +7891,8 @@
             const forms=seasonFormProgress(s,mon.id),currentSeason=forms&&weatherSeason(now);
             const sources=acquisitionSources(s,mon.id,now).sort((a,b)=>Number(!!b.marked)-Number(!!a.marked));
             if(!changed(['detail',mon.id,caught,chainComplete,forms?.seen,currentSeason,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
-            results.append(label('strong','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading'));
+            const heading=label('h3','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading');
+            heading.tabIndex=-1;results.append(heading);
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
             if(base.id!==mon.id)family.append(' ',speciesButton(base,'查'+base.name+'来源'));
             results.append(family);
@@ -8448,6 +8546,7 @@
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null;
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
+        const lookupTask=document.createElement('span');lookupTask.className='lookup-task';commandbar.querySelector('.row').prepend(lookupTask);
         const updater=new UpdateChecker({onChange:renderUpdate});let updateTouched=false;
         function renderUpdate(){
             const button=query('#check-update'),notice=query('#update-notice');
@@ -8781,6 +8880,11 @@
             if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(now);
             if(document.hidden)return;
             const nativePaused=engine.running&&!!s?.adv?.paused;
+            commandbar.classList.toggle('has-task',locked);
+            if(locked&&['dex','weather','eggs'].includes(ui.workspace)){
+                const label=(resumable||nativePaused?'已暂停 · ':'运行中 · ')+MODE_NAMES[engine.settings.mode];
+                if(lookupTask.textContent!==label)lookupTask.textContent=label;
+            }
             const paused=resumable||nativePaused;
             query('#status').textContent = engine.suspended?engine.status:wait?.status||(nativePaused?'游戏已暂停':engine.status);
             for(const indicator of [query('.status'),query('.mini')]){

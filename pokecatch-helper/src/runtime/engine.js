@@ -809,7 +809,7 @@
                     if (pending.options?.zone) { this.zoneId = pending.row.id; this.zoneStarted = now; }
                     else {
                         this.target=pending.row;
-                        this.visit={started:now,deaths:totalDeaths(s,pending.row)};
+                        this.visit={started:now,deaths:totalDeaths(s,pending.row),runs:s.adv.runs||0};
                         if(this.settings.mode==='train')this.visit.trainingProfile=pending.trainingProfile??trainingRouteFingerprint(s);
                         this.telemetry.sample=null;
                         if(pending.options?.roamId){this.roamStarted??=now;if(pending.options.restart)this.roamRestartAt=now;}
@@ -828,7 +828,9 @@
             }
             const speed = $(`#speed-btns [data-speed="${this.settings.speed}"]`);
             if (s.adv.speed !== this.settings.speed && this.driver.nav('adventure')) { this.driver.click(speed, '设置游戏内速度'); return; }
-            if(this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
+            const dex=this.settings.mode==='dex'?dexStatus(s,this.settings):null;
+            const directedHunt=this.settings.mode==='shiny'||(dex?.missing.length>0&&this.settings.dexSpecies.length>0);
+            if(!directedHunt&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(roadPending)this.telemetry.sample=null;
             if (this.target && this.target.members.includes(s.adv.chapter) && !roadPending) {
@@ -845,26 +847,30 @@
                 const rows=shinyRanking(s,this.settings,this.cooldowns,now),current=rows.find(row=>row.key===this.target?.key);
                 if(rows.length)this.weatherWindow=null;
                 if(safeBoundary&&rows.length&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&now-this.visit.started<this.settings.rotateMinutes*60000){this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;}
-                if(!safeBoundary&&!startingBattle){this.driver.nav('adventure');return;}if(!rows.length){
+                const alternate=this.huntAlternate(s,current,rows,now);
+                if(current&&current.members.includes(s.adv.chapter)&&this.visit&&!alternate){
+                    if(this.settings.autoTeam&&this.fitTeam(s,now))return;
+                    this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;
+                }
+                if(!safeBoundary&&!startingBattle&&!this.ordinaryBattleKey(s)){this.waitForHuntBoundary(rows[0]);return;}if(!rows.length){
                     const eligible=shinyRanking(s,this.settings,{},now);
                     if(eligible.length){this.waitForFarm('刷闪地图暂时退避，等待后重试',now);return;}
                     if(this.waitForWildWindow(s,remaining,now))return;
                     const possible=remaining.some(id=>hasWildSource(s,this.settings,id));
                     if(possible){this.waitForFarm('已确认野生来源，等待天气、季节或出没时段；不会放弃任务',now);return;}
                     this.failTask('当前范围没有该物种的野生来源；请检查地区、时段和天气');return;
-                }this.travel(rows[0],now);return;
+                }this.travelHunt(alternate||rows[0],alternate,now);return;
             }
             if (this.settings.mode === 'item') { this.farm(s, now, 'item'); return; }
             if (this.settings.mode === 'train') { this.farm(s, now, 'train'); return; }
             if (this.settings.mode === 'dex') {
-                const status = dexStatus(s, this.settings);
+                const status = dex;
                 if (!status.missing.length) {
                     const done=this.settings.dexSpecies?.length?'指定物种已全部捕获':'所选范围的基础形态已全部捕获';
                     if (this.settings.afterDex === 'stop'||this.queueRunning) { this.completeTask(done); return; }
                     this.status = done+'，转为刷钱'; this.money(s, now); return;
                 }
-                const rows = dexRanking(s, this.settings, this.cooldowns, now);
+                const rows = dexRanking(s, this.settings, this.cooldowns, now, status);
                 if(rows.length)this.weatherWindow=null;
                 const stillNeeded = rows.find(r => r.key === this.target?.key);
                 if(!rows.length&&status.missing.every(mon=>s.pension?.eggs?.some(egg=>egg.id===mon.id))){
@@ -872,26 +878,38 @@
                     this.status=this.settings.autoEggs?'补图鉴 · 剩余目标均已取得蛋，等待成熟并领取':'补图鉴 · 剩余目标均已取得蛋，成熟后请在培育屋领取';
                     this.driver.nav('adventure');return;
                 }
-                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && now - this.visit.started < this.settings.rotateMinutes * 60000) {
+                const alternate=this.huntAlternate(s,stillNeeded,rows,now);
+                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
+                    if(directedHunt&&this.settings.autoTeam&&this.fitTeam(s,now))return;
                     if(safeBoundary&&stillNeeded.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                    this.status = `补图鉴 · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}`; this.driver.nav('adventure'); return;
+                    const detail=stillNeeded.specialNodesOnly?' · 等待生成目标节点':'';
+                    this.status = `补图鉴 · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}${detail}`; this.driver.nav('adventure'); return;
                 }
-                if (!safeBoundary&&!startingBattle) {this.driver.nav('adventure');return;}
-                let next=rows[0];
-                if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && now - this.visit.started >= this.settings.rotateMinutes * 60000) {
-                    this.cooldowns[this.target.key] = now + 5 * 60000; this.log('目标地图达到轮换时间，尝试其他缺失进化链');
-                    next=rows.find(row=>row.key!==this.target.key);
-                }
+                if (!safeBoundary&&!startingBattle&&!(directedHunt&&this.ordinaryBattleKey(s))) {this.waitForHuntBoundary(rows[0]);return;}
+                const next=alternate||rows[0];
                 if (next) {
-                    if(safeBoundary&&next.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                    this.travel(next, now); return;
+                    if(!directedHunt&&safeBoundary&&next.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
+                    this.travelHunt(next,alternate,now); return;
                 }
                 if (this.settings.legends && !this.settings.dexWeather?.length && now >= this.nextLegend && this.findLegend(s, status, now)) return;
                 if(this.settings.dexWeather?.length||this.settings.dexSpecies?.length||this.settings.dexRegions?.length){
                     this.target=null;this.visit=null;this.telemetry.sample=null;
                     if(this.settings.dexSpecies?.length&&!dexRanking(s,this.settings,{},now).length){
                         const hatchedLater=new Set((s.pension?.eggs||[]).map(egg=>egg.id));
-                        if(this.waitForWildWindow(s,[...status.ids].filter(id=>!hatchedLater.has(id)),now))return;
+                        if(this.waitForWildWindow(s,[...dexSearchIds(s,this.settings,status)].filter(id=>!hatchedLater.has(id)),now))return;
+                        // A selected parent and its evolution share the same pending gift egg.
+                        const remaining=status.missing.filter(mon=>!status.ids.has(giftEggParents.get(mon.id)));
+                        if(remaining.length===1){
+                            const id=remaining[0].id;
+                            const egg=unovaAcquisitionSources(s,id,now).find(source=>source.kind==='lootEgg'&&!source.available);
+                            if(egg){this.waitForFarm(`${MONS.get(id).name} · ${CHAPTERS.get(egg.chapter).name} / ${egg.nodeName} · ${egg.reason}`,now);return;}
+                            const from=giftEggParents.get(id);
+                            if(from){
+                                const rule=EVOLUTION_DATA.rules[from].find(rule=>rule.to===id);
+                                const reason=unovaAcquisitionSources(s,from,now)[0]?.reason;
+                                this.waitForFarm(`${MONS.get(id).name} · 由${MONS.get(from).name} Lv.${rule.level} 进化；${hatchedLater.has(from)?'已有蛋，等待孵化':captured(s,from)?'请确认前置形态并安排培养进化':reason||'等待符合筛选的赠蛋地点'}`,now);return;
+                            }
+                        }
                     }
                     this.waitForFarm('所选范围暂无可刷目标，等待天气、退避结束或开放来源；可在图鉴查看获取条件',now);return;
                 }
@@ -1156,12 +1174,27 @@
             }
             this.travel(next, now);
         }
+        huntAlternate(s,current,rows,now){
+            if(!current?.members.includes(s.adv.chapter)||!this.visit||current.marked||rows.length<2)return null;
+            const newRoll=current.specialNodesOnly&&s.adv.nodes?.length>0&&s.adv.runs>this.visit.runs;
+            if(!newRoll&&now-this.visit.started<this.settings.rotateMinutes*60000)return null;
+            return rows.find(row=>row.key!==current.key);
+        }
+        travelHunt(row,alternate,now){
+            if(alternate&&this.target){
+                this.cooldowns[this.target.key]=now+5*60000;
+                this.log(`搜寻轮换 · ${this.target.name} → ${row.name}`);
+            }
+            this.travel(row,now);
+        }
         waitForWildWindow(s,targets,now){
             const window=nextWildWindow(s,this.settings,targets,now);
             this.weatherWindow=window;
             if(!window)return false;
             const when=new Date(window.at).toLocaleString('zh-CN',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit',hour12:false});
-            this.waitForFarm(`等待野生出没时段 · ${MONS.get(window.id).name} · ${window.row.name} · ${SEASON_NAMES[window.season]} ${when}`,now);
+            const label=window.eggPlace?'等待赠蛋天气':'等待野生出没时段';
+            const place=window.eggPlace?`${window.row.name} / ${window.eggPlace}`:window.row.name;
+            this.waitForFarm(`${label} · ${MONS.get(window.id).name} · ${place} · ${SEASON_NAMES[window.season]} ${when}`,now);
             return true;
         }
         ordinaryBattleKey(s) {
@@ -1173,6 +1206,10 @@
         }
         canStartRoute(s) {
             return !s.adv.pending && (!s.adv.battle || !!this.startBattle && this.startBattle===this.ordinaryBattleKey(s));
+        }
+        waitForHuntBoundary(row) {
+            this.status=row?`等待当前遭遇或选项结算，再前往${row.name}`:'等待当前遭遇或选项结算后重新规划搜寻';
+            this.driver.nav('adventure');
         }
         followMarkedHunt(s,now) {
             const mode=this.settings.mode;

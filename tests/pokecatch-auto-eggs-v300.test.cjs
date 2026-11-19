@@ -128,6 +128,14 @@ test('the visible native hatch signal precedes the predicted clock during a bree
     assert.deepEqual(f.clicks().map(click => click.uid), ['egg-a']);
 });
 
+test('a confirmed target shiny egg preserves the parent setup and is first to hatch when ready',t=>{
+    const f=fixture(t,{mode:'breed',breedId:1,breedShiny:true}),at=f.now()+10000;
+    f.s.pension.eggs=[{id:1,uid:'plain',shiny:false,hatchAt:at},{id:1,uid:'shiny',shiny:true,hatchAt:at}];
+    f.e.automation.breed(f.s,f.now());
+    assert.deepEqual(f.actions,[]);assert.equal(f.e.nextWake,at);assert.match(f.e.status,/已确认目标闪蛋/);
+    f.advance(10000);f.e.automation.breed(f.s,f.now());assert.deepEqual(f.clicks().map(c=>c.uid),['shiny']);
+});
+
 test('a manually chosen incomplete party does not start native auto-fill through egg collection', t => {
     const f = fixture(t, { autoTeam: false }), before = [...f.s.team];
     assert.equal(f.service(), false);

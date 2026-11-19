@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.1.0**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.1.4**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.1.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.1.4.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+5.1.4 增加账号级自动购买开关，设置与相关任务页均可查看当前可花金额。购买进化道具前会核对指定成员的进化条件。预算未保存时可直接返回修正，切换标签页或恢复旧队列时会核对最新订单。此版也整合了 5.1.1 起的自然蛋预测、单份采购和买糖修复。
 
 5.1.0 在当日团体战完成后等到巴黎零点再检查，减少地下探险、孵化和糖果工厂等待期间的切页。面板顶部可展开游戏季节日历。图鉴标明季节限定来源，指定物种补图鉴和刷闪会查找符合条件的遇敌窗口。
 
@@ -21,7 +23,7 @@
 ## 安装和更新
 
 1. 在浏览器中启用 Tampermonkey，打开上面的脚本链接并确认安装。
-2. 进入游戏或刷新游戏页，确认助手面板显示 `5.1.0`。
+2. 进入游戏或刷新游戏页，确认助手面板显示 `5.1.4`。
 3. 后续点击面板顶部“在线更新”。发现新版后再次点击“安装新版”，在油猴确认安装，完成后刷新游戏。
 
 从旧版手动复制安装的用户，需要先安装这一次新版。脚本也配置了油猴原生 `@updateURL` 和 `@downloadURL`。

@@ -1,11 +1,22 @@
-// Optional differential: node tests/pokecatch-nursery-native-v410.cjs PUBLIC_APP_JS
+// Optional differential: node tests/pokecatch-nursery-native-v410.cjs PUBLIC_APP_JS [PUBLIC_BOOT_JS]
 // Native code runs only in a synthetic VM with inert timers and memory-only saves.
 const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),path=require('node:path');
+const {createHash}=require('node:crypto');
 const H=require('../Pokecatch自动助手.user.js'),nativeRuntime=require('../tools/pokecatch-native-vm.cjs');
-const scope=vm.createContext({DATA:H.DATA,MONS:H.MONS});vm.runInContext(fs.readFileSync(path.join(__dirname,'../pokecatch-helper/src/models/nursery-model.js'),'utf8')+';globalThis.M={NURSERY_RULES,nurseryFixedRoll,nurseryEggRate,nurseryOffspringId,eggOutcome,nurseryParentPool,nurseryForecast};',scope);const M=scope.M;
+const scope=vm.createContext({DATA:H.DATA,MONS:H.MONS});vm.runInContext(fs.readFileSync(path.join(__dirname,'../pokecatch-helper/src/models/nursery-model.js'),'utf8')+';globalThis.M={NURSERY_BUILDS,NURSERY_RULES,nurseryFixedRoll,nurseryEggRate,nurseryOffspringId,eggOutcome,nurseryParentPool,nurseryForecast};',scope);const M=scope.M;
 assert.ok(process.argv[2],'Pass a downloaded public bundle');const R=nativeRuntime(process.argv[2]);
 R.run('const N=__pcResearch,G=N.Game;G.load();N.Adventure.ensure();G.stopSaving();const BASE=structuredClone(G.S);let AUDIT_TIME=1000000000000;N.Clock={now:()=>AUDIT_TIME,sure:true};');
 let comparisons=0;
+const applicationHash=createHash('sha256').update(fs.readFileSync(process.argv[2])).digest('hex').slice(0,10);
+if(process.argv[3]){
+    const boot=fs.readFileSync(process.argv[3],'utf8');
+    const build=boot.match(/window\.BUILD="([a-f0-9]{10})"/)?.[1];
+    const bundle=boot.match(/\/bundle\/app\.([a-f0-9]{10})\.js/)?.[1];
+    assert.ok(build&&bundle,'Unrecognized launcher manifest');
+    assert.equal(applicationHash,bundle,'The downloaded application bytes differ from the bundle identified by the launcher');
+    assert.equal(M.NURSERY_BUILDS[bundle],build,'The tested build and bundle differ from the prediction registry');
+    comparisons+=2;
+}
 const trainers=[{id:'synthetic-a',since:1700000000000},{id:'trainer:with|symbols',since:0},{id:'训练家✦',since:'2026-11-18T00:00:00Z'}];
 const vectors=[];for(const trainer of trainers)for(const k of [0,1,7,30,127,1023,65535,9007199254740000])for(const draw of [0,1,2,3,10])vectors.push({trainer,k,draw});
 const rolls=JSON.parse(R.run(`JSON.stringify(${JSON.stringify(vectors)}.map(v=>G.sandbox({...structuredClone(BASE),trainer:v.trainer},()=>G.fixedRoll('egg',v.k,v.draw))))`));
@@ -57,7 +68,49 @@ assert.equal(afterGift.bx,true);assert.equal(interrupted.pendingBerry,false);
 assert.equal(afterGift.shiny,interrupted.actual);
 assert.equal(M.eggOutcome(interrupted.afterGift,interrupted.egg).shiny,interrupted.actual);
 comparisons+=8;
-const offspringCases=[];for(let region=0;region<H.DATA.regions.length;region++)for(const id of [25,26,35,36,39,40,106,107,113,122,124,125,126,143,176,183,185,202,315,358,448,489,490,41201,41302,6])offspringCases.push({id,open:H.DATA.regions.slice(0,region+1).map(r=>r.key),chapter:H.DATA.regions[region].start});
+const offspringCases=[];
+for(const [index,region] of H.DATA.regions.entries()){
+    const open=H.DATA.regions.slice(0,index+1).map(r=>r.key);
+    for(const [i,mon] of H.DATA.mons.entries()){
+        if(eligibility[i])offspringCases.push({id:mon.id,open,chapter:region.start});
+    }
+}
 const offspring=JSON.parse(R.run(`JSON.stringify(${JSON.stringify(offspringCases)}.map(v=>{for(const region of N.STORY.REGIONS)region.open=v.open.includes(region.key);AUDIT_TIME=1000000000000;const s={...structuredClone(BASE),mons:[],team:[],road:[],dex:{},travel:{to:v.open.slice(1)},adv:{...BASE.adv,chapter:v.chapter,unlocked:v.chapter+1},pension:{laid:0,tick:AUDIT_TIME-14400000,egg:0,mons:[{mon:{id:132,uid:'d'},candy:0},{mon:{id:v.id,uid:'p'},candy:0}],eggs:[],open:{eggs:4}}};return G.sandbox(s,()=>{G.pensionTick(AUDIT_TIME);return s.pension.eggs[0]?.id;});}))`));
 for(let i=0;i<offspringCases.length;i++){const c=offspringCases[i];assert.equal(M.nurseryOffspringId({travel:{to:c.open.slice(1)},adv:{chapter:c.chapter}},c.id),offspring[i],`offspring ${c.id} in ${c.open}`);comparisons++;}
-console.log(JSON.stringify({pass:true,comparisons,fixedRolls:vectors.length,actualHatches:eggs.length,eligibleSpecies:eligibility.length,naturalSequences:states.length*12,offspringCases:offspringCases.length,giftCounter:true,source:path.basename(process.argv[2])}));
+// A full incubator prevents both a gift and a natural allocation. A pending
+// Belue Berry survives the full period and is consumed only on the next natural egg.
+const full=JSON.parse(R.run(`JSON.stringify((()=>{
+    AUDIT_TIME=1000000000000;
+    const s={...structuredClone(BASE),...${JSON.stringify(states[0])}},p=s.pension;
+    p.open.eggs=1;p.eggs=[{id:25,uid:'occupant',laidAt:0,hatchAt:0}];
+    s.items={...s.items,'belue-berry':2};
+    return G.sandbox(s,()=>{
+        const fed=G.feedDittoBerry(),fedAgain=G.feedDittoBerry(),remaining=s.items['belue-berry'];
+        G.pensionTick(AUDIT_TIME);
+        const giftBlocked=!G.giftEgg(175,AUDIT_TIME),before={laid:p.laid,bx:!!p.bx,count:p.eggs.length,id:p.eggs[0].id};
+        const hatched=G.hatchEgg('occupant');
+        AUDIT_TIME+=1000;G.pensionTick(AUDIT_TIME);
+        return {fed,fedAgain,remaining,giftBlocked,before,hatched:!!hatched,egg:p.eggs[0],laid:p.laid,bx:!!p.bx};
+    });
+})())`));
+assert.equal(full.fed,true);assert.equal(full.fedAgain,false);assert.equal(full.remaining,1);assert.equal(full.giftBlocked,true);
+assert.deepEqual(full.before,{laid:0,bx:true,count:1,id:25});assert.equal(full.hatched,true);assert.equal(full.egg.k,0);
+assert.equal(full.egg.bx,1);assert.equal(full.laid,1);assert.equal(full.bx,false);comparisons+=10;
+// Castform's species is fixed when the egg is laid, but its form is resolved
+// by native hatchEgg with the nursery park's weather at collection time.
+const castform=JSON.parse(R.run(`JSON.stringify(['clear','sun','rain','storm','snow','blizzard'].map(sky=>{
+    const s={...structuredClone(BASE),...${JSON.stringify(states[0])}};
+    const egg={uid:'castform',k:12,id:351,laidAt:0,hatchAt:0};
+    s.pension.eggs=[egg];
+    const current=N.WEATHER.current;
+    try{
+        N.WEATHER.current=()=>sky;
+        return G.sandbox(s,()=>{const hatch=G.hatchEgg(egg.uid);return [sky,hatch.mon.id,!!hatch.mon.shiny];});
+    }finally{N.WEATHER.current=current;}
+}))`));
+const expectedIds=[351,35101,35102,35102,35103,351];
+const shiny=M.eggOutcome(states[0],{k:12,id:351}).shiny;
+for(const [index,[sky,id,coloured]] of castform.entries()){
+    assert.equal(id,expectedIds[index],sky);assert.equal(coloured,shiny,sky);comparisons+=2;
+}
+console.log(JSON.stringify({pass:true,comparisons,applicationHash,fixedRolls:vectors.length,actualHatches:eggs.length+castform.length+1,eligibleSpecies:eligibility.length,naturalSequences:states.length*12,offspringCases:offspringCases.length,giftCounter:true,source:path.basename(process.argv[2])}));

@@ -24,7 +24,7 @@
         for(const [key,uids]of Object.entries(s.eventTeams||{}))if(key!==`under:${ownBay}`&&Array.isArray(uids))uids.forEach(keep);
         for(const slot of s.under?.slots||[]){(slot.team||[]).forEach(keep);for(const mon of slot.mons||[])keep(mon.uid);}
         for(const run of [s.tower?.run,s.candy?.run,s.adv?.league]){for(const mon of run?.mons||[]){keep(mon.src);keep(mon.uid);}for(const uid of run?.team||[])keep(uid);}
-        if(e.settings?.mode==='breed')for(const mon of pensionPlan(s,e.settings.breedId).desired)keep(mon.uid);
+        if(e.settings?.mode==='breed')for(const mon of pensionPlan(s,e.settings.breedId,e.settings.breedShiny).desired)keep(mon.uid);
         const seen=new Set();
         return undergroundMembers(s,now).filter(mon=>!protectedUids.has(mon.uid)&&!seen.has(mon.uid)&&seen.add(mon.uid));
     }
@@ -96,7 +96,7 @@
         if(mode==='breed')return c.breedShiny?shinyOwned(s,c.breedId):(flow.hatched||0)>=c.breedGoal;
         if(mode==='underground')return(flow.underDone||0)>=c.underRuns;
         if(mode==='resource'){
-            const id=c.resourceItem,n=c.resourceAction==='buy'?purchasedQuantity(s,id,flow):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));
+            const id=c.resourceItem,n=c.resourceAction==='buy'?purchasedQuantity(s,id,flow):usedQuantity(s,id,flow);
             return n>=c.resourceQuantity;
         }
         if(mode==='candy')return!s.candy?.run&&!s.adv.tower&&(flow.candyDone||0)>=c.candyRuns;
@@ -118,7 +118,7 @@
         if(a.pending||a.battle&&!['eggs','underDispatch'].includes(service))return '等待当前战斗或选择结束';
         if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
         if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
-        if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
+        if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.pensionPurchase||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
         if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
         if(flow.worldResultAt!=null&&now-flow.worldResultAt<3000||typeof document!=='undefined'&&$$('#raid-root .wb-skip,.wb-recap,#raid-root .wb-spill').some(visible))return '等待世界首领攻击结算';
         return '';

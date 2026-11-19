@@ -146,16 +146,18 @@
             return null;
         }
         setPhase(p,phase,now){p.phase=phase;p.phaseAt=now;}
-        candyFallback(p,reason){
-            p.candyDisabled=true;delete p.candyTx;this.e.log(`主线经验糖果：${reason}，改用普通练级`);
+        candyFallback(p,reason,retry=null){
+            p.candyDisabled=true;delete p.candyTx;
+            if(retry)p.candyRetry=retry;else delete p.candyRetry;
+            this.e.log(`主线经验糖果：${reason}，改用普通练级`);
         }
         candyPending(s,p,now){
             const tx=p.candyTx;if(!tx)return false;
             const mon=s.mons.find(m=>m.uid===tx.uid),xp=mon?experienceTotal(s,[tx.uid]):null;
             const comparable=recordedXpCompatible(economicRegion(s),tx.xpMultiplier);
             const gained=comparable&&xp!=null&&tx.xp!=null&&xp>tx.xp;
-            const changed=tx.kind==='buy'?(Number(s.items?.[tx.id])||0)>tx.stock||itemCounter(s,tx.id)>tx.counter:
-                (Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.counter||gained;
+            const changed=tx.kind==='buy'?purchaseConfirmed(s,tx):
+                (Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.counter;
             if(changed){delete p.candyTx;p.candyAt=now;if(tx.kind==='use'&&!gained)this.candyFallback(p,comparable?'道具已消耗但目标经验未增加':'道具已消耗，经验曲线变化后无法核实原经验增量');return false;}
             if(now-tx.at>10000){this.candyFallback(p,'操作未确认，不重复购买或使用');return false;}
             p.lastGrowth=now;this.e.status='主线经验糖果 · 等待游戏确认'+(tx.kind==='buy'?'到账':'经验增长');return true;
@@ -163,12 +165,21 @@
         candyClick(s,p,el,uid,id,kind,cost,now){
             const e=this.e,uses=kind==='use'?1:0,why=e.budget.check(s,cost,uses);
             if(why){this.candyFallback(p,why);return false;}
-            p.candyTx={uid,id,kind,stock:Number(s.items?.[id])||0,counter:kind==='buy'?itemCounter(s,id):Number(s.stats?.itemOut?.[id])||0,xp:experienceTotal(s,[uid]),xpMultiplier:DATA.economy.xpMultipliers[economicRegion(s)],at:now};
+            const evidence=kind==='buy'?purchaseEvidence(s,id,cost):{stock:Number(s.items?.[id])||0,counter:Number(s.stats?.itemOut?.[id])||0};
+            p.candyTx={uid,id,kind,...evidence,xp:experienceTotal(s,[uid]),xpMultiplier:DATA.economy.xpMultipliers[economicRegion(s)],at:now};
             if(e.automation.spentClick(el,s,cost,uses,kind==='buy'?'购买一份主线补练经验糖果':'使用一份主线补练经验糖果'))return true;
-            delete p.candyTx;return false;
+            delete p.candyTx;e.persist();return false;
         }
         candy(s,p,now){
-            const e=this.e,d=e.driver;p.phaseAt=now;e.telemetry.sample=null;p.candyAt??=now;
+            const e=this.e,d=e.driver;
+            if(p.candyDisabled){
+                const retry=p.candyRetry;
+                if(!retry||e.budget.check(s,0,1))return false;
+                const stocked=Object.keys(DATA.automation.candies).some(id=>s.items?.[id]>0);
+                if(!stocked&&!(retry.cost>0&&!e.budget.check(s,retry.cost,0)))return false;
+                delete p.candyDisabled;delete p.candyRetry;p.candyAt=now;
+            }
+            p.phaseAt=now;e.telemetry.sample=null;p.candyAt??=now;
             if(now-p.candyAt>90000){this.candyFallback(p,'页面操作超时');return false;}
             if(this.candyPending(s,p,now))return true;if(p.candyDisabled)return false;
             const targets=p.targets.map(t=>({...t,mon:s.mons.find(m=>m.uid===t.uid)})).filter(t=>t.mon&&candyXpGap(s,t.mon,t.goal)>0).sort((a,b)=>a.mon.level-b.mon.level);
@@ -177,19 +188,23 @@
             const why=e.budget.check(s,0,1);if(why){this.candyFallback(p,why);return false;}
             let choice=candyChoice(s,target.mon,target.goal);
             if(!choice){
-                if(e.settings.spendBudget<=e.budget.spent){this.candyFallback(p,'本次采购预算不足（0 表示不允许花钱）');return false;}
+                const blocked=e.budget.purchaseBlock();
+                if(blocked){this.candyFallback(p,blocked,{cost:null});return false;}
                 if(!d.nav('shop'))return true;
                 const section=$('#shop-grid [data-sh-sec="shop"]:not(.active)'),tab=$('#shop-grid [data-sh-mode="buy"]:not(.on)');
                 if(enabled(section)){d.click(section,'打开金币经验糖果商店');return true;}if(enabled(tab)){d.click(tab,'切换购买经验糖果');return true;}
-                const offers=$$('#shop-grid .sh-item[data-id]').filter(el=>DATA.automation.candies[el.dataset.id]&&!el.classList.contains('locked')).map(el=>{
-                    const quantity=Number(el.querySelector('[data-n].on')?.dataset.n)||1;
-                    return{id:el.dataset.id,cost:parsePrice(el.querySelector('.total')?.textContent)/quantity,el};
-                }).filter(o=>enabled(o.el.querySelector('.buy'))&&!e.budget.check(s,o.cost,0));
-                choice=candyChoice(s,target.mon,target.goal,offers);
-                if(!choice){this.candyFallback(p,'没有已解锁且预算内可购买的经验糖果');return false;}
-                const one=choice.el.querySelector('[data-n="1"]');if(enabled(one)&&!one.classList.contains('on')){d.click(one,'限制经验糖果购买数量为一份');return true;}
-                if(Number(choice.el.querySelector('[data-n].on')?.dataset.n||1)!==1){this.candyFallback(p,'无法确认单份购买数量');return false;}
-                const cost=parsePrice(choice.el.querySelector('.total')?.textContent);this.candyClick(s,p,choice.el.querySelector('.buy'),target.uid,choice.id,'buy',cost,now);return !p.candyDisabled;
+                const cards=$$('#shop-grid .sh-item[data-id]');
+                if(!cards.length){e.status='等待金币商店载入商品';return true;}
+                const offers=cards.filter(el=>DATA.automation.candies[el.dataset.id]&&!el.classList.contains('locked')).map(shopOffer)
+                    .filter(offer=>offer?.cost>0&&(offer.single?visible(offer.buy):enabled(offer.one)));
+                choice=candyChoice(s,target.mon,target.goal,offers.filter(offer=>!e.budget.check(s,offer.cost,0)&&(offer.single?enabled(offer.buy):true)));
+                if(!choice){
+                    const cheapest=offers.reduce((best,offer)=>!best||offer.cost<best.cost?offer:best,null);
+                    const limit=cheapest&&e.budget.check(s,cheapest.cost,0);
+                    this.candyFallback(p,limit||'没有已解锁且可单份购买的经验糖果',{cost:limit?cheapest.cost:null});return false;
+                }
+                if(!choice.single){d.click(choice.one,'限制经验糖果购买数量为一份');return true;}
+                this.candyClick(s,p,choice.buy,target.uid,choice.id,'buy',choice.cost,now);return !p.candyDisabled;
             }
             p.candy={uid:target.uid,goal:target.goal};
             if(!d.nav('team'))return true;
@@ -419,7 +434,7 @@
                 if(this.team(s,p.uids,now)){p.phaseAt=now;p.lastGrowth=now;return;}
                 this.setPhase(p,'travel',now);
             }
-            if(e.settings.progressCandy&&p.context.kind==='progress'&&p.phase!=='travelFirst'&&!p.candyDisabled&&this.candy(s,p,now))return;
+            if(e.settings.progressCandy&&p.context.kind==='progress'&&p.phase!=='travelFirst'&&this.candy(s,p,now))return;
             if(p.phase==='travel'||p.phase==='travelFirst'){
                 const routes=this.routes(s,p,now,'正在比较目标地区的补练地图');
                 if(!routes)return;

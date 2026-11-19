@@ -72,7 +72,8 @@ async function main() {
         socket.onmessage = event => { const m = JSON.parse(event.data); if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description || m.params.exceptionDetails.text); if (m.id) { const p = pending.get(m.id); pending.delete(m.id); clearTimeout(p.timer); m.error ? p.reject(new Error(m.error.message)) : p.resolve(m.result); } };
         send = (method, params = {}) => new Promise((resolve, reject) => { const seq = ++id; const timer = setTimeout(() => { pending.delete(seq); reject(new Error('CDP timeout: ' + method)); }, 15000); pending.set(seq, { resolve, reject, timer }); socket.send(JSON.stringify({ id: seq, method, params })); });
         const evaluate = async expression => { const r = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text); return r.result.value; };
-        await send('Runtime.enable'); await send('Page.enable');
+        await send('Runtime.enable'); await send('Page.enable'); await send('Network.enable');
+        await send('Network.setBlockedURLs', { urls: ['http://*', 'https://*'] });
         await send('Emulation.setDeviceMetricsOverride', { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
@@ -523,9 +524,20 @@ async function main() {
         await evaluate('(()=>{const root=document.querySelector("#pokecatch-auto-helper").shadowRoot;if(root.querySelector(".panel").classList.contains("hidden"))root.querySelector(".mini").click()})()');
         const automationChecks=await evaluate('runAutomationTests()');
         console.log('Automation checks: '+automationChecks.join('; '));
+        const originalPermission=await evaluate(`(()=>{
+            const original=__pcTest.engine;
+            if(!original.suspended)throw Error('Expected the previous session to have checkpointed');
+            const otherTab=new original.constructor(localStorage);
+            otherTab.loadAccount(mock.state);
+            otherTab.setAutoPurchase(false);
+            const record=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+original.account));
+            return record.resume.settings.autoPurchase;
+        })()`);
+        assert.equal(originalPermission,true,'another idle session can revoke purchases while leaving an older enabled task checkpoint intact');
         const resumeOrigin=await evaluate('performance.timeOrigin');await send('Page.reload');
         for(let n=0;n<80&&!await evaluate(`performance.timeOrigin!==${resumeOrigin}&&!!window.__pcTest?.engine.running`);n++)await delay(50);
         assert.equal(await evaluate('__pcTest.engine.running'),true,'a real page reload resumes the pending daycare task');
+        assert.equal(await evaluate('__pcTest.engine.settings.autoPurchase'),false,'cold reload uses the revoked account permission even when the saved daycare task allowed purchases');
         assert.equal(await evaluate('__pcTest.engine.settings.mode'),'breed');assert.equal(await evaluate('__pcTest.engine.automation.state.hatched'),1);assert.equal(await evaluate('__pcTest.engine.budget.spent'),50);
         await evaluate('__pcTest.engine.stop();localStorage.removeItem("pc-regression-resume");__pcTest.engine.onChange()');
         await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});

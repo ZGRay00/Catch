@@ -40,10 +40,15 @@
         underRuns:1,underAutoStart:true,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
-        spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
+        autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;
+    const BUDGET_LIMITS = Object.freeze({spendBudget:1e12, dailySpendBudget:1e12, moneyReserve:1e12, useBudget:99999});
+    function budgetAmount(key, value) {
+        if (typeof value === 'string' && /^\d+$/.test(value.trim())) value = Number(value);
+        return Number.isSafeInteger(value) && value >= 0 && value <= BUDGET_LIMITS[key] ? value : null;
+    }
     function normalizeSettings(raw = {}, base = DEFAULTS) {
         // The original numeric setting always stored 1, even when the player had
         // never selected a floor. Preserve intentional non-default legacy limits.
@@ -51,6 +56,8 @@
         if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
+        // A missing switch belongs to a pre-switch profile. Only an explicit boolean can enable an imported switch.
+        if(Object.hasOwn(raw,'autoPurchase'))out.autoPurchase=raw.autoPurchase===true;
         // Public game buttons are ×1 (1) and ×3 (4). On the hosted game,
         // an old save with speed 2 advances at the highest supported speed <= 2.
         if(raw.speed===2||raw.speed==='2')out.speed=1;
@@ -60,7 +67,16 @@
             out[k] = clamp(raw[k], lo, hi, DEFAULTS[k]);
         }
         for (const key of ['legendTier', 'itemQuantity', 'trainLevel']) out[key] = Math.floor(out[key]);
-        for(const[k,lo,hi]of [['breedGoal',1,9999],['underRuns',1,999],['underFrom',1,300],['towerFloor',1,999],['towerRuns',1,100],['eliteTier',1,5],['worldActions',1,3],['resourceQuantity',1,99999],['spendBudget',0,1e12],['dailySpendBudget',0,1e12],['moneyReserve',0,1e12],['useBudget',0,99999],['progressUntil',0,DATA.chapters.at(-1).id]])out[k]=Math.floor(clamp(raw[k],lo,hi,DEFAULTS[k]));
+        for(const[k,lo,hi]of [['breedGoal',1,9999],['underRuns',1,999],['underFrom',1,300],['towerFloor',1,999],['towerRuns',1,100],['eliteTier',1,5],['worldActions',1,3],['resourceQuantity',1,99999],['progressUntil',0,DATA.chapters.at(-1).id]])out[k]=Math.floor(clamp(raw[k],lo,hi,DEFAULTS[k]));
+        let invalidCoinLimit = false;
+        for (const key of Object.keys(BUDGET_LIMITS)) {
+            if (!Object.hasOwn(raw,key)) continue;
+            const amount = budgetAmount(key,raw[key]);
+            if (amount !== null) out[key] = amount;
+            else if (key === 'useBudget') out.useBudget = 0;
+            else invalidCoinLimit = true;
+        }
+        if (invalidCoinLimit) out.spendBudget = 0;
         for(const[k,lo,hi]of [['prepareMargin',0,15],['prepareGap',0,20],['prepareIdleMinutes',2,30]])out[k]=Math.floor(clamp(raw[k],lo,hi,DEFAULTS[k]));
         out.candyFloor=Math.floor(clamp(raw.candyFloor,0,999,DEFAULTS.candyFloor));out.candyRuns=Math.floor(clamp(raw.candyRuns,1,30,DEFAULTS.candyRuns));
         if(MONS.has(+raw.breedId))out.breedId=+raw.breedId;

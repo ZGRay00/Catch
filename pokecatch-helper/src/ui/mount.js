@@ -25,6 +25,10 @@
         const root = host.attachShadow({ mode: 'open' });
         const underStartControls = `<label class="setting"><span><input type="checkbox" data-setting="underAutoStart">地下探险从最高已解锁起点出发</span></label>
             <label class="field" data-under-manual><span>手动起点上限</span><input type="number" min="1" max="300" data-setting="underFrom"></label>`;
+        const purchaseToggle = `<label class="purchase-toggle">
+            <strong>自动购买</strong><span data-purchase-state aria-hidden="true"></span>
+            <input type="checkbox" role="switch" data-setting="autoPurchase" aria-label="自动购买">
+        </label>`;
         root.innerHTML = `<style>${PANEL_STYLE}</style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
             <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
             <nav class="workspace-nav" aria-label="助手面板">
@@ -59,8 +63,13 @@
                 <div data-fields="candy" class="hidden"><div class="field"><span>目标层（0 尽力挑战）</span><input data-setting="candyFloor" type="number" min="0" max="999"></div><div class="field"><span>完成场次（每天一次）</span><input data-setting="candyRuns" type="number" min="1" max="30"></div></div>
                 <div data-fields="elite" class="hidden"><div class="field"><span>联盟地区</span><select data-setting="eliteRegion"><option value="current">当前地区</option>${DATA.regions.map(r=>`<option value="${r.key}">${r.name}</option>`).join('')}</select></div><div class="field"><span>目标阶级</span><select data-setting="eliteTier">${[1,2,3,4,5].map(n=>`<option value="${n}">推进至 ${n} 阶</option>`).join('')}</select></div></div>
                 <div data-fields="world" class="hidden"><div class="field"><span>本次攻击</span><input data-setting="worldActions" type="number" min="1" max="3"></div><label class="setting"><span><input type="checkbox" data-setting="worldCapture">攻击后等待开放，并自动捕获本期首领</span></label></div>
-                <div data-fields="resource" class="hidden"><div class="field"><span>目标道具</span><select data-setting="resourceItem"></select></div><div class="field"><span>执行动作</span><select data-setting="resourceAction"><option value="buy">只购买</option><option value="use">只使用背包道具</option><option value="buyUse">不足时购买并使用</option></select></div><div class="field"><span>份数目标</span><input data-setting="resourceQuantity" type="number" min="1" max="99999"></div><div class="field"><span>使用对象</span><select data-setting="useUid"><option value="">冒险队伍首位</option></select></div></div>
+                <div data-fields="resource" class="hidden"><label class="field"><span>目标道具</span><select data-setting="resourceItem"></select></label><label class="field"><span>执行动作</span><select data-setting="resourceAction"><option value="buy">只购买</option><option value="use">只使用背包道具</option><option value="buyUse">不足时购买并使用</option></select></label><label class="field"><span id="resource-quantity-label">目标份数</span><input data-setting="resourceQuantity" type="number" min="1" max="99999"></label><label id="resource-member" class="field"><span>使用对象</span><select data-setting="useUid"><option value="">冒险队伍首位</option></select></label></div>
                 <div data-fields="money" class="hidden"><div class="field"><span>目标金币</span><input data-setting="moneyTarget" type="number" min="0" placeholder="0 为持续执行"></div></div>
+                <section id="task-purchase" class="purchase-card" hidden>
+                    ${purchaseToggle}
+                    <div class="hint" id="task-purchase-policy"></div>
+                    <div class="purchase-budget"><span data-purchase-status></span><button type="button" id="purchase-edit-budget">查看预算</button></div>
+                </section>
                 <div class="hint" id="target-hint"></div><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
             </section>
@@ -71,6 +80,23 @@
             <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="dex" aria-controls="dex-panel">图鉴</button><button data-tab="weather" aria-controls="weather-panel">天气</button><button data-tab="logs" aria-controls="view">日志</button></div><div id="dex-panel" hidden></div><section id="weather-panel" aria-label="地区天气预报" hidden></section><div id="view" class="list"></div>
             </section>
             <section id="pane-settings" aria-label="设置" hidden>
+            <section id="settings-purchase" class="purchase-card">
+                ${purchaseToggle}
+                <div class="hint">控制本账号的道具采购、主线补练买糖和寄养扩容，已入队任务也遵循此开关。</div>
+                <div data-purchase-status class="purchase-budget"></div>
+                <details id="budget-details"><summary>资源预算 <span id="budget-summary"></span></summary>
+                    <div id="purchase-limits" class="sub"></div>
+                    <label class="setting">本次金币支出上限（0 禁止）<input data-setting="spendBudget" type="number" min="0"></label>
+                    <label class="setting">每日支出上限（0 不另限）<input data-setting="dailySpendBudget" type="number" min="0"></label>
+                    <label class="setting">至少保留金币<input data-setting="moneyReserve" type="number" min="0"></label>
+                    <label class="setting">本次道具使用上限<input data-setting="useBudget" type="number" min="0" max="99999"></label>
+                    <div class="hint">队列按各任务保存的额度累计支出。可以在队列中编辑预算。战斗扣款由游戏单独结算。</div>
+                    <label class="setting"><span><input type="checkbox" data-setting="trainBuff">练级 / 补练自动吃经验树果</span></label>
+                    <label class="setting"><span><input type="checkbox" data-setting="moneyBuff">刷钱自动吃金币树果</span></label>
+                    <label class="setting"><span><input type="checkbox" data-setting="autoBuff">补图鉴 / 刷闪 / 游荡自动吃对应树果</span></label>
+                    <div class="hint">自动吃树果仅使用库存，也受道具使用上限限制。用完后继续原任务。若要购买树果，请指定采购任务。</div>
+                </details>
+            </section>
             <h3>配队与自动化</h3>
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
@@ -86,7 +112,6 @@
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
             <div class="row"><button id="start" class="primary">开始当前任务</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
             <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="start-queue" title="按顺序执行一个主任务；后台计时独立">串行队列 <span id="queue-count">0</span></button></div>
-            <details><summary>资源预算 <span id="budget-summary"></span></summary><label class="setting">本次金币支出（0 禁止）<input data-setting="spendBudget" type="number" min="0"></label><label class="setting">每日支出上限（0 不另限）<input data-setting="dailySpendBudget" type="number" min="0"></label><label class="setting">至少保留金币<input data-setting="moneyReserve" type="number" min="0"></label><label class="setting">本次道具使用上限<input data-setting="useBudget" type="number" min="0" max="99999"></label><label class="setting"><span><input type="checkbox" data-setting="trainBuff">练级 / 补练自动吃经验树果</span></label><label class="setting"><span><input type="checkbox" data-setting="moneyBuff">刷钱自动吃金币树果</span></label><label class="setting"><span><input type="checkbox" data-setting="autoBuff">补图鉴 / 刷闪 / 游荡自动吃对应树果</span></label><div class="hint">仅使用库存树果；游荡使用停留果与捕获果，同类有效增益不重复吃，不自动补购。树果计入道具使用上限，用尽后继续普通练级或刷钱。</div><div class="hint">采购和寄养扩容共用金币预算；主动使用道具共用份数上限。队列累计计费，每项设置同时生效。普通战斗的游戏扣款不计入采购预算。</div></details>
             <details><summary>运行设置与自动停止</summary>
                 <label class="setting">游戏速度<select data-setting="speed"><option value="1">×1</option><option value="4">×3（最高档）</option></select></label>
                 <label class="setting">单图最短采样（分钟）<input data-setting="sampleMinutes" type="number" min="1" max="30"></label>
@@ -148,6 +173,13 @@
             if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
         }
         for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
+        query('#purchase-edit-budget').onclick = () => {
+            query('#budget-details').open = true;
+            selectWorkspace('settings');
+            const summary = query('#budget-details summary');
+            summary.focus({preventScroll:true});
+            summary.scrollIntoView({block:'nearest'});
+        };
         selectWorkspace(ui.workspace, false);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
         const dexPanel=mountDexPanel(root,render);
@@ -189,10 +221,12 @@
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
             query('#execution-route').textContent=model.decision.route;query('#execution-team').textContent=model.decision.team;query('#execution-reason').textContent=model.decision.reason;
             if(query('#probability-info').open){
-                const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
+                const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>!Number.isFinite(rate)?'标记待核对':rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;
                 const rates=[...new Set(eggs.map(egg=>shinyOdds(s||{},{kind:'egg',egg},now).rate))];
-                query('#probability-eggs').textContent=`${rates.length?'现有蛋的理论档：'+rates.map(format).join('、'):'普通亲代1/512，新异色亲代1/16；旧sp:1为10%，靛莓果另乘2'}；确定结果与下闪条件见培育屋计数。`;
+                const verified=NURSERY_RULES.compatibleBuilds.includes(nurseryRuntimeOptions().build);
+                const ratesText=rates.length?rates.map(format).join('、'):'普通亲本 1/512，异色亲本 1/16，靛莓果翻倍';
+                query('#probability-eggs').textContent=(verified?'蛋的已核对规则':'蛋的旧规则参考')+' · '+ratesText+'。每枚蛋的判定依据见培育屋。';
             }
             const signature=JSON.stringify(model.services.map(service=>[service.id,service.state,service.label,service.stateLabel,service.detail,Math.max(0,Math.ceil((service.nextAt-now)/60000))]));
             if(signature===serviceSignature)return model;
@@ -324,8 +358,9 @@
             }
             for (const input of root.querySelectorAll('[data-setting]')) {
                 const value = engine.settings[input.dataset.setting];
-                if (input.type === 'checkbox') input.checked = value; else input.value = String(value);
-                input.disabled = engine.running||!!engine.suspended;
+                if (input.type === 'checkbox') input.checked = value;
+                else if(!budgetDrafts.has(input))input.value = String(value);
+                if(input.dataset.setting!=='autoPurchase')input.disabled = engine.running||!!engine.suspended;
             }
             root.querySelectorAll('[data-mode]').forEach(button => { const on = button.dataset.mode === engine.settings.mode; button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); });
             if(lastMode!==engine.settings.mode){lastMode=engine.settings.mode;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
@@ -333,6 +368,25 @@
             root.querySelectorAll('[data-under-manual]').forEach(el=>el.classList.toggle('hidden',engine.settings.underAutoStart));
             query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
+            query('#task-purchase').hidden=!['progress','breed','resource'].includes(mode);
+            if(mode==='resource'){
+                const action=engine.settings.resourceAction;
+                query('#resource-quantity-label').textContent=action==='buy'?'购买份数':'使用份数';
+                query('#resource-member').classList.toggle('hidden',action==='buy'||!!DATA.automation.buffs[engine.settings.resourceItem]);
+                query('#task-purchase-policy').textContent={
+                    buy:'按目标份数向金币商店购买。每份确认到账后再买下一份。',
+                    use:'只使用背包中的目标道具。库存用尽时任务暂停。',
+                    buyUse:'优先使用库存。仍需使用且库存不足时，按一份的价格检查预算并补购。',
+                }[action];
+            }else if(mode==='breed'){
+                query('#task-purchase-policy').textContent=engine.settings.pensionExpand
+                    ?'寄养位少于两个、繁殖需要扩容时才会购买。'
+                    :'当前只使用已有寄养位。如需扩容，请勾选上方的寄养位选项。';
+            }else if(mode==='progress'){
+                query('#task-purchase-policy').textContent=!engine.settings.autoPrepare?'补练已关闭，主线不会买糖。'
+                    :engine.settings.progressCandy?'补练时先用库存 EXP Candy，需要继续练级且糖果不足时才会购买。'
+                    :'主线补练买糖已关闭，可在设置中开启 EXP Candy 选项。';
+            }
             query('[data-setting="autoTeam"]').closest('label').classList.remove('hidden');
             const raidMode=!(independent||mode==='roam');
             query('[data-setting="raids"]').closest('label').classList.toggle('hidden',!raidMode);
@@ -344,9 +398,46 @@
             query('#evolution-hint').textContent=engine.settings.autoEvolve?'免费等级进化已开启：培养考虑后续形态，实际进化确认后重新配队；道具、分支和升阶锁定个体不自动处理。':'免费进化已关闭：按当前形态评估队伍，保留手动进化。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
-            query('#candy-hint').textContent=engine.settings.spendBudget>0?'优先使用库存，逐份补购；达到等级目标后继续主线，预算不足改用普通练级。':'金币支出预算为 0：不会购买。已有糖果仍按使用上限消耗；如需采购，请展开“资源预算”设置金额和金币保留额。';
+            query('#candy-hint').textContent='优先使用库存。补购需要开启自动购买并留有预算，达到用量或支出上限后继续地图练级。';
         }
-        const editableControls=root.querySelectorAll('[data-setting], [data-mode], #item-search');
+        const editableControls=root.querySelectorAll('[data-setting]:not([data-setting="autoPurchase"]), [data-mode], #item-search');
+        const purchaseInputs=root.querySelectorAll('[data-setting="autoPurchase"]');
+        function renderPurchases(s){
+            const inSettings=ui.workspace==='settings';
+            const cardVisible=inSettings||(ui.workspace==='tasks'&&!query('#task-purchase').hidden);
+            const accountReady=!!s?.adv&&engine.account===accountId(s);
+            const budget=cardVisible&&accountReady?engine.budget.purchaseSummary(s):null;
+            const enabled=budget?.enabled??engine.settings.autoPurchase===true;
+            const locked=!!engine.suspended||!accountReady||(engine.running&&!enabled);
+            const stateLabel=enabled?'已开启':engine.running&&!engine.suspended?'已关闭 · 停止任务后可开启':'已关闭';
+            for(const input of purchaseInputs){
+                input.disabled=locked;
+                input.checked=enabled;
+                const state=input.parentElement.querySelector('[data-purchase-state]');
+                if(state.textContent!==stateLabel)state.textContent=stateLabel;
+            }
+            if(!cardVisible)return;
+            const card=query(inSettings?'#settings-purchase':'#task-purchase');
+            const status=card.querySelector('[data-purchase-status]');
+            if(!budget){
+                status.textContent=s?.adv?'等待助手同步当前账号的购买设置':'载入游戏存档后显示可购额度';
+                if(inSettings){
+                    query('#purchase-limits').textContent='';
+                    query('#budget-summary').textContent='';
+                }
+                return;
+            }
+            const coins=value=>Number.isSafeInteger(value)?value.toLocaleString()+' ₽':'待确认';
+            const detail='本次可购额度 '+coins(budget.available)+(budget.reason?' · '+budget.reason:'');
+            if(status.textContent!==detail)status.textContent=detail;
+            if(inSettings){
+                const usage=engine.budget;
+                const previous=!engine.running&&!engine.suspended&&(usage.spent>0||usage.used>0);
+                query('#budget-summary').textContent=`${previous?'上次':'本次'}已支出 ${coins(usage.spent)} · 已用 ${usage.used} 份`;
+                const daily=engine.settings.dailySpendBudget?coins(budget.dailyLeft):'未另设上限';
+                query('#purchase-limits').textContent=`本次剩余预算 ${coins(budget.sessionLeft)} · 今日剩余额度 ${daily}。当前地区余额 ${coins(Budget.counter(s.money))}，保留 ${coins(engine.settings.moneyReserve)} 后可用 ${coins(budget.walletLeft)}。`;
+            }
+        }
         function buddySummary(s,preparation){
             const current=s.buddy?.uid,mons=s.mons||[],name=uid=>MONS.get(mons.find(m=>m.uid===uid)?.id)?.name;
             const label='Buddy：'+(name(current)||'未设置');
@@ -362,7 +453,7 @@
             lastPaint=performance.now();
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
             let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
-                engine.loadAccount(s); editingJob = null; memberKeys.clear(); viewSignature = null;
+                engine.loadAccount(s); resetBudgetDrafts(); editingJob = null; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
@@ -398,7 +489,7 @@
             query('#start').textContent = s?.adv?.event?.raid ? '接管当前团体战' : s?.adv?.zone ? '接管当前传说战' : '开始当前任务';
             query('#queue-count').textContent=engine.queue.filter(job=>job.status!=='done').length;
             query('#add-job').disabled=locked;query('#start-queue').disabled=locked||!engine.queue.some(job=>job.status!=='done');
-            query('#budget-summary').textContent=`已支出 ${engine.budget.spent.toLocaleString()} ₽ · 已用 ${engine.budget.used} 份`;
+            renderPurchases(s);
             query('#reset').disabled = locked; query('#restore').disabled = locked || !engine.oldLoops;
             query('#import-profile').disabled=locked||!engine.account;
             if(locked!==lastLockState){
@@ -482,13 +573,19 @@
                 hint = p.missing ? '所选目标不在当前冒险队伍中，请重新选择。' : `当前 ${p.targets.map(m=>`${MONS.get(m.id)?.name || m.id} Lv.${m.level}`).join('、')}。按全队经验/分钟选图，达到目标或当前等级上限时停止；不使用糖果。`;
             } else if (mode === 'money') { goalLabel = '金币目标'; goalValue = settings.moneyTarget ? `${s.money.toLocaleString()} / ${settings.moneyTarget.toLocaleString()}` : '持续刷钱'; percent = settings.moneyTarget ? s.money/settings.moneyTarget*100 : 0; }
             else if(mode==='shiny'){const goals=shinyGoals(settings),left=missingShinies(s,settings).length;primary=(goals.length-left)+'/'+goals.length;primaryLabel='目标异色';goalLabel=goals.slice(0,3).map(id=>MONS.get(id).name).join('、')+(goals.length>3?' 等':'');goalValue=`${shinyRoutes?.length||0} 张可刷地图`;percent=(goals.length-left)/goals.length*100;hint='按当前野生遭遇表、轮换与特殊现象选图。运行实况显示各地图每轮预计遇到目标物种的次数，捕获目标异色后完成。';}
-            else if(mode==='breed'){const flow=engine.automation.state,plan=pensionPlan(s,settings.breedId);primary=`${flow.hatched||0}/${settings.breedShiny?'✦':settings.breedGoal}`;primaryLabel='目标孵化';goalLabel=MONS.get(settings.breedId)?.name;goalValue=`寄养 ${s.pension?.mons?.length||0} · 蛋 ${s.pension?.eggs?.length||0}`;percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;hint=(plan.missing?plan.missing+'。':'优先异色亲本，配置百变怪和对应亲本。')+'游戏自动产蛋并放入孵化器；成熟后点击孵化，重复个体仍计入本次目标。蛋成熟后自动孵化，异色可能需要多轮。';}
+            else if(mode==='breed'){
+                const flow=engine.automation.state,plan=pensionPlan(s,settings.breedId,settings.breedShiny);
+                primary=`${flow.hatched||0}/${settings.breedShiny?'✦':settings.breedGoal}`;primaryLabel='目标孵化';goalLabel=MONS.get(settings.breedId)?.name;
+                goalValue=`寄养 ${s.pension?.mons?.length||0} · 蛋 ${s.pension?.eggs?.length||0}`;
+                percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;
+                hint=plan.missing||(settings.breedShiny?'优先寄养可产目标蛋的异色亲本。已有确认的目标闪蛋时，等它成熟后优先孵化。':'配置百变怪和目标亲本，按游戏确认的孵化数量计入目标。');
+            }
             else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按派遣位的主题配队，领取归队奖励后更新纪录。`;}
             else if(mode==='tower'){const p=towerProgress(s,now),reached=Math.max(p.best,p.cleared);primary=`${reached}/${settings.towerFloor}`;primaryLabel='本周已过楼层';goalLabel='已结束尝试';goalValue=`${engine.automation.state.towerWeek===p.week?engine.automation.state.towerAttempts||0:0}/${settings.towerRuns}`;percent=reached/settings.towerFloor*100;hint='按原生收藏排序、同种族限制和休息等级核对实际前六名，只为真正会上场的成员补练。暂停场次继续，不计失败；周记录与尝试次数按 UTC 周一重置，奖励结算后再结束任务。';}
             else if(mode==='candy'){const run=s.candy?.run,flow=engine.automation.state,cleared=Math.max(0,run?run.floor-1:flow.candyResult?.floor||0);primary=settings.candyFloor?`${cleared}/${Math.ceil(settings.candyFloor/5)*5}`:String(cleared);primaryLabel='本场已过楼层';goalLabel=`完成场次 ${flow.candyDone||0}/${settings.candyRuns}`;goalValue=run?`今日${DATA.types[run.type]?.fr||run.type}主题 · 已获糖果保留`:'每日一次 · 巴黎时间刷新';percent=(flow.candyDone||0)/settings.candyRuns*100;hint='按今日主题、实际招式与耐久配置六人专属队伍；需要时先补练再入场，入场后保留克隆阵容。目标层向上取整至五层营地，0 表示尽力挑战；不购买跳层，失败仍按真实结算计一局。25枚神奇糖果日上限后仍可获得经验糖果。';}
             else if(mode==='elite'){const reg=settings.eliteRegion==='current'?currentRegion(s):settings.eliteRegion,best=s.eliteLeague?.[reg]?.t||0;primary=`${best}/${settings.eliteTier}`;primaryLabel='精英联盟阶级';goalLabel=DATA.regions.find(r=>r.key===reg)?.name;goalValue='逐阶挑战并领取宝石';percent=best/settings.eliteTier*100;hint='按全联盟配置专属队伍，只挑战未完成的下一阶；通关后选择第一种可领取宝石。原生条件不足时等待，不重复领取已完成阶级。';}
             else if(mode==='world'){primary=`${engine.automation.state.worldDone||0}/${settings.worldActions}`;primaryLabel='本次首领攻击';goalLabel='世界首领';goalValue=settings.worldCapture?'攻击 → 等待 → 捕获':'攻击目标完成即结束';percent=(engine.automation.state.worldDone||0)/settings.worldActions*100;hint='使用原生推荐的可攻击成员，每日次数和登录条件由服务器校验。捕获阶段可能需要等待；没有开放时不会反复提交攻击。';}
-            else if(mode==='resource'){const flow=engine.automation.state,id=settings.resourceItem,n=settings.resourceAction==='buy'?purchasedQuantity(s,id,flow):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));primary=`${n}/${settings.resourceQuantity}`;primaryLabel=settings.resourceAction==='buy'?'采购份数':'使用份数';goalLabel=ITEMS.get(id)?.name||id;goalValue=`背包 ${s.items?.[id]||0}`;percent=n/settings.resourceQuantity*100;hint='每次只购买或使用一份，逐次核对价格、到账和预算。只购买支持当前金币商店的道具；树果用于全局增益，糖果或进化道具用于所选成员。';}
+            else if(mode==='resource'){const flow=engine.automation.state,id=settings.resourceItem,n=settings.resourceAction==='buy'?purchasedQuantity(s,id,flow):usedQuantity(s,id,flow);primary=`${n}/${settings.resourceQuantity}`;primaryLabel=settings.resourceAction==='buy'?'采购份数':'使用份数';goalLabel=ITEMS.get(id)?.name||id;goalValue=`背包 ${s.items?.[id]||0}`;percent=n/settings.resourceQuantity*100;hint='每次只购买或使用一份，逐次核对价格、到账和预算。只购买支持当前金币商店的道具；树果用于全局增益，糖果或进化道具用于所选成员。';}
             else if(mode==='progress'){primary=`${Math.min(settings.progressUntil,s.adv.unlocked)}/${settings.progressUntil}`;primaryLabel='主线章节';goalLabel=CHAPTERS.get(settings.progressUntil)?.name;goalValue=`当前 ${CHAPTERS.get(s.adv.chapter)?.name||s.adv.chapter}`;percent=s.adv.unlocked/Math.max(1,settings.progressUntil)*100;}
             query('#dex-value').textContent = primary; query('#primary-label').textContent = primaryLabel; query('#target-hint').textContent = hint;
             query('#goal-label').textContent = goalLabel; query('#goal-value').textContent = goalValue;
@@ -601,13 +698,84 @@
             view.scrollTop = scroll;
         }
         function changeSetting(key,value) {
-            if (engine.running||engine.suspended) return;
-            engine.settings = normalizeSettings({...engine.settings,[key]:value});
-            if (key === 'mode') { engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
-            try { engine.persist(); } catch { engine.status = '设置无法保存，请检查浏览器存储空间'; }
-            syncSettings(); render(); place();
+            if(key==='autoPurchase'){
+                try{
+                    if(engine.setAutoPurchase(value)===false)throw new Error('请检查当前账号和标签页的控制权');
+                }catch(error){
+                    engine.status='自动购买设置未保存：'+(error.message||'请检查浏览器存储空间');
+                    syncSettings();render();return false;
+                }
+                syncSettings();render();return true;
+            }
+            if (engine.running||engine.suspended) return false;
+            const previous=engine.settings;
+            engine.settings=normalizeSettings({...previous,[key]:value});
+            try {
+                if(engine.account&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
+                if (key === 'mode') { engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
+            } catch(error) {
+                engine.settings=previous;
+                engine.status='设置未保存：'+(error.message||'请检查浏览器存储空间');
+                syncSettings();render();return false;
+            }
+            syncSettings(); render(); place(); return true;
         }
-        root.addEventListener('change',event=>{ const input=event.target,key=input.dataset.setting;if(!key)return;changeSetting(key,input.dataset.boolean==='true'?input.value==='true':input.type==='checkbox'?input.checked:input.type==='number'||['speed','legendId','legendTier'].includes(key)?Number(input.value):input.value); });
+        const budgetDrafts = new Map();
+        function resetBudgetDrafts() {
+            for (const input of budgetDrafts.keys()) input.removeAttribute('aria-invalid');
+            budgetDrafts.clear();
+        }
+        function commitBudgetInput(input) {
+            const key = input.dataset.setting;
+            if (!budgetDrafts.has(input)) budgetDrafts.set(input,engine.account);
+            if (budgetDrafts.get(input) !== engine.account || input.disabled || engine.running || engine.suspended) return false;
+            if (engine.account) {
+                let state;
+                try { state=engine.read(); } catch {}
+                if (!state?.adv || accountId(state)!==engine.account) {
+                    engine.status='存档或账号已变化，请重新核对资源预算';
+                    render();
+                    return false;
+                }
+            }
+            const amount = budgetAmount(key,input.valueAsNumber);
+            if (amount === null) {
+                input.setAttribute('aria-invalid','true');
+                engine.status = '预算未保存，请填写 0 至 '+BUDGET_LIMITS[key]+' 的整数';
+                render();
+                return false;
+            }
+            input.removeAttribute('aria-invalid');
+            if (!changeSetting(key,amount)) return false;
+            input.value = String(amount);
+            budgetDrafts.delete(input);
+            return true;
+        }
+        function commitBudgetDrafts(reveal=false) {
+            for (const input of budgetDrafts.keys()) {
+                if (commitBudgetInput(input)) continue;
+                if (reveal) {
+                    selectWorkspace('settings');
+                    query('#budget-details').open=true;
+                    input.focus();
+                }
+                return false;
+            }
+            return true;
+        }
+        root.addEventListener('input',event=>{
+            const input=event.target;
+            if(Object.hasOwn(BUDGET_LIMITS,input.dataset.setting)&&!input.disabled)budgetDrafts.set(input,engine.account);
+        });
+        root.addEventListener('change',event=>{
+            const input=event.target,key=input.dataset.setting;if(!key)return;
+            if(Object.hasOwn(BUDGET_LIMITS,key)){commitBudgetInput(input);return;}
+            changeSetting(key,input.dataset.boolean==='true'?input.value==='true':input.type==='checkbox'?input.checked:input.type==='number'||['speed','legendId','legendTier'].includes(key)?Number(input.value):input.value);
+        });
+        // A mobile browser can hide the page or activate a command before its number keyboard emits change.
+        root.addEventListener('click',event=>{
+            if(event.target.closest?.('#start,#start-queue,#add-job')&&!commitBudgetDrafts(true))event.stopImmediatePropagation();
+        },true);
         root.addEventListener('click',event=>{
             const button=event.target.closest('button');if(!button)return;
             if(button.dataset.category)showCategory(button.dataset.category);
@@ -619,7 +787,7 @@
                 if(action==='retry'){job.status='pending';job.result='';delete job.progress;}
                 if(action==='up'&&i>0)[engine.queue[i-1],engine.queue[i]]=[job,engine.queue[i-1]];
                 if(action==='down'&&i<engine.queue.length-1)[engine.queue[i+1],engine.queue[i]]=[job,engine.queue[i+1]];
-                if(action==='edit'){selectWorkspace('tasks');editingJob=job.id;engine.settings=normalizeSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
+                if(action==='edit'){resetBudgetDrafts();selectWorkspace('tasks');editingJob=job.id;engine.settings=engine.taskSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
                 engine.persist(false);render();
             }
         });
@@ -647,7 +815,7 @@
             handle.addEventListener('pointerup',endDrag); handle.addEventListener('pointercancel',endDrag); handle.addEventListener('lostpointercapture',endDrag);
         }
         window.addEventListener('resize',place);
-        document.addEventListener('visibilitychange',()=>{if(document.hidden)engine.releaseRankingView();else{render();place();}});
+        document.addEventListener('visibilitychange',()=>{if(document.hidden){commitBudgetDrafts();engine.releaseRankingView();}else{render();place();}});
         query('#fold').onclick=()=>fold(true);
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
@@ -670,7 +838,7 @@
         query('#import-profile').onclick=()=>query('#profile-file').click();
         query('#profile-file').onchange=async event=>{
             const file=event.target.files?.[0], account=engine.account;event.target.value='';if(!file)return;
-            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');const content=await file.text();if(account!==engine.account)throw new Error('读取文件期间账号已切换，请重新选择文件');importConfigurationProfile(engine,content);editingJob=null;syncSettings();}
+            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');const content=await file.text();if(account!==engine.account)throw new Error('读取文件期间账号已切换，请重新选择文件');importConfigurationProfile(engine,content);resetBudgetDrafts();editingJob=null;syncSettings();}
             catch(err){engine.status='配置导入失败：'+err.message;engine.log(engine.status);}
             render();
         };
@@ -719,7 +887,12 @@
             if(active.matches('#pc-search,input[type="search"]')||!visible(active)){active.blur();return !engine.gameInputFocused();}
             return false;
         };
-        window.addEventListener('pagehide', () => engine.suspend());
+        window.addEventListener('pagehide', () => {commitBudgetDrafts();engine.suspend();});
+        window.addEventListener('storage',event=>{
+            if(!engine.account||event.key!==PREFIX+'purchase:'+engine.account)return;
+            engine.refreshAutoPurchase();
+            syncSettings();render();
+        });
         window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();render();}});
         engine.onChange = render; itemOptions(); syncSettings(); render(); fold(!!ui.folded);
         setInterval(()=>{if(performance.now()-lastPaint>=2000)render();},2500);

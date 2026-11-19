@@ -3,7 +3,8 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 const source=fs.readFileSync(path.join(__dirname,'../pokecatch-helper/src/models/nursery-ledger.js'),'utf8'),moduleObject={exports:{}};
 // Test the ledger's evidence accounting independently of the separately native-verified hash model.
 const outcome=(s,egg,options={})=>Object.hasOwn(egg,'shiny')?{known:true,shiny:!!egg.shiny,key:egg.uid,source:'saved'}:options.nativeBuild!=='unsupported'&&Number.isInteger(egg.k)?{known:true,shiny:egg.k%2===0,key:egg.uid,source:'counter'}:{known:false,shiny:null,key:egg.uid||null,source:'unknown'};
-vm.runInNewContext(source+'\nmodule.exports={NurseryLedger,NURSERY_LEDGER_LIMITS};',{module:moduleObject,eggOutcome:outcome,Date});
+const members=s=>[...s.mons,...(s.link?.stash?.mons||[]),...(s.pension?.mons||[]).map(slot=>slot.mon),...(s.under?.slots||[]).flatMap(slot=>slot.mons||[])];
+vm.runInNewContext(source+'\nmodule.exports={NurseryLedger,NURSERY_LEDGER_LIMITS};',{module:moduleObject,eggOutcome:outcome,collectionMembers:members,Date});
 const {NurseryLedger,NURSERY_LEDGER_LIMITS:L}=moduleObject.exports,plain=value=>JSON.parse(JSON.stringify(value));
 const egg=(uid,shiny=false)=>({uid,id:1,shiny}),save=(eggs=[],hatched=500,since=100)=>({trainer:{id:'trainer',since},pension:{eggs},stats:{hatched},mons:[],dex:{}});
 function ready(s=save(),now=1000){const ledger=new NurseryLedger();ledger.observe(s,now);ledger.markClean();return ledger;}
@@ -102,4 +103,66 @@ test('model build options flow through observe/reset and downgrade pending compu
  const computed={uid:'counter',id:1,k:2},ledger=new NurseryLedger();ledger.observe(save([computed]),1000,{nativeBuild:'supported'});assert.equal(ledger.snapshot().current.shiny,1);
  ledger.observe(save([]),2000,{nativeBuild:'supported'});const restored=new NurseryLedger(plain(ledger.snapshot()));const s=restored.observe(save([],501),3000,{nativeBuild:'unsupported'});assert.equal(s.stats.shinyHatched,0);assert.equal(s.stats.unknownHatched,1);
  const reset=restored.reset(save([computed,egg('saved-shiny',true)]),4000,{nativeBuild:'unsupported'});assert.equal(reset.current.shiny,1);assert.equal(reset.current.unknown,1);
+});
+
+test('millisecond starts round-trip; a truncated 2001 start is recovered only from the same segment baseline',()=>{
+ const start=Date.parse('2026-11-19T03:21:54.678Z');
+ const saved=plain(ready(save(),start).serialize());
+ assert.equal(new NurseryLedger(saved).segment.startedAt,start);
+ saved.segment.startedAt=1e12;
+ const repaired=new NurseryLedger(saved);
+ assert.equal(repaired.segment.startedAt,start);assert.equal(repaired.dirty,true);
+ assert.equal(new NurseryLedger(plain(repaired.serialize())).dirty,false);
+ saved.events=[{...saved.events[0],segment:2},{...saved.events[0],at:start+1000,type:'egg-seen'}];
+ const missing=new NurseryLedger(saved);
+ assert.equal(missing.segment.startedAt,null);assert.equal(missing.dirty,true);
+ const again=new NurseryLedger(plain(missing.serialize()));assert.equal(again.segment.startedAt,null);assert.equal(again.dirty,false);
+});
+
+test('an offline hatch delta stays unclassified without blocking later independent hatch identities',()=>{
+ const ledger=ready(),s=save([],505);
+ ledger.observe(s,2000);s.pension.eggs=[egg('later',true)];ledger.observe(s,2500);
+ s.stats.hatched++;s.pension.eggs=[];const snapshot=ledger.observe(s,3000);
+ assert.equal(snapshot.stats.hatched,6);assert.equal(snapshot.stats.shinyHatched,1);assert.equal(snapshot.stats.unknownHatched,5);
+ // A prior ambiguous batch of two identities shares no candidates with the new egg.
+ const prior=save([egg('a',true),egg('b')],506);ledger.observe(prior,4000);
+ ledger.observe(save([],507),5000);ledger.observe(save([egg('c',true)],507),6000);
+ const end=ledger.observe(save([],508),7000);
+ assert.equal(end.stats.hatched,8);assert.equal(end.stats.shinyHatched,1);
+ // Until the earlier candidates are resolved, these counter writes can still refer to them as well.
+ assert.equal(end.current.pendingDisappearances,3);
+});
+
+test('a counter written when an egg first appears cannot be reused as evidence it later hatched',()=>{
+ const ledger=ready();ledger.observe(save([egg('just-laid',true)],501),2000);
+ const end=ledger.observe(save([],501),3000);
+ assert.equal(end.stats.shinyHatched,0);assert.equal(end.stats.unknownHatched,1);assert.equal(end.current.pendingDisappearances,1);
+});
+
+test('recent confirmed hatch identities can recover unknown colors from native hatchlings after reload',()=>{
+ const options={nativeBuild:'unsupported'},s=save(),ledger=ready();
+ s.pension.eggs=[{uid:'r1',id:1,k:4},{uid:'r2',id:1,k:5}];ledger.observe(s,2000,options);
+ s.pension.eggs=[];s.stats.hatched+=2;ledger.observe(s,3000,options);
+ assert.equal(ledger.stats.unknownHatched,2);assert.equal(ledger.stats.unknownObserved,2);
+ const restored=new NurseryLedger(plain(ledger.serialize()));
+ // A member can evolve or change region while retaining its hatch origin and egg number.
+ s.link={stash:{mons:[{uid:'r1',id:2,egg:true,ek:4,shiny:true}]}};
+ s.pension.mons=[{mon:{uid:'r2',id:1,egg:true,ek:5,shiny:false}}];
+ for(const at of [4000,5000])restored.observe(s,at,options);
+ assert.equal(restored.stats.shinyHatched,1);assert.equal(restored.stats.plainHatched,1);
+ assert.equal(restored.stats.shinyObserved,1);assert.equal(restored.stats.plainObserved,1);
+ assert.equal(restored.stats.unknownObserved,0);assert.equal(restored.stats.unknownHatched,0);
+ assert.equal(restored.stats.hatched,2);assert.equal(restored.events.filter(e=>e.type==='hatch-evidence').length,1);
+});
+
+test('similar, traded, duplicate or unmarked PC members never resolve a historical hatch',()=>{
+ const options={nativeBuild:'unsupported'},s=save([{uid:'origin',id:1,k:3}]),ledger=new NurseryLedger();
+ ledger.observe(s,1000,options);s.pension.eggs=[];s.stats.hatched++;ledger.observe(s,2000,options);
+ const exact={uid:'origin',id:1,egg:true,ek:3,shiny:true};
+ for(const entries of [[{...exact,uid:'another'}],[{...exact,ek:4}],[{...exact,egg:false}],[{...exact,ot:'other'}],
+     [{...exact,shiny:'true'}],[exact,{...exact,shiny:false}]]){
+   s.mons=entries;ledger.observe(s,3000,options);assert.equal(ledger.stats.unknownHatched,1);assert.equal(ledger.stats.shinyHatched,0);
+ }
+ s.mons=[exact];ledger.observe(s,4000,options);
+ assert.equal(ledger.stats.shinyHatched,1);assert.equal(ledger.stats.shinyObserved,0,'baseline eggs do not count as new observations');
 });

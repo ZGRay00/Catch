@@ -67,3 +67,24 @@ test('snapshot counts known shiny eggs without inventing unknown outcomes or rea
  assert.equal(snap.counts.total,4);assert.equal(snap.counts.known,3);assert.equal(snap.counts.unknown,1);assert.equal(snap.counts.ready,2);assert.equal(snap.capacity,4);assert.equal(snap.hatched,10);assert.equal(snap.counter,30);assert.equal(snap.forecast,null);
  assert.equal(snap.eggRows[3].shiny,null);assert.equal(snap.eggRows[3].readyKnown,false);assert.equal(JSON.stringify(s),before);
 });
+
+test('malformed colour and bonus fields cannot silently classify eggs or forecast the parent pool',()=>{
+ const s=state();
+ for(const value of [null,'false',{},[],7]){
+  for(const flag of ['shiny','sp','bx']){
+   const result=N.eggOutcome(s,{k:13,[flag]:value});
+   assert.equal(result.known,false,flag);assert.equal(result.shiny,null);
+   if(flag!=='shiny')assert.equal(result.rate,null);
+  }
+  s.pension.bx=value;assert.equal(N.nurseryForecast(s).nextRate,null);assert.equal(N.nurseryForecast(s).known,false);
+  s.pension.bx=0;s.pension.mons[0].mon.shiny=value;
+  assert.equal(N.nurseryForecast(s).nextRate,null);assert.equal(N.nurseryForecast(s).nextEgg,null);
+  s.pension.mons[0].mon.shiny=false;
+ }
+ assert.equal(N.eggOutcome(s,{shiny:1,bx:'broken'}).shiny,true);
+ assert.equal(N.eggOutcome(s,{shiny:0,sp:'broken'}).shiny,false);
+ assert.equal(N.nurseryEggRate({sp:true,bx:1}),.2);
+ assert.equal(N.nurseryEggRate({sp:2}),1/16);
+ assert.equal(N.nurseryEggRate({sp:'1'}),.1);
+ assert.equal(N.nurseryEggRate({sp:'2',bx:true}),1/8);
+});

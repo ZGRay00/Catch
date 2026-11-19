@@ -14,19 +14,34 @@
             return{...row,expected,rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }
-    function pensionPlan(s,id){
+    function pensionPlan(s,id,shinyGoal=false){
         const residents=(s.pension?.mons||[]).map(x=>x?.mon).filter(Boolean),protectedUids=new Set([...(s.team||[]),...(s.road||[])]);
         const eligible=(s.mons||[]).filter(m=>!protectedUids.has(m.uid));
         const singles=new Set(),parents=[...residents,...eligible].filter(m=>breedableOffspring(s,m)===id).sort((a,b)=>Number(!!b.shiny)-Number(!!a.shiny)||b.level-a.level).filter(m=>{const key=DATA.combat.singles[m.id];if(!key)return true;if(singles.has(key))return false;singles.add(key);return true;});
         const ditto=residents.find(m=>m.id===132)||eligible.find(m=>m.id===132);
-        return{residents,ditto,parents,desired:ditto&&parents.length?[ditto,...parents.slice(0,3)]:[],missing:!ditto?'需要一只可寄养的百变怪':!parents.length?'没有可寄养的对应亲本；请先从冒险队伍移出亲本':null};
+        const shinyParents=shinyGoal?parents.filter(m=>m.shiny===true||m.shiny===1):[];
+        const preferred=shinyParents.length?shinyParents:parents;
+        return{residents,ditto,parents,desired:ditto&&preferred.length?[ditto,...preferred.slice(0,3)]:[],missing:!ditto?'需要一只可寄养的百变怪':!parents.length?'没有可寄养的对应亲本；请先从冒险队伍移出亲本':null};
     }
     function parsePrice(text){
-        const str=String(text||'').trim(),match=str.match(/([\d][\d\s\u00a0\u202f,.]*)([kKmMbB万亿]?)/);if(!match)return null;
-        const factor=({k:1e3,m:1e6,b:1e9,'万':1e4,'亿':1e8})[match[2].toLowerCase()]||1;
-        const raw=match[1].replace(/[\s\u00a0\u202f]/g,'');const decimalComma=!raw.includes('.')&&/,\d{1,2}$/.test(raw);
-        const n=factor===1?Number(raw.replace(/[,.]/g,'')):Number(decimalComma?raw.replace(',','.'):raw.replace(/,/g,''));
-        return Number.isFinite(n)&&n>=0?Math.ceil(n*factor):null;
+        const parts=String(text??'').normalize('NFKC').trim().split('₽');
+        if(parts.length>2||parts.length===2&&/\d/.test(parts[1]))return null;
+        // Native shop totals are localized integers. A slot-unlock button also has a translated label.
+        // With a currency marker, use the amount directly before it, even if the label contains a quantity.
+        const raw=parts[0].trim(),match=/(\d[\d., ]*?)\s*([kmb万亿]?)$/i.exec(raw);
+        if(!match||parts.length===1&&match.index!==0||/[\d.,+−-]\s*$/.test(raw.slice(0,match.index)))return null;
+        const token=match[1].trim(),suffix=match[2].toLowerCase();
+        const factor=({k:1e3,m:1e6,b:1e9,'万':1e4,'亿':1e8})[suffix]||1;
+        let numeric;
+        if(suffix&&/^(?:\d+|\d{1,3}(?:,\d{3})+)\.\d+$/.test(token)){
+            numeric=token.replace(/,/g,'');
+        }else if(/^\d+$/.test(token)||/^\d{1,3}([., ])\d{3}(?:\1\d{3})*$/.test(token)){
+            numeric=token.replace(/[., ]/g,'');
+        }else if(suffix&&/^\d+[,.]\d{1,2}$/.test(token)){
+            numeric=token.replace(',','.');
+        }else return null;
+        const value=Math.ceil(Number(numeric)*factor);
+        return Number.isSafeInteger(value)?value:null;
     }
     function normalizeJobs(raw) {
         const jobs = [], ids = new Set();
@@ -50,6 +65,15 @@
         if(typeof input==='string'){if(input.length>2*1024*1024)throw new Error('配置文件超过2MB');input=JSON.parse(input.replace(/^\uFEFF/,''));}
         if(!input||input.format!=='pokecatch-helper-profile'||input.schema!==1||!Object.hasOwn(MODE_NAMES,input.settings?.mode))throw new Error('不是支持的助手配置文件');
         if(!Array.isArray(input.queue)||input.queue.length>50||input.queue.some(job=>!Object.hasOwn(MODE_NAMES,job?.settings?.mode)))throw new Error('任务队列格式无效或超过50项');
+        const budgets = [input.settings, ...input.queue.map(job => job.settings)];
+        const labels = {spendBudget:'本次支出上限', dailySpendBudget:'每日支出上限', moneyReserve:'金币保留额', useBudget:'道具使用上限'};
+        for (const [index,settings] of budgets.entries()) {
+            for (const key of Object.keys(BUDGET_LIMITS)) {
+                if (Object.hasOwn(settings,key) && budgetAmount(key,settings[key]) === null) {
+                    throw new Error(`${index ? '队列第 '+index+' 项' : '当前任务'}的${labels[key]}无效，请填写 0 至 ${BUDGET_LIMITS[key]} 的整数`);
+                }
+            }
+        }
         return configurationProfile({settings:input.settings,queue:input.queue});
     }
     function importConfigurationProfile(engine,input){
@@ -60,40 +84,108 @@
         if(!engine.mayPersist())throw new Error('另一个标签页正在管理当前账号，暂不能导入');
         const profile=parseConfigurationProfile(input),before={settings:engine.settings,queue:engine.queue,queueIndex:engine.queueIndex,queueRunning:engine.queueRunning,checkpoint:engine.checkpoint};
         try{
-            engine.settings=profile.settings;engine.queue=profile.queue;engine.queueIndex=0;engine.queueRunning=false;engine.checkpoint=null;
+            engine.settings=engine.taskSettings(profile.settings);engine.queue=profile.queue;engine.queueIndex=0;engine.queueRunning=false;engine.checkpoint=null;
             if(engine.persist(false,false)===false)throw new Error('另一个标签页已接管，配置未导入');
         }catch(err){Object.assign(engine,before);throw err;}
         engine.teamCheck=null;engine.target=null;engine.visit=null;engine.preparation=null;engine.raidPreparation=null;
         engine.status=`配置已导入 · ${profile.queue.length}项待执行任务；点击开始后运行`;engine.log(engine.status);return profile;
     }
     function shinyOdds(s,options={},now=Date.now()){
-        const kind=options.kind||'wild',region=options.region||currentRegion(s),entry=DATA.regions.find(row=>row.key===region),range=entry?.dexRange;
-        const complete=!!range&&DATA.mons.filter(mon=>mon.id>=range[0]&&mon.id<=range[1]).every(mon=>!!s?.dex?.[mon.id]);
-        const multiplier=activeYieldBuff(s,'shiny',now)?.mult||1;
+        const kind=options.kind||'wild';
         if(kind==='egg'){
             const egg=options.egg||{};
-            if(Object.hasOwn(egg,'shiny'))return{kind,rate:egg.shiny?1:0,known:true,reason:'该旧蛋已保存异色标记'};
-            const parent=egg.sp?(Number(egg.sp)===2?1/16:.1):0;
-            return{kind,rate:Math.min(1,Math.max(1/512,parent)*(egg.bx?2:1)),known:false,reason:'蛋独立概率；不受地区图鉴或野外树果加成'};
+            if(Object.hasOwn(egg,'shiny')){
+                if(!nurseryFlag(egg.shiny))return{kind,rate:null,known:false,reason:'存档闪色标记待核对'};
+                return{kind,rate:egg.shiny?1:0,known:true,reason:'该蛋已保存闪色标记'};
+            }
+            return{kind,rate:nurseryEggRate(egg),known:false,reason:'产蛋概率由亲本和靛莓果决定'};
         }
         if(['legend','roam'].includes(kind))return{kind,rate:0,known:true,reason:'普通传说与游荡遭遇固定为普通色'};
         if(kind==='raid')return{kind,rate:1,known:true,reason:'每日异色团体战目标固定异色，捕获率另计'};
+        const region=options.region||currentRegion(s),entry=DATA.regions.find(row=>row.key===region),range=entry?.dexRange;
+        const complete=!!range&&DATA.mons.filter(mon=>mon.id>=range[0]&&mon.id<=range[1]).every(mon=>!!s?.dex?.[mon.id]);
+        const multiplier=activeYieldBuff(s,'shiny',now)?.mult||1;
         const rate=Math.min(1,1/2048*(complete?2:1)*(kind==='wild'?multiplier:1));
         return{kind,rate,known:false,region,complete,multiplier:kind==='wild'?multiplier:1,reason:kind==='underground'?'仅指地下化石结算机会，不是每一层':'野外遭遇概率，不等于最终捕获概率'};
     }
     class Budget{
         constructor(engine){this.e=engine;this.spent=0;this.used=0;}
+        purchaseBlock(cost=1){
+            const cfg=this.e.settings;
+            if((this.e.refreshAutoPurchase?.() ?? cfg.autoPurchase)===false)return'自动购买已关闭';
+            if(cfg.spendBudget===0)return'本次采购预算为 0';
+            if(this.spent+cost>cfg.spendBudget)return'本次采购预算不足';
+            return null;
+        }
+        purchaseSummary(s) {
+            const e = this.e, cfg = e.settings;
+            const enabled = (e.refreshAutoPurchase?.() ?? cfg.autoPurchase) !== false;
+            const sessionLeft = Math.max(0, cfg.spendBudget - (e.running || e.suspended ? this.spent : 0));
+            const sameAccount = !!e.account && !!s && accountId(s) === e.account;
+            const wallet = sameAccount ? Budget.counter(s.money) : null;
+            const walletLeft = wallet === null ? null : Math.max(0, wallet - cfg.moneyReserve);
+            const day = sameAccount ? this.day() : null;
+            const dailyLeft = cfg.dailySpendBudget && day && !day.invalid ? Math.max(0, cfg.dailySpendBudget - day.spent) : null;
+            let reason = null, available = null;
+            if (!enabled || sessionLeft === 0) {
+                available = 0;
+                reason = !enabled ? '自动购买已关闭' : cfg.spendBudget ? '本次采购预算已用尽' : '本次采购预算为 0';
+            } else if (walletLeft === null) {
+                reason = '当前地区金币余额无法确认';
+            } else if (day.invalid) {
+                reason = '每日消费记录不可识别，已暂停采购';
+            } else {
+                available = Math.min(sessionLeft, walletLeft, dailyLeft ?? Infinity);
+                if (available === 0) reason = walletLeft === 0 ? '当前余额已达金币保留额' : '达到每日金币消费上限';
+            }
+            return {enabled, available, sessionLeft, dailyLeft, walletLeft, reason};
+        }
         check(s,cost=0,uses=0){
-            const cfg=this.e.settings;if(cost==null||!Number.isFinite(cost)||cost<0)return'无法确认价格，未执行消费';
+            const cfg=this.e.settings;if(!Number.isSafeInteger(cost)||cost<0)return'无法确认价格，未执行消费';
+            if(!Number.isSafeInteger(uses)||uses<0)return'无法确认道具使用份数';
             if(uses>0&&this.used+uses>cfg.useBudget)return'达到本次道具使用预算';
             if(cost>0){
-                if(this.spent+cost>cfg.spendBudget)return'本次采购预算不足（0 表示不允许花钱）';
-                if((Number(s.money)||0)-cost<cfg.moneyReserve)return'消费后低于金币保留额';
+                const blocked=this.purchaseBlock(cost);if(blocked)return blocked;
+                const wallet=Budget.counter(s.money);
+                if(wallet===null)return'当前地区金币余额无法确认';
+                if(wallet-cost<cfg.moneyReserve)return'消费后低于金币保留额';
                 const day=this.day();if(day.invalid)return'每日消费记录不可识别，已暂停采购';if(cfg.dailySpendBudget&&day.spent+cost>cfg.dailySpendBudget)return'达到每日金币消费上限';
             }return null;
         }
-        day(){try{const raw=this.e.storage.getItem(PREFIX+'budget:'+this.e.account+':'+parisDay());if(raw===null)return{spent:0};const day=JSON.parse(raw);return day&&Number.isFinite(+day.spent)&&+day.spent>=0?{spent:+day.spent}:{spent:0,invalid:true};}catch{return{spent:0,invalid:true};}}
-        charge(cost=0,uses=0){if(cost){const day=this.day();if(day.invalid)throw new Error('每日消费记录不可识别，未执行消费');day.spent+=cost;this.e.storage.setItem(PREFIX+'budget:'+this.e.account+':'+parisDay(),JSON.stringify(day));}this.spent+=cost;this.used+=uses;}
+        static counter(value){
+            if(typeof value==='string'&&/^\d+$/.test(value))value=Number(value);
+            return Number.isSafeInteger(value)&&value>=0?value:null;
+        }
+        dayKey(){return PREFIX+'budget:'+this.e.account+':'+parisDay();}
+        day(key=this.dayKey()){
+            try{
+                const raw=this.e.storage.getItem(key);
+                if(raw===null)return{spent:0};
+                const spent=Budget.counter(JSON.parse(raw)?.spent);
+                if(spent!==null)return{spent};
+            }catch{}
+            return{spent:0,invalid:true};
+        }
+        charge(cost=0,uses=0){
+            const key=cost?this.dayKey():null;
+            if(key){
+                const blocked=this.purchaseBlock(cost);if(blocked)throw new Error(blocked);
+                const day=this.day(key);
+                if(day.invalid)throw new Error('每日消费记录不可识别，未执行消费');
+                if(this.e.settings.dailySpendBudget&&day.spent+cost>this.e.settings.dailySpendBudget)throw new Error('达到每日金币消费上限');
+                this.e.storage.setItem(key,JSON.stringify({spent:day.spent+cost}));
+            }
+            this.spent+=cost;this.used+=uses;
+            return{key,cost,uses};
+        }
+        cancelReservation({key,cost,uses}){
+            if(key){
+                const day=this.day(key);
+                if(day.invalid||day.spent<cost)throw new Error('每日消费记录发生变化，无法撤销预留');
+                this.e.storage.setItem(key,JSON.stringify({spent:day.spent-cost}));
+            }
+            this.spent-=cost;this.used-=uses;
+        }
     }
     function currentRegion(s) { return CHAPTERS.get(s?.adv?.chapter)?.reg || 'kanto'; }
     function combinedWalletMoney(s){

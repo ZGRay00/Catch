@@ -8,7 +8,8 @@ function fixture(t,settings={},confirm=false){
     const data=new Map([['gachamon-save-v1',JSON.stringify(s)]]),storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k)};
     const node=(kind,extra={})=>({kind,isConnected:true,hidden:false,disabled:false,closest:()=>null,getAttribute:()=>null,getClientRects:()=>[{}],classList:{contains:()=>false},...extra});
     const buy=node('buy'),use=node('use',{querySelectorAll:()=>[{getAttribute:()=>`assets/items/${id}.png`}]}),close=node('close');
-    const item=node('item',{dataset:{id},querySelector:selector=>selector==='.buy'?buy:selector==='.total'?{textContent:'200 ₽'}:null});
+    const one=node('quantity',{dataset:{n:'1'},classList:{contains:name=>name==='on'}});
+    const item=node('item',{dataset:{id},querySelector:selector=>selector==='.buy'?buy:selector==='.total'?{textContent:'200 ₽'}:selector==='[data-n="1"]'||selector==='[data-n].on'?one:null});
     const card={querySelector:()=>close,querySelectorAll:()=>[use]};
     global.document={hidden:false,querySelector:()=>null,querySelectorAll:selector=>selector==='#shop-grid .sh-item[data-id]'?[item]:[]};
     global.getComputedStyle=()=>({display:'block',visibility:'visible',opacity:'1'});

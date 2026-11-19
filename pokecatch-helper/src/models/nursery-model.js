@@ -1,6 +1,10 @@
-    // Verified against public build a5299b1690 / app.ac708615ae.js.
+    // Public launcher builds paired with the hashed application bundles checked by the native nursery differentials.
     // These functions read decoded saves. They never consume a roll, save or game action.
-    const NURSERY_RULES = Object.freeze({build:'a5299b1690',compatibleBuilds:['0a26d39c19','c9b850cf68','a5299b1690'],
+    const NURSERY_BUILDS=Object.freeze({
+        '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
+        'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a'
+    });
+    const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze(Object.values(NURSERY_BUILDS)),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
         berryMultiplier:2,berry:'belue-berry',ditto:132,eggMs:14400000,hatchMs:14400000,maxEggs:4,
         noEgg:[137,442,479,47901,47902,47903,47904,47905,556],lays:{489:489,490:489}});
@@ -24,7 +28,11 @@
         const seed=nurserySeed(s);
         return seed===null||!Number.isSafeInteger(k)||k<0||!Number.isSafeInteger(draw)||draw<0?null:nurseryHash(`${seed}|egg|${k}|${draw}`);
     }
+    function nurseryFlag(value){return value===true||value===false||value===1||value===0;}
     function nurseryEggRate(egg={}){
+        // Native eggRate coerces old parent markers numerically; compact/imported eggs may carry "1" or "2".
+        if(!egg||typeof egg!=='object'||(Object.hasOwn(egg,'sp')&&!nurseryFlag(egg.sp)&&egg.sp!==2&&egg.sp!=='1'&&egg.sp!=='2')||
+            (Object.hasOwn(egg,'bx')&&!nurseryFlag(egg.bx)))return null;
         const parent=egg.sp?(Number(egg.sp)===2?NURSERY_RULES.parentRate:NURSERY_RULES.legacyParentRate):0;
         return Math.max(NURSERY_RULES.baseRate,parent)*(egg.bx?NURSERY_RULES.berryMultiplier:1);
     }
@@ -54,10 +62,15 @@
     }
     function eggOutcome(s,egg,options={}){
         const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
-        const unknown=reason=>({certainty:'unknown',known:false,shiny:null,rate:egg&&typeof egg==='object'?nurseryEggRate(egg):null,rateVerified:!unverified,source:'unknown',key:nurseryEggKey(s,egg),reason});
+        const rate=egg&&typeof egg==='object'?nurseryEggRate(egg):null,key=nurseryEggKey(s,egg);
+        const rateVerified=rate!==null&&!unverified;
+        const unknown=reason=>({certainty:'unknown',known:false,shiny:null,rate,rateVerified,source:'unknown',key,reason});
         if(!egg||typeof egg!=='object')return unknown('蛋数据不可用');
-        const rate=nurseryEggRate(egg),key=nurseryEggKey(s,egg);
-        if(Object.hasOwn(egg,'shiny'))return{certainty:'saved',known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,rateVerified:!unverified,source:'saved',key};
+        if(Object.hasOwn(egg,'shiny')){
+            if(!nurseryFlag(egg.shiny))return unknown('存档的蛋闪色标记无法识别');
+            return{certainty:'saved',known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,rateVerified,source:'saved',key};
+        }
+        if(rate===null)return unknown('存档的异色亲本或靛莓果标记无法识别');
         if(unverified)return unknown('当前游戏构建尚未核对确定性蛋规则');
         let roll,source;
         if(Number.isInteger(egg.k)){
@@ -85,13 +98,15 @@
             if(mon.id===NURSERY_RULES.ditto){hasDitto=true;continue;}
             const eggId = breedableOffspring(s, mon);
             if (eggId == null) continue;
+            if(Object.hasOwn(mon,'shiny')&&!nurseryFlag(mon.shiny))return{known:false,parents:[],hasDitto,reason:'可繁殖亲本的异色标记无法识别'};
             parents.push({id:mon.id,eggId,uid:mon.uid??null,shiny:!!mon.shiny,index,slot:index+1});
         }
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
     function nurseryForecast(s,options={}){
         const limit=Number.isFinite(+options.limit)?Math.max(1,Math.min(50000,Math.floor(+options.limit))):20000;
-        const pool=nurseryParentPool(s),pension=s?.pension,seed=nurserySeed(s),pendingBerry=!!pension?.bx;
+        const pool=nurseryParentPool(s),pension=s?.pension,seed=nurserySeed(s);
+        const berryKnown=!pension||!Object.hasOwn(pension,'bx')||nurseryFlag(pension.bx),pendingBerry=berryKnown?!!pension?.bx:null;
         const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
         let laid=pension?.laid,counterSource=null;
         if(Number.isSafeInteger(laid)&&laid>=0)counterSource='saved';
@@ -103,7 +118,7 @@
         }
         // Prior to drawing a parent, every eligible slot is equally likely, including
         // duplicate species. Ditto enables breeding but never contributes a shiny rate.
-        const nextRate=pool.known&&pool.hasDitto&&pool.parents.length?
+        const nextRate=berryKnown&&pool.known&&pool.hasDitto&&pool.parents.length?
             pool.parents.reduce((sum,parent)=>sum+nurseryEggRate({sp:parent.shiny?2:0,bx:pendingBerry}),0)/pool.parents.length:null;
         const result={certainty:'unavailable',known:false,active:false,build:NURSERY_RULES.build,counter:counterSource?laid:null,counterSource,
             nextRate,rateVerified:!unverified,
@@ -113,6 +128,7 @@
         const reject=reason=>({...result,reason});
         if(unverified&&!options.estimateUnverified)return reject('当前游戏构建尚未核对确定性蛋规则');
         if(!pool.known)return reject(pool.reason);
+        if(!berryKnown)return reject('待用靛莓果标记无法识别');
         if(seed===null)return reject('训练家 ID 或创建时间缺失，未使用空种子预测');
         if(result.counter===null)return reject('下一蛋序号缺失或异常，等待游戏自身初始化');
         if(!pool.hasDitto||!pool.parents.length)return reject(pool.reason);

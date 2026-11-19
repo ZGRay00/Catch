@@ -6,6 +6,20 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
+    function shopOffer(el) {
+        const id=el.dataset.id,buy=el.querySelector('.buy'),one=el.querySelector('[data-n="1"]');
+        const selected=el.querySelector('[data-n].on')?.dataset.n;
+        const batch=!!one||selected!=null||DATA.automation.shop.some(row=>row.id===id&&row.qty);
+        const single=!batch||!!one&&one.classList.contains('on')&&(selected==null||selected==='1');
+        const total=parsePrice(batch?el.querySelector('.total')?.textContent:buy?.textContent);
+        // Native Max prefixes its unit price with the current quantity, e.g. "×8 · 200 ₽ l'unité".
+        const unitText=el.querySelector('.unit')?.textContent?.split('·').at(-1);
+        const unit=parsePrice(unitText),count=Number(selected);
+        let cost=single?total:unit;
+        if(single&&unit!=null&&unit!==total)cost=null;
+        if(!single&&cost==null&&Number.isSafeInteger(count)&&count>0&&total!=null)cost=total/count;
+        return {el,id,buy,one,single,cost:Number.isSafeInteger(cost)&&cost>0?cost:null};
+    }
     function raidText(french,chinese){
         const lang=document.documentElement?.lang,dictionary=globalThis.window?.I18N;
         if(!lang||lang==='fr')return french;

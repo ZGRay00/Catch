@@ -406,6 +406,7 @@ test('automation metadata covers shop, eggs and wild shiny targets without legen
 test('pension plan protects current and queued road parties and prefers shiny eligible parents',()=>{
     const s=state();s.mons.push({uid:'d',id:132,level:20},{uid:'p',id:1,level:80},{uid:'sp',id:3,level:50,shiny:true});
     let p=H.pensionPlan(s,1);assert.equal(p.ditto.uid,'d');assert.equal(p.parents[0].uid,'sp');
+    assert.deepEqual(H.pensionPlan(s,1,true).desired.map(mon=>mon.uid),['d','sp']);
     s.road=['d'];assert.match(H.pensionPlan(s,1).missing,/百变怪/);s.road=[];s.pension.mons=[{mon:s.mons.pop()}];assert.equal(H.pensionPlan(s,1).parents[0].uid,'sp');
     s.pension.mons[0].mon.noEgg=true;assert.equal(H.pensionPlan(s,1).parents[0].uid,'p');s.mons.find(m=>m.uid==='p').noEgg=true;assert.equal(H.pensionPlan(s,1).parents.length,0);
     assert.equal(H.pensionPlan(s,150).desired.length,0);

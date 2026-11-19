@@ -15,7 +15,8 @@
             this.stats.plainHatched=Math.min(this.stats.plainHatched,this.stats.hatched-this.stats.shinyHatched);
             this.stats.unknownHatched=this.stats.hatched-this.stats.shinyHatched-this.stats.plainHatched;
             this.nativeHatched=Number.isFinite(saved.nativeHatched)&&saved.nativeHatched>=0?number(saved.nativeHatched):null;
-            this.segment={ordinal:number(saved.segment?.ordinal),startedAt:number(saved.segment?.startedAt),reason:typeof saved.segment?.reason==='string'?saved.segment.reason.slice(0,80):'initial',generation:typeof saved.segment?.generation==='string'?saved.segment.generation.slice(0,400):''};
+            const startedAt=saved.segment?.startedAt;
+            this.segment={ordinal:number(saved.segment?.ordinal),startedAt:Number.isSafeInteger(startedAt)&&startedAt>=0&&startedAt<=8.64e15?startedAt:null,reason:typeof saved.segment?.reason==='string'?saved.segment.reason.slice(0,80):'initial',generation:typeof saved.segment?.generation==='string'?saved.segment.generation.slice(0,400):''};
             this.active=[...new Map((Array.isArray(saved.active)?saved.active:[]).slice(0,limits.active).map(NurseryLedger.cleanRecord).filter(Boolean).map(row=>[row.key,row])).values()];
             this.pending=[...new Map((Array.isArray(saved.pending)?saved.pending:[]).slice(0,limits.pending).map(row=>{
                 const record=NurseryLedger.cleanRecord(row);return record&&Number.isFinite(row.at)&&row.at>=0?{...record,at:row.at}:null;
@@ -26,6 +27,14 @@
                 const record=NurseryLedger.cleanRecord(row);return record&&['hatched','unconfirmed'].includes(row.status)&&Number.isFinite(row.at)?{...record,status:row.status,at:Math.max(0,row.at)}:null;
             }).filter(Boolean);
             this.events=(Array.isArray(saved.events)?saved.events:[]).slice(0,limits.events).filter(row=>object(row)&&typeof row.type==='string'&&typeof row.text==='string'&&Number.isFinite(row.at)).map(row=>({sequence:number(row.sequence),segment:number(row.segment),at:Math.max(0,row.at),type:row.type.slice(0,80),text:row.text.slice(0,240)}));
+            // Older readers capped modern millisecond timestamps at 10^12 when restoring counters.
+            // Baseline events retained the original timestamp. A later event cannot date the start.
+            if(this.initialized&&(this.segment.startedAt===1e12||this.segment.startedAt===null)){
+                const start=this.events.find(event=>event.segment===this.segment.ordinal&&['baseline','segment-reset'].includes(event.type)
+                    &&Number.isSafeInteger(event.at)&&event.at>=0&&event.at<=8.64e15);
+                this.segment.startedAt=start?.at??null;
+                if(this.segment.startedAt!==startedAt)this.dirty=true;
+            }
         }
         static emptyStats(){return{eggsObserved:0,shinyObserved:0,plainObserved:0,unknownObserved:0,hatched:0,shinyHatched:0,plainHatched:0,unknownHatched:0,unconfirmedDisappearances:0};}
         static cleanRecord(row){
@@ -37,7 +46,12 @@
         static eggEvidence(egg){
             const out={};for(const key of ['uid','id','k','sp','bx','laidAt','hatchAt','reg','shiny']){
                 const value=egg[key];if(Object.hasOwn(egg,key)&&(value===null||['string','number','boolean'].includes(typeof value)))out[key]=typeof value==='string'?value.slice(0,240):value;
-            }return out;
+            }
+            // Absence has a native default. An unreadable flag must stay unknown after a reload.
+            for(const flag of ['shiny','sp','bx']){
+                if(Object.hasOwn(egg,flag)&&!Object.hasOwn(out,flag))out[flag]=null;
+            }
+            return out;
         }
         static generation(s){
             const t=s?.trainer||{},scalar=value=>['string','number'].includes(typeof value)?String(value).slice(0,180):'';
@@ -93,25 +107,54 @@
             if(credits.length!==this.credits.length){this.credits=credits;this.dirty=true;}
         }
         match(now){
-            const count=this.credits.reduce((sum,row)=>sum+row.count,0);
-            if(!this.pending.length||count!==this.pending.length)return;
-            // Perfect matching prevents a counter written before a newly observed egg from
-            // being attributed to that later egg. Counts without enough identity evidence stay unknown.
-            const tickets=this.credits.flatMap(row=>Array.from({length:row.count},()=>new Set(row.keys))),assigned=new Map();
-            const visit=(key,visited)=>{
-                for(let i=0;i<tickets.length;i++)if(tickets[i].has(key)&&!visited.has(i)){
-                    visited.add(i);if(!assigned.has(i)||visit(assigned.get(i),visited)){assigned.set(i,key);return true;}
-                }return false;
+            if(!this.pending.length||!this.credits.length)return;
+            const pendingKeys=new Set(this.pending.map(row=>row.key));
+            const credits=this.credits.filter(credit=>credit.keys.some(key=>pendingKeys.has(key)));
+            const count=credits.reduce((sum,row)=>sum+row.count,0);
+            if(count!==this.pending.length)return;
+            // A counter increment can confirm only eggs whose identity was already observed.
+            // Counters unrelated to these departures remain available for their original candidates.
+            const tickets=credits.flatMap(row=>Array.from({length:row.count},()=>new Set(row.keys))),assigned=new Map();
+            const assign=(key,used)=>{
+                for(let i=0;i<tickets.length;i++)if(tickets[i].has(key)&&!used.has(i)){
+                    used.add(i);
+                    if(!assigned.has(i)||assign(assigned.get(i),used)){assigned.set(i,key);return true;}
+                }
+                return false;
             };
-            if(!this.pending.every(row=>visit(row.key,new Set())))return;
-            let shiny=0,plain=0,unknown=0;
+            if(!this.pending.every(row=>assign(row.key,new Set())))return;
+            let shiny=0,plain=0;
             for(const row of this.pending){
-                if(row.known&&row.shiny)shiny++;else if(row.known)plain++;else unknown++;
+                if(row.known&&row.shiny)shiny++;else if(row.known)plain++;
                 this.record(row,'hatched',now);
             }
             this.stats.shinyHatched+=shiny;this.stats.plainHatched+=plain;this.stats.unknownHatched=this.stats.hatched-this.stats.shinyHatched-this.stats.plainHatched;
-            this.pending=[];this.credits=[];
+            this.pending=[];this.credits=this.credits.filter(credit=>!credits.includes(credit));
+            const unknown=count-shiny-plain;
             this.event('hatch-confirmed',`已核对孵化 ${count} 枚：异色 ${shiny}、普通 ${plain}${unknown?'、结果未知 '+unknown:''}`,now);
+        }
+        reconcileHatchlings(s,now){
+            if(!this.stats.unknownHatched)return;
+            const rows=this.recent.filter(row=>row.status==='hatched'&&!row.known&&row.source!=='duplicate'&&row.uid
+                &&Number.isSafeInteger(row.egg?.k)&&row.egg.k>=0);
+            if(!rows.length)return;
+            // Native hatchEgg copies the egg UID and serial to an actual hatchling. Duplicates
+            // can pay candy instead, and a previous PC UID collision creates a different UID.
+            const uids=new Set(rows.map(row=>row.uid)),members=new Map();
+            for(const mon of collectionMembers(s)){
+                if(!uids.has(mon.uid))continue;
+                members.set(mon.uid,members.has(mon.uid)?null:mon);
+            }
+            let confirmed=0;
+            for(const row of rows){
+                const mon=members.get(row.uid);
+                if(!this.stats.unknownHatched||mon?.egg!==true||mon.ot||mon.ek!==row.egg.k||typeof mon.shiny!=='boolean')continue;
+                row.known=true;row.shiny=mon.shiny;row.source='hatched-mon';
+                this.refineObservation(row);
+                if(mon.shiny)this.stats.shinyHatched++;else this.stats.plainHatched++;
+                this.stats.unknownHatched--;confirmed++;
+            }
+            if(confirmed)this.event('hatch-evidence',`已按孵出个体的蛋身份与编号补全 ${confirmed} 枚闪色记录`,now);
         }
         observe(s,now=Date.now(),options={}){
             if(!s||typeof s!=='object'||Array.isArray(s))return this.snapshot();
@@ -153,13 +196,13 @@
             }
             if(native!==null&&this.nativeHatched!==null&&native>this.nativeHatched){
                 const delta=native-this.nativeHatched;this.stats.hatched+=delta;this.stats.unknownHatched=this.stats.hatched-this.stats.shinyHatched-this.stats.plainHatched;
-                const keys=[...new Set([...this.active,...current,...this.pending].map(row=>row.key))].slice(0,NURSERY_LEDGER_LIMITS.active*2);
-                this.credits.push({count:delta,at:now,keys});this.credits=this.credits.slice(-NURSERY_LEDGER_LIMITS.credits);
+                const keys=[...new Set([...this.active,...this.pending].map(row=>row.key))].slice(0,NURSERY_LEDGER_LIMITS.active*2);
+                if(keys.length){this.credits.push({count:delta,at:now,keys});this.credits=this.credits.slice(-NURSERY_LEDGER_LIMITS.credits);}
                 this.event('native-hatched',`游戏孵化计数增加 ${delta}，按蛋身份核对来源`,now);
             }
             if(native!==null&&native!==this.nativeHatched){this.nativeHatched=native;this.dirty=true;}
             if(JSON.stringify(current)!==JSON.stringify(this.active)){this.active=current;this.dirty=true;}
-            this.match(now);return this.snapshot();
+            this.match(now);this.reconcileHatchlings(s,now);return this.snapshot();
         }
         reset(s={},now=Date.now(),options={}){return this.baseline(s,Number.isFinite(now)&&now>=0?now:Date.now(),'manual',options);}
         markClean(){this.dirty=false;}

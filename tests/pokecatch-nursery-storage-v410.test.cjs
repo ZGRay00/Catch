@@ -43,6 +43,24 @@ test('new nursery keys cannot collide with legacy task-profile keys',()=>{
     const f=fixture();assert.notEqual(f.key,'pokecatch-helper:v1:nursery:nursery-store');assert.ok(f.key.startsWith(H.NURSERY_STORE_PREFIX));
 });
 
+test('history backfill uses hatchling evidence from the current decoded save and persists it exactly once',()=>{
+    const f=fixture(),source=new H.NurseryLedger(),at=Date.now(),unknown={build:'unknown-test-build'};
+    const egg={uid:'observed-egg',id:25,k:17,sp:2};
+    source.observe(f.s,at,unknown);
+    f.s.pension.eggs=[egg];source.observe(f.s,at+10,unknown);
+    f.s.pension.eggs=[];f.s.stats.hatched++;source.observe(f.s,at+20,unknown);
+    assert.equal(source.stats.unknownHatched,1);
+    f.data.set(f.key,JSON.stringify(source.serialize()));f.commit();
+    const hatchling={uid:egg.uid,id:25,ek:17,egg:true,shiny:true};
+    // A stale UI caller has an equally recent nursery but a different PC. Only the game save may prove the hatch.
+    f.e.nurseryMonitor.observe({...f.e.state,mons:[hatchling]});
+    assert.equal(f.e.nurseryMonitor.ledger.stats.unknownHatched,1);
+    f.s.mons=[hatchling];f.commit();
+    const persisted=JSON.parse(f.data.get(f.key));assert.equal(persisted.stats.unknownHatched,0);assert.equal(persisted.stats.shinyHatched,1);
+    assert.equal(persisted.stats.shinyObserved,1);assert.equal(persisted.segment.startedAt,at);
+    const again=new H.Engine(f.storage);again.loadAccount(f.s);again.read();assert.equal(again.nurseryMonitor.ledger.stats.shinyHatched,1);
+});
+
 test('an old game snapshot cannot roll a newer persisted nursery ledger back',()=>{
     const f=fixture();f.s.pension.eggs=[{uid:'flash',id:25,shiny:true}];f.commit();const old=f.e.state;
     f.s.pension.eggs=[];f.s.stats.hatched++;f.commit();const saved=f.data.get(f.key);
@@ -59,12 +77,15 @@ test('browser prediction requires a recognized game build while saved legacy fla
     try{
         for(const value of [[],['/boot.js'],['/bundle/app.abc123.js']]){srcs=value;const options=H.nurseryRuntimeOptions();assert.equal(options.build,'unverified:missing');assert.equal(H.eggOutcome({trainer:{id:1,since:2}},{uid:'x',k:1},options).known,false);}
         srcs=['/bundle/app.84beed0145.js'];assert.equal(H.nurseryRuntimeOptions().build,'c9b850cf68');
-        srcs=['/bundle/app.ac708615ae.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
+        srcs=['/bundle/app.ac708615ae.js'];assert.equal(H.nurseryRuntimeOptions().build,'a5299b1690');
+        srcs=['/bundle/app.c742526349.js'];assert.equal(H.nurseryRuntimeOptions().build,'c8fb8b2e96');
+        srcs=['https://pokecatch-online.pages.dev/bundle/app.0a7dcb2280.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
         srcs=['/bundle/app.0123456789.js'];assert.equal(H.nurseryRuntimeOptions().build,'unverified:0123456789');
         assert.equal(H.eggOutcome({}, {shiny:true},H.nurseryRuntimeOptions()).shiny,true);
         global.window.BUILD=H.NURSERY_RULES.build;
         assert.equal(H.nurseryRuntimeOptions().build,'unverified:0123456789');
-        srcs=['/bundle/app.ac708615ae.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
+        srcs=['/bundle/app.ac708615ae.js'];assert.equal(H.nurseryRuntimeOptions().build,'unverified:ac708615ae');
+        srcs=['/bundle/app.0a7dcb2280.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
         srcs.push('/bundle/app.84beed0145.js');assert.equal(H.nurseryRuntimeOptions().build,'unverified:mixed-bundles');
         srcs=[];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
     }finally{if(previousDocument===undefined)delete global.document;else global.document=previousDocument;if(previousWindow===undefined)delete global.window;else global.window=previousWindow;}

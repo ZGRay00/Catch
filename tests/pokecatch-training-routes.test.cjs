@@ -62,11 +62,11 @@ test('normal immunity uses the native typeless Struggle fallback in route diffic
 });
 
 test('two complete measured XP cycles supersede the type heuristic while live failure avoidance remains authoritative',()=>{
-    const {s,p}=fixture(),row=H.candidates(s,H.DEFAULTS,true).find(r=>r.id===7),key=H.metricsKey(s,row,H.DEFAULTS);
+    const now=1000,{s,p}=fixture(),row=H.candidates(s,H.DEFAULTS,true).find(r=>r.id===7),key=H.metricsKey(s,row,H.DEFAULTS,now);
     const metrics={[key]:{xp:2000000,xpSeconds:100,xpRuns:2,runs:2,net:1,seconds:100}};
-    let rows=routes(s,p,metrics,1000);assert.equal(rows[0].id,7);assert.equal(rows[0].rate,1200000);assert.equal(rows[0].measured,true);
-    p.avoid['7']=2000;rows=routes(s,p,metrics,1000);assert.ok(!rows.some(r=>r.id===7));
-    p.avoid={};p.routeCeiling=62;rows=routes(s,p,metrics,1000);assert.ok(!rows.some(r=>r.id===7));
+    let rows=routes(s,p,metrics,now);assert.equal(rows[0].id,7);assert.equal(rows[0].rate,1200000);assert.equal(rows[0].measured,true);
+    p.avoid['7']=2000;rows=routes(s,p,metrics,now);assert.ok(!rows.some(r=>r.id===7));
+    p.avoid={};p.routeCeiling=62;rows=routes(s,p,metrics,now);assert.ok(!rows.some(r=>r.id===7));
 });
 
 test('one measured cycle is blended with the battle model rather than being treated as certain',()=>{

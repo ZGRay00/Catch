@@ -1,8 +1,30 @@
     function ownedItems(s, id) { return (Number(s.items?.[id]) || 0) + (Number(s.link?.stash?.items?.[id]) || 0); }
     function itemCounter(s, id) { return s.stats?.itemIn && typeof s.stats.itemIn === 'object' ? Number(s.stats.itemIn[id]) || 0 : ownedItems(s, id); }
+    function purchaseEvidence(s,id,cost) {
+        const category=Object.hasOwn(DATA.automation.candies,id)?'candy':'shop';
+        return {category,cost,spendBefore:Number(s.stats?.spent?.[category])||0,walletBefore:s.money,
+            stock:Number(s.items?.[id])||0,in:itemCounter(s,id)};
+    }
+    function purchasePaid(s,tx) {
+        if(!Number.isSafeInteger(tx.cost)||tx.cost<=0)return false;
+        if(s.stats?.spent!=null){
+            const after=Number(s.stats.spent[tx.category]);
+            return Number.isFinite(after)&&Number.isFinite(tx.spendBefore)&&after-tx.spendBefore>=tx.cost;
+        }
+        return Number.isFinite(tx.walletBefore)&&Number.isFinite(s.money)&&tx.walletBefore-s.money>=tx.cost;
+    }
+    function purchaseConfirmed(s,tx) {
+        const received=itemCounter(s,tx.id)>(tx.in??tx.counter)||(Number(s.items?.[tx.id])||0)>tx.stock;
+        // Earlier checkpoints did not record the debit baseline. Reconcile them once using their original receipt.
+        return received&&(tx.cost===undefined||purchasePaid(s,tx));
+    }
     function purchasedQuantity(s, id, flow) {
         // Older task checkpoints recorded the starting inventory counter.
         return flow.resourcePurchased ?? Math.max(0, itemCounter(s,id) - (flow.resourceIn ?? itemCounter(s,id)));
+    }
+    function usedQuantity(s,id,flow) {
+        const out=Number(s.stats?.itemOut?.[id])||0;
+        return flow.resourceUsed??Math.max(0,out-(flow.resourceOut??out));
     }
     function ownsMon(s, id) {
         return [...s.mons || [], ...(s.pension?.mons || []).map(p => p.mon), ...s.link?.stash?.mons || [], ...(s.under?.slots || []).flatMap(slot => slot.mons || [])].some(mon => mon?.id === id);

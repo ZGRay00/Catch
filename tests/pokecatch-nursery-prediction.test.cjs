@@ -25,6 +25,24 @@ test('assigned eggs report saved, calculated or indeterminate outcomes independe
     assert.equal(H.eggOutcome(s, {k: 2}, future).rateVerified, false);
 });
 
+test('unreadable egg flags stay unknown across a ledger reload and a confirmed hatch', () => {
+    const options = {build: H.NURSERY_RULES.build};
+    for (const flag of ['shiny', 'sp', 'bx']) {
+        const s = state();
+        s.stats.hatched = 0;
+        const ledger = new H.NurseryLedger();
+        ledger.observe(s, 1000, options);
+        s.pension.eggs = [{uid: 'invalid-' + flag, id: 4, k: 1, [flag]: {bad: 1}}];
+        ledger.observe(s, 2000, options);
+        const restored = new H.NurseryLedger(JSON.parse(JSON.stringify(ledger.serialize())));
+        s.pension.eggs = [];
+        s.stats.hatched = 1;
+        const {stats} = restored.observe(s, 3000, options);
+        assert.equal(stats.unknownObserved, 1, flag);
+        assert.equal(stats.unknownHatched, 1, flag);
+    }
+});
+
 test('missing seed leaves only weighted next-egg odds for eligible parent slots', () => {
     const s = state();
     delete s.trainer;

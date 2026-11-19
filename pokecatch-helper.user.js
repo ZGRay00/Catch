@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.1.0
+// @version      5.1.4
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.1.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '5.1.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -447,10 +447,15 @@
         underRuns:1,underAutoStart:true,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
-        spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
+        autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;
+    const BUDGET_LIMITS = Object.freeze({spendBudget:1e12, dailySpendBudget:1e12, moneyReserve:1e12, useBudget:99999});
+    function budgetAmount(key, value) {
+        if (typeof value === 'string' && /^\d+$/.test(value.trim())) value = Number(value);
+        return Number.isSafeInteger(value) && value >= 0 && value <= BUDGET_LIMITS[key] ? value : null;
+    }
     function normalizeSettings(raw = {}, base = DEFAULTS) {
         // The original numeric setting always stored 1, even when the player had
         // never selected a floor. Preserve intentional non-default legacy limits.
@@ -458,6 +463,8 @@
         if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
+        // A missing switch belongs to a pre-switch profile. Only an explicit boolean can enable an imported switch.
+        if(Object.hasOwn(raw,'autoPurchase'))out.autoPurchase=raw.autoPurchase===true;
         // Public game buttons are ×1 (1) and ×3 (4). On the hosted game,
         // an old save with speed 2 advances at the highest supported speed <= 2.
         if(raw.speed===2||raw.speed==='2')out.speed=1;
@@ -467,7 +474,16 @@
             out[k] = clamp(raw[k], lo, hi, DEFAULTS[k]);
         }
         for (const key of ['legendTier', 'itemQuantity', 'trainLevel']) out[key] = Math.floor(out[key]);
-        for(const[k,lo,hi]of [['breedGoal',1,9999],['underRuns',1,999],['underFrom',1,300],['towerFloor',1,999],['towerRuns',1,100],['eliteTier',1,5],['worldActions',1,3],['resourceQuantity',1,99999],['spendBudget',0,1e12],['dailySpendBudget',0,1e12],['moneyReserve',0,1e12],['useBudget',0,99999],['progressUntil',0,DATA.chapters.at(-1).id]])out[k]=Math.floor(clamp(raw[k],lo,hi,DEFAULTS[k]));
+        for(const[k,lo,hi]of [['breedGoal',1,9999],['underRuns',1,999],['underFrom',1,300],['towerFloor',1,999],['towerRuns',1,100],['eliteTier',1,5],['worldActions',1,3],['resourceQuantity',1,99999],['progressUntil',0,DATA.chapters.at(-1).id]])out[k]=Math.floor(clamp(raw[k],lo,hi,DEFAULTS[k]));
+        let invalidCoinLimit = false;
+        for (const key of Object.keys(BUDGET_LIMITS)) {
+            if (!Object.hasOwn(raw,key)) continue;
+            const amount = budgetAmount(key,raw[key]);
+            if (amount !== null) out[key] = amount;
+            else if (key === 'useBudget') out.useBudget = 0;
+            else invalidCoinLimit = true;
+        }
+        if (invalidCoinLimit) out.spendBudget = 0;
         for(const[k,lo,hi]of [['prepareMargin',0,15],['prepareGap',0,20],['prepareIdleMinutes',2,30]])out[k]=Math.floor(clamp(raw[k],lo,hi,DEFAULTS[k]));
         out.candyFloor=Math.floor(clamp(raw.candyFloor,0,999,DEFAULTS.candyFloor));out.candyRuns=Math.floor(clamp(raw.candyRuns,1,30,DEFAULTS.candyRuns));
         if(MONS.has(+raw.breedId))out.breedId=+raw.breedId;
@@ -656,7 +672,7 @@
         for(const [key,uids]of Object.entries(s.eventTeams||{}))if(key!==`under:${ownBay}`&&Array.isArray(uids))uids.forEach(keep);
         for(const slot of s.under?.slots||[]){(slot.team||[]).forEach(keep);for(const mon of slot.mons||[])keep(mon.uid);}
         for(const run of [s.tower?.run,s.candy?.run,s.adv?.league]){for(const mon of run?.mons||[]){keep(mon.src);keep(mon.uid);}for(const uid of run?.team||[])keep(uid);}
-        if(e.settings?.mode==='breed')for(const mon of pensionPlan(s,e.settings.breedId).desired)keep(mon.uid);
+        if(e.settings?.mode==='breed')for(const mon of pensionPlan(s,e.settings.breedId,e.settings.breedShiny).desired)keep(mon.uid);
         const seen=new Set();
         return undergroundMembers(s,now).filter(mon=>!protectedUids.has(mon.uid)&&!seen.has(mon.uid)&&seen.add(mon.uid));
     }
@@ -728,7 +744,7 @@
         if(mode==='breed')return c.breedShiny?shinyOwned(s,c.breedId):(flow.hatched||0)>=c.breedGoal;
         if(mode==='underground')return(flow.underDone||0)>=c.underRuns;
         if(mode==='resource'){
-            const id=c.resourceItem,n=c.resourceAction==='buy'?purchasedQuantity(s,id,flow):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));
+            const id=c.resourceItem,n=c.resourceAction==='buy'?purchasedQuantity(s,id,flow):usedQuantity(s,id,flow);
             return n>=c.resourceQuantity;
         }
         if(mode==='candy')return!s.candy?.run&&!s.adv.tower&&(flow.candyDone||0)>=c.candyRuns;
@@ -750,7 +766,7 @@
         if(a.pending||a.battle&&!['eggs','underDispatch'].includes(service))return '等待当前战斗或选择结束';
         if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
         if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
-        if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
+        if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.pensionPurchase||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
         if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
         if(flow.worldResultAt!=null&&now-flow.worldResultAt<3000||typeof document!=='undefined'&&$$('#raid-root .wb-skip,.wb-recap,#raid-root .wb-spill').some(visible))return '等待世界首领攻击结算';
         return '';
@@ -947,19 +963,34 @@
             return{...row,expected,rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
     }
-    function pensionPlan(s,id){
+    function pensionPlan(s,id,shinyGoal=false){
         const residents=(s.pension?.mons||[]).map(x=>x?.mon).filter(Boolean),protectedUids=new Set([...(s.team||[]),...(s.road||[])]);
         const eligible=(s.mons||[]).filter(m=>!protectedUids.has(m.uid));
         const singles=new Set(),parents=[...residents,...eligible].filter(m=>breedableOffspring(s,m)===id).sort((a,b)=>Number(!!b.shiny)-Number(!!a.shiny)||b.level-a.level).filter(m=>{const key=DATA.combat.singles[m.id];if(!key)return true;if(singles.has(key))return false;singles.add(key);return true;});
         const ditto=residents.find(m=>m.id===132)||eligible.find(m=>m.id===132);
-        return{residents,ditto,parents,desired:ditto&&parents.length?[ditto,...parents.slice(0,3)]:[],missing:!ditto?'需要一只可寄养的百变怪':!parents.length?'没有可寄养的对应亲本；请先从冒险队伍移出亲本':null};
+        const shinyParents=shinyGoal?parents.filter(m=>m.shiny===true||m.shiny===1):[];
+        const preferred=shinyParents.length?shinyParents:parents;
+        return{residents,ditto,parents,desired:ditto&&preferred.length?[ditto,...preferred.slice(0,3)]:[],missing:!ditto?'需要一只可寄养的百变怪':!parents.length?'没有可寄养的对应亲本；请先从冒险队伍移出亲本':null};
     }
     function parsePrice(text){
-        const str=String(text||'').trim(),match=str.match(/([\d][\d\s\u00a0\u202f,.]*)([kKmMbB万亿]?)/);if(!match)return null;
-        const factor=({k:1e3,m:1e6,b:1e9,'万':1e4,'亿':1e8})[match[2].toLowerCase()]||1;
-        const raw=match[1].replace(/[\s\u00a0\u202f]/g,'');const decimalComma=!raw.includes('.')&&/,\d{1,2}$/.test(raw);
-        const n=factor===1?Number(raw.replace(/[,.]/g,'')):Number(decimalComma?raw.replace(',','.'):raw.replace(/,/g,''));
-        return Number.isFinite(n)&&n>=0?Math.ceil(n*factor):null;
+        const parts=String(text??'').normalize('NFKC').trim().split('₽');
+        if(parts.length>2||parts.length===2&&/\d/.test(parts[1]))return null;
+        // Native shop totals are localized integers. A slot-unlock button also has a translated label.
+        // With a currency marker, use the amount directly before it, even if the label contains a quantity.
+        const raw=parts[0].trim(),match=/(\d[\d., ]*?)\s*([kmb万亿]?)$/i.exec(raw);
+        if(!match||parts.length===1&&match.index!==0||/[\d.,+−-]\s*$/.test(raw.slice(0,match.index)))return null;
+        const token=match[1].trim(),suffix=match[2].toLowerCase();
+        const factor=({k:1e3,m:1e6,b:1e9,'万':1e4,'亿':1e8})[suffix]||1;
+        let numeric;
+        if(suffix&&/^(?:\d+|\d{1,3}(?:,\d{3})+)\.\d+$/.test(token)){
+            numeric=token.replace(/,/g,'');
+        }else if(/^\d+$/.test(token)||/^\d{1,3}([., ])\d{3}(?:\1\d{3})*$/.test(token)){
+            numeric=token.replace(/[., ]/g,'');
+        }else if(suffix&&/^\d+[,.]\d{1,2}$/.test(token)){
+            numeric=token.replace(',','.');
+        }else return null;
+        const value=Math.ceil(Number(numeric)*factor);
+        return Number.isSafeInteger(value)?value:null;
     }
     function normalizeJobs(raw) {
         const jobs = [], ids = new Set();
@@ -983,6 +1014,15 @@
         if(typeof input==='string'){if(input.length>2*1024*1024)throw new Error('配置文件超过2MB');input=JSON.parse(input.replace(/^\uFEFF/,''));}
         if(!input||input.format!=='pokecatch-helper-profile'||input.schema!==1||!Object.hasOwn(MODE_NAMES,input.settings?.mode))throw new Error('不是支持的助手配置文件');
         if(!Array.isArray(input.queue)||input.queue.length>50||input.queue.some(job=>!Object.hasOwn(MODE_NAMES,job?.settings?.mode)))throw new Error('任务队列格式无效或超过50项');
+        const budgets = [input.settings, ...input.queue.map(job => job.settings)];
+        const labels = {spendBudget:'本次支出上限', dailySpendBudget:'每日支出上限', moneyReserve:'金币保留额', useBudget:'道具使用上限'};
+        for (const [index,settings] of budgets.entries()) {
+            for (const key of Object.keys(BUDGET_LIMITS)) {
+                if (Object.hasOwn(settings,key) && budgetAmount(key,settings[key]) === null) {
+                    throw new Error(`${index ? '队列第 '+index+' 项' : '当前任务'}的${labels[key]}无效，请填写 0 至 ${BUDGET_LIMITS[key]} 的整数`);
+                }
+            }
+        }
         return configurationProfile({settings:input.settings,queue:input.queue});
     }
     function importConfigurationProfile(engine,input){
@@ -993,40 +1033,108 @@
         if(!engine.mayPersist())throw new Error('另一个标签页正在管理当前账号，暂不能导入');
         const profile=parseConfigurationProfile(input),before={settings:engine.settings,queue:engine.queue,queueIndex:engine.queueIndex,queueRunning:engine.queueRunning,checkpoint:engine.checkpoint};
         try{
-            engine.settings=profile.settings;engine.queue=profile.queue;engine.queueIndex=0;engine.queueRunning=false;engine.checkpoint=null;
+            engine.settings=engine.taskSettings(profile.settings);engine.queue=profile.queue;engine.queueIndex=0;engine.queueRunning=false;engine.checkpoint=null;
             if(engine.persist(false,false)===false)throw new Error('另一个标签页已接管，配置未导入');
         }catch(err){Object.assign(engine,before);throw err;}
         engine.teamCheck=null;engine.target=null;engine.visit=null;engine.preparation=null;engine.raidPreparation=null;
         engine.status=`配置已导入 · ${profile.queue.length}项待执行任务；点击开始后运行`;engine.log(engine.status);return profile;
     }
     function shinyOdds(s,options={},now=Date.now()){
-        const kind=options.kind||'wild',region=options.region||currentRegion(s),entry=DATA.regions.find(row=>row.key===region),range=entry?.dexRange;
-        const complete=!!range&&DATA.mons.filter(mon=>mon.id>=range[0]&&mon.id<=range[1]).every(mon=>!!s?.dex?.[mon.id]);
-        const multiplier=activeYieldBuff(s,'shiny',now)?.mult||1;
+        const kind=options.kind||'wild';
         if(kind==='egg'){
             const egg=options.egg||{};
-            if(Object.hasOwn(egg,'shiny'))return{kind,rate:egg.shiny?1:0,known:true,reason:'该旧蛋已保存异色标记'};
-            const parent=egg.sp?(Number(egg.sp)===2?1/16:.1):0;
-            return{kind,rate:Math.min(1,Math.max(1/512,parent)*(egg.bx?2:1)),known:false,reason:'蛋独立概率；不受地区图鉴或野外树果加成'};
+            if(Object.hasOwn(egg,'shiny')){
+                if(!nurseryFlag(egg.shiny))return{kind,rate:null,known:false,reason:'存档闪色标记待核对'};
+                return{kind,rate:egg.shiny?1:0,known:true,reason:'该蛋已保存闪色标记'};
+            }
+            return{kind,rate:nurseryEggRate(egg),known:false,reason:'产蛋概率由亲本和靛莓果决定'};
         }
         if(['legend','roam'].includes(kind))return{kind,rate:0,known:true,reason:'普通传说与游荡遭遇固定为普通色'};
         if(kind==='raid')return{kind,rate:1,known:true,reason:'每日异色团体战目标固定异色，捕获率另计'};
+        const region=options.region||currentRegion(s),entry=DATA.regions.find(row=>row.key===region),range=entry?.dexRange;
+        const complete=!!range&&DATA.mons.filter(mon=>mon.id>=range[0]&&mon.id<=range[1]).every(mon=>!!s?.dex?.[mon.id]);
+        const multiplier=activeYieldBuff(s,'shiny',now)?.mult||1;
         const rate=Math.min(1,1/2048*(complete?2:1)*(kind==='wild'?multiplier:1));
         return{kind,rate,known:false,region,complete,multiplier:kind==='wild'?multiplier:1,reason:kind==='underground'?'仅指地下化石结算机会，不是每一层':'野外遭遇概率，不等于最终捕获概率'};
     }
     class Budget{
         constructor(engine){this.e=engine;this.spent=0;this.used=0;}
+        purchaseBlock(cost=1){
+            const cfg=this.e.settings;
+            if((this.e.refreshAutoPurchase?.() ?? cfg.autoPurchase)===false)return'自动购买已关闭';
+            if(cfg.spendBudget===0)return'本次采购预算为 0';
+            if(this.spent+cost>cfg.spendBudget)return'本次采购预算不足';
+            return null;
+        }
+        purchaseSummary(s) {
+            const e = this.e, cfg = e.settings;
+            const enabled = (e.refreshAutoPurchase?.() ?? cfg.autoPurchase) !== false;
+            const sessionLeft = Math.max(0, cfg.spendBudget - (e.running || e.suspended ? this.spent : 0));
+            const sameAccount = !!e.account && !!s && accountId(s) === e.account;
+            const wallet = sameAccount ? Budget.counter(s.money) : null;
+            const walletLeft = wallet === null ? null : Math.max(0, wallet - cfg.moneyReserve);
+            const day = sameAccount ? this.day() : null;
+            const dailyLeft = cfg.dailySpendBudget && day && !day.invalid ? Math.max(0, cfg.dailySpendBudget - day.spent) : null;
+            let reason = null, available = null;
+            if (!enabled || sessionLeft === 0) {
+                available = 0;
+                reason = !enabled ? '自动购买已关闭' : cfg.spendBudget ? '本次采购预算已用尽' : '本次采购预算为 0';
+            } else if (walletLeft === null) {
+                reason = '当前地区金币余额无法确认';
+            } else if (day.invalid) {
+                reason = '每日消费记录不可识别，已暂停采购';
+            } else {
+                available = Math.min(sessionLeft, walletLeft, dailyLeft ?? Infinity);
+                if (available === 0) reason = walletLeft === 0 ? '当前余额已达金币保留额' : '达到每日金币消费上限';
+            }
+            return {enabled, available, sessionLeft, dailyLeft, walletLeft, reason};
+        }
         check(s,cost=0,uses=0){
-            const cfg=this.e.settings;if(cost==null||!Number.isFinite(cost)||cost<0)return'无法确认价格，未执行消费';
+            const cfg=this.e.settings;if(!Number.isSafeInteger(cost)||cost<0)return'无法确认价格，未执行消费';
+            if(!Number.isSafeInteger(uses)||uses<0)return'无法确认道具使用份数';
             if(uses>0&&this.used+uses>cfg.useBudget)return'达到本次道具使用预算';
             if(cost>0){
-                if(this.spent+cost>cfg.spendBudget)return'本次采购预算不足（0 表示不允许花钱）';
-                if((Number(s.money)||0)-cost<cfg.moneyReserve)return'消费后低于金币保留额';
+                const blocked=this.purchaseBlock(cost);if(blocked)return blocked;
+                const wallet=Budget.counter(s.money);
+                if(wallet===null)return'当前地区金币余额无法确认';
+                if(wallet-cost<cfg.moneyReserve)return'消费后低于金币保留额';
                 const day=this.day();if(day.invalid)return'每日消费记录不可识别，已暂停采购';if(cfg.dailySpendBudget&&day.spent+cost>cfg.dailySpendBudget)return'达到每日金币消费上限';
             }return null;
         }
-        day(){try{const raw=this.e.storage.getItem(PREFIX+'budget:'+this.e.account+':'+parisDay());if(raw===null)return{spent:0};const day=JSON.parse(raw);return day&&Number.isFinite(+day.spent)&&+day.spent>=0?{spent:+day.spent}:{spent:0,invalid:true};}catch{return{spent:0,invalid:true};}}
-        charge(cost=0,uses=0){if(cost){const day=this.day();if(day.invalid)throw new Error('每日消费记录不可识别，未执行消费');day.spent+=cost;this.e.storage.setItem(PREFIX+'budget:'+this.e.account+':'+parisDay(),JSON.stringify(day));}this.spent+=cost;this.used+=uses;}
+        static counter(value){
+            if(typeof value==='string'&&/^\d+$/.test(value))value=Number(value);
+            return Number.isSafeInteger(value)&&value>=0?value:null;
+        }
+        dayKey(){return PREFIX+'budget:'+this.e.account+':'+parisDay();}
+        day(key=this.dayKey()){
+            try{
+                const raw=this.e.storage.getItem(key);
+                if(raw===null)return{spent:0};
+                const spent=Budget.counter(JSON.parse(raw)?.spent);
+                if(spent!==null)return{spent};
+            }catch{}
+            return{spent:0,invalid:true};
+        }
+        charge(cost=0,uses=0){
+            const key=cost?this.dayKey():null;
+            if(key){
+                const blocked=this.purchaseBlock(cost);if(blocked)throw new Error(blocked);
+                const day=this.day(key);
+                if(day.invalid)throw new Error('每日消费记录不可识别，未执行消费');
+                if(this.e.settings.dailySpendBudget&&day.spent+cost>this.e.settings.dailySpendBudget)throw new Error('达到每日金币消费上限');
+                this.e.storage.setItem(key,JSON.stringify({spent:day.spent+cost}));
+            }
+            this.spent+=cost;this.used+=uses;
+            return{key,cost,uses};
+        }
+        cancelReservation({key,cost,uses}){
+            if(key){
+                const day=this.day(key);
+                if(day.invalid||day.spent<cost)throw new Error('每日消费记录发生变化，无法撤销预留');
+                this.e.storage.setItem(key,JSON.stringify({spent:day.spent-cost}));
+            }
+            this.spent-=cost;this.used-=uses;
+        }
     }
     function currentRegion(s) { return CHAPTERS.get(s?.adv?.chapter)?.reg || 'kanto'; }
     function combinedWalletMoney(s){
@@ -1115,9 +1223,13 @@
         for(const [candidate,weight]of weights)if((roll-=weight)<=0){key=candidate;break;}
         return{key,known:true,source:'natural',at};
     }
-    // Verified against public build a5299b1690 / app.ac708615ae.js.
+    // Public launcher builds paired with the hashed application bundles checked by the native nursery differentials.
     // These functions read decoded saves. They never consume a roll, save or game action.
-    const NURSERY_RULES = Object.freeze({build:'a5299b1690',compatibleBuilds:['0a26d39c19','c9b850cf68','a5299b1690'],
+    const NURSERY_BUILDS=Object.freeze({
+        '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
+        'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a'
+    });
+    const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze(Object.values(NURSERY_BUILDS)),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
         berryMultiplier:2,berry:'belue-berry',ditto:132,eggMs:14400000,hatchMs:14400000,maxEggs:4,
         noEgg:[137,442,479,47901,47902,47903,47904,47905,556],lays:{489:489,490:489}});
@@ -1141,7 +1253,11 @@
         const seed=nurserySeed(s);
         return seed===null||!Number.isSafeInteger(k)||k<0||!Number.isSafeInteger(draw)||draw<0?null:nurseryHash(`${seed}|egg|${k}|${draw}`);
     }
+    function nurseryFlag(value){return value===true||value===false||value===1||value===0;}
     function nurseryEggRate(egg={}){
+        // Native eggRate coerces old parent markers numerically; compact/imported eggs may carry "1" or "2".
+        if(!egg||typeof egg!=='object'||(Object.hasOwn(egg,'sp')&&!nurseryFlag(egg.sp)&&egg.sp!==2&&egg.sp!=='1'&&egg.sp!=='2')||
+            (Object.hasOwn(egg,'bx')&&!nurseryFlag(egg.bx)))return null;
         const parent=egg.sp?(Number(egg.sp)===2?NURSERY_RULES.parentRate:NURSERY_RULES.legacyParentRate):0;
         return Math.max(NURSERY_RULES.baseRate,parent)*(egg.bx?NURSERY_RULES.berryMultiplier:1);
     }
@@ -1171,10 +1287,15 @@
     }
     function eggOutcome(s,egg,options={}){
         const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
-        const unknown=reason=>({certainty:'unknown',known:false,shiny:null,rate:egg&&typeof egg==='object'?nurseryEggRate(egg):null,rateVerified:!unverified,source:'unknown',key:nurseryEggKey(s,egg),reason});
+        const rate=egg&&typeof egg==='object'?nurseryEggRate(egg):null,key=nurseryEggKey(s,egg);
+        const rateVerified=rate!==null&&!unverified;
+        const unknown=reason=>({certainty:'unknown',known:false,shiny:null,rate,rateVerified,source:'unknown',key,reason});
         if(!egg||typeof egg!=='object')return unknown('蛋数据不可用');
-        const rate=nurseryEggRate(egg),key=nurseryEggKey(s,egg);
-        if(Object.hasOwn(egg,'shiny'))return{certainty:'saved',known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,rateVerified:!unverified,source:'saved',key};
+        if(Object.hasOwn(egg,'shiny')){
+            if(!nurseryFlag(egg.shiny))return unknown('存档的蛋闪色标记无法识别');
+            return{certainty:'saved',known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,rateVerified,source:'saved',key};
+        }
+        if(rate===null)return unknown('存档的异色亲本或靛莓果标记无法识别');
         if(unverified)return unknown('当前游戏构建尚未核对确定性蛋规则');
         let roll,source;
         if(Number.isInteger(egg.k)){
@@ -1202,13 +1323,15 @@
             if(mon.id===NURSERY_RULES.ditto){hasDitto=true;continue;}
             const eggId = breedableOffspring(s, mon);
             if (eggId == null) continue;
+            if(Object.hasOwn(mon,'shiny')&&!nurseryFlag(mon.shiny))return{known:false,parents:[],hasDitto,reason:'可繁殖亲本的异色标记无法识别'};
             parents.push({id:mon.id,eggId,uid:mon.uid??null,shiny:!!mon.shiny,index,slot:index+1});
         }
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
     function nurseryForecast(s,options={}){
         const limit=Number.isFinite(+options.limit)?Math.max(1,Math.min(50000,Math.floor(+options.limit))):20000;
-        const pool=nurseryParentPool(s),pension=s?.pension,seed=nurserySeed(s),pendingBerry=!!pension?.bx;
+        const pool=nurseryParentPool(s),pension=s?.pension,seed=nurserySeed(s);
+        const berryKnown=!pension||!Object.hasOwn(pension,'bx')||nurseryFlag(pension.bx),pendingBerry=berryKnown?!!pension?.bx:null;
         const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
         let laid=pension?.laid,counterSource=null;
         if(Number.isSafeInteger(laid)&&laid>=0)counterSource='saved';
@@ -1220,7 +1343,7 @@
         }
         // Prior to drawing a parent, every eligible slot is equally likely, including
         // duplicate species. Ditto enables breeding but never contributes a shiny rate.
-        const nextRate=pool.known&&pool.hasDitto&&pool.parents.length?
+        const nextRate=berryKnown&&pool.known&&pool.hasDitto&&pool.parents.length?
             pool.parents.reduce((sum,parent)=>sum+nurseryEggRate({sp:parent.shiny?2:0,bx:pendingBerry}),0)/pool.parents.length:null;
         const result={certainty:'unavailable',known:false,active:false,build:NURSERY_RULES.build,counter:counterSource?laid:null,counterSource,
             nextRate,rateVerified:!unverified,
@@ -1230,6 +1353,7 @@
         const reject=reason=>({...result,reason});
         if(unverified&&!options.estimateUnverified)return reject('当前游戏构建尚未核对确定性蛋规则');
         if(!pool.known)return reject(pool.reason);
+        if(!berryKnown)return reject('待用靛莓果标记无法识别');
         if(seed===null)return reject('训练家 ID 或创建时间缺失，未使用空种子预测');
         if(result.counter===null)return reject('下一蛋序号缺失或异常，等待游戏自身初始化');
         if(!pool.hasDitto||!pool.parents.length)return reject(pool.reason);
@@ -1295,7 +1419,8 @@
             this.stats.plainHatched=Math.min(this.stats.plainHatched,this.stats.hatched-this.stats.shinyHatched);
             this.stats.unknownHatched=this.stats.hatched-this.stats.shinyHatched-this.stats.plainHatched;
             this.nativeHatched=Number.isFinite(saved.nativeHatched)&&saved.nativeHatched>=0?number(saved.nativeHatched):null;
-            this.segment={ordinal:number(saved.segment?.ordinal),startedAt:number(saved.segment?.startedAt),reason:typeof saved.segment?.reason==='string'?saved.segment.reason.slice(0,80):'initial',generation:typeof saved.segment?.generation==='string'?saved.segment.generation.slice(0,400):''};
+            const startedAt=saved.segment?.startedAt;
+            this.segment={ordinal:number(saved.segment?.ordinal),startedAt:Number.isSafeInteger(startedAt)&&startedAt>=0&&startedAt<=8.64e15?startedAt:null,reason:typeof saved.segment?.reason==='string'?saved.segment.reason.slice(0,80):'initial',generation:typeof saved.segment?.generation==='string'?saved.segment.generation.slice(0,400):''};
             this.active=[...new Map((Array.isArray(saved.active)?saved.active:[]).slice(0,limits.active).map(NurseryLedger.cleanRecord).filter(Boolean).map(row=>[row.key,row])).values()];
             this.pending=[...new Map((Array.isArray(saved.pending)?saved.pending:[]).slice(0,limits.pending).map(row=>{
                 const record=NurseryLedger.cleanRecord(row);return record&&Number.isFinite(row.at)&&row.at>=0?{...record,at:row.at}:null;
@@ -1306,6 +1431,14 @@
                 const record=NurseryLedger.cleanRecord(row);return record&&['hatched','unconfirmed'].includes(row.status)&&Number.isFinite(row.at)?{...record,status:row.status,at:Math.max(0,row.at)}:null;
             }).filter(Boolean);
             this.events=(Array.isArray(saved.events)?saved.events:[]).slice(0,limits.events).filter(row=>object(row)&&typeof row.type==='string'&&typeof row.text==='string'&&Number.isFinite(row.at)).map(row=>({sequence:number(row.sequence),segment:number(row.segment),at:Math.max(0,row.at),type:row.type.slice(0,80),text:row.text.slice(0,240)}));
+            // Older readers capped modern millisecond timestamps at 10^12 when restoring counters.
+            // Baseline events retained the original timestamp. A later event cannot date the start.
+            if(this.initialized&&(this.segment.startedAt===1e12||this.segment.startedAt===null)){
+                const start=this.events.find(event=>event.segment===this.segment.ordinal&&['baseline','segment-reset'].includes(event.type)
+                    &&Number.isSafeInteger(event.at)&&event.at>=0&&event.at<=8.64e15);
+                this.segment.startedAt=start?.at??null;
+                if(this.segment.startedAt!==startedAt)this.dirty=true;
+            }
         }
         static emptyStats(){return{eggsObserved:0,shinyObserved:0,plainObserved:0,unknownObserved:0,hatched:0,shinyHatched:0,plainHatched:0,unknownHatched:0,unconfirmedDisappearances:0};}
         static cleanRecord(row){
@@ -1317,7 +1450,12 @@
         static eggEvidence(egg){
             const out={};for(const key of ['uid','id','k','sp','bx','laidAt','hatchAt','reg','shiny']){
                 const value=egg[key];if(Object.hasOwn(egg,key)&&(value===null||['string','number','boolean'].includes(typeof value)))out[key]=typeof value==='string'?value.slice(0,240):value;
-            }return out;
+            }
+            // Absence has a native default. An unreadable flag must stay unknown after a reload.
+            for(const flag of ['shiny','sp','bx']){
+                if(Object.hasOwn(egg,flag)&&!Object.hasOwn(out,flag))out[flag]=null;
+            }
+            return out;
         }
         static generation(s){
             const t=s?.trainer||{},scalar=value=>['string','number'].includes(typeof value)?String(value).slice(0,180):'';
@@ -1373,25 +1511,54 @@
             if(credits.length!==this.credits.length){this.credits=credits;this.dirty=true;}
         }
         match(now){
-            const count=this.credits.reduce((sum,row)=>sum+row.count,0);
-            if(!this.pending.length||count!==this.pending.length)return;
-            // Perfect matching prevents a counter written before a newly observed egg from
-            // being attributed to that later egg. Counts without enough identity evidence stay unknown.
-            const tickets=this.credits.flatMap(row=>Array.from({length:row.count},()=>new Set(row.keys))),assigned=new Map();
-            const visit=(key,visited)=>{
-                for(let i=0;i<tickets.length;i++)if(tickets[i].has(key)&&!visited.has(i)){
-                    visited.add(i);if(!assigned.has(i)||visit(assigned.get(i),visited)){assigned.set(i,key);return true;}
-                }return false;
+            if(!this.pending.length||!this.credits.length)return;
+            const pendingKeys=new Set(this.pending.map(row=>row.key));
+            const credits=this.credits.filter(credit=>credit.keys.some(key=>pendingKeys.has(key)));
+            const count=credits.reduce((sum,row)=>sum+row.count,0);
+            if(count!==this.pending.length)return;
+            // A counter increment can confirm only eggs whose identity was already observed.
+            // Counters unrelated to these departures remain available for their original candidates.
+            const tickets=credits.flatMap(row=>Array.from({length:row.count},()=>new Set(row.keys))),assigned=new Map();
+            const assign=(key,used)=>{
+                for(let i=0;i<tickets.length;i++)if(tickets[i].has(key)&&!used.has(i)){
+                    used.add(i);
+                    if(!assigned.has(i)||assign(assigned.get(i),used)){assigned.set(i,key);return true;}
+                }
+                return false;
             };
-            if(!this.pending.every(row=>visit(row.key,new Set())))return;
-            let shiny=0,plain=0,unknown=0;
+            if(!this.pending.every(row=>assign(row.key,new Set())))return;
+            let shiny=0,plain=0;
             for(const row of this.pending){
-                if(row.known&&row.shiny)shiny++;else if(row.known)plain++;else unknown++;
+                if(row.known&&row.shiny)shiny++;else if(row.known)plain++;
                 this.record(row,'hatched',now);
             }
             this.stats.shinyHatched+=shiny;this.stats.plainHatched+=plain;this.stats.unknownHatched=this.stats.hatched-this.stats.shinyHatched-this.stats.plainHatched;
-            this.pending=[];this.credits=[];
+            this.pending=[];this.credits=this.credits.filter(credit=>!credits.includes(credit));
+            const unknown=count-shiny-plain;
             this.event('hatch-confirmed',`已核对孵化 ${count} 枚：异色 ${shiny}、普通 ${plain}${unknown?'、结果未知 '+unknown:''}`,now);
+        }
+        reconcileHatchlings(s,now){
+            if(!this.stats.unknownHatched)return;
+            const rows=this.recent.filter(row=>row.status==='hatched'&&!row.known&&row.source!=='duplicate'&&row.uid
+                &&Number.isSafeInteger(row.egg?.k)&&row.egg.k>=0);
+            if(!rows.length)return;
+            // Native hatchEgg copies the egg UID and serial to an actual hatchling. Duplicates
+            // can pay candy instead, and a previous PC UID collision creates a different UID.
+            const uids=new Set(rows.map(row=>row.uid)),members=new Map();
+            for(const mon of collectionMembers(s)){
+                if(!uids.has(mon.uid))continue;
+                members.set(mon.uid,members.has(mon.uid)?null:mon);
+            }
+            let confirmed=0;
+            for(const row of rows){
+                const mon=members.get(row.uid);
+                if(!this.stats.unknownHatched||mon?.egg!==true||mon.ot||mon.ek!==row.egg.k||typeof mon.shiny!=='boolean')continue;
+                row.known=true;row.shiny=mon.shiny;row.source='hatched-mon';
+                this.refineObservation(row);
+                if(mon.shiny)this.stats.shinyHatched++;else this.stats.plainHatched++;
+                this.stats.unknownHatched--;confirmed++;
+            }
+            if(confirmed)this.event('hatch-evidence',`已按孵出个体的蛋身份与编号补全 ${confirmed} 枚闪色记录`,now);
         }
         observe(s,now=Date.now(),options={}){
             if(!s||typeof s!=='object'||Array.isArray(s))return this.snapshot();
@@ -1433,13 +1600,13 @@
             }
             if(native!==null&&this.nativeHatched!==null&&native>this.nativeHatched){
                 const delta=native-this.nativeHatched;this.stats.hatched+=delta;this.stats.unknownHatched=this.stats.hatched-this.stats.shinyHatched-this.stats.plainHatched;
-                const keys=[...new Set([...this.active,...current,...this.pending].map(row=>row.key))].slice(0,NURSERY_LEDGER_LIMITS.active*2);
-                this.credits.push({count:delta,at:now,keys});this.credits=this.credits.slice(-NURSERY_LEDGER_LIMITS.credits);
+                const keys=[...new Set([...this.active,...this.pending].map(row=>row.key))].slice(0,NURSERY_LEDGER_LIMITS.active*2);
+                if(keys.length){this.credits.push({count:delta,at:now,keys});this.credits=this.credits.slice(-NURSERY_LEDGER_LIMITS.credits);}
                 this.event('native-hatched',`游戏孵化计数增加 ${delta}，按蛋身份核对来源`,now);
             }
             if(native!==null&&native!==this.nativeHatched){this.nativeHatched=native;this.dirty=true;}
             if(JSON.stringify(current)!==JSON.stringify(this.active)){this.active=current;this.dirty=true;}
-            this.match(now);return this.snapshot();
+            this.match(now);this.reconcileHatchlings(s,now);return this.snapshot();
         }
         reset(s={},now=Date.now(),options={}){return this.baseline(s,Number.isFinite(now)&&now>=0?now:Date.now(),'manual',options);}
         markClean(){this.dirty=false;}
@@ -1455,12 +1622,11 @@
         const declared=typeof window!=='undefined'&&typeof window.BUILD==='string'?window.BUILD:'';
         const scripts=[...(document.querySelectorAll?.('script[src]')||[])];
         const hashes=new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
-        const builds={'6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690'};
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
         if(!hashes.size)return{build:declared||'unverified:missing'};
         const [bundle]=hashes;
-        if(declared&&declared!==builds[bundle])return{build:'unverified:'+bundle};
-        return{build:builds[bundle]||'unverified:'+bundle};
+        if(declared&&declared!==NURSERY_BUILDS[bundle])return{build:'unverified:'+bundle};
+        return{build:NURSERY_BUILDS[bundle]||'unverified:'+bundle};
     }
     class NurseryMonitor {
         constructor(engine){this.e=engine;this.account=null;this.key=null;this.raw=null;this.ledger=new NurseryLedger();this.error='';}
@@ -1476,7 +1642,7 @@
             if(this.e.raw!==null&&this.e.raw!==undefined&&this.e.storage.getItem(SAVE_KEY)!==this.e.raw)return false;
             if(!this.e.state||s===this.e.state)return true;
             const stamp=value=>JSON.stringify([value?.trainer?.id,value?.trainer?.since,value?.stats?.hatched,
-                (value?.pension?.eggs||[]).map(egg=>[egg?.uid,egg?.id,egg?.k,egg?.sp,egg?.bx,egg?.laidAt,egg?.hatchAt,Object.hasOwn(egg||{},'shiny')?!!egg.shiny:null])]);
+                (value?.pension?.eggs||[]).map(egg=>[egg?.uid,egg?.id,egg?.k,egg?.sp,egg?.bx,egg?.laidAt,egg?.hatchAt,Object.hasOwn(egg||{},'shiny')?[egg.shiny]:[]])]);
             return stamp(s)===stamp(this.e.state);
         }
         observe(s,now=Date.now()){
@@ -1487,7 +1653,9 @@
                     const raw=this.e.storage.getItem(this.key);if(raw!==this.raw)this.restore(raw);
                     if(!this.fresh(s)){this.error='游戏存档已更新，等待最新状态再核对蛋统计';return this.ledger.snapshot();}
                     const before=this.ledger.stats.shinyObserved;
-                    this.ledger.observe(s,now,options);
+                    // A caller may still hold an equivalent nursery snapshot from a previous
+                    // read. Use the latest decoded save for matching actual hatched members.
+                    this.ledger.observe(this.e.raw!=null&&this.e.state?this.e.state:s,now,options);
                     if(!this.ledger.dirty){this.error='';return this.ledger.snapshot();}
                     if(!this.e.mayPersist())return this.ledger.snapshot();
                     // Re-read before saving so another tab's newer ledger is reloaded and reconciled.
@@ -2614,9 +2782,31 @@
     }
     function ownedItems(s, id) { return (Number(s.items?.[id]) || 0) + (Number(s.link?.stash?.items?.[id]) || 0); }
     function itemCounter(s, id) { return s.stats?.itemIn && typeof s.stats.itemIn === 'object' ? Number(s.stats.itemIn[id]) || 0 : ownedItems(s, id); }
+    function purchaseEvidence(s,id,cost) {
+        const category=Object.hasOwn(DATA.automation.candies,id)?'candy':'shop';
+        return {category,cost,spendBefore:Number(s.stats?.spent?.[category])||0,walletBefore:s.money,
+            stock:Number(s.items?.[id])||0,in:itemCounter(s,id)};
+    }
+    function purchasePaid(s,tx) {
+        if(!Number.isSafeInteger(tx.cost)||tx.cost<=0)return false;
+        if(s.stats?.spent!=null){
+            const after=Number(s.stats.spent[tx.category]);
+            return Number.isFinite(after)&&Number.isFinite(tx.spendBefore)&&after-tx.spendBefore>=tx.cost;
+        }
+        return Number.isFinite(tx.walletBefore)&&Number.isFinite(s.money)&&tx.walletBefore-s.money>=tx.cost;
+    }
+    function purchaseConfirmed(s,tx) {
+        const received=itemCounter(s,tx.id)>(tx.in??tx.counter)||(Number(s.items?.[tx.id])||0)>tx.stock;
+        // Earlier checkpoints did not record the debit baseline. Reconcile them once using their original receipt.
+        return received&&(tx.cost===undefined||purchasePaid(s,tx));
+    }
     function purchasedQuantity(s, id, flow) {
         // Older task checkpoints recorded the starting inventory counter.
         return flow.resourcePurchased ?? Math.max(0, itemCounter(s,id) - (flow.resourceIn ?? itemCounter(s,id)));
+    }
+    function usedQuantity(s,id,flow) {
+        const out=Number(s.stats?.itemOut?.[id])||0;
+        return flow.resourceUsed??Math.max(0,out-(flow.resourceOut??out));
     }
     function ownsMon(s, id) {
         return [...s.mons || [], ...(s.pension?.mons || []).map(p => p.mon), ...s.link?.stash?.mons || [], ...(s.under?.slots || []).flatMap(slot => slot.mons || [])].some(mon => mon?.id === id);
@@ -3581,6 +3771,20 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
+    function shopOffer(el) {
+        const id=el.dataset.id,buy=el.querySelector('.buy'),one=el.querySelector('[data-n="1"]');
+        const selected=el.querySelector('[data-n].on')?.dataset.n;
+        const batch=!!one||selected!=null||DATA.automation.shop.some(row=>row.id===id&&row.qty);
+        const single=!batch||!!one&&one.classList.contains('on')&&(selected==null||selected==='1');
+        const total=parsePrice(batch?el.querySelector('.total')?.textContent:buy?.textContent);
+        // Native Max prefixes its unit price with the current quantity, e.g. "×8 · 200 ₽ l'unité".
+        const unitText=el.querySelector('.unit')?.textContent?.split('·').at(-1);
+        const unit=parsePrice(unitText),count=Number(selected);
+        let cost=single?total:unit;
+        if(single&&unit!=null&&unit!==total)cost=null;
+        if(!single&&cost==null&&Number.isSafeInteger(count)&&count>0&&total!=null)cost=total/count;
+        return {el,id,buy,one,single,cost:Number.isSafeInteger(cost)&&cost>0?cost:null};
+    }
     function raidText(french,chinese){
         const lang=document.documentElement?.lang,dictionary=globalThis.window?.I18N;
         if(!lang||lang==='fr')return french;
@@ -4191,6 +4395,24 @@
         const event=s.adv.pending||s.adv.nodes?.[s.adv.node];
         return event?.type==='gift'&&event.gift?.key===starter.key;
     }
+    function resourceButtons(card,id) {
+        return [...card.querySelectorAll('.dc-candy,.item-actions .btn')].filter(el=>
+            [...el.querySelectorAll('img')].some(img=>(img.getAttribute('src')||'').includes('/'+id+'.')));
+    }
+    function resourceRecipientBlock(s,mon,id) {
+        if(!mon)return '道具使用对象不存在，请选择成员';
+        if(s.link?.side==='from'&&monRegion(mon)===s.link.to)return '当前地区的背包不能供该成员使用，请切换至成员所在地区';
+        if(DATA.automation.candies[id]||id==='rare-candy'){
+            return mon.level>=trainingCap(s,mon)?'目标成员已达到当前等级上限':null;
+        }
+        if(id==='link-cable')return '连接绳进化需要在游戏内交换';
+        if(!(EVOLUTION_DATA.rules[mon.id]||[]).some(rule=>rule.item===id))return '所选成员的当前形态无法使用此道具';
+        if(mon.rank>0)return '已升阶成员无法使用进化道具';
+        return null;
+    }
+    function resourcePreviewKey(s,mon,id,now) {
+        return JSON.stringify([mon.uid,mon.id,id,s.adv.chapter,s.adv.unlocked,s.link?.side,phaseAt(s,now)]);
+    }
     class Automation {
         get buddyTask(){return this.state.buddyTask||null;}
         set buddyTask(value){if(value)this.state.buddyTask=value;else delete this.state.buddyTask;}
@@ -4199,14 +4421,28 @@
         get buffRetry(){return this.state.buffRetry||={};}
         set buffRetry(value){this.state.buffRetry=value||{};}
         constructor(engine){this.e=engine;this.state={};this.owner=null;this.lastService=0;}
-        begin(s){this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
+        begin(s){this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
         wait(text,at){this.e.status=text;this.e.lastProgress=Date.now();this.e.nextWake=at||null;}
         fail(text){this.e.failTask(text);}
         done(text){this.e.completeTask(text);}
         spentClick(el,s,cost,uses,label){
             const e=this.e,d=e.driver;if(!enabled(el)||!e.running||e.manual||pageHidden()||Date.now()-d.lastClick<700)return false;
+            if(!e.mayPersist())return false;
             const why=e.budget.check(s,cost,uses);if(why){this.fail(why);return false;}
-            e.budget.charge(cost,uses);e.persist();return d.click(el,label);
+            let reservation,saved;
+            try{reservation=e.budget.charge(cost,uses);saved=e.persist();}
+            catch(error){
+                if(reservation)e.budget.cancelReservation(reservation);
+                e.status='消费记录保存失败，未执行操作：'+error.message;e.log(e.status);
+                return false;
+            }
+            if(saved===false){e.budget.cancelReservation(reservation);return false;}
+            // false is the driver's guarantee that the native action was never invoked.
+            // If dispatch throws or the game's receipt is delayed, keep the reservation.
+            if(d.click(el,label)!==false)return true;
+            e.budget.cancelReservation(reservation);
+            e.persist();
+            return false;
         }
         own(kind,selector,extra={}){this.owner={kind,selector,started:Date.now(),...extra};}
         snapshotOwner(){const o=this.owner;return o?{kind:o.kind,selector:o.selector,uid:o.uid,reg:o.reg,match:o.match?.source}:null;}
@@ -4596,6 +4832,17 @@
         }
         breed(s,now){
             const e=this.e,cfg=e.settings,d=e.driver,p=s.pension||{},eggs=p.eggs||[];
+            const slots=Math.max(1,Number(p.open?.slots)||0,p.mons?.length||0);
+            const expansion=this.state.pensionPurchase;
+            if(expansion){
+                if(slots>expansion.slots&&purchasePaid(s,expansion)){
+                    delete this.state.pensionPurchase;e.persist();
+                }else{
+                    if(now-expansion.at<10000)this.wait('等待游戏确认寄养位扩容和金币扣款');
+                    else this.fail('寄养位扩容未确认，已暂停以避免重复扣款');
+                    return;
+                }
+            }
             if(this.state.hatch&&eggs.some(x=>x.uid===this.state.hatch.uid)){
                 this.state.hatch.at??=now;
                 if(now-this.state.hatch.at<15000){this.wait('等待孵蛋存档确认');return;}
@@ -4618,22 +4865,26 @@
             if(this.state.hatchRetryAt>now){this.wait('等待孵蛋重试',this.state.hatchRetryAt);return;}
             const targetEggs=eggs.filter(egg=>egg.id===cfg.breedId);
             const outstanding=cfg.breedGoal-(this.state.hatched||0);
+            const rules=cfg.breedShiny&&targetEggs.length?nurseryRuntimeOptions():null;
+            const confirmedShiny=rules?targetEggs.filter(egg=>eggOutcome(s,egg,rules).shiny===true):[];
+            const covered=cfg.breedShiny?confirmedShiny.length>0:targetEggs.length>=outstanding;
+            const waitLabel=confirmedShiny.length?'已确认目标闪蛋，等待孵化':`等待已有目标蛋孵化 · ${targetEggs.length} 枚`;
             // No parent changes are needed to meet this target. A native ready
             // button on an already-visible daycare still takes precedence over our clock.
-            if(!cfg.breedShiny&&targetEggs.length>=outstanding&&eggs.every(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>now)&&!readyBackgroundEggs(s,now).length){
-                this.wait(`等待已有目标蛋孵化 · ${targetEggs.length} 枚`,Math.min(...eggs.map(egg=>egg.hatchAt)));return;
+            if(covered&&eggs.every(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>now)&&!readyBackgroundEggs(s,now).length){
+                this.wait(waitLabel,Math.min(...eggs.map(egg=>egg.hatchAt)));return;
             }
             if(!this.page('pension'))return;
             const readyButtons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled);
             const buttonFor=egg=>readyButtons.find(el=>el.dataset.egg===String(egg.uid));
-            const egg=targetEggs.find(buttonFor)||eggs.find(buttonFor);
+            const egg=confirmedShiny.find(buttonFor)||targetEggs.find(buttonFor)||eggs.find(buttonFor);
             if(egg){this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
-            const plan=pensionPlan(s,cfg.breedId);
-            if(targetEggs.length&&(plan.missing||!cfg.breedShiny&&targetEggs.length>=outstanding)){
+            const plan=pensionPlan(s,cfg.breedId,cfg.breedShiny);
+            if(targetEggs.length&&(plan.missing||covered)){
                 const next=Math.min(...eggs.map(egg=>Number(egg.hatchAt)||now+60000));
-                this.wait(`等待已有目标蛋孵化 · ${targetEggs.length} 枚`,Math.max(now+1200,next));return;
+                this.wait(waitLabel,Math.max(now+1200,next));return;
             }
             if(plan.missing){
                 const all=s.mons||[];
@@ -4646,12 +4897,18 @@
                 if([parent?.uid,ditto?.uid].some(uid=>uid&&s.road?.includes(uid)&&!s.team?.includes(uid))){this.wait('亲本已移出计划队伍，等待下个治疗点更新行进队伍');return;}
                 this.fail(plan.missing);return;
             }
-            const open=Math.max(1,p.open?.slots||plan.residents.length),desired=plan.desired.slice(0,Math.max(2,open));
+            const open=slots,desired=plan.desired.slice(0,Math.max(2,open));
             if(open<2){
                 if(!cfg.pensionExpand){this.fail('繁殖需要至少两个寄养位；请解锁寄养位，或开启自动扩容并设置预算');return;}
+                const blocked=e.budget.purchaseBlock();if(blocked){this.fail('寄养位扩容需要金币：'+blocked);return;}
                 const tab=$('#pen-tabs [data-pen-tab="res"]');if(enabled(tab)&&!tab.classList.contains('on')){d.click(tab,'打开寄养位');return;}
-                const buy=$('#pen-res .buy button');if(!enabled(buy)){this.fail('当前寄养位尚未解锁或金币不足');return;}
-                this.spentClick(buy,s,parsePrice(buy.textContent),0,'扩容寄养位');return;
+                const buy=$('#pen-res .buy button');if(!visible(buy)){this.fail('当前寄养位尚未开放购买');return;}
+                const cost=parsePrice(buy.textContent);
+                if(!(cost>0)){this.fail('无法确认寄养位的金币价格');return;}
+                if(!enabled(buy)){this.fail(e.budget.check(s,cost)||'游戏暂未开放该寄养位的购买按钮');return;}
+                this.state.pensionPurchase={category:'pension',slots,cost,spendBefore:Number(s.stats?.spent?.pension)||0,walletBefore:s.money,at:now};
+                if(!this.spentClick(buy,s,cost,0,'扩容寄养位')){delete this.state.pensionPurchase;e.persist();}
+                return;
             }
             const missing=desired.find(m=>!plan.residents.some(r=>r.uid===m.uid));
             if(missing){
@@ -4988,56 +5245,82 @@
         }
         resource(s,now){
             if(this.resourcePending(s,now))return;
-            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0),bought=purchasedQuantity(s,id,this.state);
+            const cfg=this.e.settings,id=cfg.resourceItem,used=usedQuantity(s,id,this.state),bought=purchasedQuantity(s,id,this.state);
             if(cfg.resourceAction==='buy'&&bought>=cfg.resourceQuantity){this.done('道具采购目标已完成');return;}
             if(cfg.resourceAction!=='buy'&&used>=cfg.resourceQuantity){
                 const close=$('#modal-root.open .mon-modal .dc-x');if(enabled(close)){this.e.driver.click(close,'关闭已完成的道具使用面板');this.owner=null;return;}
                 this.done('道具使用目标已完成');return;
             }
-            if(cfg.resourceAction==='buy'||cfg.resourceAction==='buyUse'&&!(s.items?.[id]>0))return this.buy(s,id);
-            if(!(s.items?.[id]>0)){this.fail('背包中没有目标道具；可选择“购买后使用”');return;}
-            if(DATA.automation.buffs[id])return this.buff(s,id);
+            if(cfg.resourceAction==='buy')return this.buy(s,id);
+            const stocked=s.items?.[id]>0;
+            if(!stocked&&cfg.resourceAction==='use'){this.fail('背包中没有目标道具');return;}
+            const why=this.e.budget.check(s,0,1)||(!stocked&&this.e.budget.purchaseBlock());
+            if(why){this.fail(why);return;}
+            if(DATA.automation.buffs[id])return stocked?this.buff(s,id):this.buy(s,id);
             const uid=cfg.useUid||(s.team||[])[0],mon=s.mons.find(m=>m.uid===uid);
-            if(!mon){this.fail('道具使用对象不存在，请选择成员');return;}
+            const blocked=resourceRecipientBlock(s,mon,id);
+            if(blocked){this.fail(blocked);return;}
+            let preview=null;
+            if(!stocked){
+                if(DATA.automation.candies[id]||id==='rare-candy')return this.buy(s,id);
+                preview=resourcePreviewKey(s,mon,id,now);
+                if(this.resourcePreview?.key===preview&&this.resourcePreview.until>=now)return this.buy(s,id);
+            }
             if(!this.page('team'))return;
             let card=$$('#team-slots [data-uid]').find(el=>el.dataset.uid===uid);
             if(!card){const cards=this.pcSearch(mon.id,'#pc-grid');if(!cards)return;card=cards.find(el=>el.dataset.uid===uid);}
             if(!card){this.wait('等待道具使用对象出现在PC');return;}
-            if(this.e.driver.click(card,'打开道具使用对象'))this.own('mon','.mon-modal',{uid});
+            if(this.e.driver.click(card,preview?'购买前核对目标成员的进化条件':'打开道具使用对象'))this.own('mon','.mon-modal',{uid,preview});
         }
         buy(s,id){
             if(this.resourcePending(s,Date.now()))return;
-            const e=this.e,d=e.driver;if(!this.page('shop'))return;
+            const e=this.e,d=e.driver;
+            const blocked=e.budget.purchaseBlock();if(blocked){this.fail(blocked);return;}
+            if(!this.page('shop'))return;
             const section=$('#shop-grid [data-sh-sec="shop"]:not(.active)');if(enabled(section)){d.click(section,'打开金币商店');return;}
             const buyTab=$('#shop-grid [data-sh-mode="buy"]:not(.on)');if(enabled(buyTab)){d.click(buyTab,'切换购买');return;}
-            const item=$$('#shop-grid .sh-item[data-id]').find(el=>el.dataset.id===id);
+            const cards=$$('#shop-grid .sh-item[data-id]');
+            if(!cards.length){
+                this.state.shopLoadTries=(this.state.shopLoadTries||0)+1;
+                if(this.state.shopLoadTries<12)this.wait('等待金币商店载入商品');
+                else{delete this.state.shopLoadTries;this.fail('金币商店未显示商品，请检查商店页面后继续');}
+                return;
+            }
+            delete this.state.shopLoadTries;
+            const item=cards.find(el=>el.dataset.id===id);
             if(!item||item.classList.contains('locked')){
                 const row=EVOLUTION_SHOP.get(id);
                 this.fail(row&&evolutionShopLocked(s,row)?evolutionPurchaseReason(s,row):'目标道具未在当前金币商店解锁');return;
             }
-            const one=item.querySelector('[data-n="1"]');if(enabled(one)&&!one.classList.contains('on')){d.click(one,'将购买数量限制为一份');return;}
-            const buy=item.querySelector('.buy'),cost=parsePrice(item.querySelector('.total')?.textContent||buy?.textContent);
-            if(visible(buy)&&buy.disabled){this.fail('当前金币不足或该商品暂不可购买');return;}
+            const {one,single,buy,cost}=shopOffer(item);
+            if(!single){
+                if(enabled(one)&&!one.classList.contains('on')){d.click(one,'将购买数量限制为一份');return;}
+                this.fail('无法确认商品的单份数量，已暂停采购');return;
+            }
+            if(cost==null){this.fail('无法确认商品单价，已暂停采购');return;}
+            if(!enabled(buy)){this.fail(e.budget.check(s,cost)||'游戏商店的购买按钮暂不可用');return;}
             this.resourceSpend(buy,s,id,'buy',cost,0,'购买目标道具');
         }
         resourcePending(s,now=Date.now()){
-            const tx=this.state.resourceTx;if(!tx)return false;
+            const tx=this.state.resourceTx||this.state.resourceBuffTx;if(!tx)return false;
             const stock=Number(s.items?.[tx.id])||0,out=Number(s.stats?.itemOut?.[tx.id])||0;
-            const received=itemCounter(s,tx.id)>tx.in||stock>tx.stock;
-            // Old pending orders lack a debit snapshot. New ones prefer the native
-            // spending ledger, which remains reliable while adventure awards money.
-            const paid=tx.cost==null||(s.stats?.spent
-                ? (Number(s.stats.spent[tx.category])||0)-tx.spendBefore>=tx.cost
-                : tx.walletBefore-s.money>=tx.cost);
-            const confirmed=tx.kind==='buy'?received&&paid:out>tx.out||stock<tx.stock;
+            const buff=tx===this.state.resourceBuffTx?s.buffs?.[tx.family]:null;
+            const confirmed=tx.kind==='buy'?purchaseConfirmed(s,tx):out>tx.out||stock<tx.stock||
+                buff?.key===tx.id&&activeYieldBuff(s,tx.family,now)&&(Number(buff.until)||0)>tx.until;
             if(confirmed){
                 if(tx.kind==='buy'&&this.state.resourcePurchased!=null)this.state.resourcePurchased++;
-                delete this.state.resourceTx;
+                if(tx.kind!=='buy'){
+                    const before=this.state.resourceUsed??Math.max(0,tx.out-(this.state.resourceOut??tx.out));
+                    this.state.resourceUsed=before+1;
+                }
+                if(tx===this.state.resourceBuffTx)delete this.state.resourceBuffTx;
+                else delete this.state.resourceTx;
                 this.e.persist();
                 return false;
             }
-            if(now-tx.at<10000)this.wait(tx.kind==='buy'?'等待目标道具购买到账确认':'等待目标道具使用确认');
-            else this.fail(tx.kind==='buy'?'目标道具购买未确认，已暂停以避免重复采购':'目标道具使用未确认，已暂停以避免重复消耗');
+            const item=tx===this.state.resourceBuffTx?'目标树果':'目标道具';
+            if(now-tx.at<10000)this.wait(tx.kind==='buy'?'等待目标道具购买到账确认':'等待'+item+'使用确认');
+            else this.fail(tx.kind==='buy'?'目标道具购买未确认，已暂停以避免重复采购':item+'使用未确认，已暂停以避免重复消耗');
             return true;
         }
         resourceSpend(button,s,id,kind,cost,uses,label){
@@ -5048,30 +5331,48 @@
             this.state.resourceTx={kind,id,stock:Number(s.items?.[id])||0,in:itemCounter(s,id),out:Number(s.stats?.itemOut?.[id])||0,at:Date.now()};
             if(kind==='buy'){
                 this.state.resourcePurchased=purchasedQuantity(s,id,this.state);
-                const category=id.startsWith('exp-candy-')?'candy':'shop';
-                Object.assign(this.state.resourceTx,{category,cost,spendBefore:Number(s.stats?.spent?.[category])||0,walletBefore:s.money});
-            }
-            const clicked=this.spentClick(button,s,cost,uses,label);if(!clicked)delete this.state.resourceTx;return clicked;
+                Object.assign(this.state.resourceTx,purchaseEvidence(s,id,cost));
+            }else this.state.resourceUsed=usedQuantity(s,id,this.state);
+            const clicked=this.spentClick(button,s,cost,uses,label);
+            if(clicked&&kind==='buy')this.resourcePreview=null;
+            if(!clicked){delete this.state.resourceTx;e.persist();}
+            return clicked;
         }
         useFromCard(s,card){
             if(this.resourcePending(s,Date.now()))return true;
-            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0);
+            const cfg=this.e.settings,id=cfg.resourceItem,used=usedQuantity(s,id,this.state);
             if(used>=cfg.resourceQuantity){this.e.driver.click(card.querySelector('.dc-x'),'关闭道具面板');this.owner=null;return true;}
-            if(!(s.items?.[id]>0)&&cfg.resourceAction==='buyUse'){if(this.e.driver.click(card.querySelector('.dc-x'),'返回商店补充目标道具'))this.owner=null;return true;}
-            const button=[...card.querySelectorAll('.dc-candy,.item-actions .btn')].find(el=>[...el.querySelectorAll('img')].some(img=>(img.getAttribute('src')||'').includes('/'+id+'.')));
+            const uid=cfg.useUid||(s.team||[])[0],mon=s.mons.find(m=>m.uid===uid);
+            if(this.owner?.uid&&this.owner.uid!==uid){
+                if(this.e.driver.click(card.querySelector('.dc-x'),'重新核对道具使用对象'))this.owner=null;
+                return true;
+            }
+            const blocked=resourceRecipientBlock(s,mon,id);
+            if(blocked){this.fail(blocked);return true;}
+            const buttons=resourceButtons(card,id);
+            if(!(s.items?.[id]>0)&&cfg.resourceAction==='buyUse'){
+                const preview=this.owner?.preview,now=Date.now();
+                const check=preview&&preview===resourcePreviewKey(s,mon,id,now);
+                // With zero stock native eligible evolution buttons retain an item → species title.
+                // A blocked duplicate or the wrong regional bag replaces that title with the rejection reason.
+                if(check&&buttons.filter(el=>visible(el)&&el.title?.includes(' → ')).length!==1){
+                    this.fail('游戏尚未确认该成员有唯一可用的目标进化，请检查地区、时段和已有形态');return true;
+                }
+                if(this.e.driver.click(card.querySelector('.dc-x'),'关闭已无库存的道具面板')){
+                    if(check)this.resourcePreview={key:preview,until:now+30000};
+                    this.owner=null;
+                }
+                return true;
+            }
+            const usable=buttons.filter(enabled);
+            if(usable.length>1){this.fail('该道具有多个可用进化分支，请先手动选择');return true;}
+            const button=usable[0];
             if(!enabled(button)){this.fail('该道具当前不能用于所选宝可梦（可能达到等级上限或不满足进化条件）');return true;}
             this.resourceSpend(button,s,id,'use',0,1,'使用一份目标道具');return true;
         }
         buff(s,id){
-            const e=this.e,now=Date.now(),family=DATA.automation.buffs[id].family,tx=this.state.resourceBuffTx;
-            if(tx){
-                const current=s.buffs?.[tx.family];
-                const confirmed=(Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.out||
-                    current?.key===tx.id&&activeYieldBuff(s,tx.family,now)&&(Number(current.until)||0)>tx.until;
-                if(confirmed)delete this.state.resourceBuffTx;
-                else if(now-tx.at<10000){this.wait('等待目标树果使用确认');return;}
-                else{this.fail('目标树果使用未确认，已暂停以避免重复消耗');return;}
-            }
+            const e=this.e,now=Date.now(),family=DATA.automation.buffs[id].family;
+            if(this.resourcePending(s,now))return;
             const active=activeYieldBuff(s,family,now)?s.buffs[family]:null;
             if(active&&active.key!==id){this.wait('同类已有其他树果增益，保留并等待其结束后使用目标树果',active.until);return;}
             const duration=(Number(DATA.automation.buffMinutes)||60)*60000,limit=(Number(DATA.automation.buffStack)||8)*duration;
@@ -5080,8 +5381,10 @@
             const d=this.e.driver,button=$(`#bag-panel .bag-cell[data-k="${id}"]`);
             if(enabled(button)){
                 const why=e.budget.check(s,0,1);if(why){this.fail(why);return;}
+                this.state.resourceUsed=usedQuantity(s,id,this.state);
                 this.state.resourceBuffTx={id,family,stock:Number(s.items?.[id])||0,out:Number(s.stats?.itemOut?.[id])||0,until:Number(s.buffs?.[family]?.until)||0,at:now};
-                if(!this.spentClick(button,s,0,1,'使用一份目标增益树果'))delete this.state.resourceBuffTx;return;
+                if(!this.spentClick(button,s,0,1,'使用一份目标增益树果')){delete this.state.resourceBuffTx;e.persist();}
+                return;
             }
             const open=$('#bag-panel .bag-box.folded .zone-head');if(enabled(open)){d.click(open,'展开冒险消耗品');return;}
             this.fail('当前页面没有可用的树果消耗入口');
@@ -5112,7 +5415,7 @@
             if(enabled(button)){
                 this.state.autoBuffTx={id,family,stock:Number(s.items[id])||0,out:Number(s.stats?.itemOut?.[id])||0,at:now};
                 const clicked=this.spentClick(button,s,0,1,`自动使用${family==='xp'?'经验':family==='money'?'金币':'当前任务'}增益树果`);
-                if(!clicked)delete this.state.autoBuffTx;this.buffUI=null;return clicked;
+                if(!clicked){delete this.state.autoBuffTx;this.e.persist();}this.buffUI=null;return clicked;
             }
             if(enabled(open)){this.e.driver.click(open,'展开增益树果');return true;}
             this.buffUI=null;(this.buffRetry||={})[family]=now+60000;return false;
@@ -5307,16 +5610,18 @@
             return null;
         }
         setPhase(p,phase,now){p.phase=phase;p.phaseAt=now;}
-        candyFallback(p,reason){
-            p.candyDisabled=true;delete p.candyTx;this.e.log(`主线经验糖果：${reason}，改用普通练级`);
+        candyFallback(p,reason,retry=null){
+            p.candyDisabled=true;delete p.candyTx;
+            if(retry)p.candyRetry=retry;else delete p.candyRetry;
+            this.e.log(`主线经验糖果：${reason}，改用普通练级`);
         }
         candyPending(s,p,now){
             const tx=p.candyTx;if(!tx)return false;
             const mon=s.mons.find(m=>m.uid===tx.uid),xp=mon?experienceTotal(s,[tx.uid]):null;
             const comparable=recordedXpCompatible(economicRegion(s),tx.xpMultiplier);
             const gained=comparable&&xp!=null&&tx.xp!=null&&xp>tx.xp;
-            const changed=tx.kind==='buy'?(Number(s.items?.[tx.id])||0)>tx.stock||itemCounter(s,tx.id)>tx.counter:
-                (Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.counter||gained;
+            const changed=tx.kind==='buy'?purchaseConfirmed(s,tx):
+                (Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.counter;
             if(changed){delete p.candyTx;p.candyAt=now;if(tx.kind==='use'&&!gained)this.candyFallback(p,comparable?'道具已消耗但目标经验未增加':'道具已消耗，经验曲线变化后无法核实原经验增量');return false;}
             if(now-tx.at>10000){this.candyFallback(p,'操作未确认，不重复购买或使用');return false;}
             p.lastGrowth=now;this.e.status='主线经验糖果 · 等待游戏确认'+(tx.kind==='buy'?'到账':'经验增长');return true;
@@ -5324,12 +5629,21 @@
         candyClick(s,p,el,uid,id,kind,cost,now){
             const e=this.e,uses=kind==='use'?1:0,why=e.budget.check(s,cost,uses);
             if(why){this.candyFallback(p,why);return false;}
-            p.candyTx={uid,id,kind,stock:Number(s.items?.[id])||0,counter:kind==='buy'?itemCounter(s,id):Number(s.stats?.itemOut?.[id])||0,xp:experienceTotal(s,[uid]),xpMultiplier:DATA.economy.xpMultipliers[economicRegion(s)],at:now};
+            const evidence=kind==='buy'?purchaseEvidence(s,id,cost):{stock:Number(s.items?.[id])||0,counter:Number(s.stats?.itemOut?.[id])||0};
+            p.candyTx={uid,id,kind,...evidence,xp:experienceTotal(s,[uid]),xpMultiplier:DATA.economy.xpMultipliers[economicRegion(s)],at:now};
             if(e.automation.spentClick(el,s,cost,uses,kind==='buy'?'购买一份主线补练经验糖果':'使用一份主线补练经验糖果'))return true;
-            delete p.candyTx;return false;
+            delete p.candyTx;e.persist();return false;
         }
         candy(s,p,now){
-            const e=this.e,d=e.driver;p.phaseAt=now;e.telemetry.sample=null;p.candyAt??=now;
+            const e=this.e,d=e.driver;
+            if(p.candyDisabled){
+                const retry=p.candyRetry;
+                if(!retry||e.budget.check(s,0,1))return false;
+                const stocked=Object.keys(DATA.automation.candies).some(id=>s.items?.[id]>0);
+                if(!stocked&&!(retry.cost>0&&!e.budget.check(s,retry.cost,0)))return false;
+                delete p.candyDisabled;delete p.candyRetry;p.candyAt=now;
+            }
+            p.phaseAt=now;e.telemetry.sample=null;p.candyAt??=now;
             if(now-p.candyAt>90000){this.candyFallback(p,'页面操作超时');return false;}
             if(this.candyPending(s,p,now))return true;if(p.candyDisabled)return false;
             const targets=p.targets.map(t=>({...t,mon:s.mons.find(m=>m.uid===t.uid)})).filter(t=>t.mon&&candyXpGap(s,t.mon,t.goal)>0).sort((a,b)=>a.mon.level-b.mon.level);
@@ -5338,19 +5652,23 @@
             const why=e.budget.check(s,0,1);if(why){this.candyFallback(p,why);return false;}
             let choice=candyChoice(s,target.mon,target.goal);
             if(!choice){
-                if(e.settings.spendBudget<=e.budget.spent){this.candyFallback(p,'本次采购预算不足（0 表示不允许花钱）');return false;}
+                const blocked=e.budget.purchaseBlock();
+                if(blocked){this.candyFallback(p,blocked,{cost:null});return false;}
                 if(!d.nav('shop'))return true;
                 const section=$('#shop-grid [data-sh-sec="shop"]:not(.active)'),tab=$('#shop-grid [data-sh-mode="buy"]:not(.on)');
                 if(enabled(section)){d.click(section,'打开金币经验糖果商店');return true;}if(enabled(tab)){d.click(tab,'切换购买经验糖果');return true;}
-                const offers=$$('#shop-grid .sh-item[data-id]').filter(el=>DATA.automation.candies[el.dataset.id]&&!el.classList.contains('locked')).map(el=>{
-                    const quantity=Number(el.querySelector('[data-n].on')?.dataset.n)||1;
-                    return{id:el.dataset.id,cost:parsePrice(el.querySelector('.total')?.textContent)/quantity,el};
-                }).filter(o=>enabled(o.el.querySelector('.buy'))&&!e.budget.check(s,o.cost,0));
-                choice=candyChoice(s,target.mon,target.goal,offers);
-                if(!choice){this.candyFallback(p,'没有已解锁且预算内可购买的经验糖果');return false;}
-                const one=choice.el.querySelector('[data-n="1"]');if(enabled(one)&&!one.classList.contains('on')){d.click(one,'限制经验糖果购买数量为一份');return true;}
-                if(Number(choice.el.querySelector('[data-n].on')?.dataset.n||1)!==1){this.candyFallback(p,'无法确认单份购买数量');return false;}
-                const cost=parsePrice(choice.el.querySelector('.total')?.textContent);this.candyClick(s,p,choice.el.querySelector('.buy'),target.uid,choice.id,'buy',cost,now);return !p.candyDisabled;
+                const cards=$$('#shop-grid .sh-item[data-id]');
+                if(!cards.length){e.status='等待金币商店载入商品';return true;}
+                const offers=cards.filter(el=>DATA.automation.candies[el.dataset.id]&&!el.classList.contains('locked')).map(shopOffer)
+                    .filter(offer=>offer?.cost>0&&(offer.single?visible(offer.buy):enabled(offer.one)));
+                choice=candyChoice(s,target.mon,target.goal,offers.filter(offer=>!e.budget.check(s,offer.cost,0)&&(offer.single?enabled(offer.buy):true)));
+                if(!choice){
+                    const cheapest=offers.reduce((best,offer)=>!best||offer.cost<best.cost?offer:best,null);
+                    const limit=cheapest&&e.budget.check(s,cheapest.cost,0);
+                    this.candyFallback(p,limit||'没有已解锁且可单份购买的经验糖果',{cost:limit?cheapest.cost:null});return false;
+                }
+                if(!choice.single){d.click(choice.one,'限制经验糖果购买数量为一份');return true;}
+                this.candyClick(s,p,choice.buy,target.uid,choice.id,'buy',choice.cost,now);return !p.candyDisabled;
             }
             p.candy={uid:target.uid,goal:target.goal};
             if(!d.nav('team'))return true;
@@ -5580,7 +5898,7 @@
                 if(this.team(s,p.uids,now)){p.phaseAt=now;p.lastGrowth=now;return;}
                 this.setPhase(p,'travel',now);
             }
-            if(e.settings.progressCandy&&p.context.kind==='progress'&&p.phase!=='travelFirst'&&!p.candyDisabled&&this.candy(s,p,now))return;
+            if(e.settings.progressCandy&&p.context.kind==='progress'&&p.phase!=='travelFirst'&&this.candy(s,p,now))return;
             if(p.phase==='travel'||p.phase==='travelFirst'){
                 const routes=this.routes(s,p,now,'正在比较目标地区的补练地图');
                 if(!routes)return;
@@ -5708,12 +6026,68 @@
             this.metrics = readRouteHistory(saved.metrics);
             this.raidDraw=saved.raidDraw||null;
             this.settings = normalizeSettings(saved.settings||{},switching?DEFAULTS:this.settings);
+            this.refreshAutoPurchase();
             this.queue = normalizeJobs(saved.queue);
             this.queueIndex = Number.isInteger(saved.queueIndex) ? Math.max(0, Math.min(this.queue.length, saved.queueIndex)) : 0;
             this.checkpoint = saved.resume?.wanted ? saved.resume : null;
             this.services = normalizeServiceState(saved.services);
             this.telemetry = new Telemetry(this.metrics);
             this.nurseryMonitor.load(s);
+        }
+        refreshAutoPurchase() {
+            if (!this.account) return this.settings.autoPurchase;
+            try {
+                const saved = this.storage.getItem(PREFIX + 'purchase:' + this.account);
+                if (saved !== null) this.settings.autoPurchase = saved === '1';
+                return this.settings.autoPurchase;
+            } catch {
+                return false;
+            }
+        }
+        taskSettings(raw) {
+            const settings = normalizeSettings(raw);
+            settings.autoPurchase = this.refreshAutoPurchase();
+            return settings;
+        }
+        setAutoPurchase(enabled) {
+            if (typeof enabled !== 'boolean' || !this.account) throw new Error('请先进入游戏，再更改自动购买');
+            if (this.suspended || (enabled && this.running)) throw new Error('请先停止任务，再开启自动购买');
+            if (!this.mayPersist()) {
+                const reason = '当前标签页无法保存自动购买开关，请在管理该账号的标签页操作';
+                if (!enabled && this.running) this.stop(reason, {persist:false});
+                throw new Error(reason);
+            }
+            if (enabled) {
+                const current = this.read();
+                if (!current?.adv || accountId(current) !== this.account) throw new Error('当前账号已变化，请刷新后开启自动购买');
+            }
+            const key = PREFIX + 'purchase:' + this.account;
+            try {
+                this.storage.setItem(key, enabled ? '1' : '0');
+            } catch {
+                const reason = '自动购买开关保存失败，请检查浏览器存储';
+                if (!enabled && this.mayPersist()) {
+                    this.settings = {...this.settings, autoPurchase:false};
+                    // Stopping also replaces the former enabled resume checkpoint when storage is nearly full.
+                    this.stop(reason);
+                    if (this.mayPersist()) {
+                        try {
+                            this.storage.setItem(key, '0');
+                            this.status = '已关闭自动购买，任务已因首次保存失败而停止';
+                            this.log(this.status);
+                            return true;
+                        } catch {}
+                    }
+                } else if (!enabled && this.running) this.stop(reason, {persist:false});
+                throw new Error(reason);
+            }
+            this.settings = {...this.settings, autoPurchase:enabled};
+            // The account key survives a stale task checkpoint or a queue imported from another account.
+            // Preserve an existing resume checkpoint when editing this preference from an idle panel.
+            if (this.running) {
+                try { this.persist(); } catch { /* The account preference is already durable. */ }
+            }
+            return true;
         }
         progressSnapshot(){
             const session={};for(const key of SESSION_FIELDS)if(this[key]!==undefined)session[key]=this[key];
@@ -5743,13 +6117,15 @@
             const entries = Object.entries(this.metrics).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 200);
             const snapshot=this.progressSnapshot();if(captureJob)this.saveJobProgress(snapshot);
             const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex}:null;
-            this.storage.setItem(PREFIX + this.account, JSON.stringify({ settings: this.settings, metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw }));
+            const record=JSON.stringify({ settings: this.settings, metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw });
+            this.storage.setItem(PREFIX + this.account, record);
+            if(this.suspended)this.suspended.record=record;
             // Keep the Telemetry object stable, but prune only after durable persistence.
             const retained=new Set(entries.map(([key])=>key));
             for(const key of Object.keys(this.metrics))if(!retained.has(key))delete this.metrics[key];
             return true;
         }
-        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(job=>job.status!=='done');if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=normalizeSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
+        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(job=>job.status!=='done');if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=this.taskSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
         beginTask(s,cp,now,continuingQueue=false){
             this.cancelTeamSearch();
             this.cancelRouteRankings();
@@ -5823,7 +6199,7 @@
             const job=this.queue[this.queueIndex];if(job){job.status='done';job.result=reason;delete job.progress;}
             const index=this.queue.findIndex((job,i)=>i>this.queueIndex&&job.status!=='done');
             if(index<0){this.queueRunning=false;this.stop('任务队列已全部完成');return;}
-            this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=normalizeSettings(next.settings);
+            this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
             const s=state,now=Date.now();
             this.beginTask(s,next.progress,now,true);
             if(!this.adoptManualPreparation(s,now,true))return;
@@ -5836,7 +6212,10 @@
             const now=Date.now();
             this.suspended=this.restoring?null:{at:now,queueRunning:this.queueRunning,queueIndex:this.queueIndex};
             this.hiddenAt??=now;
-            try{this.persist(!this.restoring,!this.restoring);}catch{}
+            try{
+                if(this.suspended)this.suspended.record=this.storage.getItem(PREFIX+this.account);
+                this.persist(!this.restoring,!this.restoring);
+            }catch{}
             this.running=false;this.runId++;clearTimeout(this.timer);this.timer=null;this.release();
             this.cancelTeamSearch();
             this.cancelRouteRankings();
@@ -5851,6 +6230,14 @@
                 if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return false;}
                 if(this.storage.getItem('pokecatch-tab')!==this.tabToken){this.stop('另一个标签页接管了游戏');return false;}
                 if(!this.acquire(now)){this.status='等待其他标签页释放助手，再继续原任务';return false;}
+                if(this.storage.getItem(PREFIX+this.account)!==suspended.record){
+                    // A different page may have settled the order, advanced the queue, or stopped it.
+                    this.stop('原任务记录已更新，重新读取账号进度',{persist:false});
+                    this.loadAccount(s);
+                    this.tryResume();
+                    return this.running;
+                }
+                this.refreshAutoPurchase();
                 // BFCache preserves this instance and its native UI; continue the same
                 // transaction/session rather than restarting it from initial task settings.
                 this.running=true;this.runId++;this.queueRunning=suspended.queueRunning;this.queueIndex=suspended.queueIndex;
@@ -5858,14 +6245,27 @@
                 this.lastProgress=now;this.progressSignature='';
                 this.status=this.manual?'页面已返回，继续检查手动控制状态':'页面已返回，继续原任务';this.log(this.status);
                 this.persist();this.schedule(50);return true;
-            }catch(err){this.stop('页面恢复失败：'+(err?.message||err));return false;}
+            }catch(err){this.stop('页面恢复失败：'+(err?.message||err),{persist:false});return false;}
         }
         tryResume(){
             const cp=this.checkpoint;if(this.running||!cp?.wanted||!this.settings.resumeOnReload||pageHidden())return;
-            if(cp.account!==this.account||cp.layout!==DATA.layout||cp.build!==DATA.build){this.checkpoint=null;this.status='续跑记录与当前账号或版本不一致，请手动开始';this.persist(false);return;}
             if(visible($('.title-fx')))return;
-            if(!this.acquire(Date.now())){this.status='等待其他标签页释放助手后续跑';return;}
-            this.start(true);
+            const compatible=record=>record.account===this.account&&record.layout===DATA.layout&&record.build===DATA.build;
+            try{
+                if(!this.acquire(Date.now())){
+                    this.status='等待其他标签页释放助手后续跑';
+                    if(!compatible(cp))this.checkpoint=null;
+                    return;
+                }
+                const s=this.read();
+                if(!s?.adv||accountId(s)!==this.account){this.checkpoint=null;this.status='当前账号已变化，请重新选择任务';return;}
+                // Read the owner's latest queue, receipts and reservations together after taking the lease.
+                this.loadAccount(s);
+                if(!this.checkpoint||!this.settings.resumeOnReload){this.status='当前账号没有待自动续跑的任务';return;}
+                if(!compatible(this.checkpoint)){this.checkpoint=null;this.status='续跑记录与当前账号或版本不一致，请手动开始';this.persist(false,false);return;}
+                this.start(true);
+            }catch(err){this.status='无法读取最新续跑记录：'+(err?.message||err);}
+            finally{if(!this.running)this.release();}
         }
         acquire(now) {
             const key = PREFIX + 'lease:' + this.account;
@@ -5889,7 +6289,9 @@
                 if (s.adv.layout !== DATA.layout) throw new Error(`存档版本不匹配（需要 layout ${DATA.layout}），请更新助手`);
                 if (!this.account) this.loadAccount(s);
                 const jobProgress=this.queueRunning?this.queue[this.queueIndex]?.progress:null;
-                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex}:null;if(cp){this.settings=normalizeSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=Number(cp.queueIndex)||0;}
+                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex}:null;
+                if(cp){this.settings=this.taskSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=Number(cp.queueIndex)||0;}
+                else this.refreshAutoPurchase();
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=this.settings.mode,ownedFlow=mode==='tower'&&!!s.adv.tower&&s.adv.tower.kind!=='candy'||mode==='candy'&&s.adv.tower?.kind==='candy'||mode==='elite'&&!!s.adv.league||mode==='world'&&s.adv.zone?.id===493;
                 if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend')&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
@@ -5927,7 +6329,7 @@
                 } else this.status = '规划中';
                 if(cp){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
                 this.persist(); this.schedule(50);
-            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;} this.release();try{if(!controlDenied)this.persist(false);}catch{} }
+            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;} try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
         }
         stop(reason = '已停止助手',options={}) {
             const save=options.persist!==false&&this.mayPersist();
@@ -5951,8 +6353,9 @@
             this.checkpoint=null;this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;this.nextWake=null;this.modalWaitSince=null;
             this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.ownedDialog = null;
             this.driver.teamTask=null;this.driver.navigation=null;
-            this.status = reason; this.log(reason); this.release();
-            try { if(save)this.persist(false,false); } catch {}
+            this.status = reason; this.log(reason);
+            // Expose the stopped checkpoint before a waiting page can claim the lease.
+            try { if(save)this.persist(false,false); } catch {} finally { this.release(); }
         }
         manualInput(now = Date.now()) {
             if (!this.running || !this.settings.manualPause) return;
@@ -6059,6 +6462,11 @@
             }
             if(wait.reason!=='ready'){this.status=wait.status;return true;}
             const raid = s.adv.event, zone = s.adv.zone;
+            // Reconcile the saved order on resuming. Time in manual control gave the helper no opportunity to check it.
+            const flow=this.automation.state;
+            for(const tx of [flow.resourceTx,flow.resourceBuffTx,flow.pensionPurchase,this.preparation?.candyTx]){
+                if(tx)tx.at=now;
+            }
             this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
             this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
             this.driver.teamTask=null;this.teamCheck=null;
@@ -6160,6 +6568,7 @@
             if(this.automation.state.autoBuffTx?.at!=null)this.automation.state.autoBuffTx.at+=duration;
             if(this.automation.state.resourceBuffTx?.at!=null)this.automation.state.resourceBuffTx.at+=duration;
             if(this.automation.state.resourceTx?.at!=null)this.automation.state.resourceTx.at+=duration;
+            if(this.automation.state.pensionPurchase?.at!=null)this.automation.state.pensionPurchase.at+=duration;
             for(const tx of [this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure])if(tx?.at!=null)tx.at+=duration;
             if(this.automation.state.candyEndedAt!=null)this.automation.state.candyEndedAt+=duration;
             const eggs=this.automation.state;
@@ -6915,6 +7324,37 @@
             .categories{display:flex;gap:4px;padding:3px;background:#0b1423;border-radius:9px;margin-bottom:7px}.categories button{flex:1;border:0;background:transparent;color:#93abc7;font-size:11px;padding:6px 3px}.categories .on{color:#b5f5de;background:#23403e}.modes{grid-template-columns:repeat(2,1fr)}.modes button span{display:inline-block;width:22px;margin:0 4px 0 0;vertical-align:middle}.queue-tools{display:flex;gap:6px;margin:8px 0}.queue-tools button{flex:1;font-size:11px;padding:7px}.queue-tools #queue-count{display:inline-block;min-width:17px;background:#102138;border-radius:10px;margin-left:3px}.job{padding:9px 7px;border-bottom:1px solid #2d4058}.job.active{border-left:2px solid #79dcba;background:#1c303a}.job-head{display:flex;justify-content:space-between;gap:8px;font-size:12px}.job-state{color:#8be5c3;font-size:10px;white-space:nowrap}.job-actions{display:flex;gap:4px;margin-top:6px}.job-actions button{font-size:10px;padding:3px 6px}.job .sub{white-space:normal}#budget-summary{float:right;color:#91d2ba;font-size:10px}.wait-time{color:#e6be7a;font-variant-numeric:tabular-nums}.flow-list{display:grid;gap:6px;padding:6px 0}.flow-list .step{padding:8px;background:#1a293c;border-radius:8px;font-size:11px;color:#b8cce3}.flow-list .step b{color:#87e3c3;margin-right:7px}
             .commandbar{padding:9px 12px;background:#172337;border-top:1px solid #34465c}.commandbar .row{margin:0}.commandbar .queue-tools{margin:6px 0 0}.job-head>span:first-child{min-width:0;overflow-wrap:anywhere}@media(max-width:450px){.commandbar{padding:8px 10px}}
 
+    .purchase-card {
+        margin:10px 0; padding:10px 12px; background:#162739;
+        border:1px solid #3b586d; border-radius:10px; overflow-wrap:anywhere;
+    }
+    .purchase-card[hidden] { display:none }
+    .purchase-toggle {
+        display:flex; align-items:center; gap:8px; min-height:32px; cursor:pointer;
+    }
+    .purchase-toggle strong { flex:1; color:#e3edf7; font-size:13px }
+    [data-purchase-state] { color:#adc0d2; font-size:11px }
+    .purchase-toggle input[type=checkbox] {
+        appearance:none; flex:none; position:relative; width:38px; height:22px;
+        margin:0; padding:0; border:1px solid #697f93; border-radius:20px;
+        background:#263a4c; cursor:pointer;
+    }
+    .purchase-toggle input::after {
+        content:''; display:block; width:14px; height:14px; margin:3px;
+        border-radius:50%; background:#cad7e3;
+    }
+    .purchase-toggle input:checked { background:#79dcba; border-color:#79dcba }
+    .purchase-toggle input:checked::after { transform:translateX(16px); background:#133b31 }
+    .purchase-toggle input:disabled { opacity:.55; cursor:default }
+    #budget-details input[aria-invalid="true"] { outline:2px solid #edac61; outline-offset:1px }
+    .purchase-budget {
+        display:flex; flex-wrap:wrap; align-items:center; gap:5px 10px; margin-top:7px;
+        color:#bbdfd8; font-size:11px; font-variant-numeric:tabular-nums;
+    }
+    .purchase-budget span { flex:1; min-width:9em }
+    #purchase-edit-budget { font-size:11px; padding:5px 9px }
+    #budget-details { margin-bottom:0 }
+    #purchase-limits { margin:8px 0; font-variant-numeric:tabular-nums }
     .panel {
         display:flex; flex-direction:column;
         max-height:calc(100dvh - 100px); background:#101a26;
@@ -7286,10 +7726,10 @@
     function mountNurseryPanel(root,engine,{preferences={},save=()=>{},onChange=()=>{}}={}){
         const box=document.createElement('details');box.id='nursery-info';box.className='nursery-card';
         box.innerHTML=`<summary id="nursery-summary">培育屋 · 闪蛋计数</summary>
-            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>当前闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>游戏累计孵化</div></div>
+            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>游戏累计孵化</div></div>
             <div id="nursery-eggs"></div><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
             <div id="nursery-condition" class="hint"></div>
-            <details><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
+            <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-reference" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
             <div id="nursery-observed" class="sub"></div><div id="nursery-segment" class="hint"></div><div id="nursery-error" class="hint warn"></div>
             <label class="nursery-preference"><input id="nursery-hints" type="checkbox">标记游戏孵化器中的闪光蛋</label>
             <div class="actions"><button id="nursery-export">导出蛋统计</button><button id="nursery-reset">清空观测统计</button></div>
@@ -7299,6 +7739,8 @@
         const style=document.createElement('style');style.textContent='.nursery-card{border:1px solid #3c4c62;border-radius:11px;padding:9px 10px;background:#172335}.nursery-card>summary{color:#d4e4ed;font-size:12px}.nursery-card.has-shiny>summary{color:#ffe096}.nursery-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}.nursery-metrics>div{text-align:center;font-size:10px;background:#101b2b;border-radius:8px;padding:7px 3px}.nursery-metrics b{display:block;font-size:17px;color:#a6e4d1}.nursery-metrics>div:first-child b{color:#ffdb85}.nursery-egg{display:flex;justify-content:space-between;gap:6px;font-size:11px;padding:6px 0;border-bottom:1px solid #304157}.nursery-egg[data-shiny=true]{color:#ffdf91}.nursery-preference{font-size:11px;margin:9px 0}.nursery-egg span:last-child{text-align:right}.nursery-event{font-size:10px;margin:5px 0;color:#9aafc5}';root.appendChild(style);
         const query=selector=>box.querySelector(selector),hints=query('#nursery-hints');hints.checked=preferences.nurseryHints!==false;
         hints.onchange=()=>{preferences.nurseryHints=hints.checked;save();onChange();};box.addEventListener('toggle',()=>{if(box.open)onChange();});
+        const rules=query('#nursery-rules');
+        rules.addEventListener('toggle',onChange);
         query('#nursery-reset').onclick=()=>{try{engine.nurseryMonitor.reset(engine.read());}catch(error){engine.nurseryMonitor.error=error.message;}onChange();};
         query('#nursery-export').onclick=()=>{
             const data=engine.nurseryMonitor.ledger.snapshot(),report={format:'pokecatch-nursery-statistics',schema:1,version:VERSION,
@@ -7349,23 +7791,32 @@
             if(!detailsVisible)return snap;
             // In older saves the native counter is initialized only when the next egg is laid.
             const laid=s.pension?.laid,counterKey=laid==null?[snap.hatched,Array.isArray(s.pension?.eggs)?snap.counts.total:null]:laid;
-            const key=JSON.stringify([options.build,nurserySeed(s),counterKey,!!s.pension?.bx,nurseryParentPool(s)]);
-            if(key!==forecastKey){forecast=nurseryForecast(s,{...options,estimateUnverified:true});forecastKey=key;}
+            const showReference=rules.open&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
+            const key=JSON.stringify([options.build,showReference,nurserySeed(s),counterKey,Object.hasOwn(s.pension||{},'bx')?[s.pension.bx]:[],nurseryParentPool(s)]);
+            if(key!==forecastKey){forecast=nurseryForecast(s,{...options,estimateUnverified:showReference});forecastKey=key;}
             snap.forecast=forecast;
             query('#nursery-shiny').textContent=snap.counts.shiny;query('#nursery-ready').textContent=snap.counts.ready;query('#nursery-native').textContent=snap.hatched??'—';
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
-            const qualifier=f.certainty==='reference'?'旧规则参考':'按当前条件预测';
-            query('#nursery-next').textContent=next?`${qualifier} · 下一枚自然蛋 #${next.k} · ${name(next.eggId)}${next.shiny?' ✦ 闪光':' · 普通'} · 亲本槽 ${next.parent.slot}${next.bx?' · 待用靛莓果将生效':''}`:`下一枚自然蛋暂无法预测 · ${f.reason}`;
-            let sequence='';
-            if(f.active)sequence=flash?`${qualifier} · 第 ${flash.position} 枚自然蛋为闪蛋（${name(flash.eggId)}，编号 ${flash.k}）`:`${qualifier} · 扫描的 ${f.scanned} 枚自然蛋中未找到闪蛋`;
-            else if(Number.isFinite(f.nextRate))sequence=`${f.rateVerified?'仅可估计单枚闪率':'旧规则单枚参考闪率'} ${percent(f.nextRate)}（按当前亲本池）`;
-            query('#nursery-forecast').textContent=sequence;
+            const nextLabel=next?`下一枚自然蛋 #${next.k} · ${name(next.eggId)}${next.shiny?' ✦ 闪光':' · 普通'} · 亲本槽 ${next.parent.slot}${next.bx?' · 靛莓果生效':''}`:'';
+            const sequence=f.active?(flash?`第 ${flash.position} 枚自然蛋为闪蛋（${name(flash.eggId)}，编号 ${flash.k}）`:`已扫描 ${f.scanned} 枚自然蛋，未找到闪蛋`):'';
+            query('#nursery-next').textContent=f.known?'按当前条件预测 · '+nextLabel:
+                f.rateVerified?'下一枚自然蛋暂无法预测 · '+f.reason:'当前游戏构建尚未核对，下一枚自然蛋的结果待确认。';
+            query('#nursery-forecast').textContent=f.known?sequence:Number.isFinite(f.nextRate)?
+                (f.rateVerified?'仅可估计单枚闪率 ':'旧规则单枚参考闪率 ')+percent(f.nextRate)+'（按当前亲本池）':'';
+            query('#nursery-reference').textContent=f.certainty==='reference'?'旧规则模拟 · '+nextLabel+'。'+sequence+'。':'';
             const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
             const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];
             query('#nursery-scenarios').textContent=f.known?`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'';
-            query('#nursery-basis').textContent=(f.rateVerified?'当前构建的蛋规则已核对。':`当前构建 ${options.build} 尚未核对，参考结果来自 ${NURSERY_RULES.build}。`)+(f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'')+' 已产蛋优先读存档标记。已核对的构建还可用训练家种子和蛋序号确定闪色，旧蛋用自身标识核对。';
-            const candy=(s.pension?.mons||[]).reduce((total,slot)=>total+(Number(slot.candy)||0),0);
-            query('#nursery-condition').textContent=`孵化器 ${snap.counts.total}/${snap.capacity} · 寄养 ${s.pension?.mons?.length||0} 只 · 待领糖果 ${candy}。${snap.counts.total>=snap.capacity?'已满，空出蛋位后才能继续产蛋。':''}${f.active?'距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。':''}`;
+            query('#nursery-basis').textContent=(f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:`当前构建 ${options.build} 尚未核对，旧规则参考来自 ${NURSERY_RULES.build}。`)+(f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'')+' 已产蛋优先读存档标记。已核对的构建还可用训练家种子和蛋序号确定闪色，旧蛋用自身标识核对。';
+            const progress=s.pension?.egg,condition=[`孵化器 ${snap.counts.total}/${snap.capacity} · 寄养 ${s.pension?.mons?.length||0} 只。`];
+            if(f.rateVerified&&f.hasDitto&&f.pool.length&&Number.isFinite(progress)&&progress>=0){
+                const minutes=Math.floor(Math.min(progress,NURSERY_RULES.eggMs)/60000);
+                condition.push(`存档产蛋进度 ${minutes}/${NURSERY_RULES.eggMs/60000} 分钟。`);
+            }
+            if(snap.counts.total>=snap.capacity)condition.push('孵化器已满，空出蛋位后才能收下新蛋。');
+            if(f.active)condition.push('距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。');
+            if(next?.eggId===351||snap.eggRows.some(row=>row.id===351))condition.push('飘浮泡泡的形态取决于实际孵出时的培育屋天气。');
+            query('#nursery-condition').textContent=condition.join(' ');
             const eggs=query('#nursery-eggs');eggs.replaceChildren();
             for(const row of snap.eggRows){
                 const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.known&&row.shiny);
@@ -7375,8 +7826,9 @@
                 time.textContent=duration(row.remainingMs);item.append(title,time);eggs.appendChild(item);
             }
             const stats=ledger?.stats;
-            query('#nursery-observed').textContent=sameAccount&&stats?`本段新观测 ${stats.eggsObserved} 枚（闪 ${stats.shinyObserved} / 未知 ${stats.unknownObserved}）；孵化增量 ${stats.hatched}（已确认闪 ${stats.shinyHatched} / 普通 ${stats.plainHatched} / 待核对 ${stats.unknownHatched}）`:'账号发生变化，请刷新页面载入对应统计';
-            query('#nursery-segment').textContent=ledger?`观测起点 ${new Date(ledger.segment.startedAt).toLocaleString('zh-CN')} · 第 ${ledger.segment.ordinal} 段${ledger.current.pendingDisappearances?' · 离巢待核对 '+ledger.current.pendingDisappearances+' 枚':''}`:'';
+            query('#nursery-observed').textContent=sameAccount&&stats?`本段新观测 ${stats.eggsObserved} 枚（闪 ${stats.shinyObserved} / 普通 ${stats.plainObserved} / 未知 ${stats.unknownObserved}）。本段已孵 ${stats.hatched} 枚（闪 ${stats.shinyHatched} / 普通 ${stats.plainHatched} / 闪色未知 ${stats.unknownHatched}）`:'账号发生变化，请刷新页面载入对应统计';
+            const start=ledger?.segment.startedAt;
+            query('#nursery-segment').textContent=ledger?`观测起点${Number.isFinite(start)?' '+new Date(start).toLocaleString('zh-CN'):'未留存'} · 第 ${ledger.segment.ordinal} 段${ledger.current.pendingDisappearances?' · 离巢待核对 '+ledger.current.pendingDisappearances+' 枚':''}`:'';
             query('#nursery-error').textContent=engine.nurseryMonitor.error;query('#nursery-reset').disabled=!sameAccount||!engine.mayPersist();query('#nursery-export').disabled=!sameAccount;
             const recent=query('#nursery-recent');recent.replaceChildren();for(const row of ledger?.recent.slice(0,8)||[]){const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.status==='hatched'&&row.known&&row.shiny);item.textContent=(row.known&&row.shiny?'✦ ':'')+name(row.id)+' · '+(row.status==='hatched'?'已孵化'+(row.known?row.shiny?' / 闪光':' / 普通':' / 闪色待确认'):'离巢未获孵化确认')+' · '+new Date(row.at).toLocaleTimeString('zh-CN',{hour12:false});recent.appendChild(item);}
             const events=query('#nursery-events');events.replaceChildren();for(const event of ledger?.events.slice(0,8)||[]){const item=document.createElement('div');item.className='nursery-event';item.textContent=new Date(event.at).toLocaleTimeString('zh-CN',{hour12:false})+' '+event.text;events.appendChild(item);}return snap;
@@ -7544,6 +7996,10 @@
         const root = host.attachShadow({ mode: 'open' });
         const underStartControls = `<label class="setting"><span><input type="checkbox" data-setting="underAutoStart">地下探险从最高已解锁起点出发</span></label>
             <label class="field" data-under-manual><span>手动起点上限</span><input type="number" min="1" max="300" data-setting="underFrom"></label>`;
+        const purchaseToggle = `<label class="purchase-toggle">
+            <strong>自动购买</strong><span data-purchase-state aria-hidden="true"></span>
+            <input type="checkbox" role="switch" data-setting="autoPurchase" aria-label="自动购买">
+        </label>`;
         root.innerHTML = `<style>${PANEL_STYLE}</style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
             <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
             <nav class="workspace-nav" aria-label="助手面板">
@@ -7578,8 +8034,13 @@
                 <div data-fields="candy" class="hidden"><div class="field"><span>目标层（0 尽力挑战）</span><input data-setting="candyFloor" type="number" min="0" max="999"></div><div class="field"><span>完成场次（每天一次）</span><input data-setting="candyRuns" type="number" min="1" max="30"></div></div>
                 <div data-fields="elite" class="hidden"><div class="field"><span>联盟地区</span><select data-setting="eliteRegion"><option value="current">当前地区</option>${DATA.regions.map(r=>`<option value="${r.key}">${r.name}</option>`).join('')}</select></div><div class="field"><span>目标阶级</span><select data-setting="eliteTier">${[1,2,3,4,5].map(n=>`<option value="${n}">推进至 ${n} 阶</option>`).join('')}</select></div></div>
                 <div data-fields="world" class="hidden"><div class="field"><span>本次攻击</span><input data-setting="worldActions" type="number" min="1" max="3"></div><label class="setting"><span><input type="checkbox" data-setting="worldCapture">攻击后等待开放，并自动捕获本期首领</span></label></div>
-                <div data-fields="resource" class="hidden"><div class="field"><span>目标道具</span><select data-setting="resourceItem"></select></div><div class="field"><span>执行动作</span><select data-setting="resourceAction"><option value="buy">只购买</option><option value="use">只使用背包道具</option><option value="buyUse">不足时购买并使用</option></select></div><div class="field"><span>份数目标</span><input data-setting="resourceQuantity" type="number" min="1" max="99999"></div><div class="field"><span>使用对象</span><select data-setting="useUid"><option value="">冒险队伍首位</option></select></div></div>
+                <div data-fields="resource" class="hidden"><label class="field"><span>目标道具</span><select data-setting="resourceItem"></select></label><label class="field"><span>执行动作</span><select data-setting="resourceAction"><option value="buy">只购买</option><option value="use">只使用背包道具</option><option value="buyUse">不足时购买并使用</option></select></label><label class="field"><span id="resource-quantity-label">目标份数</span><input data-setting="resourceQuantity" type="number" min="1" max="99999"></label><label id="resource-member" class="field"><span>使用对象</span><select data-setting="useUid"><option value="">冒险队伍首位</option></select></label></div>
                 <div data-fields="money" class="hidden"><div class="field"><span>目标金币</span><input data-setting="moneyTarget" type="number" min="0" placeholder="0 为持续执行"></div></div>
+                <section id="task-purchase" class="purchase-card" hidden>
+                    ${purchaseToggle}
+                    <div class="hint" id="task-purchase-policy"></div>
+                    <div class="purchase-budget"><span data-purchase-status></span><button type="button" id="purchase-edit-budget">查看预算</button></div>
+                </section>
                 <div class="hint" id="target-hint"></div><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
             </section>
@@ -7590,6 +8051,23 @@
             <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="dex" aria-controls="dex-panel">图鉴</button><button data-tab="weather" aria-controls="weather-panel">天气</button><button data-tab="logs" aria-controls="view">日志</button></div><div id="dex-panel" hidden></div><section id="weather-panel" aria-label="地区天气预报" hidden></section><div id="view" class="list"></div>
             </section>
             <section id="pane-settings" aria-label="设置" hidden>
+            <section id="settings-purchase" class="purchase-card">
+                ${purchaseToggle}
+                <div class="hint">控制本账号的道具采购、主线补练买糖和寄养扩容，已入队任务也遵循此开关。</div>
+                <div data-purchase-status class="purchase-budget"></div>
+                <details id="budget-details"><summary>资源预算 <span id="budget-summary"></span></summary>
+                    <div id="purchase-limits" class="sub"></div>
+                    <label class="setting">本次金币支出上限（0 禁止）<input data-setting="spendBudget" type="number" min="0"></label>
+                    <label class="setting">每日支出上限（0 不另限）<input data-setting="dailySpendBudget" type="number" min="0"></label>
+                    <label class="setting">至少保留金币<input data-setting="moneyReserve" type="number" min="0"></label>
+                    <label class="setting">本次道具使用上限<input data-setting="useBudget" type="number" min="0" max="99999"></label>
+                    <div class="hint">队列按各任务保存的额度累计支出。可以在队列中编辑预算。战斗扣款由游戏单独结算。</div>
+                    <label class="setting"><span><input type="checkbox" data-setting="trainBuff">练级 / 补练自动吃经验树果</span></label>
+                    <label class="setting"><span><input type="checkbox" data-setting="moneyBuff">刷钱自动吃金币树果</span></label>
+                    <label class="setting"><span><input type="checkbox" data-setting="autoBuff">补图鉴 / 刷闪 / 游荡自动吃对应树果</span></label>
+                    <div class="hint">自动吃树果仅使用库存，也受道具使用上限限制。用完后继续原任务。若要购买树果，请指定采购任务。</div>
+                </details>
+            </section>
             <h3>配队与自动化</h3>
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
@@ -7605,7 +8083,6 @@
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
             <div class="row"><button id="start" class="primary">开始当前任务</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
             <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="start-queue" title="按顺序执行一个主任务；后台计时独立">串行队列 <span id="queue-count">0</span></button></div>
-            <details><summary>资源预算 <span id="budget-summary"></span></summary><label class="setting">本次金币支出（0 禁止）<input data-setting="spendBudget" type="number" min="0"></label><label class="setting">每日支出上限（0 不另限）<input data-setting="dailySpendBudget" type="number" min="0"></label><label class="setting">至少保留金币<input data-setting="moneyReserve" type="number" min="0"></label><label class="setting">本次道具使用上限<input data-setting="useBudget" type="number" min="0" max="99999"></label><label class="setting"><span><input type="checkbox" data-setting="trainBuff">练级 / 补练自动吃经验树果</span></label><label class="setting"><span><input type="checkbox" data-setting="moneyBuff">刷钱自动吃金币树果</span></label><label class="setting"><span><input type="checkbox" data-setting="autoBuff">补图鉴 / 刷闪 / 游荡自动吃对应树果</span></label><div class="hint">仅使用库存树果；游荡使用停留果与捕获果，同类有效增益不重复吃，不自动补购。树果计入道具使用上限，用尽后继续普通练级或刷钱。</div><div class="hint">采购和寄养扩容共用金币预算；主动使用道具共用份数上限。队列累计计费，每项设置同时生效。普通战斗的游戏扣款不计入采购预算。</div></details>
             <details><summary>运行设置与自动停止</summary>
                 <label class="setting">游戏速度<select data-setting="speed"><option value="1">×1</option><option value="4">×3（最高档）</option></select></label>
                 <label class="setting">单图最短采样（分钟）<input data-setting="sampleMinutes" type="number" min="1" max="30"></label>
@@ -7667,6 +8144,13 @@
             if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
         }
         for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
+        query('#purchase-edit-budget').onclick = () => {
+            query('#budget-details').open = true;
+            selectWorkspace('settings');
+            const summary = query('#budget-details summary');
+            summary.focus({preventScroll:true});
+            summary.scrollIntoView({block:'nearest'});
+        };
         selectWorkspace(ui.workspace, false);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
         const dexPanel=mountDexPanel(root,render);
@@ -7708,10 +8192,12 @@
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
             query('#execution-route').textContent=model.decision.route;query('#execution-team').textContent=model.decision.team;query('#execution-reason').textContent=model.decision.reason;
             if(query('#probability-info').open){
-                const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
+                const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>!Number.isFinite(rate)?'标记待核对':rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;
                 const rates=[...new Set(eggs.map(egg=>shinyOdds(s||{},{kind:'egg',egg},now).rate))];
-                query('#probability-eggs').textContent=`${rates.length?'现有蛋的理论档：'+rates.map(format).join('、'):'普通亲代1/512，新异色亲代1/16；旧sp:1为10%，靛莓果另乘2'}；确定结果与下闪条件见培育屋计数。`;
+                const verified=NURSERY_RULES.compatibleBuilds.includes(nurseryRuntimeOptions().build);
+                const ratesText=rates.length?rates.map(format).join('、'):'普通亲本 1/512，异色亲本 1/16，靛莓果翻倍';
+                query('#probability-eggs').textContent=(verified?'蛋的已核对规则':'蛋的旧规则参考')+' · '+ratesText+'。每枚蛋的判定依据见培育屋。';
             }
             const signature=JSON.stringify(model.services.map(service=>[service.id,service.state,service.label,service.stateLabel,service.detail,Math.max(0,Math.ceil((service.nextAt-now)/60000))]));
             if(signature===serviceSignature)return model;
@@ -7843,8 +8329,9 @@
             }
             for (const input of root.querySelectorAll('[data-setting]')) {
                 const value = engine.settings[input.dataset.setting];
-                if (input.type === 'checkbox') input.checked = value; else input.value = String(value);
-                input.disabled = engine.running||!!engine.suspended;
+                if (input.type === 'checkbox') input.checked = value;
+                else if(!budgetDrafts.has(input))input.value = String(value);
+                if(input.dataset.setting!=='autoPurchase')input.disabled = engine.running||!!engine.suspended;
             }
             root.querySelectorAll('[data-mode]').forEach(button => { const on = button.dataset.mode === engine.settings.mode; button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); });
             if(lastMode!==engine.settings.mode){lastMode=engine.settings.mode;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
@@ -7852,6 +8339,25 @@
             root.querySelectorAll('[data-under-manual]').forEach(el=>el.classList.toggle('hidden',engine.settings.underAutoStart));
             query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
+            query('#task-purchase').hidden=!['progress','breed','resource'].includes(mode);
+            if(mode==='resource'){
+                const action=engine.settings.resourceAction;
+                query('#resource-quantity-label').textContent=action==='buy'?'购买份数':'使用份数';
+                query('#resource-member').classList.toggle('hidden',action==='buy'||!!DATA.automation.buffs[engine.settings.resourceItem]);
+                query('#task-purchase-policy').textContent={
+                    buy:'按目标份数向金币商店购买。每份确认到账后再买下一份。',
+                    use:'只使用背包中的目标道具。库存用尽时任务暂停。',
+                    buyUse:'优先使用库存。仍需使用且库存不足时，按一份的价格检查预算并补购。',
+                }[action];
+            }else if(mode==='breed'){
+                query('#task-purchase-policy').textContent=engine.settings.pensionExpand
+                    ?'寄养位少于两个、繁殖需要扩容时才会购买。'
+                    :'当前只使用已有寄养位。如需扩容，请勾选上方的寄养位选项。';
+            }else if(mode==='progress'){
+                query('#task-purchase-policy').textContent=!engine.settings.autoPrepare?'补练已关闭，主线不会买糖。'
+                    :engine.settings.progressCandy?'补练时先用库存 EXP Candy，需要继续练级且糖果不足时才会购买。'
+                    :'主线补练买糖已关闭，可在设置中开启 EXP Candy 选项。';
+            }
             query('[data-setting="autoTeam"]').closest('label').classList.remove('hidden');
             const raidMode=!(independent||mode==='roam');
             query('[data-setting="raids"]').closest('label').classList.toggle('hidden',!raidMode);
@@ -7863,9 +8369,46 @@
             query('#evolution-hint').textContent=engine.settings.autoEvolve?'免费等级进化已开启：培养考虑后续形态，实际进化确认后重新配队；道具、分支和升阶锁定个体不自动处理。':'免费进化已关闭：按当前形态评估队伍，保留手动进化。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
-            query('#candy-hint').textContent=engine.settings.spendBudget>0?'优先使用库存，逐份补购；达到等级目标后继续主线，预算不足改用普通练级。':'金币支出预算为 0：不会购买。已有糖果仍按使用上限消耗；如需采购，请展开“资源预算”设置金额和金币保留额。';
+            query('#candy-hint').textContent='优先使用库存。补购需要开启自动购买并留有预算，达到用量或支出上限后继续地图练级。';
         }
-        const editableControls=root.querySelectorAll('[data-setting], [data-mode], #item-search');
+        const editableControls=root.querySelectorAll('[data-setting]:not([data-setting="autoPurchase"]), [data-mode], #item-search');
+        const purchaseInputs=root.querySelectorAll('[data-setting="autoPurchase"]');
+        function renderPurchases(s){
+            const inSettings=ui.workspace==='settings';
+            const cardVisible=inSettings||(ui.workspace==='tasks'&&!query('#task-purchase').hidden);
+            const accountReady=!!s?.adv&&engine.account===accountId(s);
+            const budget=cardVisible&&accountReady?engine.budget.purchaseSummary(s):null;
+            const enabled=budget?.enabled??engine.settings.autoPurchase===true;
+            const locked=!!engine.suspended||!accountReady||(engine.running&&!enabled);
+            const stateLabel=enabled?'已开启':engine.running&&!engine.suspended?'已关闭 · 停止任务后可开启':'已关闭';
+            for(const input of purchaseInputs){
+                input.disabled=locked;
+                input.checked=enabled;
+                const state=input.parentElement.querySelector('[data-purchase-state]');
+                if(state.textContent!==stateLabel)state.textContent=stateLabel;
+            }
+            if(!cardVisible)return;
+            const card=query(inSettings?'#settings-purchase':'#task-purchase');
+            const status=card.querySelector('[data-purchase-status]');
+            if(!budget){
+                status.textContent=s?.adv?'等待助手同步当前账号的购买设置':'载入游戏存档后显示可购额度';
+                if(inSettings){
+                    query('#purchase-limits').textContent='';
+                    query('#budget-summary').textContent='';
+                }
+                return;
+            }
+            const coins=value=>Number.isSafeInteger(value)?value.toLocaleString()+' ₽':'待确认';
+            const detail='本次可购额度 '+coins(budget.available)+(budget.reason?' · '+budget.reason:'');
+            if(status.textContent!==detail)status.textContent=detail;
+            if(inSettings){
+                const usage=engine.budget;
+                const previous=!engine.running&&!engine.suspended&&(usage.spent>0||usage.used>0);
+                query('#budget-summary').textContent=`${previous?'上次':'本次'}已支出 ${coins(usage.spent)} · 已用 ${usage.used} 份`;
+                const daily=engine.settings.dailySpendBudget?coins(budget.dailyLeft):'未另设上限';
+                query('#purchase-limits').textContent=`本次剩余预算 ${coins(budget.sessionLeft)} · 今日剩余额度 ${daily}。当前地区余额 ${coins(Budget.counter(s.money))}，保留 ${coins(engine.settings.moneyReserve)} 后可用 ${coins(budget.walletLeft)}。`;
+            }
+        }
         function buddySummary(s,preparation){
             const current=s.buddy?.uid,mons=s.mons||[],name=uid=>MONS.get(mons.find(m=>m.uid===uid)?.id)?.name;
             const label='Buddy：'+(name(current)||'未设置');
@@ -7881,7 +8424,7 @@
             lastPaint=performance.now();
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
             let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
-                engine.loadAccount(s); editingJob = null; memberKeys.clear(); viewSignature = null;
+                engine.loadAccount(s); resetBudgetDrafts(); editingJob = null; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
@@ -7917,7 +8460,7 @@
             query('#start').textContent = s?.adv?.event?.raid ? '接管当前团体战' : s?.adv?.zone ? '接管当前传说战' : '开始当前任务';
             query('#queue-count').textContent=engine.queue.filter(job=>job.status!=='done').length;
             query('#add-job').disabled=locked;query('#start-queue').disabled=locked||!engine.queue.some(job=>job.status!=='done');
-            query('#budget-summary').textContent=`已支出 ${engine.budget.spent.toLocaleString()} ₽ · 已用 ${engine.budget.used} 份`;
+            renderPurchases(s);
             query('#reset').disabled = locked; query('#restore').disabled = locked || !engine.oldLoops;
             query('#import-profile').disabled=locked||!engine.account;
             if(locked!==lastLockState){
@@ -8001,13 +8544,19 @@
                 hint = p.missing ? '所选目标不在当前冒险队伍中，请重新选择。' : `当前 ${p.targets.map(m=>`${MONS.get(m.id)?.name || m.id} Lv.${m.level}`).join('、')}。按全队经验/分钟选图，达到目标或当前等级上限时停止；不使用糖果。`;
             } else if (mode === 'money') { goalLabel = '金币目标'; goalValue = settings.moneyTarget ? `${s.money.toLocaleString()} / ${settings.moneyTarget.toLocaleString()}` : '持续刷钱'; percent = settings.moneyTarget ? s.money/settings.moneyTarget*100 : 0; }
             else if(mode==='shiny'){const goals=shinyGoals(settings),left=missingShinies(s,settings).length;primary=(goals.length-left)+'/'+goals.length;primaryLabel='目标异色';goalLabel=goals.slice(0,3).map(id=>MONS.get(id).name).join('、')+(goals.length>3?' 等':'');goalValue=`${shinyRoutes?.length||0} 张可刷地图`;percent=(goals.length-left)/goals.length*100;hint='按当前野生遭遇表、轮换与特殊现象选图。运行实况显示各地图每轮预计遇到目标物种的次数，捕获目标异色后完成。';}
-            else if(mode==='breed'){const flow=engine.automation.state,plan=pensionPlan(s,settings.breedId);primary=`${flow.hatched||0}/${settings.breedShiny?'✦':settings.breedGoal}`;primaryLabel='目标孵化';goalLabel=MONS.get(settings.breedId)?.name;goalValue=`寄养 ${s.pension?.mons?.length||0} · 蛋 ${s.pension?.eggs?.length||0}`;percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;hint=(plan.missing?plan.missing+'。':'优先异色亲本，配置百变怪和对应亲本。')+'游戏自动产蛋并放入孵化器；成熟后点击孵化，重复个体仍计入本次目标。蛋成熟后自动孵化，异色可能需要多轮。';}
+            else if(mode==='breed'){
+                const flow=engine.automation.state,plan=pensionPlan(s,settings.breedId,settings.breedShiny);
+                primary=`${flow.hatched||0}/${settings.breedShiny?'✦':settings.breedGoal}`;primaryLabel='目标孵化';goalLabel=MONS.get(settings.breedId)?.name;
+                goalValue=`寄养 ${s.pension?.mons?.length||0} · 蛋 ${s.pension?.eggs?.length||0}`;
+                percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;
+                hint=plan.missing||(settings.breedShiny?'优先寄养可产目标蛋的异色亲本。已有确认的目标闪蛋时，等它成熟后优先孵化。':'配置百变怪和目标亲本，按游戏确认的孵化数量计入目标。');
+            }
             else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按派遣位的主题配队，领取归队奖励后更新纪录。`;}
             else if(mode==='tower'){const p=towerProgress(s,now),reached=Math.max(p.best,p.cleared);primary=`${reached}/${settings.towerFloor}`;primaryLabel='本周已过楼层';goalLabel='已结束尝试';goalValue=`${engine.automation.state.towerWeek===p.week?engine.automation.state.towerAttempts||0:0}/${settings.towerRuns}`;percent=reached/settings.towerFloor*100;hint='按原生收藏排序、同种族限制和休息等级核对实际前六名，只为真正会上场的成员补练。暂停场次继续，不计失败；周记录与尝试次数按 UTC 周一重置，奖励结算后再结束任务。';}
             else if(mode==='candy'){const run=s.candy?.run,flow=engine.automation.state,cleared=Math.max(0,run?run.floor-1:flow.candyResult?.floor||0);primary=settings.candyFloor?`${cleared}/${Math.ceil(settings.candyFloor/5)*5}`:String(cleared);primaryLabel='本场已过楼层';goalLabel=`完成场次 ${flow.candyDone||0}/${settings.candyRuns}`;goalValue=run?`今日${DATA.types[run.type]?.fr||run.type}主题 · 已获糖果保留`:'每日一次 · 巴黎时间刷新';percent=(flow.candyDone||0)/settings.candyRuns*100;hint='按今日主题、实际招式与耐久配置六人专属队伍；需要时先补练再入场，入场后保留克隆阵容。目标层向上取整至五层营地，0 表示尽力挑战；不购买跳层，失败仍按真实结算计一局。25枚神奇糖果日上限后仍可获得经验糖果。';}
             else if(mode==='elite'){const reg=settings.eliteRegion==='current'?currentRegion(s):settings.eliteRegion,best=s.eliteLeague?.[reg]?.t||0;primary=`${best}/${settings.eliteTier}`;primaryLabel='精英联盟阶级';goalLabel=DATA.regions.find(r=>r.key===reg)?.name;goalValue='逐阶挑战并领取宝石';percent=best/settings.eliteTier*100;hint='按全联盟配置专属队伍，只挑战未完成的下一阶；通关后选择第一种可领取宝石。原生条件不足时等待，不重复领取已完成阶级。';}
             else if(mode==='world'){primary=`${engine.automation.state.worldDone||0}/${settings.worldActions}`;primaryLabel='本次首领攻击';goalLabel='世界首领';goalValue=settings.worldCapture?'攻击 → 等待 → 捕获':'攻击目标完成即结束';percent=(engine.automation.state.worldDone||0)/settings.worldActions*100;hint='使用原生推荐的可攻击成员，每日次数和登录条件由服务器校验。捕获阶段可能需要等待；没有开放时不会反复提交攻击。';}
-            else if(mode==='resource'){const flow=engine.automation.state,id=settings.resourceItem,n=settings.resourceAction==='buy'?purchasedQuantity(s,id,flow):Math.max(0,(s.stats?.itemOut?.[id]||0)-(flow.resourceOut??s.stats?.itemOut?.[id]??0));primary=`${n}/${settings.resourceQuantity}`;primaryLabel=settings.resourceAction==='buy'?'采购份数':'使用份数';goalLabel=ITEMS.get(id)?.name||id;goalValue=`背包 ${s.items?.[id]||0}`;percent=n/settings.resourceQuantity*100;hint='每次只购买或使用一份，逐次核对价格、到账和预算。只购买支持当前金币商店的道具；树果用于全局增益，糖果或进化道具用于所选成员。';}
+            else if(mode==='resource'){const flow=engine.automation.state,id=settings.resourceItem,n=settings.resourceAction==='buy'?purchasedQuantity(s,id,flow):usedQuantity(s,id,flow);primary=`${n}/${settings.resourceQuantity}`;primaryLabel=settings.resourceAction==='buy'?'采购份数':'使用份数';goalLabel=ITEMS.get(id)?.name||id;goalValue=`背包 ${s.items?.[id]||0}`;percent=n/settings.resourceQuantity*100;hint='每次只购买或使用一份，逐次核对价格、到账和预算。只购买支持当前金币商店的道具；树果用于全局增益，糖果或进化道具用于所选成员。';}
             else if(mode==='progress'){primary=`${Math.min(settings.progressUntil,s.adv.unlocked)}/${settings.progressUntil}`;primaryLabel='主线章节';goalLabel=CHAPTERS.get(settings.progressUntil)?.name;goalValue=`当前 ${CHAPTERS.get(s.adv.chapter)?.name||s.adv.chapter}`;percent=s.adv.unlocked/Math.max(1,settings.progressUntil)*100;}
             query('#dex-value').textContent = primary; query('#primary-label').textContent = primaryLabel; query('#target-hint').textContent = hint;
             query('#goal-label').textContent = goalLabel; query('#goal-value').textContent = goalValue;
@@ -8120,13 +8669,84 @@
             view.scrollTop = scroll;
         }
         function changeSetting(key,value) {
-            if (engine.running||engine.suspended) return;
-            engine.settings = normalizeSettings({...engine.settings,[key]:value});
-            if (key === 'mode') { engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
-            try { engine.persist(); } catch { engine.status = '设置无法保存，请检查浏览器存储空间'; }
-            syncSettings(); render(); place();
+            if(key==='autoPurchase'){
+                try{
+                    if(engine.setAutoPurchase(value)===false)throw new Error('请检查当前账号和标签页的控制权');
+                }catch(error){
+                    engine.status='自动购买设置未保存：'+(error.message||'请检查浏览器存储空间');
+                    syncSettings();render();return false;
+                }
+                syncSettings();render();return true;
+            }
+            if (engine.running||engine.suspended) return false;
+            const previous=engine.settings;
+            engine.settings=normalizeSettings({...previous,[key]:value});
+            try {
+                if(engine.account&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
+                if (key === 'mode') { engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
+            } catch(error) {
+                engine.settings=previous;
+                engine.status='设置未保存：'+(error.message||'请检查浏览器存储空间');
+                syncSettings();render();return false;
+            }
+            syncSettings(); render(); place(); return true;
         }
-        root.addEventListener('change',event=>{ const input=event.target,key=input.dataset.setting;if(!key)return;changeSetting(key,input.dataset.boolean==='true'?input.value==='true':input.type==='checkbox'?input.checked:input.type==='number'||['speed','legendId','legendTier'].includes(key)?Number(input.value):input.value); });
+        const budgetDrafts = new Map();
+        function resetBudgetDrafts() {
+            for (const input of budgetDrafts.keys()) input.removeAttribute('aria-invalid');
+            budgetDrafts.clear();
+        }
+        function commitBudgetInput(input) {
+            const key = input.dataset.setting;
+            if (!budgetDrafts.has(input)) budgetDrafts.set(input,engine.account);
+            if (budgetDrafts.get(input) !== engine.account || input.disabled || engine.running || engine.suspended) return false;
+            if (engine.account) {
+                let state;
+                try { state=engine.read(); } catch {}
+                if (!state?.adv || accountId(state)!==engine.account) {
+                    engine.status='存档或账号已变化，请重新核对资源预算';
+                    render();
+                    return false;
+                }
+            }
+            const amount = budgetAmount(key,input.valueAsNumber);
+            if (amount === null) {
+                input.setAttribute('aria-invalid','true');
+                engine.status = '预算未保存，请填写 0 至 '+BUDGET_LIMITS[key]+' 的整数';
+                render();
+                return false;
+            }
+            input.removeAttribute('aria-invalid');
+            if (!changeSetting(key,amount)) return false;
+            input.value = String(amount);
+            budgetDrafts.delete(input);
+            return true;
+        }
+        function commitBudgetDrafts(reveal=false) {
+            for (const input of budgetDrafts.keys()) {
+                if (commitBudgetInput(input)) continue;
+                if (reveal) {
+                    selectWorkspace('settings');
+                    query('#budget-details').open=true;
+                    input.focus();
+                }
+                return false;
+            }
+            return true;
+        }
+        root.addEventListener('input',event=>{
+            const input=event.target;
+            if(Object.hasOwn(BUDGET_LIMITS,input.dataset.setting)&&!input.disabled)budgetDrafts.set(input,engine.account);
+        });
+        root.addEventListener('change',event=>{
+            const input=event.target,key=input.dataset.setting;if(!key)return;
+            if(Object.hasOwn(BUDGET_LIMITS,key)){commitBudgetInput(input);return;}
+            changeSetting(key,input.dataset.boolean==='true'?input.value==='true':input.type==='checkbox'?input.checked:input.type==='number'||['speed','legendId','legendTier'].includes(key)?Number(input.value):input.value);
+        });
+        // A mobile browser can hide the page or activate a command before its number keyboard emits change.
+        root.addEventListener('click',event=>{
+            if(event.target.closest?.('#start,#start-queue,#add-job')&&!commitBudgetDrafts(true))event.stopImmediatePropagation();
+        },true);
         root.addEventListener('click',event=>{
             const button=event.target.closest('button');if(!button)return;
             if(button.dataset.category)showCategory(button.dataset.category);
@@ -8138,7 +8758,7 @@
                 if(action==='retry'){job.status='pending';job.result='';delete job.progress;}
                 if(action==='up'&&i>0)[engine.queue[i-1],engine.queue[i]]=[job,engine.queue[i-1]];
                 if(action==='down'&&i<engine.queue.length-1)[engine.queue[i+1],engine.queue[i]]=[job,engine.queue[i+1]];
-                if(action==='edit'){selectWorkspace('tasks');editingJob=job.id;engine.settings=normalizeSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
+                if(action==='edit'){resetBudgetDrafts();selectWorkspace('tasks');editingJob=job.id;engine.settings=engine.taskSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
                 engine.persist(false);render();
             }
         });
@@ -8166,7 +8786,7 @@
             handle.addEventListener('pointerup',endDrag); handle.addEventListener('pointercancel',endDrag); handle.addEventListener('lostpointercapture',endDrag);
         }
         window.addEventListener('resize',place);
-        document.addEventListener('visibilitychange',()=>{if(document.hidden)engine.releaseRankingView();else{render();place();}});
+        document.addEventListener('visibilitychange',()=>{if(document.hidden){commitBudgetDrafts();engine.releaseRankingView();}else{render();place();}});
         query('#fold').onclick=()=>fold(true);
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
@@ -8189,7 +8809,7 @@
         query('#import-profile').onclick=()=>query('#profile-file').click();
         query('#profile-file').onchange=async event=>{
             const file=event.target.files?.[0], account=engine.account;event.target.value='';if(!file)return;
-            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');const content=await file.text();if(account!==engine.account)throw new Error('读取文件期间账号已切换，请重新选择文件');importConfigurationProfile(engine,content);editingJob=null;syncSettings();}
+            try{if(file.size>2*1024*1024)throw new Error('配置文件超过2MB');const content=await file.text();if(account!==engine.account)throw new Error('读取文件期间账号已切换，请重新选择文件');importConfigurationProfile(engine,content);resetBudgetDrafts();editingJob=null;syncSettings();}
             catch(err){engine.status='配置导入失败：'+err.message;engine.log(engine.status);}
             render();
         };
@@ -8238,7 +8858,12 @@
             if(active.matches('#pc-search,input[type="search"]')||!visible(active)){active.blur();return !engine.gameInputFocused();}
             return false;
         };
-        window.addEventListener('pagehide', () => engine.suspend());
+        window.addEventListener('pagehide', () => {commitBudgetDrafts();engine.suspend();});
+        window.addEventListener('storage',event=>{
+            if(!engine.account||event.key!==PREFIX+'purchase:'+engine.account)return;
+            engine.refreshAutoPurchase();
+            syncSettings();render();
+        });
         window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();render();}});
         engine.onChange = render; itemOptions(); syncSettings(); render(); fold(!!ui.folded);
         setInterval(()=>{if(performance.now()-lastPaint>=2000)render();},2500);

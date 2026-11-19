@@ -46,6 +46,38 @@ test('an account or save-layout switch while stopped cannot import into a stale 
     }
 });
 
+test('a malformed daily cap or reserve cannot silently become zero when importing a profile or queued job',()=>{
+    const f=engine(),profile=H.configurationProfile(f.e);
+    const before=JSON.stringify(f.e.settings);
+    profile.queue=[{settings:{mode:'resource',spendBudget:20000}}];
+    for(const invalid of [null,false,[],{},' ','-1',0.5,1e12+1]){
+        profile.queue[0].settings.dailySpendBudget=invalid;
+        assert.throws(()=>H.importConfigurationProfile(f.e,profile),/队列第 1 项.*每日支出上限/);
+        assert.equal(JSON.stringify(f.e.settings),before);
+        assert.equal(f.e.queue.length,0);
+    }
+    profile.queue[0].settings.dailySpendBudget='0';
+    profile.settings.moneyReserve=false;
+    assert.throws(()=>H.importConfigurationProfile(f.e,profile),/当前任务.*金币保留额/);
+    profile.settings.moneyReserve=' 2500 ';
+    H.importConfigurationProfile(f.e,profile);
+    assert.equal(f.e.settings.moneyReserve,2500);
+    assert.equal(f.e.queue[0].settings.dailySpendBudget,0);
+});
+
+test('damaged stored coin limits block new spending while preserving valid inventory usage and old missing fields',()=>{
+    for(const key of ['spendBudget','moneyReserve','dailySpendBudget']){
+        const config=H.normalizeSettings({spendBudget:500, [key]:false, useBudget:3});
+        assert.equal(config.spendBudget,0,key);
+        assert.equal(config.useBudget,3);
+    }
+    const config=H.normalizeSettings({spendBudget:'420',useBudget:[]});
+    assert.equal(config.useBudget,0);
+    assert.equal(config.spendBudget,420);
+    assert.equal(config.moneyReserve,H.DEFAULTS.moneyReserve);
+    assert.equal(H.normalizeSettings({spendBudget:10,moneyReserve:0}).spendBudget,10);
+});
+
 test('a lease takeover during persistence rolls the imported settings and queue back',()=>{
     const f=engine(),before={settings:f.e.settings,queue:f.e.queue};let calls=0;
     f.e.mayPersist=()=>++calls===1;

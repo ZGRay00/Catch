@@ -17,7 +17,20 @@
             if(eggPresentation==='duplicate'){const fx=document.createElement('div');fx.className='rc-fx lk-fx lk-hatch';fx.innerHTML='<button class="rc-tap">Family XP</button>';fx.querySelector('.rc-tap').onpointerdown=()=>fx.remove();document.body.appendChild(fx);}
             else modal('dexcard-modal',eggPresentation==='plain'?'<b>Hatched</b>':'<b class="dc-new">Hatched</b>');};if(eggPresentation==='delayed')hatchCommit=commit;else commit();};
     }
-    function shop(){const root=q('#screen-shop');root.innerHTML='<div id="shop-grid"><div class="sh-item" data-id="exp-candy-m"><b class="total">50 ₽</b><button data-n="1" class="on">1</button><button class="buy">Buy</button></div></div>';root.querySelector('.buy').onclick=()=>{s.money-=50;s.items['exp-candy-m']=(s.items['exp-candy-m']||0)+1;s.stats.itemIn['exp-candy-m']=(s.stats.itemIn['exp-candy-m']||0)+1;save();shop();};}
+    let shopQuantity='1';
+    function shop(){
+        const root=q('#screen-shop'),id='exp-candy-m',price=50;
+        const count=shopQuantity==='max'?Math.max(1,Math.floor(s.money/price)):Number(shopQuantity);
+        root.innerHTML=`<div id="shop-grid"><div class="sh-item" data-id="${id}">
+            <span class="unit">${shopQuantity==='max'?'×'+count+' · ':''}${price} ₽ l’unité</span><b class="total">${price*count} ₽</b>
+            <div class="seg">${['1','100','max'].map(n=>`<button data-n="${n}" class="${shopQuantity===n?'on':''}">${n}</button>`).join('')}</div>
+            <button class="buy" ${price*count>s.money?'disabled':''}>Buy</button></div></div>`;
+        for(const btn of root.querySelectorAll('[data-n]'))btn.onclick=()=>{shopQuantity=btn.dataset.n;shop();};
+        root.querySelector('.buy').onclick=()=>{
+            s.money-=price*count;s.items[id]=(s.items[id]||0)+count;s.stats.itemIn[id]=(s.stats.itemIn[id]||0)+count;
+            s.stats.spent||={};s.stats.spent.candy=(s.stats.spent.candy||0)+price*count;save();shop();
+        };
+    }
     let underPage='exp',geodeOpened=0,underSelected=[],underSent=0,underTeamEdits=0,underPendingReturn=null,underCollectionClicks=0;
     function advanceUnderground(){
         if(!underPendingReturn)return;
@@ -215,6 +228,7 @@
         const engine=e(),checks=[];const assert=(value,label)=>{if(!value)throw Error('Automation: '+label);checks.push(label);};const base={...engine.settings};
         const reset=(mode,settings={})=>{
             engine.stop();engine.queueRunning=false;engine.queue=[];engine.cooldowns={};engine.raidCooldown={};engine.driver.recent.clear();
+            shopQuantity='1';
             underSelected=[];underSent=0;underTeamEdits=0;underPage='exp';underPendingReturn=null;underCollectionClicks=0;delete s.link;if(s.eventTeams)delete s.eventTeams['under:0'];
             q('#modal-root').className='';q('#modal-root').replaceChildren();q('#evt-pick')?.remove();document.querySelectorAll('.lk-evo').forEach(fx=>fx.remove());
             evolutionClicks=[];evolutionDetails=[];evolutionDeferSave=false;evolutionCommit=null;
@@ -373,7 +387,18 @@
         reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:3,resourceAction:'use',useUid:'a',useBudget:10});s.items['exp-candy-m']=3;save();await until(()=>!!q('#modal-root.open .mon-card'));await tick();let wrongMemberUses=0;information('mon-modal','<div class="mon-card"><button class="dc-x">Close</button><button class="dc-candy">Wrong member</button></div>');q('.dc-candy').onclick=()=>wrongMemberUses++;await tick();assert(wrongMemberUses===0&&!engine.automation.owner,'a replacement member card cannot inherit the previous card consumption authority');await until(()=>!engine.running,35);assert(wrongMemberUses===0&&s.stats.itemOut['exp-candy-m']===3,'resource task reopens its intended member and preserves its usage goal');
         reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:2,resourceAction:'use',useUid:'a',useBudget:10});s.items['exp-candy-m']=2;save();information('mon-modal','<div class="mon-card"><button class="dc-x">Close</button><button class="dc-candy">Restored unknown member</button></div>');q('.dc-candy').onclick=()=>wrongMemberUses++;engine.automation.restoreOwner({kind:'mon',selector:'.mon-modal',uid:'a'});await tick();assert(!q('#modal-root.open')&&wrongMemberUses===0&&engine.budget.used===0,'checkpoint restoration closes an unverifiable card before reselecting the saved member');await until(()=>!engine.running,35);assert(s.stats.itemOut['exp-candy-m']===2&&wrongMemberUses===0,'checkpoint member revalidation resumes without duplicate item use');
         reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:1,resourceAction:'use',useUid:'a',useBudget:10});s.items['exp-candy-m']=1;save();await until(()=>!!q('#modal-root.open .mon-card'));let fixtureHidden=true;Object.defineProperty(document,'hidden',{configurable:true,get:()=>fixtureHidden});document.dispatchEvent(new Event('visibilitychange'));const hiddenStart=Date.now()-180000;engine.hiddenAt=hiddenStart;engine.automation.owner.started=hiddenStart;await tick();assert(s.items['exp-candy-m']===1&&engine.running,'background idle performs no item actions');fixtureHidden=false;document.dispatchEvent(new Event('visibilitychange'));await tick();assert(engine.running&&!/超时/.test(engine.status),'returning to a native item card does not count background duration as UI timeout');delete document.hidden;await until(()=>!engine.running,15);assert(s.stats.itemOut['exp-candy-m']===1,'foreground return finishes the original item action exactly once');
-        reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:1,resourceAction:'buy'});await until(()=>!engine.running);assert(!s.items['exp-candy-m']&&engine.budget.spent===0,'zero budget blocks native purchase');
+        reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:1,resourceAction:'buy',autoPurchase:true});await until(()=>!engine.running);assert(!s.items['exp-candy-m']&&engine.budget.spent===0,'enabling purchase alone still blocks a native order with zero budget');
+        reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:2,resourceAction:'buyUse',autoPurchase:false,spendBudget:10000000,useBudget:2,useUid:'a'});
+        s.items['exp-candy-m']=1;save();await until(()=>!engine.running,40);
+        assert(!engine.running&&s.money===1000&&!s.stats.itemIn['exp-candy-m']&&s.stats.itemOut['exp-candy-m']===1&&engine.budget.spent===0&&engine.budget.used===1,
+            'buy-and-use with the account switch off uses existing stock once and never purchases the missing serving');
+        reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:2,resourceAction:'buy',autoPurchase:true,spendBudget:10000000});
+        await until(()=>!!engine.automation.state.resourceTx,15);
+        const purchaseSwitch=document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#task-purchase [data-setting="autoPurchase"]');
+        engine.onChange();purchaseSwitch.click();await until(()=>!engine.running,20);
+        assert(!engine.running&&engine.settings.autoPurchase===false&&engine.automation.state.resourcePurchased===1&&s.stats.itemIn['exp-candy-m']===1&&
+            engine.budget.spent===50&&s.money===950,'turning purchase off during an outstanding native order acknowledges that receipt and submits no second order');
+        engine.onChange();purchaseSwitch.click();
         reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:3,resourceAction:'buy',spendBudget:100});await until(()=>!engine.running);assert(s.items['exp-candy-m']===2&&engine.budget.spent===100,'per-action budget stops the third purchase');
         reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:2,resourceAction:'use',useBudget:2,useUid:'a'});s.items['exp-candy-m']=3;save();await until(()=>!engine.running);assert(s.items['exp-candy-m']===1&&engine.budget.used===2&&!q('#modal-root.open'),'native member card uses exact quantity and closes');
         reset('resource',{resourceItem:'exp-candy-m',resourceQuantity:3,resourceAction:'buyUse',spendBudget:150,useBudget:3,useUid:'a'});await until(()=>!engine.running,50);assert(engine.budget.spent===150&&engine.budget.used===3&&s.stats.itemIn['exp-candy-m']===3&&s.stats.itemOut['exp-candy-m']===3,'buy-use returns to shop between empty member cards');
@@ -499,6 +524,20 @@
         s.road=[...s.team];for(const target of engine.preparation.targets)s.mons.find(m=>m.uid===target.uid).level=target.goal;save();await until(()=>!engine.preparation,50);await until(()=>s.adv.chapter===18,40);assert(s.adv.chapter===18&&engine.settings.progressUntil===65,'screenshot party returns to its mainline objective after weak members reach 46');
         reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:300,moneyReserve:100,useBudget:10});s.adv.unlocked=3;s.mons[0].level=37;save();await until(()=>!!engine.preparation);await until(()=>!engine.preparation,100);await until(()=>s.adv.chapter===3,25);assert(s.mons.find(m=>m.uid==='a').level===38&&engine.budget.spent===250&&engine.budget.used===5&&s.adv.chapter===3,'mainline buys five single candies, reaches cap and returns without changing its goal');
         reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:100,moneyReserve:100,useBudget:10});s.adv.unlocked=3;s.mons[0].level=37;save();await until(()=>engine.preparation?.phase==='train'&&engine.preparation.candyDisabled,100);assert(engine.running&&engine.preparation?.candyDisabled&&engine.budget.spent===100&&engine.budget.used===2,'candy budget exhaustion falls back to map training without stopping the task');
+        for(const remembered of ['100','max']){
+            reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:10000000,dailySpendBudget:0,moneyReserve:10000,useBudget:20});
+            shopQuantity=remembered;s.adv.unlocked=3;s.mons[0].level=37;s.money=10049;save();
+            await until(()=>engine.preparation?.phase==='train'&&engine.preparation.candyDisabled,100);
+            assert(engine.budget.spent===0&&s.money===10049,'coins below the single-candy reserve boundary stay untouched');
+            s.money+=1;save();
+            await until(()=>engine.budget.used===1&&engine.preparation?.phase==='train'&&engine.preparation.candyDisabled,100);
+            assert(shopQuantity==='1'&&engine.budget.spent===50&&s.money===10000&&s.stats.spent.candy===50&&s.stats.itemOut['exp-candy-m']===1,
+                'mainline rechecks an affordable single serving after earnings with remembered '+remembered+' and preserves the reserve');
+        }
+        reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:300,moneyReserve:100,useBudget:10});
+        shopQuantity='100';s.adv.unlocked=3;s.mons[0].level=37;s.money=150;save();
+        await until(()=>engine.budget.used===1&&engine.preparation?.phase==='train'&&engine.preparation.candyDisabled,100);
+        assert(s.money===100&&engine.budget.spent===50,'a disabled bulk buy switches to one affordable candy');
         reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:0,moneyReserve:100,useBudget:10});s.adv.unlocked=3;s.mons[0].level=37;s.items['exp-candy-m']=1;save();await until(()=>engine.preparation?.phase==='train'&&engine.preparation.candyDisabled,80);assert(engine.running&&engine.budget.spent===0&&engine.budget.used===1&&s.stats.itemOut['exp-candy-m']===1,'owned candy is used before purchases and zero purchase budget still permits map training');
         reset('money',{autoPrepare:true,autoTeam:true,optimizeRaid:true,raids:false,prepareGap:0});s.adv.unlocked=13;s.adv.event={raid:true,reg:'kanto',id:68,loops:23};for(const mon of s.mons)mon.level=5;save();engine.driver.raid={reg:'kanto',boss:68,started:Date.now()};await until(()=>engine.preparation?.phase==='train',60);assert(!!engine.preparation&&!s.adv.event&&s.fixtureRaidTries===23,'owned underleveled raid leaves through its native control before training');
         s.road=[...s.team];for(const target of engine.preparation.targets)s.mons.find(m=>m.uid===target.uid).level=target.goal;save();await until(()=>!engine.preparation,40);await until(()=>!!s.adv.event?.raid,35);assert(s.adv.event?.id===68&&s.adv.event.loops===23,'prepared raid returns original boss and attempts');

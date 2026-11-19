@@ -22,10 +22,12 @@ async function main(){
         const evaluate=async expression=>{const result=await send('Runtime.evaluate',{expression,awaitPromise:true,returnByValue:true});if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||result.exceptionDetails.text);return result.result.value;};
         await send('Page.enable');await send('Runtime.enable');await send('Network.enable');await send('Network.setBlockedURLs',{urls:['http://*','https://*']});
         await send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
-        const setup=`localStorage.clear();window.fixtureState=${JSON.stringify(game)};localStorage.setItem('gachamon-save-v1',JSON.stringify(fixtureState));localStorage.setItem('pokecatch-tab','execution-ui-tab');window.GM_registerMenuCommand=()=>{};window.commitExecution=()=>{localStorage.setItem('gachamon-save-v1',JSON.stringify(fixtureState));__pcExecutionTest.engine.onChange()};`;
+        const setup=`localStorage.clear();window.fixtureState=${JSON.stringify(game)};localStorage.setItem('gachamon-save-v1',JSON.stringify(fixtureState));localStorage.setItem('pokecatch-helper:v1:'+fixtureState.trainer.id,JSON.stringify({settings:{spendBudget:20000}}));localStorage.setItem('pokecatch-tab','execution-ui-tab');window.GM_registerMenuCommand=()=>{};window.commitExecution=()=>{localStorage.setItem('gachamon-save-v1',JSON.stringify(fixtureState));__pcExecutionTest.engine.onChange()};`;
         const html=path.join(dir,'index.html');fs.writeFileSync(html,'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><body><script>'+setup+'</script><script>'+source.replace(/<\/script/gi,'<\\/script')+'</script></body>');
         await send('Page.navigate',{url:pathToFileURL(html).href});for(let n=0;n<80&&!await evaluate('!!window.__pokecatchHelper?.ready');n++)await delay(50);assert.equal(await evaluate('!!window.__pokecatchHelper?.ready'),true);
         const root="document.querySelector('#pokecatch-auto-helper').shadowRoot";
+        assert.deepEqual(await evaluate('[__pcExecutionTest.engine.settings.spendBudget,__pcExecutionTest.engine.settings.autoPurchase]'),[20000,true]);
+        checks.push('a pre-switch account with a saved positive procurement budget retains that authorization');
         const panes=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;const views=[];
             for(const key of ['tasks','settings','activity']){
                 r.querySelector('[data-workspace="'+key+'"]').click();
@@ -186,6 +188,115 @@ async function main(){
         assert.match(ended.nativePause[0],/游戏暂停/);assert.match(ended.nativePause[1],/游戏已暂停/);assert.equal(ended.nativePause[2],true);assert.match(ended.resumed,/运行中/);
         checks.push('the full panel and minimized label reflect native pause and resume without offering the manual takeover button');
         checks.push('final wallet, trainee EXP and item gains freeze at Stop while the native game continues, and the next task gets a fresh baseline');
+        const purchaseUI=await evaluate(`(()=>{
+            const r=${root},q=selector=>r.querySelector(selector);
+            const task=q('#task-purchase'),settings=q('#settings-purchase');
+            const taskInput=task.querySelector('[data-setting="autoPurchase"]'),settingsInput=settings.querySelector('[data-setting="autoPurchase"]');
+            const visible=el=>el.getClientRects().length>0;
+            const boxFits=el=>{const b=el.getBoundingClientRect();return b.left>=-1&&b.right<=innerWidth+1;};
+            const set=(key,n)=>{const field=q('[data-setting="'+key+'"]');field.value=n;field.dispatchEvent(new Event('change',{bubbles:true}));};
+            const selectTask=mode=>{
+                const button=q('[data-mode="'+mode+'"]');
+                q('[data-category="'+button.dataset.group+'"]').click();
+                if(!visible(button))throw Error('Task not reachable: '+mode);
+                button.click();
+            };
+            fixtureState.money=12340;commitExecution();q('[data-workspace="tasks"]').click();
+            const discoverable=['resource','progress','breed'].map(mode=>{
+                selectTask(mode);
+                return visible(taskInput)&&boxFits(task)&&!taskInput.closest('details:not([open])');
+            });
+            selectTask('money');
+            const farmingHidesSwitch=!visible(taskInput);
+            selectTask('resource');
+            q('#purchase-edit-budget').click();
+            const linked=visible(settingsInput)&&q('#budget-details').open;
+            set('spendBudget','5000');set('moneyReserve','12000');set('dailySpendBudget','0');
+            const settingsText=settings.querySelector('[data-purchase-status]').textContent;
+            settingsInput.click();
+            const disabledGlobally=!taskInput.checked&&!settingsInput.checked;
+            q('[data-workspace="tasks"]').click();
+            const off=task.querySelector('[data-purchase-status]').textContent;
+            taskInput.click();
+            const text=task.querySelector('[data-purchase-status]').textContent;
+            const content=q('.content');
+            return {discoverable,linked,farmingHidesSwitch,disabledGlobally,off,text,settingsText,synced:taskInput.checked&&settingsInput.checked,
+                fits:boxFits(task)&&content.scrollWidth<=content.clientWidth+1};
+        })()`);
+        assert.deepEqual(purchaseUI.discoverable,[true,true,true]);assert.ok(purchaseUI.linked&&purchaseUI.fits&&purchaseUI.farmingHidesSwitch);
+        assert.ok(purchaseUI.disabledGlobally&&purchaseUI.synced);assert.match(purchaseUI.off,/关/);
+        assert.match(purchaseUI.text,/340/);assert.match(purchaseUI.settingsText,/340/);
+        checks.push('the mobile task page shows the same purchase switch for resource, training preparation and breeding and links to the expanded budget');
+        checks.push('task and settings switches stay synchronized and explain the spendable balance on the narrow viewport');
+        const purchaseSettings=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,r=${root},prefix='pokecatch-helper:v1:',key=prefix+e.account;
+            const saved=()=>JSON.parse(localStorage.getItem(key));
+            const edit=(field,value,eventName)=>{
+                const input=r.querySelector('[data-setting="'+field+'"]');
+                input.value=value;input.dispatchEvent(new Event(eventName,{bubbles:true}));
+            };
+            // Use task commands and native browser events on the isolated page, with no game actions.
+            e.schedule=()=>{};r.querySelector('[data-mode="resource"]').click();
+            edit('spendBudget','10000000','input');
+            window.dispatchEvent(new Event('pagehide'));
+            const afterHide=saved().settings.spendBudget;
+            edit('dailySpendBudget','3500','change');
+            edit('dailySpendBudget','','change');
+            const emptyLimit=saved().settings.dailySpendBudget;
+            const lengthBefore=e.queue.length;
+            r.querySelector('#add-job').click();
+            const invalidDraft=[e.queue.length===lengthBefore,r.activeElement===r.querySelector('[data-setting="dailySpendBudget"]'),r.activeElement?.getAttribute('aria-invalid')];
+            r.querySelector('#start').click();
+            const blockedStart=!e.running;
+            edit('dailySpendBudget','0','change');
+            edit('moneyReserve','10000','change');
+            edit('useBudget','20','input');
+            r.querySelector('#add-job').click();
+            const queued=saved().queue.at(-1).settings;
+            edit('moneyReserve','12000','change');
+            const lease=prefix+'lease:'+e.account;
+            localStorage.setItem(lease,JSON.stringify({token:'other-fixture',expires:Date.now()+60000}));
+            edit('moneyReserve','0','change');
+            const rejected=[saved().settings.moneyReserve,e.settings.moneyReserve,r.querySelector('[data-setting="moneyReserve"]').value,e.status];
+            r.querySelector('#start-queue').click();
+            const blockedQueue=!e.running;
+            localStorage.removeItem(lease);
+            r.querySelector('#start-queue').click();
+            if(!e.running)throw Error(e.status);
+            e.manualInput();e.onChange();
+            const locked=r.querySelector('[data-setting="spendBudget"]').disabled;
+            const master=r.querySelector('#task-purchase [data-setting="autoPurchase"]');
+            const couldTurnOff=master.checked&&!master.disabled;
+            master.click();
+            const offWhileRunning=!master.checked&&master.disabled;
+            e.budget.used=1;window.dispatchEvent(new Event('pagehide'));
+            const checkpoint=saved().resume;
+            e.onChange();
+            const suspendedReadOnly=!!e.suspended&&[...r.querySelectorAll('[data-setting="autoPurchase"]')].every(input=>input.disabled);
+            master.click();
+            window.dispatchEvent(new Event('pageshow'));
+            const restored=[e.settings.moneyReserve,e.budget.used,e.running,e.queueRunning,e.settings.autoPurchase];
+            r.querySelector('#stop').click();
+            const persisted=saved().settings.autoPurchase;
+            r.querySelector('#start-queue').click();
+            const queuedAgain=e.settings.autoPurchase;
+            r.querySelector('#stop').click();
+            return {afterHide,emptyLimit,invalidDraft,blockedStart,blockedQueue,rejected,queued:[queued.spendBudget,queued.dailySpendBudget,queued.moneyReserve,queued.useBudget],
+                checkpoint:[checkpoint.settings.spendBudget,checkpoint.settings.moneyReserve,checkpoint.budget.used],locked,restored,
+                couldTurnOff,offWhileRunning,suspendedReadOnly,persisted,queuedAgain};
+        })()`);
+        assert.equal(purchaseSettings.afterHide,10000000);assert.equal(purchaseSettings.emptyLimit,3500);
+        assert.deepEqual(purchaseSettings.invalidDraft,[true,true,'true']);assert.ok(purchaseSettings.blockedStart&&purchaseSettings.blockedQueue);
+        assert.deepEqual(purchaseSettings.rejected.slice(0,3),[12000,12000,'0']);assert.match(purchaseSettings.rejected[3],/未保存/);
+        assert.deepEqual(purchaseSettings.queued,[10000000,0,10000,20]);assert.deepEqual(purchaseSettings.checkpoint,[10000000,10000,1]);
+        assert.equal(purchaseSettings.locked,true);assert.deepEqual(purchaseSettings.restored,[10000,1,true,true,false]);
+        assert.equal(purchaseSettings.couldTurnOff,true);assert.equal(purchaseSettings.offWhileRunning,true);
+        assert.equal(purchaseSettings.suspendedReadOnly,true);
+        assert.equal(purchaseSettings.persisted,false);assert.equal(purchaseSettings.queuedAgain,false);
+        checks.push('uncommitted mobile budget input survives pagehide, an empty daily cap preserves its prior limit, and an explicit zero saves');
+        checks.push('invalid or unsaved budget drafts stay editable and block start, queue launch and enqueue until corrected or successfully saved');
+        checks.push('the queue snapshots the edited budget, keeps manual-pause settings locked and resumes with the same limits and use counter');
+        checks.push('the account purchase switch can be turned off while running, and queue restart and page suspension cannot turn it back on');
         console.log('PASS: '+checks.length+' execution/concurrency UI checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

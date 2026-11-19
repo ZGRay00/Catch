@@ -56,12 +56,68 @@
             this.metrics = readRouteHistory(saved.metrics);
             this.raidDraw=saved.raidDraw||null;
             this.settings = normalizeSettings(saved.settings||{},switching?DEFAULTS:this.settings);
+            this.refreshAutoPurchase();
             this.queue = normalizeJobs(saved.queue);
             this.queueIndex = Number.isInteger(saved.queueIndex) ? Math.max(0, Math.min(this.queue.length, saved.queueIndex)) : 0;
             this.checkpoint = saved.resume?.wanted ? saved.resume : null;
             this.services = normalizeServiceState(saved.services);
             this.telemetry = new Telemetry(this.metrics);
             this.nurseryMonitor.load(s);
+        }
+        refreshAutoPurchase() {
+            if (!this.account) return this.settings.autoPurchase;
+            try {
+                const saved = this.storage.getItem(PREFIX + 'purchase:' + this.account);
+                if (saved !== null) this.settings.autoPurchase = saved === '1';
+                return this.settings.autoPurchase;
+            } catch {
+                return false;
+            }
+        }
+        taskSettings(raw) {
+            const settings = normalizeSettings(raw);
+            settings.autoPurchase = this.refreshAutoPurchase();
+            return settings;
+        }
+        setAutoPurchase(enabled) {
+            if (typeof enabled !== 'boolean' || !this.account) throw new Error('请先进入游戏，再更改自动购买');
+            if (this.suspended || (enabled && this.running)) throw new Error('请先停止任务，再开启自动购买');
+            if (!this.mayPersist()) {
+                const reason = '当前标签页无法保存自动购买开关，请在管理该账号的标签页操作';
+                if (!enabled && this.running) this.stop(reason, {persist:false});
+                throw new Error(reason);
+            }
+            if (enabled) {
+                const current = this.read();
+                if (!current?.adv || accountId(current) !== this.account) throw new Error('当前账号已变化，请刷新后开启自动购买');
+            }
+            const key = PREFIX + 'purchase:' + this.account;
+            try {
+                this.storage.setItem(key, enabled ? '1' : '0');
+            } catch {
+                const reason = '自动购买开关保存失败，请检查浏览器存储';
+                if (!enabled && this.mayPersist()) {
+                    this.settings = {...this.settings, autoPurchase:false};
+                    // Stopping also replaces the former enabled resume checkpoint when storage is nearly full.
+                    this.stop(reason);
+                    if (this.mayPersist()) {
+                        try {
+                            this.storage.setItem(key, '0');
+                            this.status = '已关闭自动购买，任务已因首次保存失败而停止';
+                            this.log(this.status);
+                            return true;
+                        } catch {}
+                    }
+                } else if (!enabled && this.running) this.stop(reason, {persist:false});
+                throw new Error(reason);
+            }
+            this.settings = {...this.settings, autoPurchase:enabled};
+            // The account key survives a stale task checkpoint or a queue imported from another account.
+            // Preserve an existing resume checkpoint when editing this preference from an idle panel.
+            if (this.running) {
+                try { this.persist(); } catch { /* The account preference is already durable. */ }
+            }
+            return true;
         }
         progressSnapshot(){
             const session={};for(const key of SESSION_FIELDS)if(this[key]!==undefined)session[key]=this[key];
@@ -91,13 +147,15 @@
             const entries = Object.entries(this.metrics).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 200);
             const snapshot=this.progressSnapshot();if(captureJob)this.saveJobProgress(snapshot);
             const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex}:null;
-            this.storage.setItem(PREFIX + this.account, JSON.stringify({ settings: this.settings, metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw }));
+            const record=JSON.stringify({ settings: this.settings, metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw });
+            this.storage.setItem(PREFIX + this.account, record);
+            if(this.suspended)this.suspended.record=record;
             // Keep the Telemetry object stable, but prune only after durable persistence.
             const retained=new Set(entries.map(([key])=>key));
             for(const key of Object.keys(this.metrics))if(!retained.has(key))delete this.metrics[key];
             return true;
         }
-        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(job=>job.status!=='done');if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=normalizeSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
+        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(job=>job.status!=='done');if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=this.taskSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
         beginTask(s,cp,now,continuingQueue=false){
             this.cancelTeamSearch();
             this.cancelRouteRankings();
@@ -171,7 +229,7 @@
             const job=this.queue[this.queueIndex];if(job){job.status='done';job.result=reason;delete job.progress;}
             const index=this.queue.findIndex((job,i)=>i>this.queueIndex&&job.status!=='done');
             if(index<0){this.queueRunning=false;this.stop('任务队列已全部完成');return;}
-            this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=normalizeSettings(next.settings);
+            this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
             const s=state,now=Date.now();
             this.beginTask(s,next.progress,now,true);
             if(!this.adoptManualPreparation(s,now,true))return;
@@ -184,7 +242,10 @@
             const now=Date.now();
             this.suspended=this.restoring?null:{at:now,queueRunning:this.queueRunning,queueIndex:this.queueIndex};
             this.hiddenAt??=now;
-            try{this.persist(!this.restoring,!this.restoring);}catch{}
+            try{
+                if(this.suspended)this.suspended.record=this.storage.getItem(PREFIX+this.account);
+                this.persist(!this.restoring,!this.restoring);
+            }catch{}
             this.running=false;this.runId++;clearTimeout(this.timer);this.timer=null;this.release();
             this.cancelTeamSearch();
             this.cancelRouteRankings();
@@ -199,6 +260,14 @@
                 if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return false;}
                 if(this.storage.getItem('pokecatch-tab')!==this.tabToken){this.stop('另一个标签页接管了游戏');return false;}
                 if(!this.acquire(now)){this.status='等待其他标签页释放助手，再继续原任务';return false;}
+                if(this.storage.getItem(PREFIX+this.account)!==suspended.record){
+                    // A different page may have settled the order, advanced the queue, or stopped it.
+                    this.stop('原任务记录已更新，重新读取账号进度',{persist:false});
+                    this.loadAccount(s);
+                    this.tryResume();
+                    return this.running;
+                }
+                this.refreshAutoPurchase();
                 // BFCache preserves this instance and its native UI; continue the same
                 // transaction/session rather than restarting it from initial task settings.
                 this.running=true;this.runId++;this.queueRunning=suspended.queueRunning;this.queueIndex=suspended.queueIndex;
@@ -206,14 +275,27 @@
                 this.lastProgress=now;this.progressSignature='';
                 this.status=this.manual?'页面已返回，继续检查手动控制状态':'页面已返回，继续原任务';this.log(this.status);
                 this.persist();this.schedule(50);return true;
-            }catch(err){this.stop('页面恢复失败：'+(err?.message||err));return false;}
+            }catch(err){this.stop('页面恢复失败：'+(err?.message||err),{persist:false});return false;}
         }
         tryResume(){
             const cp=this.checkpoint;if(this.running||!cp?.wanted||!this.settings.resumeOnReload||pageHidden())return;
-            if(cp.account!==this.account||cp.layout!==DATA.layout||cp.build!==DATA.build){this.checkpoint=null;this.status='续跑记录与当前账号或版本不一致，请手动开始';this.persist(false);return;}
             if(visible($('.title-fx')))return;
-            if(!this.acquire(Date.now())){this.status='等待其他标签页释放助手后续跑';return;}
-            this.start(true);
+            const compatible=record=>record.account===this.account&&record.layout===DATA.layout&&record.build===DATA.build;
+            try{
+                if(!this.acquire(Date.now())){
+                    this.status='等待其他标签页释放助手后续跑';
+                    if(!compatible(cp))this.checkpoint=null;
+                    return;
+                }
+                const s=this.read();
+                if(!s?.adv||accountId(s)!==this.account){this.checkpoint=null;this.status='当前账号已变化，请重新选择任务';return;}
+                // Read the owner's latest queue, receipts and reservations together after taking the lease.
+                this.loadAccount(s);
+                if(!this.checkpoint||!this.settings.resumeOnReload){this.status='当前账号没有待自动续跑的任务';return;}
+                if(!compatible(this.checkpoint)){this.checkpoint=null;this.status='续跑记录与当前账号或版本不一致，请手动开始';this.persist(false,false);return;}
+                this.start(true);
+            }catch(err){this.status='无法读取最新续跑记录：'+(err?.message||err);}
+            finally{if(!this.running)this.release();}
         }
         acquire(now) {
             const key = PREFIX + 'lease:' + this.account;
@@ -237,7 +319,9 @@
                 if (s.adv.layout !== DATA.layout) throw new Error(`存档版本不匹配（需要 layout ${DATA.layout}），请更新助手`);
                 if (!this.account) this.loadAccount(s);
                 const jobProgress=this.queueRunning?this.queue[this.queueIndex]?.progress:null;
-                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex}:null;if(cp){this.settings=normalizeSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=Number(cp.queueIndex)||0;}
+                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex}:null;
+                if(cp){this.settings=this.taskSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=Number(cp.queueIndex)||0;}
+                else this.refreshAutoPurchase();
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=this.settings.mode,ownedFlow=mode==='tower'&&!!s.adv.tower&&s.adv.tower.kind!=='candy'||mode==='candy'&&s.adv.tower?.kind==='candy'||mode==='elite'&&!!s.adv.league||mode==='world'&&s.adv.zone?.id===493;
                 if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend')&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
@@ -275,7 +359,7 @@
                 } else this.status = '规划中';
                 if(cp){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
                 this.persist(); this.schedule(50);
-            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;} this.release();try{if(!controlDenied)this.persist(false);}catch{} }
+            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;} try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
         }
         stop(reason = '已停止助手',options={}) {
             const save=options.persist!==false&&this.mayPersist();
@@ -299,8 +383,9 @@
             this.checkpoint=null;this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;this.nextWake=null;this.modalWaitSince=null;
             this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.ownedDialog = null;
             this.driver.teamTask=null;this.driver.navigation=null;
-            this.status = reason; this.log(reason); this.release();
-            try { if(save)this.persist(false,false); } catch {}
+            this.status = reason; this.log(reason);
+            // Expose the stopped checkpoint before a waiting page can claim the lease.
+            try { if(save)this.persist(false,false); } catch {} finally { this.release(); }
         }
         manualInput(now = Date.now()) {
             if (!this.running || !this.settings.manualPause) return;
@@ -407,6 +492,11 @@
             }
             if(wait.reason!=='ready'){this.status=wait.status;return true;}
             const raid = s.adv.event, zone = s.adv.zone;
+            // Reconcile the saved order on resuming. Time in manual control gave the helper no opportunity to check it.
+            const flow=this.automation.state;
+            for(const tx of [flow.resourceTx,flow.resourceBuffTx,flow.pensionPurchase,this.preparation?.candyTx]){
+                if(tx)tx.at=now;
+            }
             this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
             this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
             this.driver.teamTask=null;this.teamCheck=null;
@@ -508,6 +598,7 @@
             if(this.automation.state.autoBuffTx?.at!=null)this.automation.state.autoBuffTx.at+=duration;
             if(this.automation.state.resourceBuffTx?.at!=null)this.automation.state.resourceBuffTx.at+=duration;
             if(this.automation.state.resourceTx?.at!=null)this.automation.state.resourceTx.at+=duration;
+            if(this.automation.state.pensionPurchase?.at!=null)this.automation.state.pensionPurchase.at+=duration;
             for(const tx of [this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure])if(tx?.at!=null)tx.at+=duration;
             if(this.automation.state.candyEndedAt!=null)this.automation.state.candyEndedAt+=duration;
             const eggs=this.automation.state;

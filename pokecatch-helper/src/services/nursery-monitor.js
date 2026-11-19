@@ -4,12 +4,11 @@
         const declared=typeof window!=='undefined'&&typeof window.BUILD==='string'?window.BUILD:'';
         const scripts=[...(document.querySelectorAll?.('script[src]')||[])];
         const hashes=new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
-        const builds={'6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690'};
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
         if(!hashes.size)return{build:declared||'unverified:missing'};
         const [bundle]=hashes;
-        if(declared&&declared!==builds[bundle])return{build:'unverified:'+bundle};
-        return{build:builds[bundle]||'unverified:'+bundle};
+        if(declared&&declared!==NURSERY_BUILDS[bundle])return{build:'unverified:'+bundle};
+        return{build:NURSERY_BUILDS[bundle]||'unverified:'+bundle};
     }
     class NurseryMonitor {
         constructor(engine){this.e=engine;this.account=null;this.key=null;this.raw=null;this.ledger=new NurseryLedger();this.error='';}
@@ -25,7 +24,7 @@
             if(this.e.raw!==null&&this.e.raw!==undefined&&this.e.storage.getItem(SAVE_KEY)!==this.e.raw)return false;
             if(!this.e.state||s===this.e.state)return true;
             const stamp=value=>JSON.stringify([value?.trainer?.id,value?.trainer?.since,value?.stats?.hatched,
-                (value?.pension?.eggs||[]).map(egg=>[egg?.uid,egg?.id,egg?.k,egg?.sp,egg?.bx,egg?.laidAt,egg?.hatchAt,Object.hasOwn(egg||{},'shiny')?!!egg.shiny:null])]);
+                (value?.pension?.eggs||[]).map(egg=>[egg?.uid,egg?.id,egg?.k,egg?.sp,egg?.bx,egg?.laidAt,egg?.hatchAt,Object.hasOwn(egg||{},'shiny')?[egg.shiny]:[]])]);
             return stamp(s)===stamp(this.e.state);
         }
         observe(s,now=Date.now()){
@@ -36,7 +35,9 @@
                     const raw=this.e.storage.getItem(this.key);if(raw!==this.raw)this.restore(raw);
                     if(!this.fresh(s)){this.error='游戏存档已更新，等待最新状态再核对蛋统计';return this.ledger.snapshot();}
                     const before=this.ledger.stats.shinyObserved;
-                    this.ledger.observe(s,now,options);
+                    // A caller may still hold an equivalent nursery snapshot from a previous
+                    // read. Use the latest decoded save for matching actual hatched members.
+                    this.ledger.observe(this.e.raw!=null&&this.e.state?this.e.state:s,now,options);
                     if(!this.ledger.dirty){this.error='';return this.ledger.snapshot();}
                     if(!this.e.mayPersist())return this.ledger.snapshot();
                     // Re-read before saving so another tab's newer ledger is reloaded and reconciled.

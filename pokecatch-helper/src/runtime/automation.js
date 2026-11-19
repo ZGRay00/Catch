@@ -9,6 +9,24 @@
         const event=s.adv.pending||s.adv.nodes?.[s.adv.node];
         return event?.type==='gift'&&event.gift?.key===starter.key;
     }
+    function resourceButtons(card,id) {
+        return [...card.querySelectorAll('.dc-candy,.item-actions .btn')].filter(el=>
+            [...el.querySelectorAll('img')].some(img=>(img.getAttribute('src')||'').includes('/'+id+'.')));
+    }
+    function resourceRecipientBlock(s,mon,id) {
+        if(!mon)return '道具使用对象不存在，请选择成员';
+        if(s.link?.side==='from'&&monRegion(mon)===s.link.to)return '当前地区的背包不能供该成员使用，请切换至成员所在地区';
+        if(DATA.automation.candies[id]||id==='rare-candy'){
+            return mon.level>=trainingCap(s,mon)?'目标成员已达到当前等级上限':null;
+        }
+        if(id==='link-cable')return '连接绳进化需要在游戏内交换';
+        if(!(EVOLUTION_DATA.rules[mon.id]||[]).some(rule=>rule.item===id))return '所选成员的当前形态无法使用此道具';
+        if(mon.rank>0)return '已升阶成员无法使用进化道具';
+        return null;
+    }
+    function resourcePreviewKey(s,mon,id,now) {
+        return JSON.stringify([mon.uid,mon.id,id,s.adv.chapter,s.adv.unlocked,s.link?.side,phaseAt(s,now)]);
+    }
     class Automation {
         get buddyTask(){return this.state.buddyTask||null;}
         set buddyTask(value){if(value)this.state.buddyTask=value;else delete this.state.buddyTask;}
@@ -17,14 +35,28 @@
         get buffRetry(){return this.state.buffRetry||={};}
         set buffRetry(value){this.state.buffRetry=value||{};}
         constructor(engine){this.e=engine;this.state={};this.owner=null;this.lastService=0;}
-        begin(s){this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
+        begin(s){this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
         wait(text,at){this.e.status=text;this.e.lastProgress=Date.now();this.e.nextWake=at||null;}
         fail(text){this.e.failTask(text);}
         done(text){this.e.completeTask(text);}
         spentClick(el,s,cost,uses,label){
             const e=this.e,d=e.driver;if(!enabled(el)||!e.running||e.manual||pageHidden()||Date.now()-d.lastClick<700)return false;
+            if(!e.mayPersist())return false;
             const why=e.budget.check(s,cost,uses);if(why){this.fail(why);return false;}
-            e.budget.charge(cost,uses);e.persist();return d.click(el,label);
+            let reservation,saved;
+            try{reservation=e.budget.charge(cost,uses);saved=e.persist();}
+            catch(error){
+                if(reservation)e.budget.cancelReservation(reservation);
+                e.status='消费记录保存失败，未执行操作：'+error.message;e.log(e.status);
+                return false;
+            }
+            if(saved===false){e.budget.cancelReservation(reservation);return false;}
+            // false is the driver's guarantee that the native action was never invoked.
+            // If dispatch throws or the game's receipt is delayed, keep the reservation.
+            if(d.click(el,label)!==false)return true;
+            e.budget.cancelReservation(reservation);
+            e.persist();
+            return false;
         }
         own(kind,selector,extra={}){this.owner={kind,selector,started:Date.now(),...extra};}
         snapshotOwner(){const o=this.owner;return o?{kind:o.kind,selector:o.selector,uid:o.uid,reg:o.reg,match:o.match?.source}:null;}
@@ -414,6 +446,17 @@
         }
         breed(s,now){
             const e=this.e,cfg=e.settings,d=e.driver,p=s.pension||{},eggs=p.eggs||[];
+            const slots=Math.max(1,Number(p.open?.slots)||0,p.mons?.length||0);
+            const expansion=this.state.pensionPurchase;
+            if(expansion){
+                if(slots>expansion.slots&&purchasePaid(s,expansion)){
+                    delete this.state.pensionPurchase;e.persist();
+                }else{
+                    if(now-expansion.at<10000)this.wait('等待游戏确认寄养位扩容和金币扣款');
+                    else this.fail('寄养位扩容未确认，已暂停以避免重复扣款');
+                    return;
+                }
+            }
             if(this.state.hatch&&eggs.some(x=>x.uid===this.state.hatch.uid)){
                 this.state.hatch.at??=now;
                 if(now-this.state.hatch.at<15000){this.wait('等待孵蛋存档确认');return;}
@@ -436,22 +479,26 @@
             if(this.state.hatchRetryAt>now){this.wait('等待孵蛋重试',this.state.hatchRetryAt);return;}
             const targetEggs=eggs.filter(egg=>egg.id===cfg.breedId);
             const outstanding=cfg.breedGoal-(this.state.hatched||0);
+            const rules=cfg.breedShiny&&targetEggs.length?nurseryRuntimeOptions():null;
+            const confirmedShiny=rules?targetEggs.filter(egg=>eggOutcome(s,egg,rules).shiny===true):[];
+            const covered=cfg.breedShiny?confirmedShiny.length>0:targetEggs.length>=outstanding;
+            const waitLabel=confirmedShiny.length?'已确认目标闪蛋，等待孵化':`等待已有目标蛋孵化 · ${targetEggs.length} 枚`;
             // No parent changes are needed to meet this target. A native ready
             // button on an already-visible daycare still takes precedence over our clock.
-            if(!cfg.breedShiny&&targetEggs.length>=outstanding&&eggs.every(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>now)&&!readyBackgroundEggs(s,now).length){
-                this.wait(`等待已有目标蛋孵化 · ${targetEggs.length} 枚`,Math.min(...eggs.map(egg=>egg.hatchAt)));return;
+            if(covered&&eggs.every(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>now)&&!readyBackgroundEggs(s,now).length){
+                this.wait(waitLabel,Math.min(...eggs.map(egg=>egg.hatchAt)));return;
             }
             if(!this.page('pension'))return;
             const readyButtons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled);
             const buttonFor=egg=>readyButtons.find(el=>el.dataset.egg===String(egg.uid));
-            const egg=targetEggs.find(buttonFor)||eggs.find(buttonFor);
+            const egg=confirmedShiny.find(buttonFor)||targetEggs.find(buttonFor)||eggs.find(buttonFor);
             if(egg){this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
-            const plan=pensionPlan(s,cfg.breedId);
-            if(targetEggs.length&&(plan.missing||!cfg.breedShiny&&targetEggs.length>=outstanding)){
+            const plan=pensionPlan(s,cfg.breedId,cfg.breedShiny);
+            if(targetEggs.length&&(plan.missing||covered)){
                 const next=Math.min(...eggs.map(egg=>Number(egg.hatchAt)||now+60000));
-                this.wait(`等待已有目标蛋孵化 · ${targetEggs.length} 枚`,Math.max(now+1200,next));return;
+                this.wait(waitLabel,Math.max(now+1200,next));return;
             }
             if(plan.missing){
                 const all=s.mons||[];
@@ -464,12 +511,18 @@
                 if([parent?.uid,ditto?.uid].some(uid=>uid&&s.road?.includes(uid)&&!s.team?.includes(uid))){this.wait('亲本已移出计划队伍，等待下个治疗点更新行进队伍');return;}
                 this.fail(plan.missing);return;
             }
-            const open=Math.max(1,p.open?.slots||plan.residents.length),desired=plan.desired.slice(0,Math.max(2,open));
+            const open=slots,desired=plan.desired.slice(0,Math.max(2,open));
             if(open<2){
                 if(!cfg.pensionExpand){this.fail('繁殖需要至少两个寄养位；请解锁寄养位，或开启自动扩容并设置预算');return;}
+                const blocked=e.budget.purchaseBlock();if(blocked){this.fail('寄养位扩容需要金币：'+blocked);return;}
                 const tab=$('#pen-tabs [data-pen-tab="res"]');if(enabled(tab)&&!tab.classList.contains('on')){d.click(tab,'打开寄养位');return;}
-                const buy=$('#pen-res .buy button');if(!enabled(buy)){this.fail('当前寄养位尚未解锁或金币不足');return;}
-                this.spentClick(buy,s,parsePrice(buy.textContent),0,'扩容寄养位');return;
+                const buy=$('#pen-res .buy button');if(!visible(buy)){this.fail('当前寄养位尚未开放购买');return;}
+                const cost=parsePrice(buy.textContent);
+                if(!(cost>0)){this.fail('无法确认寄养位的金币价格');return;}
+                if(!enabled(buy)){this.fail(e.budget.check(s,cost)||'游戏暂未开放该寄养位的购买按钮');return;}
+                this.state.pensionPurchase={category:'pension',slots,cost,spendBefore:Number(s.stats?.spent?.pension)||0,walletBefore:s.money,at:now};
+                if(!this.spentClick(buy,s,cost,0,'扩容寄养位')){delete this.state.pensionPurchase;e.persist();}
+                return;
             }
             const missing=desired.find(m=>!plan.residents.some(r=>r.uid===m.uid));
             if(missing){
@@ -806,56 +859,82 @@
         }
         resource(s,now){
             if(this.resourcePending(s,now))return;
-            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0),bought=purchasedQuantity(s,id,this.state);
+            const cfg=this.e.settings,id=cfg.resourceItem,used=usedQuantity(s,id,this.state),bought=purchasedQuantity(s,id,this.state);
             if(cfg.resourceAction==='buy'&&bought>=cfg.resourceQuantity){this.done('道具采购目标已完成');return;}
             if(cfg.resourceAction!=='buy'&&used>=cfg.resourceQuantity){
                 const close=$('#modal-root.open .mon-modal .dc-x');if(enabled(close)){this.e.driver.click(close,'关闭已完成的道具使用面板');this.owner=null;return;}
                 this.done('道具使用目标已完成');return;
             }
-            if(cfg.resourceAction==='buy'||cfg.resourceAction==='buyUse'&&!(s.items?.[id]>0))return this.buy(s,id);
-            if(!(s.items?.[id]>0)){this.fail('背包中没有目标道具；可选择“购买后使用”');return;}
-            if(DATA.automation.buffs[id])return this.buff(s,id);
+            if(cfg.resourceAction==='buy')return this.buy(s,id);
+            const stocked=s.items?.[id]>0;
+            if(!stocked&&cfg.resourceAction==='use'){this.fail('背包中没有目标道具');return;}
+            const why=this.e.budget.check(s,0,1)||(!stocked&&this.e.budget.purchaseBlock());
+            if(why){this.fail(why);return;}
+            if(DATA.automation.buffs[id])return stocked?this.buff(s,id):this.buy(s,id);
             const uid=cfg.useUid||(s.team||[])[0],mon=s.mons.find(m=>m.uid===uid);
-            if(!mon){this.fail('道具使用对象不存在，请选择成员');return;}
+            const blocked=resourceRecipientBlock(s,mon,id);
+            if(blocked){this.fail(blocked);return;}
+            let preview=null;
+            if(!stocked){
+                if(DATA.automation.candies[id]||id==='rare-candy')return this.buy(s,id);
+                preview=resourcePreviewKey(s,mon,id,now);
+                if(this.resourcePreview?.key===preview&&this.resourcePreview.until>=now)return this.buy(s,id);
+            }
             if(!this.page('team'))return;
             let card=$$('#team-slots [data-uid]').find(el=>el.dataset.uid===uid);
             if(!card){const cards=this.pcSearch(mon.id,'#pc-grid');if(!cards)return;card=cards.find(el=>el.dataset.uid===uid);}
             if(!card){this.wait('等待道具使用对象出现在PC');return;}
-            if(this.e.driver.click(card,'打开道具使用对象'))this.own('mon','.mon-modal',{uid});
+            if(this.e.driver.click(card,preview?'购买前核对目标成员的进化条件':'打开道具使用对象'))this.own('mon','.mon-modal',{uid,preview});
         }
         buy(s,id){
             if(this.resourcePending(s,Date.now()))return;
-            const e=this.e,d=e.driver;if(!this.page('shop'))return;
+            const e=this.e,d=e.driver;
+            const blocked=e.budget.purchaseBlock();if(blocked){this.fail(blocked);return;}
+            if(!this.page('shop'))return;
             const section=$('#shop-grid [data-sh-sec="shop"]:not(.active)');if(enabled(section)){d.click(section,'打开金币商店');return;}
             const buyTab=$('#shop-grid [data-sh-mode="buy"]:not(.on)');if(enabled(buyTab)){d.click(buyTab,'切换购买');return;}
-            const item=$$('#shop-grid .sh-item[data-id]').find(el=>el.dataset.id===id);
+            const cards=$$('#shop-grid .sh-item[data-id]');
+            if(!cards.length){
+                this.state.shopLoadTries=(this.state.shopLoadTries||0)+1;
+                if(this.state.shopLoadTries<12)this.wait('等待金币商店载入商品');
+                else{delete this.state.shopLoadTries;this.fail('金币商店未显示商品，请检查商店页面后继续');}
+                return;
+            }
+            delete this.state.shopLoadTries;
+            const item=cards.find(el=>el.dataset.id===id);
             if(!item||item.classList.contains('locked')){
                 const row=EVOLUTION_SHOP.get(id);
                 this.fail(row&&evolutionShopLocked(s,row)?evolutionPurchaseReason(s,row):'目标道具未在当前金币商店解锁');return;
             }
-            const one=item.querySelector('[data-n="1"]');if(enabled(one)&&!one.classList.contains('on')){d.click(one,'将购买数量限制为一份');return;}
-            const buy=item.querySelector('.buy'),cost=parsePrice(item.querySelector('.total')?.textContent||buy?.textContent);
-            if(visible(buy)&&buy.disabled){this.fail('当前金币不足或该商品暂不可购买');return;}
+            const {one,single,buy,cost}=shopOffer(item);
+            if(!single){
+                if(enabled(one)&&!one.classList.contains('on')){d.click(one,'将购买数量限制为一份');return;}
+                this.fail('无法确认商品的单份数量，已暂停采购');return;
+            }
+            if(cost==null){this.fail('无法确认商品单价，已暂停采购');return;}
+            if(!enabled(buy)){this.fail(e.budget.check(s,cost)||'游戏商店的购买按钮暂不可用');return;}
             this.resourceSpend(buy,s,id,'buy',cost,0,'购买目标道具');
         }
         resourcePending(s,now=Date.now()){
-            const tx=this.state.resourceTx;if(!tx)return false;
+            const tx=this.state.resourceTx||this.state.resourceBuffTx;if(!tx)return false;
             const stock=Number(s.items?.[tx.id])||0,out=Number(s.stats?.itemOut?.[tx.id])||0;
-            const received=itemCounter(s,tx.id)>tx.in||stock>tx.stock;
-            // Old pending orders lack a debit snapshot. New ones prefer the native
-            // spending ledger, which remains reliable while adventure awards money.
-            const paid=tx.cost==null||(s.stats?.spent
-                ? (Number(s.stats.spent[tx.category])||0)-tx.spendBefore>=tx.cost
-                : tx.walletBefore-s.money>=tx.cost);
-            const confirmed=tx.kind==='buy'?received&&paid:out>tx.out||stock<tx.stock;
+            const buff=tx===this.state.resourceBuffTx?s.buffs?.[tx.family]:null;
+            const confirmed=tx.kind==='buy'?purchaseConfirmed(s,tx):out>tx.out||stock<tx.stock||
+                buff?.key===tx.id&&activeYieldBuff(s,tx.family,now)&&(Number(buff.until)||0)>tx.until;
             if(confirmed){
                 if(tx.kind==='buy'&&this.state.resourcePurchased!=null)this.state.resourcePurchased++;
-                delete this.state.resourceTx;
+                if(tx.kind!=='buy'){
+                    const before=this.state.resourceUsed??Math.max(0,tx.out-(this.state.resourceOut??tx.out));
+                    this.state.resourceUsed=before+1;
+                }
+                if(tx===this.state.resourceBuffTx)delete this.state.resourceBuffTx;
+                else delete this.state.resourceTx;
                 this.e.persist();
                 return false;
             }
-            if(now-tx.at<10000)this.wait(tx.kind==='buy'?'等待目标道具购买到账确认':'等待目标道具使用确认');
-            else this.fail(tx.kind==='buy'?'目标道具购买未确认，已暂停以避免重复采购':'目标道具使用未确认，已暂停以避免重复消耗');
+            const item=tx===this.state.resourceBuffTx?'目标树果':'目标道具';
+            if(now-tx.at<10000)this.wait(tx.kind==='buy'?'等待目标道具购买到账确认':'等待'+item+'使用确认');
+            else this.fail(tx.kind==='buy'?'目标道具购买未确认，已暂停以避免重复采购':item+'使用未确认，已暂停以避免重复消耗');
             return true;
         }
         resourceSpend(button,s,id,kind,cost,uses,label){
@@ -866,30 +945,48 @@
             this.state.resourceTx={kind,id,stock:Number(s.items?.[id])||0,in:itemCounter(s,id),out:Number(s.stats?.itemOut?.[id])||0,at:Date.now()};
             if(kind==='buy'){
                 this.state.resourcePurchased=purchasedQuantity(s,id,this.state);
-                const category=id.startsWith('exp-candy-')?'candy':'shop';
-                Object.assign(this.state.resourceTx,{category,cost,spendBefore:Number(s.stats?.spent?.[category])||0,walletBefore:s.money});
-            }
-            const clicked=this.spentClick(button,s,cost,uses,label);if(!clicked)delete this.state.resourceTx;return clicked;
+                Object.assign(this.state.resourceTx,purchaseEvidence(s,id,cost));
+            }else this.state.resourceUsed=usedQuantity(s,id,this.state);
+            const clicked=this.spentClick(button,s,cost,uses,label);
+            if(clicked&&kind==='buy')this.resourcePreview=null;
+            if(!clicked){delete this.state.resourceTx;e.persist();}
+            return clicked;
         }
         useFromCard(s,card){
             if(this.resourcePending(s,Date.now()))return true;
-            const cfg=this.e.settings,id=cfg.resourceItem,used=(Number(s.stats?.itemOut?.[id])||0)-(this.state.resourceOut||0);
+            const cfg=this.e.settings,id=cfg.resourceItem,used=usedQuantity(s,id,this.state);
             if(used>=cfg.resourceQuantity){this.e.driver.click(card.querySelector('.dc-x'),'关闭道具面板');this.owner=null;return true;}
-            if(!(s.items?.[id]>0)&&cfg.resourceAction==='buyUse'){if(this.e.driver.click(card.querySelector('.dc-x'),'返回商店补充目标道具'))this.owner=null;return true;}
-            const button=[...card.querySelectorAll('.dc-candy,.item-actions .btn')].find(el=>[...el.querySelectorAll('img')].some(img=>(img.getAttribute('src')||'').includes('/'+id+'.')));
+            const uid=cfg.useUid||(s.team||[])[0],mon=s.mons.find(m=>m.uid===uid);
+            if(this.owner?.uid&&this.owner.uid!==uid){
+                if(this.e.driver.click(card.querySelector('.dc-x'),'重新核对道具使用对象'))this.owner=null;
+                return true;
+            }
+            const blocked=resourceRecipientBlock(s,mon,id);
+            if(blocked){this.fail(blocked);return true;}
+            const buttons=resourceButtons(card,id);
+            if(!(s.items?.[id]>0)&&cfg.resourceAction==='buyUse'){
+                const preview=this.owner?.preview,now=Date.now();
+                const check=preview&&preview===resourcePreviewKey(s,mon,id,now);
+                // With zero stock native eligible evolution buttons retain an item → species title.
+                // A blocked duplicate or the wrong regional bag replaces that title with the rejection reason.
+                if(check&&buttons.filter(el=>visible(el)&&el.title?.includes(' → ')).length!==1){
+                    this.fail('游戏尚未确认该成员有唯一可用的目标进化，请检查地区、时段和已有形态');return true;
+                }
+                if(this.e.driver.click(card.querySelector('.dc-x'),'关闭已无库存的道具面板')){
+                    if(check)this.resourcePreview={key:preview,until:now+30000};
+                    this.owner=null;
+                }
+                return true;
+            }
+            const usable=buttons.filter(enabled);
+            if(usable.length>1){this.fail('该道具有多个可用进化分支，请先手动选择');return true;}
+            const button=usable[0];
             if(!enabled(button)){this.fail('该道具当前不能用于所选宝可梦（可能达到等级上限或不满足进化条件）');return true;}
             this.resourceSpend(button,s,id,'use',0,1,'使用一份目标道具');return true;
         }
         buff(s,id){
-            const e=this.e,now=Date.now(),family=DATA.automation.buffs[id].family,tx=this.state.resourceBuffTx;
-            if(tx){
-                const current=s.buffs?.[tx.family];
-                const confirmed=(Number(s.items?.[tx.id])||0)<tx.stock||(Number(s.stats?.itemOut?.[tx.id])||0)>tx.out||
-                    current?.key===tx.id&&activeYieldBuff(s,tx.family,now)&&(Number(current.until)||0)>tx.until;
-                if(confirmed)delete this.state.resourceBuffTx;
-                else if(now-tx.at<10000){this.wait('等待目标树果使用确认');return;}
-                else{this.fail('目标树果使用未确认，已暂停以避免重复消耗');return;}
-            }
+            const e=this.e,now=Date.now(),family=DATA.automation.buffs[id].family;
+            if(this.resourcePending(s,now))return;
             const active=activeYieldBuff(s,family,now)?s.buffs[family]:null;
             if(active&&active.key!==id){this.wait('同类已有其他树果增益，保留并等待其结束后使用目标树果',active.until);return;}
             const duration=(Number(DATA.automation.buffMinutes)||60)*60000,limit=(Number(DATA.automation.buffStack)||8)*duration;
@@ -898,8 +995,10 @@
             const d=this.e.driver,button=$(`#bag-panel .bag-cell[data-k="${id}"]`);
             if(enabled(button)){
                 const why=e.budget.check(s,0,1);if(why){this.fail(why);return;}
+                this.state.resourceUsed=usedQuantity(s,id,this.state);
                 this.state.resourceBuffTx={id,family,stock:Number(s.items?.[id])||0,out:Number(s.stats?.itemOut?.[id])||0,until:Number(s.buffs?.[family]?.until)||0,at:now};
-                if(!this.spentClick(button,s,0,1,'使用一份目标增益树果'))delete this.state.resourceBuffTx;return;
+                if(!this.spentClick(button,s,0,1,'使用一份目标增益树果')){delete this.state.resourceBuffTx;e.persist();}
+                return;
             }
             const open=$('#bag-panel .bag-box.folded .zone-head');if(enabled(open)){d.click(open,'展开冒险消耗品');return;}
             this.fail('当前页面没有可用的树果消耗入口');
@@ -930,7 +1029,7 @@
             if(enabled(button)){
                 this.state.autoBuffTx={id,family,stock:Number(s.items[id])||0,out:Number(s.stats?.itemOut?.[id])||0,at:now};
                 const clicked=this.spentClick(button,s,0,1,`自动使用${family==='xp'?'经验':family==='money'?'金币':'当前任务'}增益树果`);
-                if(!clicked)delete this.state.autoBuffTx;this.buffUI=null;return clicked;
+                if(!clicked){delete this.state.autoBuffTx;this.e.persist();}this.buffUI=null;return clicked;
             }
             if(enabled(open)){this.e.driver.click(open,'展开增益树果');return true;}
             this.buffUI=null;(this.buffRetry||={})[family]=now+60000;return false;

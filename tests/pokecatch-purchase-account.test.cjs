@@ -124,7 +124,7 @@ test('live availability equals the largest permitted payment, including exact bu
         Object.assign(engine.settings, {dailySpendBudget, spendBudget});
         const info = b.purchaseSummary(state);
         assert.equal(info.available, expected);
-        assert.equal(info.sessionLeft, Math.max(0, spendBudget-70));
+        assert.equal(info.taskLeft, Math.max(0, spendBudget-70));
         assert.equal(info.dailyLeft, dailySpendBudget ? dailySpendBudget-70 : null);
         if (expected) assert.equal(b.check(state, expected), null);
         assert.ok(b.check(state, expected+1));

@@ -35,6 +35,7 @@
                 <button data-workspace="tasks" aria-controls="pane-tasks">任务</button>
                 <button data-workspace="dex" aria-controls="pane-dex">图鉴</button>
                 <button data-workspace="weather" aria-controls="pane-weather">天气</button>
+                <button data-workspace="eggs" aria-controls="pane-eggs">孵蛋</button>
                 <button data-workspace="activity" aria-controls="pane-activity">运行实况</button>
                 <button data-workspace="settings" aria-controls="pane-settings">设置</button>
             </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
@@ -86,6 +87,7 @@
             <p id="lookup-empty" role="status" hidden>进入游戏并载入存档后即可查询。</p>
             <section id="pane-dex" aria-label="图鉴" hidden><div id="dex-panel"></div></section>
             <section id="pane-weather" aria-label="天气" hidden><div id="weather-panel" aria-label="地区天气预报"></div></section>
+            <section id="pane-eggs" aria-label="孵蛋" hidden></section>
             <section id="pane-settings" aria-label="设置" hidden>
             <section id="settings-purchase" class="purchase-card">
                 ${purchaseToggle}
@@ -93,11 +95,11 @@
                 <div data-purchase-status class="purchase-budget"></div>
                 <details id="budget-details"><summary>资源预算 <span id="budget-summary"></span></summary>
                     <div id="purchase-limits" class="sub"></div>
-                    <label class="setting">本次金币支出上限（0 禁止）<input data-setting="spendBudget" type="number" min="0"></label>
+                    <label class="setting">每个任务的金币支出上限（0 禁止）<input data-setting="spendBudget" type="number" min="0"></label>
                     <label class="setting">每日支出上限（0 不另限）<input data-setting="dailySpendBudget" type="number" min="0"></label>
                     <label class="setting">至少保留金币<input data-setting="moneyReserve" type="number" min="0"></label>
-                    <label class="setting">本次道具使用上限<input data-setting="useBudget" type="number" min="0" max="99999"></label>
-                    <div class="hint">队列按各任务保存的额度累计支出。可以在队列中编辑预算。战斗扣款由游戏单独结算。</div>
+                    <label class="setting">每个任务的道具使用上限<input data-setting="useBudget" type="number" min="0" max="99999"></label>
+                    <div class="hint">每个新任务单独计数，续跑原任务沿用已花金额和已用份数。每日支出按账号累计，金币保留额每笔检查。</div>
                     <label class="setting"><span><input type="checkbox" data-setting="trainBuff">练级 / 补练自动吃经验树果</span></label>
                     <label class="setting"><span><input type="checkbox" data-setting="moneyBuff">刷钱自动吃金币树果</span></label>
                     <label class="setting"><span><input type="checkbox" data-setting="autoBuff">补图鉴 / 刷闪 / 游荡自动吃对应树果</span></label>
@@ -177,7 +179,7 @@
                 query('#' + button.getAttribute('aria-controls')).hidden = !selected;
             }
             ui.workspace = active.dataset.workspace;
-            query('.panel').classList.toggle('lookup-page', ['dex','weather'].includes(ui.workspace));
+            query('.panel').classList.toggle('lookup-page', ['dex','weather','eggs'].includes(ui.workspace));
             if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
         }
         for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
@@ -190,6 +192,11 @@
         };
         selectWorkspace(ui.workspace, false);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
+        query('#nursery-plan').onclick=()=>{
+            if(engine.running||engine.suspended||!changeSetting('mode','breed'))return;
+            selectWorkspace('tasks');showCategory('collect');
+            query('[data-setting="breedId"]').focus();
+        };
         const dexPanel=mountDexPanel(root,render);
         const weatherPanel=mountWeatherPanel(query('#weather-panel'),ui,saveUI,render);
         const renderSeason=mountSeasonCalendar(query('#season-calendar'));
@@ -435,14 +442,18 @@
                 return;
             }
             const coins=value=>Number.isSafeInteger(value)?value.toLocaleString()+' ₽':'待确认';
-            const detail='本次可购额度 '+coins(budget.available)+(budget.reason?' · '+budget.reason:'');
+            const scope=engine.running||engine.suspended?'当前任务':'新任务';
+            const candy=(engine.running||engine.suspended)&&engine.settings.progressCandy&&engine.preparation?.context?.kind==='progress'?engine.preparation:null;
+            const detail=scope+'可购额度 '+coins(budget.available)+' · 道具剩余 '+budget.usesLeft+' 份'+(budget.reason?' · '+budget.reason:'')+
+                (budget.usesLeft===0?' · 补练买糖和购买后使用需要道具额度。只购买按金币额度执行。':'')+
+                (candy?.candyTx?.kind==='buy'?' · 已下单，正在核对糖果到账':candy?.candyDisabled&&candy.candyReason?' · 上次补练买糖检查：'+candy.candyReason:'');
             if(status.textContent!==detail)status.textContent=detail;
             if(inSettings){
                 const usage=engine.budget;
                 const previous=!engine.running&&!engine.suspended&&(usage.spent>0||usage.used>0);
-                query('#budget-summary').textContent=`${previous?'上次':'本次'}已支出 ${coins(usage.spent)} · 已用 ${usage.used} 份`;
+                query('#budget-summary').textContent=`${previous?'上个任务':scope}已支出 ${coins(usage.spent)} · 已用 ${usage.used} 份`;
                 const daily=engine.settings.dailySpendBudget?coins(budget.dailyLeft):'未另设上限';
-                query('#purchase-limits').textContent=`本次剩余预算 ${coins(budget.sessionLeft)} · 今日剩余额度 ${daily}。当前地区余额 ${coins(Budget.counter(s.money))}，保留 ${coins(engine.settings.moneyReserve)} 后可用 ${coins(budget.walletLeft)}。`;
+                query('#purchase-limits').textContent=`${scope}剩余预算 ${coins(budget.taskLeft)} · 今日剩余额度 ${daily}。当前地区余额 ${coins(Budget.counter(s.money))}，保留 ${coins(engine.settings.moneyReserve)} 后可用 ${coins(budget.walletLeft)}。`;
             }
         }
         function buddySummary(s,preparation){
@@ -504,16 +515,17 @@
                 query('#hunt-filters').disabled=locked;
                 lastLockState=locked;
             }
-            const lookup = ui.workspace === 'dex' || ui.workspace === 'weather';
+            const lookup = ['dex','weather','eggs'].includes(ui.workspace);
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;query('#weather-panel').hidden=true;
                 const view=query('#view');view.hidden=false;viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';return;
             }
             if (lookup) {
+                if(ui.workspace==='eggs')return;
                 if (ui.workspace === 'dex') {
                     query('#dex-panel').hidden = false;
-                    dexPanel.renderDex(s, dexStatus(s, engine.settings), engine.settings, now);
+                    dexPanel.renderDex(s,engine.settings,now);
                 } else {
                     query('#weather-panel').hidden = false;
                     weatherPanel.render(s, now);
@@ -838,7 +850,7 @@
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
         function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid','shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil','region',...(['dex','shiny'].includes(cfg.mode)?['Species','Weather','Regions'].map(suffix=>cfg.mode+suffix):[])].map(key=>cfg[key]));}
-        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings))delete current.progress;Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
+        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings)&&current.progress){current.progress={budget:current.progress.budget};}Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
         query('#start-queue').onclick=()=>{engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start();syncSettings();render();};
         query('#stop').onclick=()=>{engine.stop();syncSettings();render();};

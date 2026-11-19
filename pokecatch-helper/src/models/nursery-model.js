@@ -104,6 +104,12 @@
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
     function nurseryForecast(s,options={}){
+        const scan=nurseryForecastSteps(s,options);
+        let step;
+        do{step=scan.next();}while(!step.done);
+        return step.value;
+    }
+    function* nurseryForecastSteps(s,options={}){
         const limit=Number.isFinite(+options.limit)?Math.max(1,Math.min(50000,Math.floor(+options.limit))):20000;
         const pool=nurseryParentPool(s),pension=s?.pension,seed=nurserySeed(s);
         const berryKnown=!pension||!Object.hasOwn(pension,'bx')||nurseryFlag(pension.bx),pendingBerry=berryKnown?!!pension?.bx:null;
@@ -123,6 +129,7 @@
         const result={certainty:'unavailable',known:false,active:false,build:NURSERY_RULES.build,counter:counterSource?laid:null,counterSource,
             nextRate,rateVerified:!unverified,
             limit,scanned:0,pool:pool.parents,hasDitto:pool.hasDitto,pendingBerry,nextEgg:null,nextShiny:null,hits:[],
+            firstWithoutBerry:null,firstBerryOnly:null,
             assumptions:['亲本顺序与异色状态保持不变','期间没有赠送蛋等其他来源占用蛋序号','只计现有待用靛莓果，不假设后续自动喂果','距离指自然产蛋次数，不是孵化次数或保底进度'],
             scenarios:{plainParents:{hypothetical:true,nextShiny:null},shinyParents:{hypothetical:true,nextShiny:null},berryNext:{hypothetical:true,nextShiny:null}}};
         const reject=reason=>({...result,reason});
@@ -138,14 +145,20 @@
         const keep=Number.isFinite(+options.count)?Math.max(1,Math.min(20,Math.floor(+options.count))):3;
         const prefix=seed+'|egg|',scenarios=result.scenarios;
         for(let offset=0;offset<limit;offset++){
+            if(offset>0&&offset%64===0)yield;
             const k=laid+offset,drawPrefix=prefix+k+'|',roll=nurseryHash(drawPrefix+'0');
             result.scanned=offset+1;
-            // After the first egg the largest possible native threshold is 1/16.
-            // A miss at that threshold cannot appear in any of the result lists.
-            if(offset>0&&roll>=NURSERY_RULES.parentRate)continue;
+            // A conditional berry window can reach 1/8 with a shiny parent.
+            const ceiling=result.firstBerryOnly?NURSERY_RULES.parentRate:NURSERY_RULES.parentRate*NURSERY_RULES.berryMultiplier;
+            if(offset>0&&roll>=ceiling)continue;
             const parentIndex=pool.parents.length===1?0:Math.floor(nurseryHash(drawPrefix+'1')*pool.parents.length);
             const parent=pool.parents[parentIndex],bx=offset===0&&pendingBerry;
             const rate=nurseryEggRate({sp:parent.shiny?2:0,bx}),row={k,offset,position:offset+1,eggId:parent.eggId,parent:{...parent},rate,roll,bx,shiny:roll<rate};
+            const withoutBerry=parent.shiny?NURSERY_RULES.parentRate:NURSERY_RULES.baseRate;
+            if(!result.firstWithoutBerry&&roll<withoutBerry)result.firstWithoutBerry={k,position:offset+1,eggId:parent.eggId};
+            if(!result.firstBerryOnly&&roll>=withoutBerry&&roll<withoutBerry*NURSERY_RULES.berryMultiplier){
+                result.firstBerryOnly={k,position:offset+1,eggId:parent.eggId};
+            }
             if(offset===0){
                 // Hold the egg number and the pending berry fixed while changing
                 // only the selected parent's shiny status.
@@ -160,7 +173,7 @@
                 const threshold=nurseryEggRate({sp:shinyParent?2:0,bx:berry});
                 if(roll<threshold)scenarios[key].nextShiny={...row,parent:{...parent,shiny:shinyParent},bx:berry,rate:threshold,shiny:true,hypothetical:true};
             }
-            if(result.hits.length>=keep&&scenarios.plainParents.nextShiny&&scenarios.shinyParents.nextShiny&&scenarios.berryNext.nextShiny)break;
+            if(result.hits.length>=keep&&result.firstWithoutBerry&&result.firstBerryOnly&&scenarios.plainParents.nextShiny&&scenarios.shinyParents.nextShiny&&scenarios.berryNext.nextShiny)break;
         }
         result.nextShiny=result.hits[0]||null;result.truncated=!result.nextShiny;
         result.reason=result.nextShiny?'按当前亲本池核对的自然产蛋序列；条件变化时重新计算':'扫描范围内尚未找到；不代表之后不会出现';

@@ -169,8 +169,7 @@
     }
     const dexPrerequisites=[...new Set(DATA.chapters.flatMap(c=>c.special.flatMap(source=>source.caught||[])))];
     const branchedGifts=DATA.chapters.flatMap(c=>c.gifts.filter(gift=>gift.byStarter));
-    function dexRanking(s, settings, cooldowns = {}, now = Date.now()) {
-        const status = dexStatus(s, settings);
+    function dexRanking(s, settings, cooldowns = {}, now = Date.now(), status = dexStatus(s, settings)) {
         const wanted=new Set(status.ids);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
         const inputs=[huntRankingInputs(s,settings,[...wanted],now),settings.gifts,s.adv.gifts,s.adv.badges,s.items,

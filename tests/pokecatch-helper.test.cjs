@@ -426,9 +426,15 @@ test('budget enforces zero-spend, reserve, global item count and shared daily sp
     const budget=new H.Budget(e);assert.match(budget.check({money:200000},30000),/每日/);e.settings.spendBudget=0;assert.match(budget.check({money:200000},1),/预算/);assert.match(budget.check({money:200000},null),/价格/);
 });
 
-test('queue advances finite tasks while retaining spending and failure pauses the queue',t=>{
-    const {e}=runtime(t,state(),{mode:'money'});e.read();e.queue=H.normalizeJobs([{settings:{mode:'money',moneyTarget:3000}},{settings:{mode:'breed',breedId:1}},{settings:{mode:'tower'}}]);e.queueRunning=true;e.queue[0].status='running';e.budget.spent=17;
-    e.completeTask('金币达标');assert.equal(e.queue[0].status,'done');assert.equal(e.queueIndex,1);assert.equal(e.settings.mode,'breed');assert.equal(e.budget.spent,17);assert.equal(e.running,true);
+test('a fresh queue task gets its own spending and use limits while account-wide daily spending carries over',t=>{
+    const s=state(),{e}=runtime(t,s,{mode:'money',spendBudget:17,useBudget:1,dailySpendBudget:40,moneyReserve:0});e.read();
+    e.queue=H.normalizeJobs([{settings:e.settings},{settings:{mode:'breed',breedId:1,spendBudget:30,useBudget:2,dailySpendBudget:40,moneyReserve:0}},{settings:{mode:'tower'}}]);
+    e.queueRunning=true;e.queue[0].status='running';e.budget.charge(17,1);
+    assert.match(e.budget.check(s,1,0),/采购预算/);assert.match(e.budget.check(s,0,1),/道具使用上限/);
+    e.completeTask('金币达标');assert.equal(e.queue[0].status,'done');assert.equal(e.queueIndex,1);assert.equal(e.settings.mode,'breed');assert.equal(e.budget.spent,0);assert.equal(e.running,true);
+    assert.equal(e.budget.used,0);assert.equal(e.budget.check(s,23,2),null);
+    assert.match(e.budget.check(s,24,0),/每日金币消费上限/);
+    e.budget.charge(0,2);assert.equal(e.budget.purchaseSummary(s).usesLeft,0);assert.equal(e.budget.check(s,23,0),null);
     e.failTask('缺少百变怪');assert.equal(e.queue[1].status,'failed');assert.equal(e.queue[2].status,'pending');assert.equal(e.running,false);assert.equal(JSON.parse(e.storage.getItem('pokecatch-helper:v1:fixture')).resume,null);
 });
 
@@ -451,7 +457,7 @@ test('restoring a later job keeps the live queue baseline and restores its item 
     }}]);
     e.queueRunning=true;e.completeTask('金币已达标');
     assert.equal(e.started,runStarted);assert.equal(e.startMoney,s.money);assert.deepEqual(e.oldLoops,['L']);
-    assert.equal(e.startItems,12);assert.equal(e.budget.spent,75);e.stop();
+    assert.equal(e.startItems,12);assert.equal(e.budget.spent,50);e.stop();
 });
 
 test('a confirmed goal settles before the inactivity timeout and emits one completion log',async t=>{
@@ -524,7 +530,7 @@ test('audit: automatic queue advancement restores a reordered paused resource ow
     const s=state(),{e}=runtime(t,s,{mode:'money'});e.read();
     const progress={session:{startItems:7},flow:{resourceOut:3},budget:{spent:50,used:2},flowOwner:{kind:'mon',selector:'.mon-modal',uid:'a'}};
     e.queue=H.normalizeJobs([{settings:e.settings,status:'running'},{settings:{mode:'resource'},progress,status:'pending'}]);e.queueRunning=true;e.queueIndex=0;e.budget.spent=75;e.budget.used=4;
-    e.completeTask('first complete');assert.equal(e.queueIndex,1);assert.equal(e.automation.owner.kind,'mon');assert.equal(e.automation.owner.uid,'a');assert.equal(e.automation.state.resourceOut,3);assert.equal(e.budget.spent,75);assert.equal(e.budget.used,4);
+    e.completeTask('first complete');assert.equal(e.queueIndex,1);assert.equal(e.automation.owner.kind,'mon');assert.equal(e.automation.owner.uid,'a');assert.equal(e.automation.state.resourceOut,3);assert.equal(e.budget.spent,50);assert.equal(e.budget.used,2);
     e.stop();
 });
 

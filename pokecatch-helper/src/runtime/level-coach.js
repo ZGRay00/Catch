@@ -147,7 +147,7 @@
         }
         setPhase(p,phase,now){p.phase=phase;p.phaseAt=now;}
         candyFallback(p,reason,retry=null){
-            p.candyDisabled=true;delete p.candyTx;
+            p.candyDisabled=true;p.candyReason=reason;delete p.candyTx;
             if(retry)p.candyRetry=retry;else delete p.candyRetry;
             this.e.log(`主线经验糖果：${reason}，改用普通练级`);
         }
@@ -176,12 +176,12 @@
                 const retry=p.candyRetry;
                 if(!retry||e.budget.check(s,0,1))return false;
                 const stocked=Object.keys(DATA.automation.candies).some(id=>s.items?.[id]>0);
-                if(!stocked&&!(retry.cost>0&&!e.budget.check(s,retry.cost,0)))return false;
-                delete p.candyDisabled;delete p.candyRetry;p.candyAt=now;
+                if(!stocked&&(now<(retry.after||0)||!(retry.cost>0&&!e.budget.check(s,retry.cost,0))))return false;
+                delete p.candyDisabled;delete p.candyRetry;delete p.candyReason;p.candyAt=now;
             }
             p.phaseAt=now;e.telemetry.sample=null;p.candyAt??=now;
-            if(now-p.candyAt>90000){this.candyFallback(p,'页面操作超时');return false;}
             if(this.candyPending(s,p,now))return true;if(p.candyDisabled)return false;
+            if(now-p.candyAt>90000){this.candyFallback(p,'页面操作超时');return false;}
             const targets=p.targets.map(t=>({...t,mon:s.mons.find(m=>m.uid===t.uid)})).filter(t=>t.mon&&candyXpGap(s,t.mon,t.goal)>0).sort((a,b)=>a.mon.level-b.mon.level);
             let target=targets[0];if(!target)return false;
             let choice=candyChoice(s,target.mon,target.goal);
@@ -214,7 +214,8 @@
                 if(!offer.cost){this.candyFallback(p,name+'的单价无法确认',{cost:null});return false;}
                 const limit=e.budget.check(s,offer.cost,0);
                 if(limit||!enabled(offer.buy)){
-                    this.candyFallback(p,name+' · '+(limit||'购买按钮不可用'),{cost:limit?offer.cost:null});return false;
+                    const retry=limit?{cost:offer.cost}:{cost:offer.cost,after:now+60000};
+                    this.candyFallback(p,name+' · '+(limit||'购买按钮暂不可用，继续练级，1 分钟后可重查'),retry);return false;
                 }
                 this.candyClick(s,p,offer.buy,recipient.uid,offer.id,'buy',offer.cost,now);return !p.candyDisabled;
             }

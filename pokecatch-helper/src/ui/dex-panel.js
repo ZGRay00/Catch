@@ -40,11 +40,12 @@
             if(key===signature)return false;
             signature=key;results.replaceChildren();return true;
         }
-        function renderDex(s,status,settings,now){
+        function renderDex(s,settings,now){
             const term=input.value.trim();
             clear.hidden=!term;
             if(!term){
-                const planned=new Set(dexRanking(s,settings,{},now).flatMap(row=>row.targets.map(target=>target.id)));
+                const status=dexStatus(s,settings);
+                const planned=new Set(dexRanking(s,settings,{},now,status).flatMap(row=>row.targets.map(target=>target.id)));
                 const rows=status.missing.map(mon=>{
                     const tag=planned.has(mon.id)?'可规划':ROAMING_DATA.groups.some(group=>group.ids.includes(mon.id))?'游荡':mon.legend?'传说':'查看来源';
                     return[mon.id,tag];

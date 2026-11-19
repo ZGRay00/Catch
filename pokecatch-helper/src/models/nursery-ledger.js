@@ -82,7 +82,7 @@
             this.stats=NurseryLedger.emptyStats();this.nativeHatched=Number.isFinite(s?.stats?.hatched)&&s.stats.hatched>=0?Math.floor(s.stats.hatched):null;
             this.active=NurseryLedger.records(s,options);this.pending=[];this.credits=[];this.seen=this.active.map(row=>row.key);this.resolved=[];this.recent=[];this.initialized=true;
             const text=reason==='manual'?'本地孵蛋统计已重置；游戏累计不变':reason==='counter-rollback'?'游戏孵化计数回退，已建立新的观察统计段':reason==='trainer-changed'?'训练家存档种子变化，已建立新的观察统计段':'已建立孵蛋观察基线；现有蛋与历史孵化不计入本段';
-            this.event(previous?'segment-reset':'baseline',text,now);return this.snapshot();
+            this.event(previous?'segment-reset':'baseline',text,now);if(options.snapshot!==false)return this.snapshot();
         }
         record(row,status,now){
             this.recent.unshift({...row,status,at:now});this.recent.length=Math.min(this.recent.length,NURSERY_LEDGER_LIMITS.recent);this.remember(this.resolved,row.key);this.dirty=true;
@@ -157,7 +157,7 @@
             if(confirmed)this.event('hatch-evidence',`已按孵出个体的蛋身份与编号补全 ${confirmed} 枚闪色记录`,now);
         }
         observe(s,now=Date.now(),options={}){
-            if(!s||typeof s!=='object'||Array.isArray(s))return this.snapshot();
+            if(!s||typeof s!=='object'||Array.isArray(s))return options.snapshot===false?undefined:this.snapshot();
             now=Number.isFinite(now)&&now>=0?now:Date.now();
             const native=Number.isFinite(s.stats?.hatched)&&s.stats.hatched>=0?Math.floor(s.stats.hatched):null;
             if(!this.initialized)return this.baseline(s,now,'initial',options);
@@ -202,7 +202,7 @@
             }
             if(native!==null&&native!==this.nativeHatched){this.nativeHatched=native;this.dirty=true;}
             if(JSON.stringify(current)!==JSON.stringify(this.active)){this.active=current;this.dirty=true;}
-            this.match(now);this.reconcileHatchlings(s,now);return this.snapshot();
+            this.match(now);this.reconcileHatchlings(s,now);if(options.snapshot!==false)return this.snapshot();
         }
         reset(s={},now=Date.now(),options={}){return this.baseline(s,Number.isFinite(now)&&now>=0?now:Date.now(),'manual',options);}
         markClean(){this.dirty=false;}

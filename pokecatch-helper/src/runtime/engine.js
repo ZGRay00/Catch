@@ -26,7 +26,7 @@
         read() {
             const raw = this.storage.getItem(SAVE_KEY);
             if (!raw) return null;
-            if (raw !== this.raw) { const state = decodeSave(JSON.parse(raw)); if (!state || !Array.isArray(state.mons) || !state.dex || typeof state.dex !== 'object') throw new Error('无法识别游戏存档'); this.state = state; this.raw = raw;this.nurseryMonitor.observe(state); }
+            if (raw !== this.raw) { const state = decodeSave(JSON.parse(raw)); if (!state || !Array.isArray(state.mons) || !state.dex || typeof state.dex !== 'object') throw new Error('无法识别游戏存档'); this.state = state; this.raw = raw;this.nurseryMonitor.observe(state,Date.now(),false); }
             if(this.running&&this.walletScope&&this.startMoney===null&&accountId(this.state)===this.account){
                 const balance=combinedWalletMoney(this.state);
                 if(balance!==null){this.startMoney=balance;this.walletScope='rebased';}
@@ -164,6 +164,7 @@
         beginTask(s,cp,now,continuingQueue=false){
             this.cancelTeamSearch();
             this.cancelRouteRankings();
+            this.budget=new Budget(this,cp?.budget);
             const cfg=this.settings;
             this.startBattle = !cp && s.adv.battle ? this.ordinaryBattleKey(s) : null;
             this.startItems=itemCounter(s,cfg.itemId);
@@ -215,8 +216,6 @@
             this.automation.state=cp.flow||this.automation.state;
             // Time spent on a closed page cannot tell us whether the native travel animation stalled.
             if(this.automation.state.departure)this.automation.state.departure.at=now;
-            this.budget.spent=Math.max(this.budget.spent,clamp(cp.budget?.spent,0,1e12,0));
-            this.budget.used=Math.max(this.budget.used,clamp(cp.budget?.used,0,999999,0));
             if(cfg.autoPrepare&&cp.preparation?.mode===cfg.mode&&Array.isArray(cp.preparation.targets)&&Array.isArray(cp.preparation.uids))this.preparation=cp.preparation;
             if(Array.isArray(cp.preparationReady?.targets))this.coach.ready=cp.preparationReady;
             this.raidReturn=cp.raidReturn||null;
@@ -347,7 +346,7 @@
                 this.startMoney=combinedWalletMoney(s);this.walletScope='all';
                 this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
                 this.errors=0;this.lastCheckpoint=0;
-                this.budget=new Budget(this);this.checkpoint=null;
+                this.checkpoint=null;
                 this.beginTask(s,cp,this.started);
                 if(!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
                 this.log(`开始${MODE_NAMES[this.settings.mode]}`);

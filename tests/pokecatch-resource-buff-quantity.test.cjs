@@ -24,7 +24,7 @@ test('an explicit three-berry resource task stacks exactly three owned servings 
 });
 test('resource stacking stops at the explicit usage budget without charging an unclicked serving',t=>{
     const {e,clicked,tick,advance}=fixture(t,{useBudget:2});tick();advance(1200);tick();advance(1200);tick();
-    assert.equal(clicked.length,2);assert.equal(e.budget.used,2);assert.equal(e.running,false);assert.match(e.status,/道具使用预算/);assert.equal(e.automation.state.resourceBuffTx,undefined);
+    assert.equal(clicked.length,2);assert.equal(e.budget.used,2);assert.equal(e.running,false);assert.match(e.status,/道具使用上限/);assert.equal(e.automation.state.resourceBuffTx,undefined);
 });
 test('a full native eight-hour stack waits for room without opening the native cap dialog or charging',t=>{
     const {s,e,clicked,tick,advance,now}=fixture(t,{resourceQuantity:1});s.buffs.money={key:'lansat-berry',until:now()+8*3600000};const next=now()+3600000;

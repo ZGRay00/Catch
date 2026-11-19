@@ -611,7 +611,7 @@
             const tab=$('#ug-root [data-ug-tab="geo"]:not(.on)');if(enabled(tab)){d.click(tab,'打开晶洞背包');return true;}
             const all=$('#ug-root [data-ug-all]'),count=(s.under.geodes||[]).reduce((n,v)=>n+(Number(v)||0),0),remaining=this.e.settings.useBudget-this.e.budget.used;
             const bulk=count>1&&count<=remaining&&enabled(all),button=bulk?all:$$('#ug-root [data-ug-geode]').find(enabled),uses=bulk?count:1;
-            if(remaining<=0){this.fail('达到本次道具使用预算，剩余晶洞保留在背包');return true;}
+            if(remaining<=0){this.fail('达到当前任务道具使用上限，剩余晶洞保留在背包');return true;}
             if(enabled(button)){this.spentClick(button,s,0,uses,'开启已拥有的晶洞');return true;}
             this.wait('等待晶洞背包与开启按钮刷新',Date.now()+2000);return true;
         }

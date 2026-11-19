@@ -43,6 +43,16 @@ test('new nursery keys cannot collide with legacy task-profile keys',()=>{
     const f=fixture();assert.notEqual(f.key,'pokecatch-helper:v1:nursery:nursery-store');assert.ok(f.key.startsWith(H.NURSERY_STORE_PREFIX));
 });
 
+test('wallet-only saves skip hatch reconciliation and deep ledger copies; new eggs still persist',t=>{
+    const f=fixture();f.commit();
+    const ledger=f.e.nurseryMonitor.ledger,observe=t.mock.method(ledger,'observe'),snapshot=t.mock.method(ledger,'snapshot');
+    for(let i=0;i<20;i++){f.s.money=i;f.commit();}
+    assert.equal(observe.mock.callCount(),0);assert.equal(snapshot.mock.callCount(),0);
+    f.s.pension.eggs=[{uid:'fresh',id:25,shiny:true}];f.commit();
+    assert.equal(observe.mock.callCount(),1);assert.equal(ledger.stats.shinyObserved,1);
+    assert.equal(JSON.parse(f.data.get(f.key)).stats.shinyObserved,1);
+});
+
 test('history backfill uses hatchling evidence from the current decoded save and persists it exactly once',()=>{
     const f=fixture(),source=new H.NurseryLedger(),at=Date.now(),unknown={build:'unknown-test-build'};
     const egg={uid:'observed-egg',id:25,k:17,sp:2};

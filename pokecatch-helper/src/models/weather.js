@@ -273,11 +273,11 @@
             (base<=151?'kanto':base<=251?'johto':base<=386?'hoenn':base<=493?'sinnoh':null);
     }
     function dexStatus(s, settings) {
-        const open = new Set(['kanto', ...(s.travel?.to || []), currentRegion(s)]);
+        const current=currentRegion(s),open = new Set(['kanto', ...(s.travel?.to || []), current]);
         const explicit=settings.mode==='dex'&&settings.dexSpecies?.length;
         const regions=huntRegions(settings);
         const roots = explicit?settings.dexSpecies.map(id=>MONS.get(id)).filter(Boolean):ROOTS.filter(m=>regions.length?regions.includes(regionOfMon(m.id)):
-            settings.region==='all'?open.has(regionOfMon(m.id)):regionOfMon(m.id)===currentRegion(s));
+            settings.region==='all'?open.has(regionOfMon(m.id)):regionOfMon(m.id)===current);
         const ownedIds = new Set(collectionMembers(s).map(mon=>mon.id));
         const missing = roots.filter(m => !captured(s, m.id, ownedIds));
         return { roots, missing, complete: roots.length - missing.length, ids: new Set(missing.map(m => m.id)) };

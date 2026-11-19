@@ -58,7 +58,7 @@
     header { padding:10px 13px; background:#1b2c3a }
     header b { font-size:15px }
     .logo { padding:2px 8px; border-radius:7px }
-    .workspace-nav { display:grid; grid-template-columns:1fr 1fr 1fr 1.4fr 1fr; border-bottom:1px solid #324858 }
+    .workspace-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,1.45fr) minmax(0,1fr); border-bottom:1px solid #324858 }
     .workspace-nav button {
         min-height:42px; padding:4px 2px; white-space:nowrap; border:0; border-radius:0; background:transparent;
         color:#acbecb; font-weight:600;
@@ -71,6 +71,15 @@
     .lookup-page #support-info, .lookup-page #season-calendar { display:none }
     #pane-dex .field input[type=search] { min-width:0; flex:1 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
+    #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
+    .nursery-heading, .nursery-tools { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap }
+    .nursery-heading h3 { margin:0!important; font-size:15px!important }
+    #nursery-summary { color:#aac2cc; font-variant-numeric:tabular-nums }
+    .nursery-tools { margin-top:10px; padding:8px 0; border-block:1px solid #34495d }
+    #nursery-berry-plan:not([hidden]) { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; background:#10282b; border-left:3px solid #69cbb0; padding:9px; border-radius:6px }
+    #nursery-berry-plan dt { color:#a2ddc9; font-size:11px }
+    #nursery-berry-plan dd { margin:0; overflow-wrap:anywhere; font-size:12px }
+    #nursery-eggs .nursery-egg[data-ready=true] > span { color:#99e6bd }
     .metrics { gap:0; margin:6px 0 12px; padding:7px 0; background:#172637; border-radius:9px }
     .metric { background:transparent; border:0; border-radius:0; padding:2px 4px; line-height:1.45 }
     .metric + .metric { border-left:1px solid #334655 }

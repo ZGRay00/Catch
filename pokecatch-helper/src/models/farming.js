@@ -67,7 +67,7 @@
         if(!input||input.format!=='pokecatch-helper-profile'||input.schema!==1||!Object.hasOwn(MODE_NAMES,input.settings?.mode))throw new Error('不是支持的助手配置文件');
         if(!Array.isArray(input.queue)||input.queue.length>50||input.queue.some(job=>!Object.hasOwn(MODE_NAMES,job?.settings?.mode)))throw new Error('任务队列格式无效或超过50项');
         const budgets = [input.settings, ...input.queue.map(job => job.settings)];
-        const labels = {spendBudget:'本次支出上限', dailySpendBudget:'每日支出上限', moneyReserve:'金币保留额', useBudget:'道具使用上限'};
+        const labels = {spendBudget:'每个任务的支出上限', dailySpendBudget:'每日支出上限', moneyReserve:'金币保留额', useBudget:'每个任务的道具使用上限'};
         for (const [index,settings] of budgets.entries()) {
             for (const key of Object.keys(BUDGET_LIMITS)) {
                 if (Object.hasOwn(settings,key) && budgetAmount(key,settings[key]) === null) {
@@ -110,47 +110,61 @@
         return{kind,rate,known:false,region,complete,multiplier:kind==='wild'?multiplier:1,reason:kind==='underground'?'仅指地下化石结算机会，不是每一层':'野外遭遇概率，不等于最终捕获概率'};
     }
     class Budget{
-        constructor(engine){this.e=engine;this.spent=0;this.used=0;}
-        purchaseBlock(cost=1){
+        constructor(engine,saved){
+            this.e=engine;
+            // Legacy checkpoints contain a cumulative reservation. Honor it for
+            // the interrupted job; subsequent fresh jobs have no saved charges.
+            this.spent=clamp(saved?.spent,0,BUDGET_LIMITS.spendBudget,0);
+            this.used=clamp(saved?.used,0,999999,0);
+        }
+        purchaseBlock(cost=null){
             const cfg=this.e.settings;
             if((this.e.refreshAutoPurchase?.() ?? cfg.autoPurchase)===false)return'自动购买已关闭';
-            if(cfg.spendBudget===0)return'本次采购预算为 0';
-            if(this.spent+cost>cfg.spendBudget)return'本次采购预算不足';
+            if(cfg.spendBudget===0)return'当前任务采购预算为 0';
+            const left=Math.max(0,cfg.spendBudget-this.spent);
+            if(cost===null)return left===0?'当前任务采购预算已用尽':null;
+            if(cost>left)return Budget.shortfall('当前任务采购预算不足',cost,cost-left);
             return null;
+        }
+        static shortfall(reason,cost,gap){
+            return reason+'（本笔 '+cost.toLocaleString('zh-CN')+' ₽，还差 '+gap.toLocaleString('zh-CN')+' ₽）';
         }
         purchaseSummary(s) {
             const e = this.e, cfg = e.settings;
             const enabled = (e.refreshAutoPurchase?.() ?? cfg.autoPurchase) !== false;
-            const sessionLeft = Math.max(0, cfg.spendBudget - (e.running || e.suspended ? this.spent : 0));
+            const active=e.running||e.suspended;
+            const taskLeft=Math.max(0,cfg.spendBudget-(active?this.spent:0));
+            const usesLeft=Math.max(0,cfg.useBudget-(active?this.used:0));
             const sameAccount = !!e.account && !!s && accountId(s) === e.account;
             const wallet = sameAccount ? Budget.counter(s.money) : null;
             const walletLeft = wallet === null ? null : Math.max(0, wallet - cfg.moneyReserve);
             const day = sameAccount ? this.day() : null;
             const dailyLeft = cfg.dailySpendBudget && day && !day.invalid ? Math.max(0, cfg.dailySpendBudget - day.spent) : null;
             let reason = null, available = null;
-            if (!enabled || sessionLeft === 0) {
+            if (!enabled || taskLeft === 0) {
                 available = 0;
-                reason = !enabled ? '自动购买已关闭' : cfg.spendBudget ? '本次采购预算已用尽' : '本次采购预算为 0';
+                reason = !enabled ? '自动购买已关闭' : cfg.spendBudget ? '当前任务采购预算已用尽' : '当前任务采购预算为 0';
             } else if (walletLeft === null) {
                 reason = '当前地区金币余额无法确认';
             } else if (day.invalid) {
                 reason = '每日消费记录不可识别，已暂停采购';
             } else {
-                available = Math.min(sessionLeft, walletLeft, dailyLeft ?? Infinity);
+                available = Math.min(taskLeft, walletLeft, dailyLeft ?? Infinity);
                 if (available === 0) reason = walletLeft === 0 ? '当前余额已达金币保留额' : '达到每日金币消费上限';
             }
-            return {enabled, available, sessionLeft, dailyLeft, walletLeft, reason};
+            return {enabled, available, taskLeft, usesLeft, dailyLeft, walletLeft, reason};
         }
         check(s,cost=0,uses=0){
             const cfg=this.e.settings;if(!Number.isSafeInteger(cost)||cost<0)return'无法确认价格，未执行消费';
             if(!Number.isSafeInteger(uses)||uses<0)return'无法确认道具使用份数';
-            if(uses>0&&this.used+uses>cfg.useBudget)return'达到本次道具使用预算';
+            if(uses>0&&this.used+uses>cfg.useBudget)return'达到当前任务道具使用上限';
             if(cost>0){
                 const blocked=this.purchaseBlock(cost);if(blocked)return blocked;
                 const wallet=Budget.counter(s.money);
                 if(wallet===null)return'当前地区金币余额无法确认';
-                if(wallet-cost<cfg.moneyReserve)return'消费后低于金币保留额';
-                const day=this.day();if(day.invalid)return'每日消费记录不可识别，已暂停采购';if(cfg.dailySpendBudget&&day.spent+cost>cfg.dailySpendBudget)return'达到每日金币消费上限';
+                if(wallet-cost<cfg.moneyReserve)return Budget.shortfall('消费后低于金币保留额',cost,cfg.moneyReserve+cost-wallet);
+                const day=this.day();if(day.invalid)return'每日消费记录不可识别，已暂停采购';
+                if(cfg.dailySpendBudget&&day.spent+cost>cfg.dailySpendBudget)return Budget.shortfall('达到每日金币消费上限',cost,day.spent+cost-cfg.dailySpendBudget);
             }return null;
         }
         static counter(value){

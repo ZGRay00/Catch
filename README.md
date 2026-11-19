@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.2.3**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.3.1**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.2.3.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.3.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+5.3.1 新增独立的「孵蛋」页，可查蛋位、成熟时间和靛莓果影响闪色的蛋序号。预测分片运行，切换页面会取消未完成的计算。普通战斗更新存档时减少重复核对孵蛋历史。每个队列任务单独计算采购和道具额度，补练买糖遇到商店按钮暂不可用时会稍后重新核价。
 
 5.2.3 点击开始后即可在普通战斗中安排所选任务，补图鉴与刷闪优先保留尘土、水纹等已生成的目标现象。顶栏可直接查图鉴和天气。
 
@@ -14,9 +16,9 @@
 
 在任务页展开「搜寻条件」，可分别为补图鉴和野生刷闪选择多个地区、物种和地图天气。补图鉴默认按基础形态完成进化链，指定物种后逐只检查对应形态。野生刷闪会持续寻找尚未收集的目标异色。
 
-在「运行实况 → 目标与收益」查看补图路线，点击缺少的宝可梦即可查获取条件。「图鉴」可搜索火神蛾或保姆曼波，查看燃烧虫赠蛋的天气与徽章要求，或五处水纹地点。野生刷闪覆盖每日轮换遇敌表；队列切换会重新计时游荡搜寻，保留整次运行的预算和原循环。
+在「运行实况 → 目标与收益」查看补图路线，点击缺少的宝可梦即可查获取条件。「图鉴」可搜索火神蛾或保姆曼波，查看燃烧虫赠蛋的天气与徽章要求，或五处水纹地点。野生刷闪覆盖每日轮换遇敌表。队列切换会重新计时游荡搜寻并按新任务设置分配额度，每日支出仍跨任务累计。
 
-「培育屋 · 闪蛋计数」显示已生成蛋的闪色依据，并区分已核对构建的条件预测与参考结果。
+「孵蛋」显示已生成蛋的闪色依据，并区分已核对构建的条件预测与参考结果。
 
 4.3.1 修复切换标签页后补练误报页面超时的问题。需要在其他标签页使用期间持续推图时，可启用完整包中的「PokéCatch 保持激活」。[后台运行设置](./pokecatch-keep-active/使用说明.txt)
 
@@ -25,7 +27,7 @@
 ## 安装和更新
 
 1. 在浏览器中启用 Tampermonkey，打开上面的脚本链接并确认安装。
-2. 进入游戏或刷新游戏页，确认助手面板显示 `5.1.4`。
+2. 进入游戏或刷新游戏页，确认助手面板显示 `5.3.1`。
 3. 后续点击面板顶部“在线更新”。发现新版后再次点击“安装新版”，在油猴确认安装，完成后刷新游戏。
 
 从旧版手动复制安装的用户，需要先安装这一次新版。脚本也配置了油猴原生 `@updateURL` 和 `@downloadURL`。

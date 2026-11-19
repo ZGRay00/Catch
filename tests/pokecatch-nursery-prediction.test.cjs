@@ -96,11 +96,14 @@ test('bounded scan matches the full draw sequence including sparse hits and hypo
         s.pension.bx = bx;
         const limit = 6000, f = H.nurseryForecast(s, {limit, count: 20});
         const expected = [], first = {};
+        let withoutBerry = null, berryOnly = null;
         for (let offset = 0; offset < limit; offset++) {
             const k = s.pension.laid + offset, roll = H.nurseryFixedRoll(s, k);
             const shinyParent = H.nurseryFixedRoll(s, k, 1) < .5;
             const berry = !!bx && offset === 0;
             const rate = shinyParent ? parentRate : plainRate;
+            if (withoutBerry===null && roll<rate) withoutBerry=k;
+            if (berryOnly===null && roll>=rate && roll<2*rate) berryOnly=k;
             if (roll < rate * (berry ? 2 : 1) && expected.length < 20) expected.push(k);
             for (const [key, threshold] of Object.entries({
                 plainParents: plainRate * (berry ? 2 : 1),
@@ -109,6 +112,9 @@ test('bounded scan matches the full draw sequence including sparse hits and hypo
             })) if (first[key] == null && roll < threshold) first[key] = k;
         }
         assert.deepEqual(f.hits.map(row => row.k), expected);
+        assert.equal(f.firstWithoutBerry?.k,withoutBerry);
+        assert.equal(f.firstBerryOnly?.k,berryOnly);
+        assert.equal(f.firstBerryOnly.position,berryOnly-s.pension.laid+1);
         for (const [key, k] of Object.entries(first)) {
             const row = f.scenarios[key].nextShiny;
             assert.equal(row.k, k);
@@ -116,4 +122,18 @@ test('bounded scan matches the full draw sequence including sparse hits and hypo
             assert.equal(row.bx, key === 'berryNext' ? row.offset === 0 : !!bx && row.offset === 0);
         }
     }
+});
+
+test('future berry-only windows retain rolls above the unboosted shiny-parent ceiling',()=>{
+    const s=state();s.pension.mons.pop();
+    let k=1;
+    while(k<10000&&!(H.nurseryFixedRoll(s,k)>=1/16&&H.nurseryFixedRoll(s,k)<1/8&&H.nurseryFixedRoll(s,k-1)>=1/8))k++;
+    assert.ok(k<10000);s.pension.laid=k-1;
+    for(const bx of [0,1]){
+        s.pension.bx=bx;
+        const f=H.nurseryForecast(s,{limit:2});
+        assert.equal(f.firstBerryOnly.position,2);assert.equal(f.firstBerryOnly.k,k);
+        assert.equal(f.firstWithoutBerry,null);assert.equal(f.nextShiny,null);
+    }
+    assert.equal(H.nurseryForecast(s,{build:'unknown'}).firstBerryOnly,null);
 });

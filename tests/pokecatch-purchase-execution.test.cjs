@@ -65,6 +65,43 @@ test('coaching waits for the highest-tier budget even when a lower-tier card is 
     assert.deepEqual(f.calls,[]);assert.equal(f.p.candyRetry.cost,200);assert.equal(f.e.budget.spent,0);
     f.s.money=10200;f.run();assert.equal(f.p.candyTx.id,'exp-candy-m');assert.deepEqual(f.calls,['buy']);
 });
+test('training continues while the shop button is unavailable and rechecks the live offer once eligible',t=>{
+    const f=coaching(t),item=f.cards.at(-1),read=item.querySelector.bind(item);
+    let unavailable=true,shopVisits=0;
+    f.e.driver.nav=screen=>{if(screen==='shop')shopVisits++;return true;};
+    item.querySelector=sel=>{const el=read(sel);if(sel==='.buy'&&unavailable)el.disabled=true;return el;};
+    assert.equal(f.run(),false);
+    const after=f.p.candyRetry.after;
+    unavailable=false;
+    assert.equal(f.e.coach.candy(f.s,f.p,after-1),false);
+    f.s.money=10199;
+    assert.equal(f.e.coach.candy(f.s,f.p,after),false);
+    assert.equal(shopVisits,1);assert.deepEqual(f.calls,[]);
+    f.s.money=10200;f.e.coach.candy(f.s,f.p,after+1);
+    assert.equal(shopVisits,2);assert.deepEqual(f.calls,['buy']);assert.equal(f.e.budget.spent,200);
+    assert.equal(f.p.candyReason,undefined);
+});
+test('a late candy receipt takes priority over the shop navigation timeout',t=>{
+    const f=coaching(t);f.run();const at=f.p.candyTx.at;
+    f.s.items[f.id]=1;f.s.stats.spent.candy=200;f.s.money-=200;f.s.mons[0].level=3;
+    f.e.coach.candy(f.s,f.p,at+95000);
+    assert.equal(f.p.candyTx,undefined);assert.equal(f.p.candyDisabled,undefined);
+    assert.deepEqual(f.calls,['buy']);assert.equal(f.e.budget.spent,200);
+});
+test('an uncertain candy payment stays reserved and is never retried by the shop cooldown',t=>{
+    const f=coaching(t);f.run();const at=f.p.candyTx.at;
+    f.e.coach.candy(f.s,f.p,at+95000);f.e.coach.candy(f.s,f.p,at+190000);
+    assert.match(f.p.candyReason,/未确认/);assert.equal(f.p.candyRetry,undefined);
+    assert.deepEqual(f.calls,['buy']);assert.equal(f.e.budget.spent,200);
+});
+test('quote shortfalls distinguish task budget, regional reserve and daily ceiling',t=>{
+    const f=fixture(t),b=f.e.budget,cfg=f.e.settings;
+    cfg.spendBudget=199;assert.match(b.check(f.s,200),/任务.*本笔 200 ₽，还差 1 ₽/);
+    cfg.spendBudget=200;f.s.money=9900;assert.match(b.check(f.s,200),/保留额.*还差 300 ₽/);
+    f.s.money=10200;cfg.dailySpendBudget=100;assert.match(b.check(f.s,200),/每日.*还差 100 ₽/);
+    cfg.dailySpendBudget=200;assert.equal(b.check(f.s,200),null);
+    assert.equal(b.spent,0);assert.deepEqual(f.calls,[]);
+});
 for(const blocked of ['price','disabled','overflow']){
     test('coaching skips paid candy without downgrading on '+blocked,t=>{
         const f=coaching(t);

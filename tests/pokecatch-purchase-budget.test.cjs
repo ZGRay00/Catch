@@ -60,13 +60,13 @@ test('screenshot budget allows an exact-reserve purchase while only inventory us
     b.charge(200);
     assert.equal(b.day().spent, 200);
     assert.equal(b.used, 1);
-    assert.match(b.check({money: 11000000}, 10000000), /本次采购/);
+    assert.match(b.check({money: 11000000}, 10000000), /当前任务采购/);
     assert.match(b.check({}, 0, 20), /道具使用/);
     e.settings.dailySpendBudget = 399;
     assert.match(b.check({money: 20000}, 200), /每日/);
     assert.equal(b.check({money: 20000}, 199), null);
     e.settings.spendBudget = 0;
-    assert.match(b.check({money: 20000}, 1), /本次采购/);
+    assert.match(b.check({money: 20000}, 1), /当前任务采购/);
 });
 
 test('prices prefer the stated coin amount and reject unintended numbers or ambiguous prices', () => {

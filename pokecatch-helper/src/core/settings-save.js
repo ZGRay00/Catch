@@ -108,10 +108,15 @@
         state.mons=packed.m.map(row=>{
             if(!Array.isArray(row))return row;
             let mon={shiny:false};
-            for(const [at,key]of [[0,'uid'],[1,'id'],[2,'level'],[3,'xp']])if(row[at]!=null)mon[key]=row[at];
+            if(row[0]!=null)mon.uid=row[0];
+            if(row[1]!=null)mon.id=row[1];
+            if(row[2]!=null)mon.level=row[2];
+            if(row[3]!=null)mon.xp=row[3];
             if(row[4]!=null)mon.reg=regions[row[4]];
             if(row[5]!=null)mon.where=places[row[5]];
-            if(Number.isSafeInteger(row[6])&&Math.abs(row[6])<1e15&&Number.isSafeInteger(stamp(row[0])))mon.caughtAt=stamp(row[0])+row[6];
+            if(Number.isSafeInteger(row[6])&&Math.abs(row[6])<1e15){
+                const base=stamp(row[0]);if(Number.isSafeInteger(base))mon.caughtAt=base+row[6];
+            }
             if(object(row[7]))mon={...mon,...row[7]};return mon;
         });
         if(packed.dx===1&&object(wire.dex))state.dex=Object.fromEntries(Object.entries(wire.dex).map(([id,row])=>{

@@ -58,6 +58,22 @@ test('an unfinished league forecast cannot become the weak-party fallback',()=>{
     assert.equal(rows[0].id,31);assert.equal(rows[0].fallback,true);
 });
 
+test('a weak late Unova matchup credits only cleared rooms and charges the failed attempt',()=>{
+    const now=Date.UTC(2026,10,18,12);
+    const mons=[609,534,567,503,625,525].map((id,i)=>({uid:'u'+i,id,level:74,reg:'unova'}));
+    const s={mons,team:mons.map(m=>m.uid),travel:{to:['unova']},adv:{chapter:76,unlocked:77,speed:4,badges:[],deaths:{}}};
+    const row=H.xpRanking(s,settings,{},{},now).find(r=>r.league);
+    assert.ok(row?.trainingSafe&&row.battleFit.minCoverage<.999);
+    const model=row.leagueTraining;
+    assert.deepEqual(model.completedMembers,[77]);assert.equal(model.failedAt,78);
+    assert.match(model.stopReason,/流氓鳄/);assert.equal(model.xpPerMember,H.DATA.chapters[77].xpEstimate);
+    const first=H.leagueTrainingModel(s,settings,{...row,members:[77]},undefined,now);
+    assert.ok(model.seconds>=first.seconds+20);assert.equal(model.riskFactor,first.riskFactor);
+    s.mons.forEach(m=>m.level=1);
+    const weak=H.leagueTrainingModel(s,settings,row,undefined,now);
+    assert.equal(weak.allowed,false);assert.equal(weak.xpPerMember,0);assert.match(weak.blockReason,/首关.*婉龙/);
+});
+
 test('every regional league is forecast only after its own first room has opened',()=>{
     for(const region of H.DATA.regions){
         const members=H.DATA.chapters.filter(chapter=>chapter.reg===region.key&&chapter.league);if(!members.length)continue;

@@ -1,8 +1,18 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.3.4**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.3.9**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.3.4.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.3.9.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+5.3.9 游戏更新后，孵蛋页默认显示下一枚自然蛋、预计距闪枚数和树果窗口。已核对的游戏程序沿用原预测，新程序按旧规则给出带标识的参考结果。
+
+5.3.8 练级与补练按联盟关卡顺序估算可获得的经验。后段失利会计入耗时，已解锁但暂时无法选取的联盟也在经验表中显示原因。
+
+5.3.7 在「运行实况 → 目标与收益」增加金币与经验排行切换。默认跟随当前任务，手动选择的显示方式会在刷新后保留。
+
+5.3.6 练级和主线补练的常规换图门槛由 15% 降至 8%。面板显示实际所在地图，并说明排名第一的地图是否达到换图条件。
+
+5.3.5 练级与主线补练的「目标与收益」会显示已解锁联盟未入选的具体原因，包括阵容风险、临时难度上限和退避剩余时间。
 
 5.3.4 搜寻仅靠现象或随机道具节点的目标时，完成一轮后若新路线仍未生成目标节点，会尝试另一张合条件的地图。燃烧虫的赠蛋天气纳入图鉴预报，单选进化形时显示进化条件。
 

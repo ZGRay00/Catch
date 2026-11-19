@@ -58,12 +58,12 @@ test('a planned strong party cannot authorize an upgrade before the native road 
 test('small XP-rate differences do not cause repeated training map switches',t=>{
     const {s,e,now,farming}=fixture(t);farming(31000);let first=true;
     for(const row of H.xpRanking(s,e.settings,{}, {},now)){
-        const rate=row.key==='35'?100000:first?(first=false,110000):50000;
+        const rate=row.key==='35'?100000:first?(first=false,107000):50000;
         e.metrics[H.metricsKey(s,row,e.settings,now)]={xp:rate,xpSeconds:60,xpRuns:2};
     }
     e.farm(s,now,'train');assert.equal(e.driver.pendingMap,null);assert.equal(e.target.key,'35');e.stop();
 });
-for(const [runs,gain,upgrade]of [[3,5,false],[3,6,true],[2,14,false],[2,15,false],[2,16,true]])test(`training compares a measured +${gain}% route after ${runs} loops`,async t=>{
+for(const [runs,gain,upgrade]of [[3,5,false],[3,6,true],[2,7,false],[2,8,false],[2,9,true]])test(`training compares a measured +${gain}% route after ${runs} loops`,async t=>{
     const {s,e,now,farming,save}=fixture(t);farming(31000);
     for(const row of H.xpRanking(s,e.settings,{}, {},now)){
         const rate=row.key==='35'?100000:row.key==='36'?100000+1000*gain:1000;
@@ -88,6 +88,15 @@ test('mainline preparation follows the same measured switching rule and retains 
     await preparationTick(e,()=>e.coach.step(s,now));assert.equal(p.phase,'travel');
     await preparationTick(e,()=>e.coach.step(s,now+1200));assert.equal(mapped.at(-1).key,'36');
     assert.equal(p.phase,'train');assert.equal(e.settings.mode,'progress');assert.equal(p.context.id,38);e.stop();
+});
+
+test('estimated 240977 versus 219296 upgrades only from the slower map',t=>{
+    const {e,s,now,preparation}=fixture(t),p=preparation();
+    const old={...p.route,rate:219296,measured:false},best={...H.DATA.chapters[36],key:'36',members:[36],rate:240977,measured:false};
+    e.coach.routes=()=>[best,old];
+    e.coach.step(s,now);assert.equal(p.phase,'travel');
+    e.coach.step(s,now+1200);assert.equal(p.route.key,best.key);assert.equal(p.phase,'train');
+    e.coach.step(s,now+33000);assert.equal(p.route.key,best.key);assert.equal(p.phase,'train');e.stop();
 });
 test('an old persisted preparation ceiling no longer traps the screenshot party on Mt Chimney',async t=>{
     const {s,e,now,preparation,mapped}=fixture(t),p=preparation();p.routeCeiling=37;p.avoid['36']=now+600000;await preparationTick(e,()=>e.coach.step(s,now));

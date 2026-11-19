@@ -171,7 +171,7 @@
         const covered=battleFit.minCoverage>=.999;
         const ordinary=clearsWithinLimits(battleFit,STORY_FIT_LIMITS)||efficient&&(!row.trainingFrontier||covered)||!row.trainingFrontier&&maxLevel<=lead;
         const trainingSafe=proven||(leagueTraining?leagueTraining.allowed:ordinary);
-        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,battleFit,leagueTraining,maxLevel,trainingSafe};
+        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,battleFit,leagueTraining,maxLevel,trainingSafe,fallback:!trainingSafe};
     }
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
@@ -234,7 +234,7 @@
         const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
             : maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
-        return {kind,reg,signature,needsSlices,
+        return {kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
             search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states)};
     }
     function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states){
@@ -253,24 +253,19 @@
             }
             if(sliced)yield;
         }
-        if(kind==='xp'){
-            const start=DATA.regions.find(region=>region.key===currentRegion(s))?.start;
-            rows=safeTrainingRoutes(rows,start);
-        }
         return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
     }
     function safeTrainingRoutes(rows,startChapter){
         const safe=rows.filter(row=>row.trainingSafe);
-        if(safe.length)return safe.map(row=>({...row,fallback:false}));
-        const replays=rows.filter(row=>!row.trainingFrontier||row.id===startChapter);
+        if(safe.length)return safe;
+        const replays=rows.filter(row=>!row.league&&(!row.trainingFrontier||row.id===startChapter));
         const minimum=Math.min(...replays.map(row=>row.maxLevel));
-        return replays.filter(row=>row.maxLevel===minimum).map(row=>({...row,fallback:true}));
+        return replays.filter(row=>row.maxLevel===minimum);
     }
     function selectYieldRoutes(request,rows,cooldowns,now){
-        if(request.kind==='preparation'){
+        if(request.kind==='preparation'||request.kind==='xp'){
             if(Number.isFinite(request.ceiling))rows=rows.filter(row=>row.maxLevel<=request.ceiling);
-            const start=DATA.regions.find(region=>region.key===request.reg)?.start;
-            rows=safeTrainingRoutes(rows,start);
+            rows=safeTrainingRoutes(rows,request.startChapter);
         }
         return availableRankedRoutes(rows,cooldowns,now);
     }
@@ -281,6 +276,20 @@
             routeRankings.set(request.kind,cached);
         }
         return selectYieldRoutes(request,cached.rows,cooldowns,now);
+    }
+    function excludedTrainingLeagues(request,selected,cooldowns,now){
+        const cached=routeRankings.get(request.kind);
+        if(cached?.signature!==request.signature)return [];
+        const result=[];
+        for(const row of cached.rows){
+            if(!row.league||selected.some(other=>other.key===row.key))continue;
+            const causes=[];
+            if(row.maxLevel>request.ceiling)causes.push(`补练难度上限 Lv.${request.ceiling}，联盟最高 Lv.${row.maxLevel}`);
+            if(cooldowns[row.key]>now)causes.push(`退避剩余 ${Math.ceil((cooldowns[row.key]-now)/60000)} 分钟`);
+            if(!row.trainingSafe)causes.push(row.leagueTraining.blockReason||'阵容未通过联盟评估');
+            result.push({name:row.name,reason:causes.join('；'),rate:row.trainingSafe||row.measured?row.rate:null});
+        }
+        return result;
     }
     function candyRegion(s){return economicRegion(s);}
     function candyXpGap(s,mon,goal){
@@ -524,7 +533,7 @@
         // damage margins to every matchup so ordinary opponents cannot hide a boss.
         const hpMargin=1.3*(6/team.length)**.7,damageMargin=1.3;
         const allies=team.map(mon=>({mon:{...mon,status:null},stats:effectiveStats(mon)}));
-        let weight=0,turns=0,deaths=0,coverage=0,minCoverage=1,worstTurns=0,worstDeaths=0,hardest=null;
+        let weight=0,turns=0,deaths=0,coverage=0,minCoverage=1,worstTurns=0,worstDeaths=0,hardest=null,uncoveredId=null;
         for(const foe of foes){
             const guarded={...foe,hpMult:(foe.hpMult||1)*hpMargin},defense=effectiveStats(guarded),weather=combatWeather(s,foe,context,context.now??Date.now());
             const details=allies.map(({mon,stats})=>{
@@ -535,11 +544,12 @@
             });
             const battle=deployedBattle(details,s.autoSwitch!==false);
             weight+=foe.weight;turns+=foe.weight*battle.turns;deaths+=foe.weight*battle.deaths;coverage+=foe.weight*battle.coverage;
-            minCoverage=Math.min(minCoverage,battle.coverage);worstDeaths=Math.max(worstDeaths,battle.deaths);
+            if(battle.coverage<minCoverage){minCoverage=battle.coverage;uncoveredId=foe.id;}
+            worstDeaths=Math.max(worstDeaths,battle.deaths);
             if(!hardest||battle.turns>worstTurns){hardest=foe;worstTurns=battle.turns;}
             if(sliced)yield;
         }
-        const fit={coverage:coverage/weight,minCoverage,turns:turns/weight,worstTurns,deaths:deaths/weight,worstDeaths,opponents:foes.length};
+        const fit={coverage:coverage/weight,minCoverage,uncoveredId,turns:turns/weight,worstTurns,deaths:deaths/weight,worstDeaths,opponents:foes.length};
         const limits=context.kind==='progress'?STORY_FIT_LIMITS:MAP_FIT_LIMITS;
         const ready=clearsWithinLimits(fit,limits);
         const label=MONS.get(hardest?.id)?.name||'目标对手';
@@ -554,22 +564,25 @@
         const profiles=party.map(mon=>[mon.uid,teamEligible(s,mon,row.reg),...combatProfile({...mon,status:null})]);
         const key=JSON.stringify([row.reg,settings.speed,s.autoSwitch!==false,profiles,chapters.map(chapter=>[chapter.id,chapterFoes(s,chapter)]),battleFit.weatherKey]),cached=LEAGUE_TRAINING_ROWS.get(key);
         if(cached)return{...cached,completedMembers:[...cached.completedMembers]};
-        // A slower league can still be better training. The safety boundary guards
-        // severe attrition and losing matchups, rather than requiring a three-turn clear.
-        const capable=party.length>0&&party.length<=6&&party.every(mon=>teamEligible(s,mon,row.reg))&&new Set(party.map(mon=>mon.uid)).size===party.length&&
-            battleFit.minCoverage>=.999&&battleFit.turns<=10&&battleFit.worstTurns<=24&&battleFit.deaths<=1.25&&battleFit.worstDeaths<=Math.max(1,party.length-2);
-        let xpPerMember=0,seconds=0,failedAt=null;const completedMembers=[];
-        if(capable)for(const chapter of chapters){
+        let blockReason='';
+        if(!party.length||party.length>6||!party.every(mon=>teamEligible(s,mon,row.reg))||new Set(party.map(mon=>mon.uid)).size!==party.length)blockReason='当前阵容不满足地区出战条件';
+        let xpPerMember=0,seconds=0,clearSeconds=0,weightedDeaths=0,failedAt=null,stopReason='';const completedMembers=[];
+        if(!blockReason)for(const chapter of chapters){
             const assessment=yield* readinessSearch(s,{...settings,autoTeam:true},{kind:'progress',id:chapter.id,reg:row.reg,foes:chapterCombatFoes(s,chapter),now},s.team,sliced),fit=assessment.fit;
             const base=estimatedRouteSeconds(chapter,settings.speed),turns=fit?.turns??150;
-            seconds+=base*Math.max(1,turns/3);
-            const reliable=fit&&fit.minCoverage>=.999&&fit.worstTurns<=24&&fit.turns<=10&&fit.worstDeaths<=Math.max(1,party.length-2);
-            if(!reliable){failedAt=chapter.id;seconds+=20;break;}
+            const roomSeconds=base*Math.max(1,turns/3);seconds+=roomSeconds;
+            if(!fit)stopReason=assessment.reason;
+            else if(fit.minCoverage<.999)stopReason=`模拟难以击败${MONS.get(fit.uncoveredId)?.name||'该关对手'}`;
+            else if(fit.turns>10||fit.worstTurns>24)stopReason='预计对局回合过多';
+            else if(fit.deaths>1.25||fit.worstDeaths>Math.max(1,party.length-2))stopReason='预计倒下人数超过连战上限';
+            if(stopReason){failedAt=chapter.id;seconds+=20;break;}
+            clearSeconds+=roomSeconds;weightedDeaths+=roomSeconds*fit.deaths;
             xpPerMember+=chapter.xpEstimate||0;completedMembers.push(chapter.id);
         }
         // Credit only the reliably reachable prefix, while charging for the failed
         // chapter and restarting. Partial attempts are never reported as full-cycle XP.
-        const model={allowed:capable&&completedMembers.length>0,xpPerMember,seconds:Math.max(20,seconds),riskFactor:1/(1+.25*(battleFit.deaths||0)),completedMembers,failedAt,partial:completedMembers.length<chapters.length};
+        if(!completedMembers.length&&failedAt!=null)blockReason=`首关「${CHAPTERS.get(failedAt).name}」：${stopReason}`;
+        const model={allowed:!blockReason&&completedMembers.length>0,blockReason,stopReason,xpPerMember,seconds:Math.max(20,seconds),riskFactor:1/(1+.25*weightedDeaths/Math.max(1,clearSeconds)),completedMembers,failedAt,partial:completedMembers.length<chapters.length};
         LEAGUE_TRAINING_ROWS.set(key,model);if(LEAGUE_TRAINING_ROWS.size>128)LEAGUE_TRAINING_ROWS.delete(LEAGUE_TRAINING_ROWS.keys().next().value);
         return{...model,completedMembers:[...completedMembers]};
     }

@@ -71,7 +71,12 @@ async function main(){
         await evaluate('fixtureState.stats.hatched=2;commitNursery()');current=await state();assert.equal(current.ledger.segment.reason,'counter-rollback');assert.equal(current.ledger.stats.hatched,0);assert.equal(current.ledger.nativeHatched,2);assert.equal(current.ledger.current.shiny,1);checks.push('a native counter rollback starts a new observation segment without subtracting or inventing history');
         await evaluate(`(()=>{const e=__pcNurseryTest.engine;e.queue=[{id:'nursery-kept-task',settings:{...e.settings,mode:'money'},status:'pending'}];fixtureState.pension.eggs.push({uid:'after-rollback',id:4,shiny:false,hatchAt:Date.now()+600000});commitNursery()})()`);current=await state();assert.equal(current.ledger.stats.eggsObserved,1);const beforeReset={save:current.save,queue:current.queue};await click('#nursery-reset');current=await state();assert.equal(current.ledger.segment.reason,'manual');assert.equal(current.ledger.stats.eggsObserved,0);assert.equal(current.ledger.stats.hatched,0);assert.equal(current.ledger.nativeHatched,2);assert.equal(current.ledger.current.shiny,1);assert.equal(current.save,beforeReset.save);assert.equal(current.queue,beforeReset.queue);checks.push('clearing observations rebaselines current eggs and preserves the native save and task queue');
         await click('#nursery-export');await delay(30);const exported=await evaluate('exportFiles.at(-1)');assert.equal(exported.name,'pokecatch-egg-statistics.json');const report=JSON.parse(exported.text);assert.equal(report.format,'pokecatch-nursery-statistics');assert.equal(report.nativeHatched,2);assert.equal(report.current.shiny,1);assert.equal((await state()).save,beforeReset.save);checks.push('statistics export contains the observed segment without editing the game save');
-        const nurseryText=()=>evaluate(`(()=>{const r=${root},text=id=>r.querySelector('#nursery-'+id).textContent;return{eggs:text('eggs'),next:text('next'),forecast:text('forecast'),basis:text('basis'),reference:text('reference'),condition:text('condition'),scenarios:text('scenarios'),segment:text('segment')}})()`);
+        const nurseryText=async()=>{
+            const read=()=>evaluate(`(()=>{const r=${root},text=id=>r.querySelector('#nursery-'+id).textContent;return{eggs:text('eggs'),next:text('next'),forecast:text('forecast'),basis:text('basis'),condition:text('condition'),scenarios:text('scenarios'),segment:text('segment')}})()`);
+            let result=await read();
+            for(let i=0;i<100&&result.next.includes('正在计算');i++){await delay(25);result=await read();}
+            return result;
+        };
         await evaluate("fixtureState.pension.eggs.push({uid:'numbered',id:4,k:6,hatchAt:Date.now()+10000});commitNursery()");
         const exact=await nurseryText();assert.match(exact.eggs,/存档已记录/);assert.match(exact.eggs,/按蛋序号确定/);
         assert.match(exact.next,/按当前条件预测/);assert.match(exact.basis,/规则已核对/);assert.match(exact.condition,/赠蛋占号后会重算/);
@@ -81,12 +86,17 @@ async function main(){
         assert.ok(counters.segment.includes(new Date(at).getFullYear().toString()));
         checks.push('the saved laying timer is shown in minutes, independently of candy progress and the preserved observation date');
         await evaluate("window.BUILD='new-unverified';commitNursery()");
-        const reference=await nurseryText();assert.match(reference.next,/结果待确认/);assert.match(reference.forecast,/旧规则单枚参考闪率/);assert.match(reference.basis,/尚未核对/);
+        const reference=await nurseryText();assert.match(reference.next,/旧规则参考 · 下一枚自然蛋 #\d+/);assert.match(reference.forecast,/预计.*第 \d+ 枚自然蛋.*旧规则单枚参考闪率/);assert.match(reference.basis,/尚未核对/);
         assert.match(reference.eggs,/存档已记录/);assert.doesNotMatch(reference.eggs,/按蛋序号确定/);assert.match(reference.eggs,/旧规则参考闪率/);
-        assert.ok(await evaluate(`${root}.querySelector('#nursery-berry-plan').hidden`));assert.equal(reference.reference,'');assert.doesNotMatch(reference.next+reference.forecast,/#\d+|第 \d+ 枚/);
-        await click('#nursery-rules > summary');assert.match((await nurseryText()).reference,/旧规则模拟.*下一枚自然蛋 #\d+/);
-        await click('#nursery-rules > summary');assert.equal((await nurseryText()).reference,'');
-        checks.push('an unverified build only shows a numbered reference simulation after the player expands its evidence');
+        assert.ok(await evaluate(`!${root}.querySelector('#nursery-rules').open&&!${root}.querySelector('#nursery-berry-plan').hidden`));
+        await click('#nursery-rules > summary');assert.match((await nurseryText()).scenarios,/参考 ·/);
+        await click('#nursery-rules > summary');assert.equal((await nurseryText()).next,reference.next);
+        await evaluate("window.BUILD='another-new-build';fixtureState.pension.laid++;commitNursery()");
+        assert.notEqual((await nurseryText()).next,reference.next);
+        await evaluate("fixtureState.pension.laid--;fixtureState.pension.bx={invalid:true};commitNursery()");
+        const invalid=await nurseryText();assert.match(invalid.next,/靛莓果标记/);assert.equal(invalid.forecast,'');
+        await evaluate("delete fixtureState.pension.bx;commitNursery()");
+        checks.push('consecutive unknown builds show conditional estimates with the disclosure closed; bad inputs clear prior predictions');
         await evaluate(`window.BUILD=${JSON.stringify(H.NURSERY_RULES.build)};delete fixtureState.pension.laid;commitNursery()`);
         const initial=await nurseryText();
         const firstK=await evaluate("fixtureState.stats.hatched+fixtureState.pension.eggs.length");

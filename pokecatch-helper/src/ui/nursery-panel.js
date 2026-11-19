@@ -7,7 +7,7 @@
             <h3>下一枚与闪蛋预测</h3><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
             <dl id="nursery-berry-plan" hidden><dt>无果即闪</dt><dd id="nursery-natural"></dd><dt>仅用果才闪</dt><dd id="nursery-berry-only"></dd></dl>
             <div id="nursery-condition" class="hint"></div>
-            <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-reference" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
+            <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
             <div id="nursery-observed" class="sub"></div><div id="nursery-segment" class="hint"></div><div id="nursery-error" class="hint warn"></div>
             <label class="nursery-preference"><input id="nursery-hints" type="checkbox">标记游戏孵化器中的闪光蛋</label>
             <div class="actions"><button id="nursery-export">导出蛋统计</button><button id="nursery-reset">清空观测统计</button></div>
@@ -22,8 +22,6 @@
             if(node.textContent!==text)node.textContent=text;
         }
         hints.onchange=()=>{preferences.nurseryHints=hints.checked;save();onChange();};
-        const rules=query('#nursery-rules');
-        rules.addEventListener('toggle',onChange);
         query('#nursery-reset').onclick=()=>{try{engine.nurseryMonitor.reset(engine.read());}catch(error){engine.nurseryMonitor.error=error.message;}onChange();};
         query('#nursery-export').onclick=()=>{
             const data=engine.nurseryMonitor.ledger.snapshot(),report={format:'pokecatch-nursery-statistics',schema:1,version:VERSION,
@@ -97,36 +95,38 @@
             query('#nursery-plan').disabled=engine.running||!!engine.suspended||!sameAccount;
             // In older saves the native counter is initialized only when the next egg is laid.
             const laid=s.pension?.laid,counterKey=laid==null?[snap.hatched,Array.isArray(s.pension?.eggs)?snap.counts.total:null]:laid;
-            const showReference=rules.open&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
-            const key=JSON.stringify([options.build,showReference,nurserySeed(s),counterKey,Object.hasOwn(s.pension||{},'bx')?[s.pension.bx]:[],nurseryParentPool(s)]);
+            const key=JSON.stringify([options.build,nurserySeed(s),counterKey,Object.hasOwn(s.pension||{},'bx')?[s.pension.bx]:[],nurseryParentPool(s)]);
             if(key!==forecastKey){
                 cancelScan();forecastKey=key;forecast=null;
-                scan=nurseryForecastSteps(s,{...options,estimateUnverified:showReference});advance();
+                scan=nurseryForecastSteps(s,{...options,estimateUnverified:true});advance();
             }
             snap.forecast=forecast;
             write('#nursery-shiny',snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');
-                for(const id of ['forecast','reference','scenarios','basis'])write('#nursery-'+id,'');
+                for(const id of ['forecast','scenarios','basis'])write('#nursery-'+id,'');
                 query('#nursery-berry-plan').hidden=true;
             }else{
                 const nextLabel=next?`下一枚自然蛋 #${next.k} · ${name(next.eggId)}${next.shiny?' ✦ 闪光':' · 普通'} · 亲本槽 ${next.parent.slot}${next.bx?' · 靛莓果生效':''}`:'';
                 const sequence=f.active?(flash?`第 ${flash.position} 枚自然蛋为闪蛋（${name(flash.eggId)}，编号 ${flash.k}）`:`已扫描 ${f.scanned} 枚自然蛋，未找到闪蛋`):'';
-                write('#nursery-next',f.known?'按当前条件预测 · '+nextLabel:
-                    f.rateVerified?'下一枚自然蛋暂无法预测 · '+f.reason:'当前游戏构建尚未核对，下一枚自然蛋的结果待确认。');
-                write('#nursery-forecast',f.known?sequence:Number.isFinite(f.nextRate)?
+                const reference=f.certainty==='reference';
+                write('#nursery-next',next?(reference?'旧规则参考 · ':'按当前条件预测 · ')+nextLabel:'下一枚自然蛋暂无法预测 · '+f.reason);
+                write('#nursery-forecast',f.active?(reference?'预计 · '+sequence+' · 旧规则单枚参考闪率 '+percent(f.nextRate):sequence):Number.isFinite(f.nextRate)?
                     (f.rateVerified?'仅可估计单枚闪率 ':'旧规则单枚参考闪率 ')+percent(f.nextRate)+'（按当前亲本池）':'');
                 const windowLabel=row=>row?`第 ${row.position} 枚 · ${name(row.eggId)}（#${row.k}）`:`前 ${f.scanned} 枚未找到`;
-                query('#nursery-berry-plan').hidden=!f.known;
-                write('#nursery-natural',f.known?windowLabel(f.firstWithoutBerry):'');
-                write('#nursery-berry-only',f.known?windowLabel(f.firstBerryOnly)+(f.firstBerryOnly?
+                query('#nursery-berry-plan').hidden=!f.active;
+                const windowPrefix=reference?'参考 · ':'';
+                write('#nursery-natural',f.active?windowPrefix+windowLabel(f.firstWithoutBerry):'');
+                write('#nursery-berry-only',f.active?windowPrefix+windowLabel(f.firstBerryOnly)+(f.known&&f.firstBerryOnly?
                     (f.firstBerryOnly.position===1&&f.pendingBerry?' · 靛莓果已生效':' · 在这枚产出前用靛莓果'):''):'');
-                write('#nursery-reference',f.certainty==='reference'?'旧规则模拟 · '+nextLabel+'。'+sequence+'。':'');
                 const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
                 const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];
-                write('#nursery-scenarios',f.known?`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'');
-                write('#nursery-basis',(f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:`当前构建 ${options.build} 尚未核对，旧规则参考来自 ${NURSERY_RULES.build}。`)+(f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'')+' 已产蛋优先读存档标记。已核对的构建还可用训练家种子和蛋序号确定闪色，旧蛋用自身标识核对。');
+                write('#nursery-scenarios',f.active?windowPrefix+`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'');
+                const buildBasis=options.launcherBuild?`启动器 ${options.launcherBuild} 沿用已核对的游戏程序 ${options.bundle}。`:
+                    f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:`当前构建 ${options.build} 尚未核对，参考预测沿用 ${NURSERY_RULES.build} 的规则。`;
+                const counterBasis=f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'';
+                write('#nursery-basis',buildBasis+counterBasis+' 已产蛋优先读存档标记。');
             }
             const progress=s.pension?.egg,condition=[`孵化器 ${snap.counts.total}/${snap.capacity} · 寄养 ${s.pension?.mons?.length||0} 只。`];
             if(f?.rateVerified&&f.hasDitto&&f.pool.length&&Number.isFinite(progress)&&progress>=0){

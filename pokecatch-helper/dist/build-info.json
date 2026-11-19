@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.3.4",
-  "scriptSha256": "d444e73a475124da2f3cb7d8a92b388208342a292baee945179a15fd6d1332cb",
-  "metadataSha256": "05e2616fae20b97a5d5a564324c6d17f544037eec670ce45b9dd9ba06ea469c5",
+  "version": "5.3.9",
+  "scriptSha256": "5ba2e5e7169633798ab122e5c2740b8cae1d187526a9b09feac2a7c515d8407d",
+  "metadataSha256": "10aee6e58c3ed2aa2c288c1d44137445d2f858593e08a906e95eb00788e91dff",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "fa56a3af93ff96b4e773f6f50227c693aa89c16b5b67605e1b3e6dfefe645df0"
+      "sha256": "9ebbe30dbed8ebc2eaf797f89187bf2e955f8f5ba6599f71c0aed5f5654d55b3"
     },
     {
       "file": "build.manifest.json",
@@ -78,7 +78,7 @@
     },
     {
       "file": "src/services/nursery-monitor.js",
-      "sha256": "4ad844aff8c18e64c805942331f901c48e368b1245d2d8eee2e3d4c4f82697bd"
+      "sha256": "03cd29897458f98d9912e1837c39766c16972902490e7eb6940c5c6e5b2ce34e"
     },
     {
       "file": "data/weather.json",
@@ -114,7 +114,7 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "9d00716593a6e0e733d38c40fce64cb85586b86f331b69d706c8bba9dc9b56ff"
+      "sha256": "4f6a1d8223a3197df7933bf3c30ddfbf4251f5da4d978f538ed9d4ca13c7e3ea"
     },
     {
       "file": "src/models/collection.js",
@@ -134,7 +134,7 @@
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "8e8363fed5abcb41b2dc9b59c0550e942e22d5ab590499d0f45d0f448a47a164"
+      "sha256": "1c02943da7484b1a6e6652304103531bf4fab489369ed1b870f12f211276bea9"
     },
     {
       "file": "src/runtime/engine.js",
@@ -146,7 +146,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "54d3eb037387792448dbdd0cab9876966077f523dd2202aba89c644a262ddc00"
+      "sha256": "17fb58dcc6bd9a9957bcd3ee1b2dc986c212d75d30b57b9f614f766ed0c79d26"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -158,7 +158,7 @@
     },
     {
       "file": "src/ui/nursery-panel.js",
-      "sha256": "713060f8c44592c54f9c85a923b7c17f4490b54ebf3138395984c92c27b6b117"
+      "sha256": "f4b7b608440e72e6283f4c88ed8b0b27173829fc611d1ee5f5ab20e70ee10c27"
     },
     {
       "file": "src/ui/manual-input.js",
@@ -166,7 +166,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "c950d3f814516b5fc6a14a61aec2e2923a6241b5d39cf7909db711f54c7e1428"
+      "sha256": "90a6a926b9d043672b8c7cce2135c83244671901539a660c5e9258269cd8e6c3"
     }
   ]
 }

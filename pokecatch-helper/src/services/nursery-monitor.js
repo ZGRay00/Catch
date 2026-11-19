@@ -7,6 +7,10 @@
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
         if(!hashes.size)return{build:declared||'unverified:missing'};
         const [bundle]=hashes;
+        // A launcher-only deployment can still serve exactly the same reviewed application.
+        if(NURSERY_BUILDS[bundle]&&/^[a-f0-9]{10}$/.test(declared)&&!NURSERY_RULES.compatibleBuilds.includes(declared)){
+            return{build:NURSERY_BUILDS[bundle],bundle,launcherBuild:declared};
+        }
         if(declared&&declared!==NURSERY_BUILDS[bundle])return{build:'unverified:'+bundle};
         return{build:NURSERY_BUILDS[bundle]||'unverified:'+bundle};
     }

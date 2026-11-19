@@ -90,6 +90,8 @@ test('browser prediction requires a recognized game build while saved legacy fla
         srcs=['/bundle/app.ac708615ae.js'];assert.equal(H.nurseryRuntimeOptions().build,'a5299b1690');
         srcs=['/bundle/app.c742526349.js'];assert.equal(H.nurseryRuntimeOptions().build,'c8fb8b2e96');
         srcs=['https://pokecatch-online.pages.dev/bundle/app.0a7dcb2280.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
+        global.window.BUILD='1234567abc';
+        assert.deepEqual(H.nurseryRuntimeOptions(),{build:H.NURSERY_RULES.build,bundle:'0a7dcb2280',launcherBuild:'1234567abc'});
         srcs=['/bundle/app.0123456789.js'];assert.equal(H.nurseryRuntimeOptions().build,'unverified:0123456789');
         assert.equal(H.eggOutcome({}, {shiny:true},H.nurseryRuntimeOptions()).shiny,true);
         global.window.BUILD=H.NURSERY_RULES.build;

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.3.4
+// @version      5.3.9
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.3.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '5.3.9', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1662,6 +1662,10 @@
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
         if(!hashes.size)return{build:declared||'unverified:missing'};
         const [bundle]=hashes;
+        // A launcher-only deployment can still serve exactly the same reviewed application.
+        if(NURSERY_BUILDS[bundle]&&/^[a-f0-9]{10}$/.test(declared)&&!NURSERY_RULES.compatibleBuilds.includes(declared)){
+            return{build:NURSERY_BUILDS[bundle],bundle,launcherBuild:declared};
+        }
         if(declared&&declared!==NURSERY_BUILDS[bundle])return{build:'unverified:'+bundle};
         return{build:NURSERY_BUILDS[bundle]||'unverified:'+bundle};
     }
@@ -3124,7 +3128,7 @@
         const covered=battleFit.minCoverage>=.999;
         const ordinary=clearsWithinLimits(battleFit,STORY_FIT_LIMITS)||efficient&&(!row.trainingFrontier||covered)||!row.trainingFrontier&&maxLevel<=lead;
         const trainingSafe=proven||(leagueTraining?leagueTraining.allowed:ordinary);
-        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,battleFit,leagueTraining,maxLevel,trainingSafe};
+        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,battleFit,leagueTraining,maxLevel,trainingSafe,fallback:!trainingSafe};
     }
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
@@ -3187,7 +3191,7 @@
         const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
             : maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
-        return {kind,reg,signature,needsSlices,
+        return {kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
             search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states)};
     }
     function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states){
@@ -3206,24 +3210,19 @@
             }
             if(sliced)yield;
         }
-        if(kind==='xp'){
-            const start=DATA.regions.find(region=>region.key===currentRegion(s))?.start;
-            rows=safeTrainingRoutes(rows,start);
-        }
         return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
     }
     function safeTrainingRoutes(rows,startChapter){
         const safe=rows.filter(row=>row.trainingSafe);
-        if(safe.length)return safe.map(row=>({...row,fallback:false}));
-        const replays=rows.filter(row=>!row.trainingFrontier||row.id===startChapter);
+        if(safe.length)return safe;
+        const replays=rows.filter(row=>!row.league&&(!row.trainingFrontier||row.id===startChapter));
         const minimum=Math.min(...replays.map(row=>row.maxLevel));
-        return replays.filter(row=>row.maxLevel===minimum).map(row=>({...row,fallback:true}));
+        return replays.filter(row=>row.maxLevel===minimum);
     }
     function selectYieldRoutes(request,rows,cooldowns,now){
-        if(request.kind==='preparation'){
+        if(request.kind==='preparation'||request.kind==='xp'){
             if(Number.isFinite(request.ceiling))rows=rows.filter(row=>row.maxLevel<=request.ceiling);
-            const start=DATA.regions.find(region=>region.key===request.reg)?.start;
-            rows=safeTrainingRoutes(rows,start);
+            rows=safeTrainingRoutes(rows,request.startChapter);
         }
         return availableRankedRoutes(rows,cooldowns,now);
     }
@@ -3234,6 +3233,20 @@
             routeRankings.set(request.kind,cached);
         }
         return selectYieldRoutes(request,cached.rows,cooldowns,now);
+    }
+    function excludedTrainingLeagues(request,selected,cooldowns,now){
+        const cached=routeRankings.get(request.kind);
+        if(cached?.signature!==request.signature)return [];
+        const result=[];
+        for(const row of cached.rows){
+            if(!row.league||selected.some(other=>other.key===row.key))continue;
+            const causes=[];
+            if(row.maxLevel>request.ceiling)causes.push(`补练难度上限 Lv.${request.ceiling}，联盟最高 Lv.${row.maxLevel}`);
+            if(cooldowns[row.key]>now)causes.push(`退避剩余 ${Math.ceil((cooldowns[row.key]-now)/60000)} 分钟`);
+            if(!row.trainingSafe)causes.push(row.leagueTraining.blockReason||'阵容未通过联盟评估');
+            result.push({name:row.name,reason:causes.join('；'),rate:row.trainingSafe||row.measured?row.rate:null});
+        }
+        return result;
     }
     function candyRegion(s){return economicRegion(s);}
     function candyXpGap(s,mon,goal){
@@ -3477,7 +3490,7 @@
         // damage margins to every matchup so ordinary opponents cannot hide a boss.
         const hpMargin=1.3*(6/team.length)**.7,damageMargin=1.3;
         const allies=team.map(mon=>({mon:{...mon,status:null},stats:effectiveStats(mon)}));
-        let weight=0,turns=0,deaths=0,coverage=0,minCoverage=1,worstTurns=0,worstDeaths=0,hardest=null;
+        let weight=0,turns=0,deaths=0,coverage=0,minCoverage=1,worstTurns=0,worstDeaths=0,hardest=null,uncoveredId=null;
         for(const foe of foes){
             const guarded={...foe,hpMult:(foe.hpMult||1)*hpMargin},defense=effectiveStats(guarded),weather=combatWeather(s,foe,context,context.now??Date.now());
             const details=allies.map(({mon,stats})=>{
@@ -3488,11 +3501,12 @@
             });
             const battle=deployedBattle(details,s.autoSwitch!==false);
             weight+=foe.weight;turns+=foe.weight*battle.turns;deaths+=foe.weight*battle.deaths;coverage+=foe.weight*battle.coverage;
-            minCoverage=Math.min(minCoverage,battle.coverage);worstDeaths=Math.max(worstDeaths,battle.deaths);
+            if(battle.coverage<minCoverage){minCoverage=battle.coverage;uncoveredId=foe.id;}
+            worstDeaths=Math.max(worstDeaths,battle.deaths);
             if(!hardest||battle.turns>worstTurns){hardest=foe;worstTurns=battle.turns;}
             if(sliced)yield;
         }
-        const fit={coverage:coverage/weight,minCoverage,turns:turns/weight,worstTurns,deaths:deaths/weight,worstDeaths,opponents:foes.length};
+        const fit={coverage:coverage/weight,minCoverage,uncoveredId,turns:turns/weight,worstTurns,deaths:deaths/weight,worstDeaths,opponents:foes.length};
         const limits=context.kind==='progress'?STORY_FIT_LIMITS:MAP_FIT_LIMITS;
         const ready=clearsWithinLimits(fit,limits);
         const label=MONS.get(hardest?.id)?.name||'目标对手';
@@ -3507,22 +3521,25 @@
         const profiles=party.map(mon=>[mon.uid,teamEligible(s,mon,row.reg),...combatProfile({...mon,status:null})]);
         const key=JSON.stringify([row.reg,settings.speed,s.autoSwitch!==false,profiles,chapters.map(chapter=>[chapter.id,chapterFoes(s,chapter)]),battleFit.weatherKey]),cached=LEAGUE_TRAINING_ROWS.get(key);
         if(cached)return{...cached,completedMembers:[...cached.completedMembers]};
-        // A slower league can still be better training. The safety boundary guards
-        // severe attrition and losing matchups, rather than requiring a three-turn clear.
-        const capable=party.length>0&&party.length<=6&&party.every(mon=>teamEligible(s,mon,row.reg))&&new Set(party.map(mon=>mon.uid)).size===party.length&&
-            battleFit.minCoverage>=.999&&battleFit.turns<=10&&battleFit.worstTurns<=24&&battleFit.deaths<=1.25&&battleFit.worstDeaths<=Math.max(1,party.length-2);
-        let xpPerMember=0,seconds=0,failedAt=null;const completedMembers=[];
-        if(capable)for(const chapter of chapters){
+        let blockReason='';
+        if(!party.length||party.length>6||!party.every(mon=>teamEligible(s,mon,row.reg))||new Set(party.map(mon=>mon.uid)).size!==party.length)blockReason='当前阵容不满足地区出战条件';
+        let xpPerMember=0,seconds=0,clearSeconds=0,weightedDeaths=0,failedAt=null,stopReason='';const completedMembers=[];
+        if(!blockReason)for(const chapter of chapters){
             const assessment=yield* readinessSearch(s,{...settings,autoTeam:true},{kind:'progress',id:chapter.id,reg:row.reg,foes:chapterCombatFoes(s,chapter),now},s.team,sliced),fit=assessment.fit;
             const base=estimatedRouteSeconds(chapter,settings.speed),turns=fit?.turns??150;
-            seconds+=base*Math.max(1,turns/3);
-            const reliable=fit&&fit.minCoverage>=.999&&fit.worstTurns<=24&&fit.turns<=10&&fit.worstDeaths<=Math.max(1,party.length-2);
-            if(!reliable){failedAt=chapter.id;seconds+=20;break;}
+            const roomSeconds=base*Math.max(1,turns/3);seconds+=roomSeconds;
+            if(!fit)stopReason=assessment.reason;
+            else if(fit.minCoverage<.999)stopReason=`模拟难以击败${MONS.get(fit.uncoveredId)?.name||'该关对手'}`;
+            else if(fit.turns>10||fit.worstTurns>24)stopReason='预计对局回合过多';
+            else if(fit.deaths>1.25||fit.worstDeaths>Math.max(1,party.length-2))stopReason='预计倒下人数超过连战上限';
+            if(stopReason){failedAt=chapter.id;seconds+=20;break;}
+            clearSeconds+=roomSeconds;weightedDeaths+=roomSeconds*fit.deaths;
             xpPerMember+=chapter.xpEstimate||0;completedMembers.push(chapter.id);
         }
         // Credit only the reliably reachable prefix, while charging for the failed
         // chapter and restarting. Partial attempts are never reported as full-cycle XP.
-        const model={allowed:capable&&completedMembers.length>0,xpPerMember,seconds:Math.max(20,seconds),riskFactor:1/(1+.25*(battleFit.deaths||0)),completedMembers,failedAt,partial:completedMembers.length<chapters.length};
+        if(!completedMembers.length&&failedAt!=null)blockReason=`首关「${CHAPTERS.get(failedAt).name}」：${stopReason}`;
+        const model={allowed:!blockReason&&completedMembers.length>0,blockReason,stopReason,xpPerMember,seconds:Math.max(20,seconds),riskFactor:1/(1+.25*weightedDeaths/Math.max(1,clearSeconds)),completedMembers,failedAt,partial:completedMembers.length<chapters.length};
         LEAGUE_TRAINING_ROWS.set(key,model);if(LEAGUE_TRAINING_ROWS.size>128)LEAGUE_TRAINING_ROWS.delete(LEAGUE_TRAINING_ROWS.keys().next().value);
         return{...model,completedMembers:[...completedMembers]};
     }
@@ -5683,7 +5700,7 @@
     }
 
     function trainingSwitchMargin(current,next){
-        return current?.measured&&next?.measured&&current.samples>=3&&next.samples>=3&&current.rate>0&&next.rate>0?5:15;
+        return current?.measured&&next?.measured&&current.samples>=3&&next.samples>=3&&current.rate>0&&next.rate>0?5:8;
     }
     function shouldSwitchTrainingRoute(current,next){
         if(!next||next.key===current?.key)return false;
@@ -7747,6 +7764,10 @@
     .dex-routes details { padding:0; margin:0; border-top:0; border-bottom:1px solid #304157 }
     .dex-routes summary { padding:7px 4px; color:#d8e8f1; font-weight:600; min-height:32px }
     .dex-routes summary:focus-visible, .tabs button:focus-visible { outline-offset:-3px }
+    #yield-metric:not([hidden]) { display:inline-flex; gap:2px; margin:8px 0 3px; padding:2px; border-radius:7px; background:#101a29 }
+    #yield-metric button { min-height:32px; padding:4px 12px; border:0; border-radius:5px; color:#a9bed2; background:transparent }
+    #yield-metric button[aria-pressed="true"] { color:#9af1d4; background:#24413f; font-weight:650 }
+    #yield-metric button:focus-visible { outline-offset:-2px }
     .dex-route-count { float:right; margin-left:6px; color:#a1c8b8; font-size:11px; font-weight:400 }
     .dex-routes .missing { padding:0 4px 8px }
     .dex-routes .chip, #dex-results .chip { min-height:27px }
@@ -8104,7 +8125,7 @@
             <h3>下一枚与闪蛋预测</h3><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
             <dl id="nursery-berry-plan" hidden><dt>无果即闪</dt><dd id="nursery-natural"></dd><dt>仅用果才闪</dt><dd id="nursery-berry-only"></dd></dl>
             <div id="nursery-condition" class="hint"></div>
-            <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-reference" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
+            <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
             <div id="nursery-observed" class="sub"></div><div id="nursery-segment" class="hint"></div><div id="nursery-error" class="hint warn"></div>
             <label class="nursery-preference"><input id="nursery-hints" type="checkbox">标记游戏孵化器中的闪光蛋</label>
             <div class="actions"><button id="nursery-export">导出蛋统计</button><button id="nursery-reset">清空观测统计</button></div>
@@ -8119,8 +8140,6 @@
             if(node.textContent!==text)node.textContent=text;
         }
         hints.onchange=()=>{preferences.nurseryHints=hints.checked;save();onChange();};
-        const rules=query('#nursery-rules');
-        rules.addEventListener('toggle',onChange);
         query('#nursery-reset').onclick=()=>{try{engine.nurseryMonitor.reset(engine.read());}catch(error){engine.nurseryMonitor.error=error.message;}onChange();};
         query('#nursery-export').onclick=()=>{
             const data=engine.nurseryMonitor.ledger.snapshot(),report={format:'pokecatch-nursery-statistics',schema:1,version:VERSION,
@@ -8194,36 +8213,38 @@
             query('#nursery-plan').disabled=engine.running||!!engine.suspended||!sameAccount;
             // In older saves the native counter is initialized only when the next egg is laid.
             const laid=s.pension?.laid,counterKey=laid==null?[snap.hatched,Array.isArray(s.pension?.eggs)?snap.counts.total:null]:laid;
-            const showReference=rules.open&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
-            const key=JSON.stringify([options.build,showReference,nurserySeed(s),counterKey,Object.hasOwn(s.pension||{},'bx')?[s.pension.bx]:[],nurseryParentPool(s)]);
+            const key=JSON.stringify([options.build,nurserySeed(s),counterKey,Object.hasOwn(s.pension||{},'bx')?[s.pension.bx]:[],nurseryParentPool(s)]);
             if(key!==forecastKey){
                 cancelScan();forecastKey=key;forecast=null;
-                scan=nurseryForecastSteps(s,{...options,estimateUnverified:showReference});advance();
+                scan=nurseryForecastSteps(s,{...options,estimateUnverified:true});advance();
             }
             snap.forecast=forecast;
             write('#nursery-shiny',snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');
-                for(const id of ['forecast','reference','scenarios','basis'])write('#nursery-'+id,'');
+                for(const id of ['forecast','scenarios','basis'])write('#nursery-'+id,'');
                 query('#nursery-berry-plan').hidden=true;
             }else{
                 const nextLabel=next?`下一枚自然蛋 #${next.k} · ${name(next.eggId)}${next.shiny?' ✦ 闪光':' · 普通'} · 亲本槽 ${next.parent.slot}${next.bx?' · 靛莓果生效':''}`:'';
                 const sequence=f.active?(flash?`第 ${flash.position} 枚自然蛋为闪蛋（${name(flash.eggId)}，编号 ${flash.k}）`:`已扫描 ${f.scanned} 枚自然蛋，未找到闪蛋`):'';
-                write('#nursery-next',f.known?'按当前条件预测 · '+nextLabel:
-                    f.rateVerified?'下一枚自然蛋暂无法预测 · '+f.reason:'当前游戏构建尚未核对，下一枚自然蛋的结果待确认。');
-                write('#nursery-forecast',f.known?sequence:Number.isFinite(f.nextRate)?
+                const reference=f.certainty==='reference';
+                write('#nursery-next',next?(reference?'旧规则参考 · ':'按当前条件预测 · ')+nextLabel:'下一枚自然蛋暂无法预测 · '+f.reason);
+                write('#nursery-forecast',f.active?(reference?'预计 · '+sequence+' · 旧规则单枚参考闪率 '+percent(f.nextRate):sequence):Number.isFinite(f.nextRate)?
                     (f.rateVerified?'仅可估计单枚闪率 ':'旧规则单枚参考闪率 ')+percent(f.nextRate)+'（按当前亲本池）':'');
                 const windowLabel=row=>row?`第 ${row.position} 枚 · ${name(row.eggId)}（#${row.k}）`:`前 ${f.scanned} 枚未找到`;
-                query('#nursery-berry-plan').hidden=!f.known;
-                write('#nursery-natural',f.known?windowLabel(f.firstWithoutBerry):'');
-                write('#nursery-berry-only',f.known?windowLabel(f.firstBerryOnly)+(f.firstBerryOnly?
+                query('#nursery-berry-plan').hidden=!f.active;
+                const windowPrefix=reference?'参考 · ':'';
+                write('#nursery-natural',f.active?windowPrefix+windowLabel(f.firstWithoutBerry):'');
+                write('#nursery-berry-only',f.active?windowPrefix+windowLabel(f.firstBerryOnly)+(f.known&&f.firstBerryOnly?
                     (f.firstBerryOnly.position===1&&f.pendingBerry?' · 靛莓果已生效':' · 在这枚产出前用靛莓果'):''):'');
-                write('#nursery-reference',f.certainty==='reference'?'旧规则模拟 · '+nextLabel+'。'+sequence+'。':'');
                 const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
                 const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];
-                write('#nursery-scenarios',f.known?`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'');
-                write('#nursery-basis',(f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:`当前构建 ${options.build} 尚未核对，旧规则参考来自 ${NURSERY_RULES.build}。`)+(f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'')+' 已产蛋优先读存档标记。已核对的构建还可用训练家种子和蛋序号确定闪色，旧蛋用自身标识核对。');
+                write('#nursery-scenarios',f.active?windowPrefix+`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'');
+                const buildBasis=options.launcherBuild?`启动器 ${options.launcherBuild} 沿用已核对的游戏程序 ${options.bundle}。`:
+                    f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:`当前构建 ${options.build} 尚未核对，参考预测沿用 ${NURSERY_RULES.build} 的规则。`;
+                const counterBasis=f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'';
+                write('#nursery-basis',buildBasis+counterBasis+' 已产蛋优先读存档标记。');
             }
             const progress=s.pension?.egg,condition=[`孵化器 ${snap.counts.total}/${snap.capacity} · 寄养 ${s.pension?.mons?.length||0} 只。`];
             if(f?.rateVerified&&f.hasDitto&&f.pool.length&&Number.isFinite(progress)&&progress>=0){
@@ -8479,7 +8500,12 @@
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
-            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="logs" aria-controls="view">日志</button></div><div id="view" class="list"></div>
+            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="logs" aria-controls="view">日志</button></div>
+            <div id="yield-metric" role="group" aria-label="地图收益显示方式" hidden>
+                <button type="button" data-yield-view="task" aria-controls="view">跟随任务</button>
+                <button type="button" data-yield-view="money" aria-controls="view">金币</button>
+                <button type="button" data-yield-view="train" aria-controls="view">经验</button>
+            </div><div id="view" class="list"></div>
             </section>
             <p id="lookup-empty" role="status" hidden>进入游戏并载入存档后即可查询。</p>
             <section id="pane-dex" aria-label="图鉴" hidden><div id="dex-panel"></div></section>
@@ -8568,6 +8594,14 @@
         // Version 1.1.0 used a single position; migrate it only to the expanded panel.
         if (!ui.panel && Number.isFinite(ui.x) && Number.isFinite(ui.y)) ui.panel = { x: ui.x, y: ui.y };
         function saveUI() { try { localStorage.setItem(PREFIX + 'ui', JSON.stringify(ui)); } catch {} }
+        const metricGroup=query('#yield-metric');
+        function selectYieldView(value) {
+            ui.yieldView=['money','train'].includes(value)?value:'task';
+            for(const button of metricGroup.querySelectorAll('button')){
+                button.setAttribute('aria-pressed',String(button.dataset.yieldView===ui.yieldView));
+            }
+        }
+        selectYieldView(ui.yieldView);
         const workspaces = [...root.querySelectorAll('[data-workspace]')];
         function selectWorkspace(name, refresh = true) {
             const active = workspaces.find(button => button.dataset.workspace === name) || workspaces[0];
@@ -8920,6 +8954,7 @@
             }
             const lookup = ['dex','weather','eggs'].includes(ui.workspace);
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
+            metricGroup.hidden = !s?.adv || tab!=='maps';
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;query('#weather-panel').hidden=true;
                 const view=query('#view');view.hidden=false;viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';return;
@@ -8976,7 +9011,7 @@
             query('#money-label').textContent=net===null?(engine.endedTotals?'结束时余额未知':'等待完整钱包'):engine.walletScope==='rebased'?'重计后金币净增':'本次金币净增';
             const seconds = engine.started ? Math.max(0, Math.floor(((engine.running ? Date.now() : engine.stoppedAt || Date.now()) - engine.started) / 1000)) : 0;
             query('#time-value').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-            const shinyRoutes=mode==='shiny'&&(taskPage||ui.workspace==='activity'&&tab==='maps')?shinyRanking(s,settings,engine.cooldowns,now):null;
+            const shinyRoutes=mode==='shiny'&&(taskPage||ui.workspace==='activity'&&tab==='maps'&&ui.yieldView==='task')?shinyRanking(s,settings,engine.cooldowns,now):null;
             let primary = `${status.complete}/${status.roots.length}`, primaryLabel = settings.dexSpecies?.length&&mode==='dex'?'目标已捕获':'进化链完成', goalLabel = settings.dexSpecies?.length&&mode==='dex'?'指定物种收集':'基础形态收集', goalValue = `${status.missing.length} 条待完成`, percent = status.complete / Math.max(1,status.roots.length) * 100;
             let hint = mode === 'money' ? '按整轮金币净增实测排名，轮换采样后优先高收益地图；未测地图显示估算。' : '基础形态曾捕获即完成整条进化链；幼年形态不另设目标。';
             if(mode==='progress'){
@@ -9043,19 +9078,29 @@
                 return Math.abs(difference)<.05?'几乎持平':(difference>0?'高 ':'低 ')+Math.abs(difference).toFixed(1)+'%';
             }
             const comparisons=[];
-            if(previous?.rate>0)comparisons.push(current.name+'比上一图'+previous.name+'的每分钟经验'+relativeRate(previous,current)+'（常规换图需提升超过 '+trainingSwitchMargin(previous,current)+'%）');
-            if(next&&current.rate>0)comparisons.push('下一图'+next.name+'比当前图'+relativeRate(current,next)+'（常规换图需提升超过 '+trainingSwitchMargin(current,next)+'%）');
-            return comparisons.length?basis+'，'+comparisons.join('。')+'。':basis+'各图的每分钟经验。';
+            if(previous?.rate>0)comparisons.push(current.name+'比上一图'+previous.name+'的每分钟经验'+relativeRate(previous,current));
+            if(next&&current.rate>0)comparisons.push('下一图'+next.name+'比当前图'+relativeRate(current,next));
+            const best=rows[0];
+            let decision='当前在'+current.name+'，已是候选中每分钟经验最高的地图。';
+            if(best.key!==current.key){
+                const margin=trainingSwitchMargin(current,best);
+                const gain=current.rate>0?'（'+relativeRate(current,best)+'）':'';
+                decision='当前在'+current.name+'，'+best.name+'排名第一'+gain+'。'+
+                    (shouldSwitchTrainingRoute(current,best)?'已达到换图条件，安全节点复评后可切换。':'收益提升需超过 '+margin+'% 才切换。');
+            }
+            return (comparisons.length?basis+'，'+comparisons.join('。')+'。':basis+'各图的每分钟经验。')+decision;
         }
         function renderView(s, status, shinyRoutes) {
             const prep=tab==='maps'&&['train','travel'].includes(engine.preparation?.phase)&&engine.preparation.context?.reg?engine.preparation:null;
-            const mode=prep?'train':engine.settings.mode;
+            const taskMode=prep?'train':engine.settings.mode;
+            const mode=tab==='maps'&&ui.yieldView!=='task'?ui.yieldView:taskMode;
+            const preview=mode!==taskMode;
             const moneyAfterDex=!status.missing.length&&engine.settings.afterDex==='money'&&!engine.queueRunning;
             if(tab==='maps'&&mode==='dex'&&!moneyAfterDex){
                 engine.releaseRankingView();
                 viewSignature=null;dexPanel.renderRoutes(query('#view'),s,status,engine);return;
             }
-            let rows,signature=null;
+            let rows,signature=null,leagueNotes=[];
             if(FLOW_MODES.has(mode)||['legend','roam','shiny','item'].includes(mode))engine.releaseRankingView();
             if(tab==='queue')signature=JSON.stringify([tab,engine.running,!!engine.suspended,!!engine.manual,engine.queueRunning,engine.queueIndex,engine.queue.map(job=>[job.id,job.title,job.status,job.result])]);
             else if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
@@ -9063,11 +9108,13 @@
             else if(mode==='shiny')signature=JSON.stringify([mode,shinyRoutes.map(row=>[row.key,row.name,row.expected])]);
             else if(!['legend','roam'].includes(mode)){
                 const now=Date.now();
-                if(prep){
-                    const request=preparationRankingRequest(s,engine.settings,prep,engine.metrics,now);
-                    rows=engine.evaluateRouteRanking(request,prep.avoid||{},now,true);
+                if(mode==='train'){
+                    const request=prep?preparationRankingRequest(s,engine.settings,prep,engine.metrics,now):yieldRankingRequest('xp',s,engine.settings,engine.metrics,now);
+                    const cooldowns=prep?(prep.avoid||{}):engine.cooldowns;
+                    rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
+                    if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
                 }else rows=mode==='item'?itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now)
-                    :engine.rankedYieldRoutes(s,mode==='train'?'xp':'money',engine.cooldowns,now,true);
+                    :engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);
                 if(rows===null){
                     const pending='pending:'+mode;
                     if(viewSignature!==pending){
@@ -9077,7 +9124,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,!!prep,prep?prep.route?.key:engine.target?.key,mode==='train'&&s.adv.chapter,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.leagueTraining?.partial])]);
+                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -9096,19 +9143,30 @@
                     for(const row of shinyRoutes){const tr=document.createElement('tr');textCell(tr,row.name);textCell(tr,row.expected.toLocaleString('zh-CN',{maximumSignificantDigits:3}));table.tBodies[0].appendChild(tr);}view.appendChild(table);if(!shinyRoutes.length)view.append('当前范围、时段和地图退避条件下暂无可用路线。');
                 } else {
                     if(mode==='train'&&rows.length){
-                        const note=document.createElement('div');note.className='hint';note.textContent=trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
+                        const note=document.createElement('div');note.className='hint';note.textContent=preview?'按当前队伍比较各地图的每分钟经验。':trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
                     }
                     const table = document.createElement('table');
                     table.innerHTML = `<thead><tr><th>地图</th><th>${mode === 'item' ? '平滑 / 实测' : '来源 / 整轮'}</th><th>${mode === 'item' ? '个/分钟' : mode === 'train' ? 'EXP/分钟' : '₽/分钟'}</th></tr></thead><tbody></tbody>`;
                     const selectedKey=prep?prep.route?.key:engine.target?.key;
+                    for(const league of leagueNotes){
+                        const tr=table.tBodies[0].insertRow();
+                        textCell(tr,league.name+'已解锁');textCell(tr,'暂不选图');textCell(tr,league.rate===null?'—':Math.round(league.rate).toLocaleString());
+                        const detail=table.tBodies[0].insertRow().insertCell();
+                        detail.colSpan=3;detail.className='hint warn';detail.style.textAlign='left';detail.textContent=league.reason;
+                    }
                     for(const row of rows){
-                        const tr=document.createElement('tr'),selected=selectedKey===row.key;
+                        const tr=document.createElement('tr'),selected=preview?row.members.includes(s.adv.chapter):selectedKey===row.key;
                         tr.classList.toggle('active',selected);textCell(tr,(selected?'▶ ':'')+row.name);
                         let source='估算';
                         if(mode==='item'&&row.measured)source='平滑 · 实测 '+row.actualRate.toFixed(2);
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
-                        else if(mode==='train'&&row.leagueTraining?.partial)source='前段估算 / 0';
+                        else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
                         textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        if(mode==='train'&&row.leagueTraining?.failedAt!=null&&row.samples<2){
+                            const detail=table.tBodies[0].insertRow().insertCell();
+                            detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
+                            detail.textContent=CHAPTERS.get(row.leagueTraining.failedAt).name+'：'+row.leagueTraining.stopReason+'。估算已计入挑战和重开耗时。';
+                        }
                     }
                     view.appendChild(table); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '当前范围没有可规划地图，请检查解锁、来源条件或目标。'; view.appendChild(empty); }
                 }
@@ -9212,6 +9270,10 @@
             if(button.dataset.category)showCategory(button.dataset.category);
             if(button.dataset.mode)changeSetting('mode',button.dataset.mode);
             if(button.dataset.tab){selectActivityTab(button.dataset.tab);render();}
+            if(button.dataset.yieldView&&button.dataset.yieldView!==ui.yieldView){
+                selectYieldView(button.dataset.yieldView);saveUI();
+                viewSignature=null;query('#view').scrollTop=0;render();
+            }
             if(button.dataset.lookup){
                 dexPanel.search('#'+button.dataset.lookup, () => selectWorkspace('dex'));
             }

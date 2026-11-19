@@ -82,7 +82,12 @@
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
-            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="logs" aria-controls="view">日志</button></div><div id="view" class="list"></div>
+            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="logs" aria-controls="view">日志</button></div>
+            <div id="yield-metric" role="group" aria-label="地图收益显示方式" hidden>
+                <button type="button" data-yield-view="task" aria-controls="view">跟随任务</button>
+                <button type="button" data-yield-view="money" aria-controls="view">金币</button>
+                <button type="button" data-yield-view="train" aria-controls="view">经验</button>
+            </div><div id="view" class="list"></div>
             </section>
             <p id="lookup-empty" role="status" hidden>进入游戏并载入存档后即可查询。</p>
             <section id="pane-dex" aria-label="图鉴" hidden><div id="dex-panel"></div></section>
@@ -171,6 +176,14 @@
         // Version 1.1.0 used a single position; migrate it only to the expanded panel.
         if (!ui.panel && Number.isFinite(ui.x) && Number.isFinite(ui.y)) ui.panel = { x: ui.x, y: ui.y };
         function saveUI() { try { localStorage.setItem(PREFIX + 'ui', JSON.stringify(ui)); } catch {} }
+        const metricGroup=query('#yield-metric');
+        function selectYieldView(value) {
+            ui.yieldView=['money','train'].includes(value)?value:'task';
+            for(const button of metricGroup.querySelectorAll('button')){
+                button.setAttribute('aria-pressed',String(button.dataset.yieldView===ui.yieldView));
+            }
+        }
+        selectYieldView(ui.yieldView);
         const workspaces = [...root.querySelectorAll('[data-workspace]')];
         function selectWorkspace(name, refresh = true) {
             const active = workspaces.find(button => button.dataset.workspace === name) || workspaces[0];
@@ -523,6 +536,7 @@
             }
             const lookup = ['dex','weather','eggs'].includes(ui.workspace);
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
+            metricGroup.hidden = !s?.adv || tab!=='maps';
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;query('#weather-panel').hidden=true;
                 const view=query('#view');view.hidden=false;viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';return;
@@ -579,7 +593,7 @@
             query('#money-label').textContent=net===null?(engine.endedTotals?'结束时余额未知':'等待完整钱包'):engine.walletScope==='rebased'?'重计后金币净增':'本次金币净增';
             const seconds = engine.started ? Math.max(0, Math.floor(((engine.running ? Date.now() : engine.stoppedAt || Date.now()) - engine.started) / 1000)) : 0;
             query('#time-value').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
-            const shinyRoutes=mode==='shiny'&&(taskPage||ui.workspace==='activity'&&tab==='maps')?shinyRanking(s,settings,engine.cooldowns,now):null;
+            const shinyRoutes=mode==='shiny'&&(taskPage||ui.workspace==='activity'&&tab==='maps'&&ui.yieldView==='task')?shinyRanking(s,settings,engine.cooldowns,now):null;
             let primary = `${status.complete}/${status.roots.length}`, primaryLabel = settings.dexSpecies?.length&&mode==='dex'?'目标已捕获':'进化链完成', goalLabel = settings.dexSpecies?.length&&mode==='dex'?'指定物种收集':'基础形态收集', goalValue = `${status.missing.length} 条待完成`, percent = status.complete / Math.max(1,status.roots.length) * 100;
             let hint = mode === 'money' ? '按整轮金币净增实测排名，轮换采样后优先高收益地图；未测地图显示估算。' : '基础形态曾捕获即完成整条进化链；幼年形态不另设目标。';
             if(mode==='progress'){
@@ -646,19 +660,29 @@
                 return Math.abs(difference)<.05?'几乎持平':(difference>0?'高 ':'低 ')+Math.abs(difference).toFixed(1)+'%';
             }
             const comparisons=[];
-            if(previous?.rate>0)comparisons.push(current.name+'比上一图'+previous.name+'的每分钟经验'+relativeRate(previous,current)+'（常规换图需提升超过 '+trainingSwitchMargin(previous,current)+'%）');
-            if(next&&current.rate>0)comparisons.push('下一图'+next.name+'比当前图'+relativeRate(current,next)+'（常规换图需提升超过 '+trainingSwitchMargin(current,next)+'%）');
-            return comparisons.length?basis+'，'+comparisons.join('。')+'。':basis+'各图的每分钟经验。';
+            if(previous?.rate>0)comparisons.push(current.name+'比上一图'+previous.name+'的每分钟经验'+relativeRate(previous,current));
+            if(next&&current.rate>0)comparisons.push('下一图'+next.name+'比当前图'+relativeRate(current,next));
+            const best=rows[0];
+            let decision='当前在'+current.name+'，已是候选中每分钟经验最高的地图。';
+            if(best.key!==current.key){
+                const margin=trainingSwitchMargin(current,best);
+                const gain=current.rate>0?'（'+relativeRate(current,best)+'）':'';
+                decision='当前在'+current.name+'，'+best.name+'排名第一'+gain+'。'+
+                    (shouldSwitchTrainingRoute(current,best)?'已达到换图条件，安全节点复评后可切换。':'收益提升需超过 '+margin+'% 才切换。');
+            }
+            return (comparisons.length?basis+'，'+comparisons.join('。')+'。':basis+'各图的每分钟经验。')+decision;
         }
         function renderView(s, status, shinyRoutes) {
             const prep=tab==='maps'&&['train','travel'].includes(engine.preparation?.phase)&&engine.preparation.context?.reg?engine.preparation:null;
-            const mode=prep?'train':engine.settings.mode;
+            const taskMode=prep?'train':engine.settings.mode;
+            const mode=tab==='maps'&&ui.yieldView!=='task'?ui.yieldView:taskMode;
+            const preview=mode!==taskMode;
             const moneyAfterDex=!status.missing.length&&engine.settings.afterDex==='money'&&!engine.queueRunning;
             if(tab==='maps'&&mode==='dex'&&!moneyAfterDex){
                 engine.releaseRankingView();
                 viewSignature=null;dexPanel.renderRoutes(query('#view'),s,status,engine);return;
             }
-            let rows,signature=null;
+            let rows,signature=null,leagueNotes=[];
             if(FLOW_MODES.has(mode)||['legend','roam','shiny','item'].includes(mode))engine.releaseRankingView();
             if(tab==='queue')signature=JSON.stringify([tab,engine.running,!!engine.suspended,!!engine.manual,engine.queueRunning,engine.queueIndex,engine.queue.map(job=>[job.id,job.title,job.status,job.result])]);
             else if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
@@ -666,11 +690,13 @@
             else if(mode==='shiny')signature=JSON.stringify([mode,shinyRoutes.map(row=>[row.key,row.name,row.expected])]);
             else if(!['legend','roam'].includes(mode)){
                 const now=Date.now();
-                if(prep){
-                    const request=preparationRankingRequest(s,engine.settings,prep,engine.metrics,now);
-                    rows=engine.evaluateRouteRanking(request,prep.avoid||{},now,true);
+                if(mode==='train'){
+                    const request=prep?preparationRankingRequest(s,engine.settings,prep,engine.metrics,now):yieldRankingRequest('xp',s,engine.settings,engine.metrics,now);
+                    const cooldowns=prep?(prep.avoid||{}):engine.cooldowns;
+                    rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
+                    if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
                 }else rows=mode==='item'?itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now)
-                    :engine.rankedYieldRoutes(s,mode==='train'?'xp':'money',engine.cooldowns,now,true);
+                    :engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);
                 if(rows===null){
                     const pending='pending:'+mode;
                     if(viewSignature!==pending){
@@ -680,7 +706,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,!!prep,prep?prep.route?.key:engine.target?.key,mode==='train'&&s.adv.chapter,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.leagueTraining?.partial])]);
+                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -699,19 +725,30 @@
                     for(const row of shinyRoutes){const tr=document.createElement('tr');textCell(tr,row.name);textCell(tr,row.expected.toLocaleString('zh-CN',{maximumSignificantDigits:3}));table.tBodies[0].appendChild(tr);}view.appendChild(table);if(!shinyRoutes.length)view.append('当前范围、时段和地图退避条件下暂无可用路线。');
                 } else {
                     if(mode==='train'&&rows.length){
-                        const note=document.createElement('div');note.className='hint';note.textContent=trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
+                        const note=document.createElement('div');note.className='hint';note.textContent=preview?'按当前队伍比较各地图的每分钟经验。':trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
                     }
                     const table = document.createElement('table');
                     table.innerHTML = `<thead><tr><th>地图</th><th>${mode === 'item' ? '平滑 / 实测' : '来源 / 整轮'}</th><th>${mode === 'item' ? '个/分钟' : mode === 'train' ? 'EXP/分钟' : '₽/分钟'}</th></tr></thead><tbody></tbody>`;
                     const selectedKey=prep?prep.route?.key:engine.target?.key;
+                    for(const league of leagueNotes){
+                        const tr=table.tBodies[0].insertRow();
+                        textCell(tr,league.name+'已解锁');textCell(tr,'暂不选图');textCell(tr,league.rate===null?'—':Math.round(league.rate).toLocaleString());
+                        const detail=table.tBodies[0].insertRow().insertCell();
+                        detail.colSpan=3;detail.className='hint warn';detail.style.textAlign='left';detail.textContent=league.reason;
+                    }
                     for(const row of rows){
-                        const tr=document.createElement('tr'),selected=selectedKey===row.key;
+                        const tr=document.createElement('tr'),selected=preview?row.members.includes(s.adv.chapter):selectedKey===row.key;
                         tr.classList.toggle('active',selected);textCell(tr,(selected?'▶ ':'')+row.name);
                         let source='估算';
                         if(mode==='item'&&row.measured)source='平滑 · 实测 '+row.actualRate.toFixed(2);
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
-                        else if(mode==='train'&&row.leagueTraining?.partial)source='前段估算 / 0';
+                        else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
                         textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        if(mode==='train'&&row.leagueTraining?.failedAt!=null&&row.samples<2){
+                            const detail=table.tBodies[0].insertRow().insertCell();
+                            detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
+                            detail.textContent=CHAPTERS.get(row.leagueTraining.failedAt).name+'：'+row.leagueTraining.stopReason+'。估算已计入挑战和重开耗时。';
+                        }
                     }
                     view.appendChild(table); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '当前范围没有可规划地图，请检查解锁、来源条件或目标。'; view.appendChild(empty); }
                 }
@@ -815,6 +852,10 @@
             if(button.dataset.category)showCategory(button.dataset.category);
             if(button.dataset.mode)changeSetting('mode',button.dataset.mode);
             if(button.dataset.tab){selectActivityTab(button.dataset.tab);render();}
+            if(button.dataset.yieldView&&button.dataset.yieldView!==ui.yieldView){
+                selectYieldView(button.dataset.yieldView);saveUI();
+                viewSignature=null;query('#view').scrollTop=0;render();
+            }
             if(button.dataset.lookup){
                 dexPanel.search('#'+button.dataset.lookup, () => selectWorkspace('dex'));
             }

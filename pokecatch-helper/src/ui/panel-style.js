@@ -123,6 +123,10 @@
     .dex-routes details { padding:0; margin:0; border-top:0; border-bottom:1px solid #304157 }
     .dex-routes summary { padding:7px 4px; color:#d8e8f1; font-weight:600; min-height:32px }
     .dex-routes summary:focus-visible, .tabs button:focus-visible { outline-offset:-3px }
+    #yield-metric:not([hidden]) { display:inline-flex; gap:2px; margin:8px 0 3px; padding:2px; border-radius:7px; background:#101a29 }
+    #yield-metric button { min-height:32px; padding:4px 12px; border:0; border-radius:5px; color:#a9bed2; background:transparent }
+    #yield-metric button[aria-pressed="true"] { color:#9af1d4; background:#24413f; font-weight:650 }
+    #yield-metric button:focus-visible { outline-offset:-2px }
     .dex-route-count { float:right; margin-left:6px; color:#a1c8b8; font-size:11px; font-weight:400 }
     .dex-routes .missing { padding:0 4px 8px }
     .dex-routes .chip, #dex-results .chip { min-height:27px }

@@ -90,6 +90,18 @@ test('when the counter and berry are fixed parent sensitivity agrees with both n
     }
 });
 
+test('unknown releases preview the saved sequence without certifying it or changing the save',()=>{
+    const s=state();
+    const before=JSON.stringify(s),options={build:'new-game',limit:64};
+    assert.equal(H.nurseryForecast(s,options).active,false);
+    const preview=H.nurseryForecast(s,{...options,estimateUnverified:true});
+    assert.equal(preview.counterSource,'saved');assert.equal(preview.nextEgg.k,s.pension.laid);
+    assert.equal(preview.certainty,'reference');assert.equal(preview.known,false);assert.equal(preview.rateVerified,false);
+    assert.equal(JSON.stringify(s),before);
+    s.pension.laid=-1;
+    assert.equal(H.nurseryForecast(s,{...options,estimateUnverified:true}).nextEgg,null);
+});
+
 test('bounded scan matches the full draw sequence including sparse hits and hypothetical flags', () => {
     const s = state(), plainRate = 1 / 512, parentRate = 1 / 16;
     for (const bx of [0, 1]) {

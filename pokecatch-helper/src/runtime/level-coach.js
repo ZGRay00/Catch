@@ -1,5 +1,5 @@
     function trainingSwitchMargin(current,next){
-        return current?.measured&&next?.measured&&current.samples>=3&&next.samples>=3&&current.rate>0&&next.rate>0?5:15;
+        return current?.measured&&next?.measured&&current.samples>=3&&next.samples>=3&&current.rate>0&&next.rate>0?5:8;
     }
     function shouldSwitchTrainingRoute(current,next){
         if(!next||next.key===current?.key)return false;

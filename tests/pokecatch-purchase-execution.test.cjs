@@ -29,7 +29,8 @@ function fixture(t, {id = 'exp-candy-s', quantity = '1', action = 'buy', uses = 
         return null;
     }});
     const previousDoc=global.document, previousStyle=global.getComputedStyle;
-    global.document={hidden:false,querySelector:()=>null,querySelectorAll:sel=>loaded&&sel==='#shop-grid .sh-item[data-id]'?[item]:[]};
+    const cards=[item];
+    global.document={hidden:false,querySelector:()=>null,querySelectorAll:sel=>loaded&&sel==='#shop-grid .sh-item[data-id]'?cards:[]};
     global.getComputedStyle=()=>({display:'block',opacity:'1',visibility:'visible'});
     t.after(()=>{if(previousDoc===undefined)delete global.document;else global.document=previousDoc;
         if(previousStyle===undefined)delete global.getComputedStyle;else global.getComputedStyle=previousStyle;});
@@ -40,9 +41,62 @@ function fixture(t, {id = 'exp-candy-s', quantity = '1', action = 'buy', uses = 
         if(button===buttons.one){selected='1';calls.push('one');return true;}
         assert.equal(button,buttons.buy);calls.push('buy');return true;
     };
-    return {e,s,id,calls,step:()=>{time+=1200;e.automation.resource(s,time);},
+    return {e,s,id,calls,cards,advance:()=>time+=1200,step:()=>{time+=1200;e.automation.resource(s,time);},
         noOne:()=>{singleVisible=false;},mismatch:()=>{inconsistent=true;},setLoaded:value=>{loaded=value;}};
 }
+function otherTier(id,locked=false){
+    // Reading a price or a button on a skipped tier is itself an error.
+    return {dataset:{id},classList:{contains:key=>locked&&key==='locked'},querySelector(){throw Error('Skipped tier was inspected');}};
+}
+function coaching(t,quantity='1'){
+    const f=fixture(t,{id:'exp-candy-m',quantity});f.s.adv.unlocked=8;
+    f.e.driver.nav=()=>true;
+    f.cards.unshift(otherTier('exp-candy-s'),otherTier('exp-candy-xl',true));
+    const p={targets:[{uid:'a',goal:3}]},run=()=>f.e.coach.candy(f.s,p,f.advance());
+    return {...f,p,run};
+}
+test('coaching buys exactly one of the highest unlocked tier even with a small interim XP goal',t=>{
+    const f=coaching(t,'100');f.run();assert.deepEqual(f.calls,['one']);f.run();
+    assert.deepEqual(f.calls,['one','buy']);assert.equal(f.p.candyTx.id,'exp-candy-m');assert.equal(f.e.budget.spent,200);
+    f.run();assert.deepEqual(f.calls,['one','buy'],'pending receipt prevents a second purchase');
+});
+test('coaching waits for the highest-tier budget even when a lower-tier card is available',t=>{
+    const f=coaching(t);f.s.money=10100;f.run();
+    assert.deepEqual(f.calls,[]);assert.equal(f.p.candyRetry.cost,200);assert.equal(f.e.budget.spent,0);
+    f.s.money=10200;f.run();assert.equal(f.p.candyTx.id,'exp-candy-m');assert.deepEqual(f.calls,['buy']);
+});
+for(const blocked of ['price','disabled','overflow']){
+    test('coaching skips paid candy without downgrading on '+blocked,t=>{
+        const f=coaching(t);
+        if(blocked==='price')f.mismatch();
+        if(blocked==='disabled'){const item=f.cards.at(-1),read=item.querySelector.bind(item);item.querySelector=sel=>{const el=read(sel);if(sel==='.buy')el.disabled=true;return el;};}
+        if(blocked==='overflow'){
+            const mon=f.s.mons[0],cap=H.trainingCap(f.s,mon);mon.level=cap-1;
+            mon.xp=H.candyXpGap(f.s,mon,cap)-1;f.p.targets[0].goal=cap;
+        }
+        f.run();assert.deepEqual(f.calls,[]);assert.ok(f.p.candyDisabled);assert.equal(f.e.budget.spent,0);
+    });
+}
+for(const action of ['buy','buyUse']){
+    test(action+' stops an explicit low-tier order when another unlocked tier is higher',t=>{
+        const f=fixture(t,{action});f.cards.push(otherTier('exp-candy-xl'));
+        f.step();assert.deepEqual(f.calls,[]);assert.match(f.e.status,/最高档/);assert.equal(f.e.budget.spent,0);
+    });
+}
+test('paid candy goes to another training target that can absorb it before the regional cap',t=>{
+    const f=coaching(t),mon=f.s.mons[0],cap=H.trainingCap(f.s,mon);
+    mon.level=cap-1;mon.xp=H.candyXpGap(f.s,mon,cap)-1;
+    const other={...mon,uid:'b',xp:0};f.s.mons.push(other);
+    f.p.targets=[{uid:'a',goal:cap},{uid:'b',goal:cap}];
+    f.run();assert.equal(f.p.candyTx.uid,'b');assert.deepEqual(f.calls,['buy']);
+    f.p.candyTx=null;f.s.items[f.id]=1;f.e.driver.nav=()=>false;
+    f.run();assert.equal(f.p.candy.uid,'b');assert.deepEqual(f.calls,['buy']);
+});
+test('buy-and-use skips XP overflow even before the target reaches its cap',t=>{
+    const f=fixture(t,{action:'buyUse'}),mon=f.s.mons[0],cap=H.trainingCap(f.s,mon);
+    mon.level=cap-1;mon.xp=H.candyXpGap(f.s,mon,cap)-1;f.step();
+    assert.match(f.e.status,/经验会超出/);assert.deepEqual(f.calls,[]);assert.equal(f.e.budget.spent,0);
+});
 for (const quantity of ['100','max']) {
     test('coin order switches native '+quantity+' to one before reserving and verifying payment',t=>{
         const {e,s,id,calls,step}=fixture(t,{quantity});

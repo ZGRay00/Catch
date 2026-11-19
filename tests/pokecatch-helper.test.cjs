@@ -158,9 +158,11 @@ test('candy selection prioritizes owned EXP candy and leaves rare candy untouche
     assert.equal(H.candyChoice(s,mon,2).id,'exp-candy-s');s.items={'rare-candy':10};assert.equal(H.candyChoice(s,mon,2),null);
 });
 
-test('candy purchases compare actual useful XP per price instead of blindly selecting largest size',()=>{
+test('candy purchases select the highest offered tier independently of the short-term goal',()=>{
     const s=state(),mon={uid:'a',id:6,level:1,xp:0},offers=[{id:'exp-candy-s',cost:1200},{id:'exp-candy-big',cost:96000}];
-    assert.equal(H.candyChoice(s,mon,2,offers).id,'exp-candy-s');s.adv.unlocked=65;assert.equal(H.candyChoice(s,{...mon,level:99},100,offers).id,'exp-candy-big');s.adv.unlocked=8;
+    assert.equal(H.candyChoice(s,mon,2,offers).id,'exp-candy-big');
+    assert.equal(H.candyChoice(s,mon,2,[offers[0],{id:'exp-candy-big',cost:null}]),null);
+    s.adv.unlocked=65;assert.equal(H.candyChoice(s,{...mon,level:99},100,offers).id,'exp-candy-big');s.adv.unlocked=8;
     assert.equal(H.candyChoice(s,{...mon,level:75},100,offers),null,'current regional cap prevents further candy consumption');
 });
 

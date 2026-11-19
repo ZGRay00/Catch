@@ -876,6 +876,8 @@
             if(blocked){this.fail(blocked);return;}
             let preview=null;
             if(!stocked){
+                const xp=DATA.automation.candies[id]?.xp[candyRegion(s)];
+                if(xp&&!(candyXpGap(s,mon,100)>=xp)){this.fail('购买后经验会超出该成员当前等级上限，已暂停补购');return;}
                 if(DATA.automation.candies[id]||id==='rare-candy')return this.buy(s,id);
                 preview=resourcePreviewKey(s,mon,id,now);
                 if(this.resourcePreview?.key===preview&&this.resourcePreview.until>=now)return this.buy(s,id);
@@ -905,6 +907,13 @@
             if(!item||item.classList.contains('locked')){
                 const row=EVOLUTION_SHOP.get(id);
                 this.fail(row&&evolutionShopLocked(s,row)?evolutionPurchaseReason(s,row):'目标道具未在当前金币商店解锁');return;
+            }
+            if(DATA.automation.candies[id]){
+                const highest=highestShopCandy(s,cards);
+                if(highest?.id!==id){
+                    this.fail(highest?'当前商店最高档为'+(ITEMS.get(highest.id)?.name||highest.id)+'，请将采购目标改为该档':'当前商店没有已解锁的经验糖果');
+                    return;
+                }
             }
             const {one,single,buy,cost}=shopOffer(item);
             if(!single){

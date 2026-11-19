@@ -6,6 +6,20 @@ function state(chapter) {
     return {mons:[], dex:{}, items:{}, travel:{to:['unova']}, adv:{chapter, unlocked:83, node:0, nodes:[], gifts:{}, badges:[]}};
 }
 
+test('wild dust survives map backoff for both hunts, and a rolled non-shiny or item loses shiny priority',()=>{
+    const s=state(67),now=Date.now(),cooldowns={'67':now+60000};
+    const shiny=H.normalizeSettings({mode:'shiny',shinyId:529}),dex=H.normalizeSettings({mode:'dex',dexSpecies:[529]});
+    s.adv.nodes=[{type:'wild',phenom:'dust',name:'Veine Souterraine'}];
+    const ranked=()=>H.shinyRanking(s,shiny,cooldowns,now);
+    assert.equal(ranked()[0].id,67);
+    assert.ok(H.dexRanking(s,dex,cooldowns,now).some(row=>row.id===67&&row.hasWild&&row.marked));
+    s.adv.battle={kind:'wild',enemies:[{id:529,shiny:false}]};
+    assert.ok(!ranked().some(row=>row.id===67));
+    s.adv.battle.enemies[0].shiny=true;assert.equal(ranked()[0].id,67);
+    s.adv.battle.enemies[0].id=504;assert.ok(!ranked().some(row=>row.id===67));
+    delete s.adv.battle;s.adv.nodes[0].type='item';assert.ok(!ranked().some(row=>row.id===67));
+});
+
 test('wild shiny selection admits Alomomola and ranks eligible route blocks on the same units as regular spawns', () => {
     const s = state(74);
     const settings = H.normalizeSettings({mode:'shiny', shinyId:594});

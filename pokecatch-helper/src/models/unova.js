@@ -24,7 +24,7 @@
         }
         for(const id of wildIds)UNOVA_WILD_IDS.add(id);
     }
-    function unovaAcquisitionSources(s,id,now=Date.now(),useLiveNodes=true){
+    function unovaAcquisitionSources(s,id,now=Date.now(),useLiveNodes=true,shinyOnly=false){
         const routes=UNOVA_SOURCE_INDEX.get(id);
         if(!routes)return [];
         const a=s.adv||{},regionOpen=currentRegion(s)==='unova'||s.travel?.to?.includes('unova');
@@ -60,6 +60,8 @@
                 const directShare=bonus=>((base[id]||0)+(bonus?.[id]||0))/
                     [...Object.values(base),...Object.values(bonus||{})].reduce((sum,n)=>sum+n,0);
                 const shares=actualNodes.filter(n=>n.type==='wild'&&!n.roamer&&n.phenom===route.phenomenon)
+                    .filter(n=>n!==a.nodes?.[a.node]||a.battle?.kind!=='wild'||!a.battle.enemies?.length||
+                        a.battle.enemies.some(mon=>mon.id===id&&(!shinyOnly||mon.shiny)))
                     .map(n=>directShare(n.phenomW?.[nodeWeather(s,route.chapter,n,now)]))
                     .filter(share=>share>0);
                 const share=directShare(conditional[sky]);
@@ -69,6 +71,7 @@
                 target.marked=shares.length>0&&!reason;
                 if(!reason&&!target.marked&&!share)reason='等待现象所需天气';
                 if(!reason&&!target.marked&&route.day&&phaseAt(s,now,route.chapter)==='night')reason='此路段只在白天生成';
+                if(!reason&&!target.marked&&route.night&&phaseAt(s,now,route.chapter)!=='night')reason='此路段只在夜间生成';
                 weight=target.marked?shares.reduce((sum,n)=>sum+n,0):route.blocks*rollChance*(1-UNOVA_ENCOUNTERS.itemFraction)*share;
             }
             return {...target,available:!reason,reason,weight:reason?0:weight};

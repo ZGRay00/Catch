@@ -82,9 +82,9 @@ test('returning to the frontier skips a redundant party swap for the old farming
     e.settings.mode='money';assert.equal(e.fitTeam(s,Date.now()),true,'ordinary farming still adapts the current map');e.stop();
 });
 
-test('a continuous frontier league still adapts its actual active party',t=>{
+test('a continuous frontier league still adapts its actual active party',async t=>{
     const {s,e}=fixture(t,{autoTeam:true});s.travel.to.push('unova');s.adv.chapter=77;s.adv.unlocked=78;s.mons.push({uid:'water',id:9,level:100});
-    assert.equal(e.fitTeam(s,Date.now()),true);assert.ok(e.driver.teamTask.members.includes(77)&&e.driver.teamTask.members.includes(78));e.stop();
+    assert.equal(await require('./fixtures/pokecatch-wait-team.cjs')(e,s,Date.now()),true);assert.ok(e.driver.teamTask.members.includes(77)&&e.driver.teamTask.members.includes(78));e.stop();
 });
 
 test('an achieved mainline goal completes before a pending map or party optimization',async t=>{

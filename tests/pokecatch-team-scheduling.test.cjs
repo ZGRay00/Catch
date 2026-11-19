@@ -78,3 +78,74 @@ test('world preflight invalidates a completed projection when a fighter is spent
     assert.ok(fresh.result.members.every(mon=>mon.uid!==spent));
     assert.equal(e.driver.teamTask,null);
 });
+
+test('budget expiry returns the legal checkpoint and resumes the same iterator only for an unchanged signature',async()=>{
+    const e=engine();let starts=0;
+    function* search(){
+        starts++;
+        yield {uids:['owned'],changed:false,checkpointScore:1};
+        yield {uids:['better'],changed:true,checkpointScore:2};
+        return {uids:['best'],changed:true,score:3};
+    }
+    e.evaluateTeamSearch('one',search());const first=e.teamSearch;first.limit=0;
+    for(let i=0;i<12;i++){e.evaluateTeamSearch('one',search());assert.equal(e.teamSearch,first);}
+    await finish(first);
+    assert.deepEqual(e.evaluateTeamSearch('one',search()).uids,['owned']);
+    assert.equal(e.teamContinuation,first);
+    e.evaluateTeamSearch('one',search());assert.equal(e.teamSearch,first);await finish(first);
+    assert.deepEqual(e.evaluateTeamSearch('one',search()).uids,['better']);assert.equal(starts,1);
+    e.evaluateTeamSearch('two',search());assert.notEqual(e.teamSearch,first);await finish(e.teamSearch);
+    assert.deepEqual(e.evaluateTeamSearch('two',search()).uids,['best']);assert.equal(starts,2);
+    assert.equal(e.teamContinuation,null);
+});
+
+test('changes to a training lock replace pending work; a switch setting change cancels queued PC work',async()=>{
+    const e=engine(),s=fixture();s.autoSwitch=false;e.settings.mode='train';e.settings.trainUid=s.team[0];
+    e.fitTeam(s,now);const old=e.teamSearch;
+    e.settings.trainUid=s.mons.at(-1).uid;e.fitTeam(s,now+1);
+    assert.notEqual(e.teamSearch,old);await finish(e.teamSearch);e.fitTeam(s,now+2);
+    assert.ok(e.driver.teamTask.uids.includes(e.settings.trainUid));
+    e.settings.activeSwitch=!e.settings.activeSwitch;
+    assert.equal(e.driver.adventureTeam(s,now+3),false);assert.equal(e.driver.teamTask,null);
+    assert.equal(old.result,undefined);
+});
+
+test('manual rescue estimates apply only to provable single wild encounters with native switching off',()=>{
+    const s=fixture(),foes=[{id:9,level:65,weight:1,singleWild:true}];
+    s.mons=[{id:6,level:60,uid:'lead'},{id:145,level:70,uid:'backup'}];s.team=['lead','backup'];
+    const score=(native,active,singleWild)=>{
+        s.autoSwitch=native;
+        return H.planAdventureTeam(s,{...H.DEFAULTS,autoTeam:true,activeSwitch:active},[],{objective:'money',foes:[{...foes[0],singleWild}]}).currentScore;
+    };
+    assert.ok(score(false,true,true)>score(false,false,true));
+    assert.equal(score(false,true,false),score(false,false,false));
+    assert.equal(score(true,true,true),score(true,false,true));
+});
+
+test('large synthetic Victory Road box retains coverage and improves its long-tail duel in both search budgets',()=>{
+    const bench=require('../pokecatch-helper/tools/benchmark-team.cjs');
+    const s=bench.fixture(300),row=H.DATA.chapters[76];
+    for(const lowBudget of [true,false]){
+        const plan=H.planAdventureTeam(s,H.DEFAULTS,[],{row,now:bench.clock,objective:'progress',lowBudget});
+        const reference=bench.quality(s,plan.uids);
+        assert.equal(new Set(plan.uids).size,6);
+        assert.ok(reference.turns<=1.222&&reference.worst<5.727&&reference.deaths<=.000694);
+        assert.ok(reference.keyTurns<1.21,'the three marked leader opponents remain covered');
+        assert.match(plan.backup,/移除后模型分/);
+    }
+    s.team=[273,20,270,286,17,219].map(i=>'m'+i);
+    const reordered=H.planAdventureTeam(s,H.DEFAULTS,[],{row,now:bench.clock,objective:'progress',lowBudget:true});
+    assert.deepEqual(new Set(reordered.uids),new Set(s.team));assert.ok(reordered.changed);
+    assert.ok(bench.quality(s,reordered.uids).turns<bench.quality(s,s.team).turns*.92);
+});
+
+test('irrelevant wallet and XP progress keep completed plans while old matchup contexts are evicted',async()=>{
+    const e=engine(),s=fixture();s.team=s.mons.slice(-6).map(m=>m.uid);
+    e.fitTeam(s,now);await finish(e.teamSearch);e.fitTeam(s,now+1);
+    if(e.driver.teamTask){s.team=e.driver.teamTask.uids;e.driver.teamTask=null;e.fitTeam(s,now+2);await finish(e.teamSearch);e.fitTeam(s,now+3);}
+    const check=e.teamCheck;s.money=12345;s.mons[0].xp=123;
+    e.fitTeam(s,now+4);assert.equal(e.teamCheck,check);assert.equal(e.teamSearch,null);
+    H.clearTeamCache();
+    for(let id=1;id<=8;id++)H.planAdventureTeam(s,H.DEFAULTS,[],{foes:[{id,level:50,weight:1}],now});
+    assert.equal(H.teamCacheStats().contexts,4);
+});

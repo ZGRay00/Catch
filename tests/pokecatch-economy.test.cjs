@@ -182,8 +182,11 @@ test('corrected regional XP data still accounts for rank and the current per-mem
 });
 
 for(const eggs of [[],[{uid:'future',id:1,hatchAt:Date.now()+3600000}]])test(`incidental hatching preserves a full map sample with ${eggs.length?'only unready eggs':'no eggs'}`,async t=>{
+    // Keep both ends of this sample inside the same weather slot.
+    const fixed=new Date(2026,10,18,12,15).getTime();
+    t.mock.method(Date,'now',()=>fixed);
     const previous=global.document;global.document={hidden:false,querySelector:()=>null,querySelectorAll:()=>[]};t.after(()=>{if(previous===undefined)delete global.document;else global.document=previous;});
-    const s=state();s.travel.to=[];s.adv.unlocked=8;s.pension.eggs=eggs;
+    const s=state();s.travel.to=[];s.adv.unlocked=8;s.pension.eggs=eggs.map(egg=>({...egg,hatchAt:fixed+3600000}));
     const entries=new Map([['gachamon-save-v1',JSON.stringify(s)],['pokecatch-tab','t']]),storage={getItem:k=>entries.get(k)??null,setItem:(k,v)=>entries.set(k,String(v)),removeItem:k=>entries.delete(k)};
     const e=new H.Engine(storage,{mode:'money',pensionService:true,autoTeam:false,autoPrepare:false,raids:false});e.loadAccount(s);e.running=true;e.started=Date.now();e.tabToken='t';
     e.driver={animations:()=>false,receipt:()=>false,dialog:()=>false,gift:()=>false,nav:()=>true};

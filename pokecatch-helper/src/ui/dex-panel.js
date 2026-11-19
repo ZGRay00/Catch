@@ -4,10 +4,10 @@
         const input=panel.querySelector('#dex-search'),results=panel.querySelector('#dex-results'),clear=panel.querySelector('#dex-clear');
         const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
         let signature=null;
-        function search(value){
+        function search(value, showResults = refresh){
             input.value=value;
             results.scrollTop=0;
-            refresh();
+            showResults();
             input.focus({preventScroll:true});
         }
         clear.onclick=()=>search('');

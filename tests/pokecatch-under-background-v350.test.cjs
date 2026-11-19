@@ -104,6 +104,7 @@ test('auto fitting gets first choice of PC members, then dispatch can use the re
     assert.match(f.plan().blocked.underground,/先适配冒险阵容/);
     await e.step(f.now());
     assert.equal(e.services.underground,null);
+    if(e.teamSearch)await require('./fixtures/pokecatch-wait-team.cjs')(e,e.read(),f.now());
     const chosen=e.driver.teamTask?.uids;
     assert.ok(chosen?.some(uid=>uid.startsWith('idle-')),'the adventure plan can take a strong former reserve');
     s.team=[...chosen];e.driver.teamTask=null;

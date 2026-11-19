@@ -305,7 +305,9 @@
         assert(evolutionClicks.length===0&&s.mons.find(mon=>mon.uid==='evo-leaf').id===2&&s.team.join('|')==='evo-active','manual adventure selection never chooses an unselected bench candidate for automatic evolution');
         resetEvolution({autoTeam:true},true);await until(()=>s.mons.find(mon=>mon.uid==='evo-leaf').id===3&&!engine.automation.state.evolution,30);
         assert(evolutionClicks.length===1&&evolutionClicks[0].uid==='evo-leaf'&&evolutionDetails[0].uid==='evo-leaf'&&s.team[0]==='evo-active','a stronger eligible bench candidate is opened by its PC UID without substituting the adventure leader');
-        engine.settings.autoTeam=true;engine.fitTeam(engine.read(),Date.now());await until(()=>!engine.driver.teamTask,30);
+        engine.settings.autoTeam=true;engine.fitTeam(engine.read(),Date.now());
+        if(engine.teamSearch)await window.tickWithTeam(engine);
+        await until(()=>!engine.driver.teamTask,30);
         assert(s.team.includes('evo-leaf')&&s.mons.find(mon=>mon.uid==='evo-leaf').id===3,'after save confirmation the evolved bench member can join the real adventure party through native PC controls');
         resetEvolution();evolutionDeferSave=true;await until(()=>!!evolutionCommit,25);
         for(let i=0;i<7;i++)await tick();
@@ -522,7 +524,12 @@
         engine.manual.until=0;await tick();assert(!!engine.preparation&&engine.preparation.targets.filter(m=>m.level<=32).every(m=>m.goal===46),'screenshot party schedules capped regional training immediately after manual resume');
         await until(()=>engine.preparation?.phase==='train',60);assert(engine.preparation?.route.reg==='johto'&&s.adv.chapter<=18,'screenshot party actually enters an eligible Johto training map including an efficient open frontier');
         s.road=[...s.team];for(const target of engine.preparation.targets)s.mons.find(m=>m.uid===target.uid).level=target.goal;save();await until(()=>!engine.preparation,50);await until(()=>s.adv.chapter===18,40);assert(s.adv.chapter===18&&engine.settings.progressUntil===65,'screenshot party returns to its mainline objective after weak members reach 46');
-        reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:300,moneyReserve:100,useBudget:10});s.adv.unlocked=3;s.mons[0].level=37;save();await until(()=>!!engine.preparation);await until(()=>!engine.preparation,100);await until(()=>s.adv.chapter===3,25);assert(s.mons.find(m=>m.uid==='a').level===38&&engine.budget.spent===250&&engine.budget.used===5&&s.adv.chapter===3,'mainline buys five single candies, reaches cap and returns without changing its goal');
+        reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:300,moneyReserve:100,useBudget:10});
+        s.adv.unlocked=3;s.mons[0].level=37;save();
+        await until(()=>engine.preparation?.phase==='train'&&engine.preparation.candyDisabled,100);
+        assert(s.mons[0].xp===36000&&engine.budget.spent===200&&engine.budget.used===4,'four single candies fit below cap; remaining XP comes from training');
+        s.mons[0].level=38;s.mons[0].xp=0;save();await until(()=>!engine.preparation,50);await until(()=>s.adv.chapter===3,25);
+        assert(s.adv.chapter===3&&engine.settings.progressUntil===3,'training completes the remaining gap and returns to the original mainline goal');
         reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:100,moneyReserve:100,useBudget:10});s.adv.unlocked=3;s.mons[0].level=37;save();await until(()=>engine.preparation?.phase==='train'&&engine.preparation.candyDisabled,100);assert(engine.running&&engine.preparation?.candyDisabled&&engine.budget.spent===100&&engine.budget.used===2,'candy budget exhaustion falls back to map training without stopping the task');
         for(const remembered of ['100','max']){
             reset('progress',{progressUntil:3,autoPrepare:true,autoTeam:false,progressCandy:true,prepareGap:0,spendBudget:10000000,dailySpendBudget:0,moneyReserve:10000,useBudget:20});

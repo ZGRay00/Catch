@@ -1,3 +1,4 @@
+const fit=require('./fixtures/pokecatch-wait-team.cjs');
 const test=require('node:test'),assert=require('node:assert/strict');
 const H=require('../Pokecatch自动助手.user.js');
 
@@ -53,31 +54,31 @@ test('changing native auto-switch invalidates old money and XP samples',()=>{
     assert.equal(H.xpRanking(s,H.DEFAULTS,metrics).find(row=>row.id===6)?.measured,false);
 });
 
-test('money fitting uses its entire selected route instead of a transient enemy',t=>{
+test('money fitting uses its entire selected route instead of a transient enemy',async t=>{
     const {s,e,now}=fixture(t);e.target=route(0);s.adv.battle={enemies:[{id:150,level:100}]};
     const foes=H.chapterFoes(s,H.DATA.chapters[0]).map(([id,level,weight])=>({id,level,weight}));
     const expected=H.planAdventureTeam(s,e.settings,[],{reg:'kanto',foes,objective:'money'});
-    assert.equal(e.fitTeam(s,now),expected.changed);assert.deepEqual(e.driver.teamTask?.uids,expected.changed?expected.uids:undefined);
+    assert.equal(await fit(e,s,now),expected.changed);assert.deepEqual(e.driver.teamTask?.uids,expected.changed?expected.uids:undefined);
     assert.equal(e.teamCheck.objective,'money');assert.deepEqual(e.driver.teamTask?.members,[0]);
 });
 
-test('money fitting waits for its selected destination instead of rebuilding the old-map party',t=>{
-    const {s,e,now}=fixture(t);e.target=route(1);assert.equal(e.fitTeam(s,now),false);assert.equal(e.driver.teamTask,null);assert.equal(e.teamCheck,null);
-    e.target=null;e.driver.pendingMap={row:route(1),options:{},started:now};assert.equal(e.fitTeam(s,now),false);assert.equal(e.teamCheck,null);
-    e.driver.pendingMap=null;s.adv.chapter=1;e.target=route(1);assert.equal(e.fitTeam(s,now+1200),true);assert.deepEqual(e.driver.teamTask.members,[1]);
+test('money fitting waits for its selected destination instead of rebuilding the old-map party',async t=>{
+    const {s,e,now}=fixture(t);e.target=route(1);assert.equal(await fit(e,s,now),false);assert.equal(e.driver.teamTask,null);assert.equal(e.teamCheck,null);
+    e.target=null;e.driver.pendingMap={row:route(1),options:{},started:now};assert.equal(await fit(e,s,now),false);assert.equal(e.teamCheck,null);
+    e.driver.pendingMap=null;s.adv.chapter=1;e.target=route(1);assert.equal(await fit(e,s,now+1200),true);assert.deepEqual(e.driver.teamTask.members,[1]);
 });
 
-test('native auto-switch changes re-evaluate the party while temporary HP changes do not',t=>{
-    const {s,e,now}=fixture(t);e.fitTeam(s,now);s.autoSwitch=false;e.fitTeam(s,now+1000);assert.equal(e.teamCheck.at,now+1000);assert.equal(e.teamCheck.autoSwitch,false);
-    s.mons[0].hp=1;s.mons[0].status='poison';e.fitTeam(s,now+2000);assert.equal(e.teamCheck.at,now+1000);
+test('native auto-switch changes re-evaluate the party while temporary HP changes do not',async t=>{
+    const {s,e,now}=fixture(t);await fit(e,s,now);s.autoSwitch=false;await fit(e,s,now+1000);assert.equal(e.teamCheck.at,now+1000);assert.equal(e.teamCheck.autoSwitch,false);
+    s.mons[0].hp=1;s.mons[0].status='poison';await fit(e,s,now+2000);assert.equal(e.teamCheck.at,now+1000);
 });
 
-test('training fitting preserves its explicit trainee and records a training objective',t=>{
+test('training fitting preserves its explicit trainee and records a training objective',async t=>{
     const {s,e,now}=fixture(t,'train');e.settings.trainUid='weak';e.trainProtected=['weak'];
-    assert.equal(e.fitTeam(s,now),true);assert.ok(e.driver.teamTask.uids.includes('weak'));assert.equal(e.teamCheck.objective,'train');
+    assert.equal(await fit(e,s,now),true);assert.ok(e.driver.teamTask.uids.includes('weak'));assert.equal(e.teamCheck.objective,'train');
 });
 
-test('mainline fitting does not optimize a replay map before returning to its frontier',t=>{
-    const {s,e,now}=fixture(t,'progress');assert.equal(e.fitTeam(s,now),false);assert.equal(e.driver.teamTask,null);assert.equal(e.teamCheck,null);
-    s.adv.chapter=s.adv.unlocked;assert.equal(e.fitTeam(s,now+1000),true);assert.equal(e.teamCheck.objective,'progress');
+test('mainline fitting does not optimize a replay map before returning to its frontier',async t=>{
+    const {s,e,now}=fixture(t,'progress');assert.equal(await fit(e,s,now),false);assert.equal(e.driver.teamTask,null);assert.equal(e.teamCheck,null);
+    s.adv.chapter=s.adv.unlocked;assert.equal(await fit(e,s,now+1000),true);assert.equal(e.teamCheck.objective,'progress');
 });

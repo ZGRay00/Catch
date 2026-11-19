@@ -80,8 +80,9 @@ async function main() {
         assert.equal(await evaluate('!!window.__pcTest'), true);
         const dexGuide=await evaluate(`(async()=>{
             const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,e=__pcTest.engine;
-            const tab=id=>root.querySelector('[data-tab="'+id+'"]').click();
-            root.querySelector('[data-workspace="activity"]').click();tab('dex');
+            const workspace=id=>root.querySelector('[data-workspace="'+id+'"]').click();
+            const tab=id=>{workspace('activity');root.querySelector('[data-tab="'+id+'"]').click();};
+            workspace('dex');
             const input=root.querySelector('#dex-search'),results=root.querySelector('#dex-results');
             const search=value=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));return results.textContent;};
             const locked=search('ALOMOMOLA'),lockedHeading=results.querySelector('.dex-section')?.textContent;
@@ -100,6 +101,7 @@ async function main() {
             const shinySelect=root.querySelector('#hunt-picker');
             const rareSpecies=['424','41301'].every(id=>shinySelect.querySelector('option[value="'+id+'"]'));
             const projected=[...root.querySelectorAll('#view tbody tr')].map(tr=>tr.lastElementChild.textContent);
+            workspace('tasks');
             root.querySelector('#hunt-regions input[value="unova"]').click();
             root.querySelector('#hunt-weather input[value="rain"]').click();
             root.querySelector('#hunt-weather input[value="storm"]').click();
@@ -109,7 +111,7 @@ async function main() {
             root.querySelector('#hunt-forecast').click();
             const forecast=root.querySelector('#weather-panel');
             const pressed=()=>[...forecast.querySelectorAll('button[aria-pressed=true]')].map(btn=>btn.dataset.sky);
-            const inherited=!forecast.hidden&&pressed().join(',')==='rain,storm'&&!!forecast.querySelector('details[open]');
+            const inherited=forecast.getClientRects().length>0&&pressed().join(',')==='rain,storm'&&!!forecast.querySelector('details[open]');
             forecast.querySelector('[data-sky="rain"]').click();forecast.querySelector('[data-sky="storm"]').click();
             const independent=!pressed().length&&forecast.textContent.includes('选择一种或多种天气')&&e.settings.shinyWeather.length===2;
             const range=forecast.querySelector('select');range.value='24';range.dispatchEvent(new Event('change'));
@@ -138,7 +140,7 @@ async function main() {
             if(previous===undefined)delete mock.state.dex[recorded];else mock.state.dex[recorded]=previous;
             mock.save();e.onChange();
             if(!capturedUpdated)throw Error('An already open route retained a captured target');
-            root.querySelector('#view [data-lookup="'+wanted+'"]').click();const fromRoute=input.value==='#'+wanted&&root.activeElement===input&&root.querySelector('[data-tab="dex"]').getAttribute('aria-pressed')==='true';
+            root.querySelector('#view [data-lookup="'+wanted+'"]').click();const fromRoute=input.value==='#'+wanted&&root.activeElement===input&&root.querySelector('[data-workspace="dex"]').getAttribute('aria-pressed')==='true';
             e.settings=before;mock.state.adv=adv;mock.state.travel.to=to;
             delete mock.state.dex[636];mock.save();tab('maps');root.querySelector('[data-workspace="tasks"]').click();
             return {locked,lockedHeading,alias,base,id,retained,none,missing,available,readyHeading,projected,stable,fromRoute,rareSpecies,multi,inherited,independent,future};
@@ -258,7 +260,15 @@ async function main() {
         const bounds = await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').getBoundingClientRect();return{left:r.left,right:r.right,bottom:r.bottom,width:innerWidth,height:innerHeight}})()`);
         assert.ok(bounds.left >= 0 && bounds.right <= bounds.width && bounds.bottom <= bounds.height, 'mobile panel stays inside viewport');
         const mobile = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(path.join(taskDir, 'mobile.png'), Buffer.from(mobile.data, 'base64'));
-        const resumed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('manual pause');e.start();await e.step();const running=e.running;mock.state.adv.event=null;mock.save();await e.step();return{running,after:e.running,raid:e.driver.raid,probe:e.raidProbe,pending:!!e.driver.pendingMap}})()`);
+        await evaluate(`window.tickWithTeam=async e=>{
+            await e.step();const job=e.teamSearch;if(!job)return;
+            const until=performance.now()+5000;
+            while(e.teamSearch===job&&!job.result&&!job.error&&performance.now()<until)await new Promise(r=>setTimeout(r,4));
+            if(job.error)throw job.error;
+            if(e.teamSearch===job&&!job.result)throw Error('Fixture team planner timed out');
+            await e.step();
+        }`);
+        const resumed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('manual pause');e.start();await e.step();const running=e.running;mock.state.adv.event=null;mock.save();await tickWithTeam(e);return{running,after:e.running,raid:e.driver.raid,probe:e.raidProbe,pending:!!e.driver.pendingMap}})()`);
         assert.equal(resumed.running, true); assert.equal(resumed.after, true); assert.equal(resumed.raid, null); assert.equal(resumed.probe, false); assert.equal(resumed.pending, true);
         const timed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('timeout-fixture');mock.state.adv.event={raid:true,reg:'kanto',id:35,loops:23};mock.save();phase='home';mock.nav('adventure');e.start();e.driver.raid.started=Date.now()-91*60000;for(let i=0;i<8&&mock.state.adv.event;i++){e.driver.lastClick=0;await e.step()}return{event:mock.state.adv.event,cooldowns:Object.values(e.raidCooldown),now:Date.now(),running:e.running}})()`);
         assert.equal(timed.event, null, 'timeout must open Chroma from raid home before clicking Leave');
@@ -266,7 +276,7 @@ async function main() {
         const stopped = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('test-stop');const before=mock.actions;await e.step();e.driver.click(document.querySelector('#tabs button'),'must not click');return{before,after:mock.actions,running:e.running}})()`);
         assert.equal(stopped.before, stopped.after); assert.equal(stopped.running, false);
         const setUI = async values => evaluate(`(()=>{const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,folded=root.querySelector('.panel').classList.contains('hidden');if(folded)root.querySelector('.mini').click();__pcTest.engine.onChange();for(const [key,value] of Object.entries(${JSON.stringify(values)})){const el=root.querySelector('[data-setting="'+key+'"]');if(el.type==='checkbox')el.checked=value;else el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}))}if(folded)root.querySelector('#fold').click()})()`);
-        const tick = async () => evaluate('(async()=>{const e=__pcTest.engine;e.driver.lastClick=0;await e.step();e.onChange()})()');
+        const tick = async () => evaluate('(async()=>{const e=__pcTest.engine;e.driver.lastClick=0;await tickWithTeam(e);e.onChange()})()');
         const waitForMap = async () => {
             const deadline=Date.now()+5000;
             while(!await evaluate('!!__pcTest.engine.driver.pendingMap')&&Date.now()<deadline){await delay(20);await tick();}

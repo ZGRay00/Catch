@@ -223,6 +223,7 @@
                 }
                 for(const source of specialByChapter.get(id)||[]){
                     const egg=source.kind==='lootEgg';
+                    hasWild ||= !egg;
                     const catchFactor=egg?1:Math.max(.08,MONS.get(source.id).rate/255);
                     score+=source.weight*catchFactor;
                     marked||=!!source.marked;

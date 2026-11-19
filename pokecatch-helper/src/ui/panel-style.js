@@ -58,15 +58,19 @@
     header { padding:10px 13px; background:#1b2c3a }
     header b { font-size:15px }
     .logo { padding:2px 8px; border-radius:7px }
-    .workspace-nav { display:grid; grid-template-columns:repeat(3,1fr); border-bottom:1px solid #324858 }
+    .workspace-nav { display:grid; grid-template-columns:1fr 1fr 1fr 1.4fr 1fr; border-bottom:1px solid #324858 }
     .workspace-nav button {
-        min-height:37px; border:0; border-radius:0; background:transparent;
+        min-height:42px; padding:4px 2px; white-space:nowrap; border:0; border-radius:0; background:transparent;
         color:#acbecb; font-weight:600;
     }
     .workspace-nav button[aria-pressed=true] { color:#a5f1d8; box-shadow:inset 0 -3px #72d9b8; background:#1a302f }
     .workspace-nav button:focus-visible { outline-offset:-4px }
     .content { min-height:0; overflow:auto; overscroll-behavior:contain; padding:11px 13px }
     .content section[hidden] { display:none }
+    .lookup-page .content > .status, .lookup-page .metrics, .lookup-page #prepare-info,
+    .lookup-page #support-info, .lookup-page #season-calendar { display:none }
+    #pane-dex .field input[type=search] { min-width:0; flex:1 }
+    #pane-dex #dex-results { max-height:min(54dvh,520px) }
     .metrics { gap:0; margin:6px 0 12px; padding:7px 0; background:#172637; border-radius:9px }
     .metric { background:transparent; border:0; border-radius:0; padding:2px 4px; line-height:1.45 }
     .metric + .metric { border-left:1px solid #334655 }

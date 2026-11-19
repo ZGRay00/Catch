@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.1.4",
-  "scriptSha256": "bb44fdbd3d1270645cefdac7dc8deb9175f44a41c6e442bb88bdc58ff04198d0",
-  "metadataSha256": "759c99589db6ac17987bbdb596400d0298e3ccdf617fb11f46cac0ccfb4df57b",
+  "version": "5.2.3",
+  "scriptSha256": "aca7abd1919effce641dbea1172cfc9af4571cd2c72c824e5ceb4e8a1ac82d10",
+  "metadataSha256": "a271415f547bf97dc96606ae1646835dcbaca84bbe3160af10a158460282954c",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "291fc1914dee5e50573e0319289dbab6af61c36ae36d10675ce65e1403ce1bf5"
+      "sha256": "e28ef76013d32b6b2acb24ee8cd83b3220f42dd618aeadeba994130acd3ff500"
     },
     {
       "file": "build.manifest.json",
@@ -26,7 +26,7 @@
     },
     {
       "file": "data/game.json",
-      "sha256": "112c0c5958db769494bbcbdacdf5cb4cfba2b321c74690992b53acf57041bde7"
+      "sha256": "e9bdb9f2760eeb1fc96ed6b602afa43c30decb99c1022e7506c4a26104623c62"
     },
     {
       "file": "src/data/game-after.js",
@@ -42,7 +42,7 @@
     },
     {
       "file": "src/models/unova.js",
-      "sha256": "69516f3d09b4e1ec22542509c001986c7f358734ea48ee558152ed6e13c5733b"
+      "sha256": "b528802e35c37f1b905f93decbfbe7f819810f4472e7f0d2ec29b57217b7e70e"
     },
     {
       "file": "src/data/candy.js",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/models/farming.js",
-      "sha256": "2203d4a663275c10b609f49c110355887aefb4677f20e981cda2c70c3643eec9"
+      "sha256": "7459530c8d8a43ac53051371d51a9396d1fdb8fae81c39e4ae42b802d9a20a19"
     },
     {
       "file": "src/models/nursery-model.js",
@@ -90,7 +90,7 @@
     },
     {
       "file": "src/models/weather.js",
-      "sha256": "f5539fc8b8e1efcffacd5b9044ffbde866cbf4dce6c59b6c50243e7678c36c58"
+      "sha256": "9d5d9fe7cc04525820675d6be207519b579b09a84ce472f649ca22fdb2363614"
     },
     {
       "file": "src/models/roster.js",
@@ -110,15 +110,15 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "b1f25a1590c9b9c39e054a0bbe931facf5923593b5023d70ed647d4c63334be7"
+      "sha256": "420681a86a49dd4b77da7b82fc742ae02ee5f2a0b1e0eaa2846b4cad430c344d"
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "0f6a9e32c30587daea754e3c157c3353f2bd4ea47f156ff9bf4cd870b8f29d06"
+      "sha256": "9d00716593a6e0e733d38c40fce64cb85586b86f331b69d706c8bba9dc9b56ff"
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "cbc5162845c9c4c978ae7857fd232f84e2c68fecee4f723379ba617104b54e62"
+      "sha256": "b8812f1743876c1f7fc21b79a0430081315209f0a698b0142c55d22e8377f2e8"
     },
     {
       "file": "src/core/telemetry.js",
@@ -126,19 +126,19 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "f0fbf9596039c6ef5bf402d0710f44d93f42e5523c58e970d1c3857796facef1"
+      "sha256": "d9a964d02042d9018cad675bf60675368dbe3be5ee96898ff83c121e9e61d405"
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "6c6fc85fd394b1ecfc81c3357737acbf57dda4149f30278c7b7f9a6bf1bda360"
+      "sha256": "9523dff6a6bb767982508f5b99360329e1f5ee0a6451139146632c948d53d148"
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "c0e16b3fd0841af2a5908bd2fcba8c3a6b0fedd4ae1797704e0b4d38076da5ec"
+      "sha256": "c6549fd164019b7c99131f37fbda3cfa4152fe04e024ce83543350e81ed0c9f2"
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "add777d5c43577b3e4cb7f882b112e895b80c44078d8ec636e5e2049996be129"
+      "sha256": "3ee686b36fda0140d590c417b2b90772dc52ac55337d84f3188c68971a2b18d3"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -146,11 +146,11 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "5474787502a1a0b5714beb5bfc9722435eb9a827712584f02cb77a4e1086f009"
+      "sha256": "c5b498269ce2d1c70c9456fd1dd41413bdb5d12040ef53b9e23e0778f77436e2"
     },
     {
       "file": "src/ui/dex-panel.js",
-      "sha256": "d93ba28c7dd296130416fbe0b4f96cebd434b2d66aa2385cc659934fb940c816"
+      "sha256": "767a6a3755c1686b22ed4055836d8176c38f6b30ccf80c16113944c2c2f40b00"
     },
     {
       "file": "src/ui/weather-panel.js",
@@ -166,7 +166,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "4115c39ac6ade148a093e226b7b3221a5645a6367393e9ec7f78cfbd00304bba"
+      "sha256": "7e958cf8fc13453b0a15b85873b50257ff458630e6945f43f11aa8ca983ec660"
     }
   ]
 }

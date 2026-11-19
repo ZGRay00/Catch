@@ -4,15 +4,16 @@
             ()=>rankShinyTargets(s,settings,targets,now),cooldowns,now);
     }
     function rankShinyTargets(s,settings,targets,now){
-        const phenomena=targets.filter(id=>UNOVA_WILD_IDS.has(id)).flatMap(id=>unovaAcquisitionSources(s,id,now)).filter(source=>source.kind==='phenomenon'&&source.available);
+        const phenomena=targets.filter(id=>UNOVA_WILD_IDS.has(id)).flatMap(id=>unovaAcquisitionSources(s,id,now,true,true)).filter(source=>source.kind==='phenomenon'&&source.available);
         return candidates(s,settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row=>{
             const members=row.members;
+            const sources=phenomena.filter(source=>members.includes(source.chapter));
             const expected=members.reduce((n,id)=>{
                 const pool=currentWildPool(s,id,now);
                 return n+targets.reduce((sum,target)=>sum+(pool.get(target)||0),0);
-            },0)+phenomena.filter(source=>members.includes(source.chapter)).reduce((n,source)=>n+source.weight,0);
-            return{...row,expected,rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
-        }).filter(row=>row.expected>0).sort((a,b)=>b.rate-a.rate);
+            },0)+sources.reduce((n,source)=>n+source.weight,0);
+            return{...row,expected,marked:sources.some(source=>source.marked),rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
+        }).filter(row=>row.expected>0).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.rate-a.rate);
     }
     function pensionPlan(s,id,shinyGoal=false){
         const residents=(s.pension?.mons||[]).map(x=>x?.mon).filter(Boolean),protectedUids=new Set([...(s.team||[]),...(s.road||[])]);

@@ -29,13 +29,13 @@ async function main(){
         assert.deepEqual(await evaluate('[__pcExecutionTest.engine.settings.spendBudget,__pcExecutionTest.engine.settings.autoPurchase]'),[20000,true]);
         checks.push('a pre-switch account with a saved positive procurement budget retains that authorization');
         const panes=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;const views=[];
-            for(const key of ['tasks','settings','activity']){
+            for(const key of ['tasks','dex','weather','settings','activity']){
                 r.querySelector('[data-workspace="'+key+'"]').click();
                 views.push([...r.querySelectorAll('[id^=pane-]')].filter(el=>el.getClientRects().length).map(el=>el.id));
                 if(!r.querySelector('.commandbar #start').getClientRects().length||e.running)throw Error('Workspace changed execution');
             }
             return views})()`);
-        assert.deepEqual(panes,[['pane-tasks'],['pane-settings'],['pane-activity']]);checks.push('workspace navigation exposes one page at a time with task commands available');
+        assert.deepEqual(panes,[['pane-tasks'],['pane-dex'],['pane-weather'],['pane-settings'],['pane-activity']]);checks.push('workspace navigation exposes one page at a time with task commands available');
         const calendar=await evaluate(`(()=>{
             const e=__pcExecutionTest.engine,r=${root},panel=r.querySelector('#season-calendar'),clock=Date.now;
             const read=()=>({key:panel.dataset.season,name:panel.querySelector('strong').textContent,
@@ -55,11 +55,11 @@ async function main(){
             const lookup=id=>{input.value=id;input.dispatchEvent(new Event('input',{bubbles:true}));};
             const originalSeasons=fixtureState.seasons;
             try{
-                fixtureState.seasons={585:['spring','winter']};commitExecution();r.querySelector('[data-tab="dex"]').click();
+                fixtureState.seasons={585:['spring','winter']};commitExecution();r.querySelector('[data-workspace="dex"]').click();
                 lookup('#585');const forms=[...results.querySelectorAll('.season-forms li')].map(el=>[el.dataset.seen,el.textContent]);
                 lookup('#522');return {forms,summer:results.textContent,otherForms:!!results.querySelector('.season-forms')};
             }finally{
-                fixtureState.seasons=originalSeasons;lookup('');r.querySelector('[data-tab="maps"]').click();commitExecution();
+                fixtureState.seasons=originalSeasons;lookup('');r.querySelector('[data-workspace="activity"]').click();r.querySelector('[data-tab="maps"]').click();commitExecution();
             }
         })()`);
         assert.equal(seasonalDex.forms.length,4);assert.equal(seasonalDex.forms.filter(([seen])=>seen==='true').length,2);
@@ -144,6 +144,17 @@ async function main(){
         await evaluate(`__pokecatchHelper.show();${root}.querySelector('#fold').click();fixtureState.pension.eggs[0].hatchAt=Date.now()+600000;commitExecution()`);
         current=await state();assert.ok(current.mini?.length>0);assert.ok(current.host.left>=0&&current.host.right<=1280&&current.host.bottom<=900);checks.push('the folded dock remains reachable and its status can update');
         await send('Emulation.setDeviceMetricsOverride',{width:360,height:780,deviceScaleFactor:1,mobile:true});await evaluate('__pokecatchHelper.show()');
+        const lookupFits=await evaluate(`(()=>{const r=${root},content=r.querySelector('.content');
+            const open=page=>r.querySelector('[data-workspace="'+page+'"]').click();
+            function firstScreen(selector){
+                const rect=r.querySelector(selector).getBoundingClientRect(),viewport=content.getBoundingClientRect();
+                return rect.width>0&&rect.height>0&&rect.top>=viewport.top&&rect.bottom<=viewport.bottom&&content.scrollWidth<=content.clientWidth+1;
+            }
+            open('dex');const dex=firstScreen('#dex-search');
+            open('weather');const weather=firstScreen('#weather-panel [data-sky]');
+            open('activity');return dex&&weather;
+        })()`);
+        assert.ok(lookupFits,'standalone search and weather filters fit the first mobile screen');
         const mobile=await evaluate(`(()=>{const r=${root},host=document.querySelector('#pokecatch-auto-helper').getBoundingClientRect(),card=r.querySelector('#execution-info').getBoundingClientRect(),content=r.querySelector('.content');return{host:{left:host.left,right:host.right,bottom:host.bottom},card:{left:card.left,right:card.right},width:content.clientWidth,scrollWidth:content.scrollWidth}})()`);
         assert.ok(mobile.host.left>=0&&mobile.host.right<=360&&mobile.host.bottom<=780,JSON.stringify(mobile));assert.ok(mobile.card.left>=mobile.host.left&&mobile.card.right<=mobile.host.right,JSON.stringify(mobile));assert.ok(mobile.scrollWidth<=mobile.width+1,JSON.stringify(mobile));checks.push('the task/concurrency card fits a 360-pixel viewport without horizontal overflow');
         const screenshot=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(dir,'execution-mobile.png'),Buffer.from(screenshot.data,'base64'));

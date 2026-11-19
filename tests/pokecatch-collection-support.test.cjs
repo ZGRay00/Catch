@@ -13,6 +13,30 @@ function fixture(t,settings={}){
 }
 function catchAll(s){s.dex=Object.fromEntries(H.ROOTS.map(m=>[m.id,{caught:1}]));}
 
+test('starting a hunt plans its route during the original ordinary battle, before background work',async t=>{
+    const {s,e,save}=fixture(t,{mode:'dex',dexSpecies:[529]});
+    s.travel.to=['unova'];
+    Object.assign(s.adv,{chapter:66,unlocked:83,nodes:[{type:'wild'}],battle:{kind:'wild',enemies:[{id:504}]}});
+    save();e.beginTask(s,null,Date.now());
+    e.serviceBackground=()=>{throw Error('foreground startup lost priority');};
+    await e.step();
+    assert.ok(e.driver.pendingMap?.row.targets.some(hit=>hit.id===529));
+    assert.equal(e.canStartRoute(s),true);
+    s.adv.node++;assert.equal(e.canStartRoute(s),false);
+    s.adv.node--;s.adv.battle.enemies[0].shiny=true;assert.equal(e.canStartRoute(s),false);
+    s.adv.battle.enemies[0].shiny=false;s.adv.pending={type:'gift'};assert.equal(e.canStartRoute(s),false);
+    e.stop();
+});
+
+test('dust targets keep their generated route and actual encounter ahead of raid probing',async t=>{
+    const {s,e,save}=fixture(t,{mode:'dex',dexSpecies:[529]});
+    s.travel.to=['unova'];Object.assign(s.adv,{chapter:67,unlocked:83,nodes:[{type:'wild',phenom:'dust',name:'Veine Souterraine'}]});
+    e.priorityRaid=()=>{throw Error('raid interrupted dust hunting');};
+    save();await e.step();assert.match(e.status,/现象.*螺钉地鼠/);
+    s.adv.battle={kind:'wild',enemies:[{id:529}]};save();await e.step();
+    assert.match(e.status,/保护图鉴目标.*螺钉地鼠/);e.stop();
+});
+
 test('a shiny task with no local wild source stops before consuming its shiny berry',async t=>{
     const {e,calls}=fixture(t,{shinyId:504});await e.step();assert.equal(e.running,false);assert.match(e.status,/没有该物种的野生来源/);assert.equal(calls.buff,0);
 });

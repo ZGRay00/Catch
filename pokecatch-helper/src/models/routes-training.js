@@ -289,12 +289,22 @@
         if(!table)return null;let need=-(Number(mon.xp)||0);
         for(let lv=mon.level;lv<goal;lv++){if(!(table[lv]>0))return null;need+=table[lv];}return Math.max(0,need);
     }
+    function highestCandy(s,offers){
+        const reg=candyRegion(s),types=DATA.automation.candies;
+        let best=null,highestXp=0;
+        for(const offer of offers){
+            const xp=types[offer.id]?.xp[reg];
+            if(xp>highestXp){best=offer;highestXp=xp;}
+        }
+        return best;
+    }
     function candyChoice(s,mon,goal,offers=[]){
         const need=candyXpGap(s,mon,goal);if(!(need>0))return null;
         const types=DATA.automation.candies,reg=candyRegion(s);
         const owned=Object.entries(types).filter(([id,info])=>s.items?.[id]>0&&info.xp[reg]>0).map(([id,info])=>({id,xp:info.xp[reg],cost:0,owned:true,need}));
         if(owned.length)return owned.sort((a,b)=>Math.max(0,a.xp-need)-Math.max(0,b.xp-need)||b.xp-a.xp)[0];
-        return offers.filter(o=>types[o.id]?.xp[reg]>0&&Number.isFinite(o.cost)&&o.cost>0).map(o=>({...o,xp:types[o.id].xp[reg],need,owned:false})).sort((a,b)=>a.cost/Math.min(need,a.xp)-b.cost/Math.min(need,b.xp)||a.cost-b.cost)[0]||null;
+        const best=highestCandy(s,offers);
+        return best&&Number.isSafeInteger(best.cost)&&best.cost>0?{...best,xp:types[best.id].xp[reg],need,owned:false}:null;
     }
     function routeDescriptor(row){return Object.fromEntries(['id','key','reg','name','loop','league','members','reward','units','ace'].map(key=>[key,row[key]]));}
     function battleContext(s,kind,options={}){

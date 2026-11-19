@@ -102,7 +102,8 @@
         const a=s.adv;
         const nodes=currentRegion(s)==='unova'&&!a.event&&!a.zone&&!a.tower&&!a.league&&Array.isArray(a.nodes)
             ? a.nodes.slice(Math.max(0,a.node||0)).filter(n=>n.phenom||n.type==='item'&&n.loot) : null;
-        return [rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,nodes];
+        const rolled=nodes?.length&&a.nodes[a.node]?.phenom&&a.battle?.kind==='wild' ? a.battle.enemies?.map(mon=>[mon.id,!!mon.shiny]) : null;
+        return [rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,nodes,rolled];
     }
     function rankedRoutes(kind,inputs,build,cooldowns,now){
         const signature=JSON.stringify(inputs);
@@ -224,6 +225,11 @@
         return{chapter:adv.chapter,node:adv.node,enemies,key:JSON.stringify([adv.chapter,adv.node,adv.runs||0,enemies.map(mon=>[mon.id,mon.uid??null,mon.level??null])])};
     }
     function wildShinyEncounter(s){return wildEncounter(s,mon=>mon.shiny===true);}
+    function targetDexEncounter(s,settings){
+        if(settings.mode!=='dex'||s?.adv?.battle?.kind!=='wild'||!huntRegionMatches(s,settings,currentRegion(s)))return null;
+        let missing;
+        return wildEncounter(s,mon=>(missing??=dexStatus(s,settings).ids).has(mon.id));
+    }
     function seasonalDexEncounter(s,settings){
         if(settings.mode!=='dex'||s?.adv?.battle?.kind!=='wild'||!huntRegionMatches(s,settings,currentRegion(s)))return null;
         const habitats=WILD_HABITATS.get(s.adv.chapter);

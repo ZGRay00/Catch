@@ -6,6 +6,10 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
+    function highestShopCandy(s,cards){
+        // An unlocked card still sets the tier if its price or button is unavailable.
+        return highestCandy(s,cards.filter(el=>!el.classList.contains('locked')).map(el=>({id:el.dataset.id,el})));
+    }
     function shopOffer(el) {
         const id=el.dataset.id,buy=el.querySelector('.buy'),one=el.querySelector('[data-n="1"]');
         const selected=el.querySelector('[data-n].on')?.dataset.n;
@@ -115,6 +119,16 @@
         }
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
+            if(task.fitBasis){
+                const b=task.fitBasis,e=this.e,pins=e.settings.mode==='train'?(e.trainProtected||(e.settings.trainUid==='team'?s.team:[e.settings.trainUid])):[];
+                const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
+                if(!e.settings.autoTeam||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
+                    e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==roamingSettings(e.settings).roamId||
+                    !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==rosterFingerprint(s)||
+                    b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)){
+                    this.teamTask=null;e.teamCheck=null;return false;
+                }
+            }
             const fail=reason=>{this.e.log(`自动配队暂缓：${reason}`);this.e.teamRetryAt=now+5*60000;this.e.teamCheck=null;this.teamTask=null;this.nav('adventure');};
             if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){this.teamTask=null;this.e.teamCheck=null;return false;}
             if(now-task.started>90000){fail('队伍页面操作超时，继续当前任务');return false;}
@@ -140,7 +154,7 @@
             if(task.signature!==signature){task.signature=signature;task.attempts=0;}
             if(task.attempts>=3){fail('游戏未接受拖放，请检查队伍地区限制');return false;}
             const move=(source,target,label)=>{
-                if(this.drag(source,target,label)){task.attempts++;task.pending={before:signature,at:now};}
+                if(this.drag(source,target,label)){task.attempts++;task.hasDragged=true;task.pending={before:signature,at:now};}
                 return true;
             };
             const slotNodes=()=>{const mini=$('#team-mini.show');return [...(mini?.children||$('#team-slots')?.children||[])];};

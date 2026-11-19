@@ -99,7 +99,7 @@
                     const same=plan.uids.length===(s.team||[]).length&&plan.uids.every((uid,i)=>s.team[i]===uid),roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid));
                     if(!same){
                         e.telemetry.sample=null;e.lastProgress=now;
-                        if(s.adv.battle||s.adv.pending){e.status='当前队伍无需额外补练，等待安全节点安排出战';e.driver.nav('adventure');return true;}
+                        if((s.adv.battle||s.adv.pending)&&!e.canStartRoute?.(s)){e.status='当前队伍无需额外补练，等待安全节点安排出战';e.driver.nav('adventure');return true;}
                         if(now<e.teamRetryAt){e.status='可直接挑战的队伍等待原生配队重试';e.driver.nav('adventure');return true;}
                         e.driver.teamTask={chapter:s.adv.chapter,members:[s.adv.chapter],uids:plan.uids,started:now,attempts:0,preparationReady:true};
                         e.status=`使用现有战力挑战${context.label}，准备队伍上阵`;return true;
@@ -183,10 +183,16 @@
             if(now-p.candyAt>90000){this.candyFallback(p,'页面操作超时');return false;}
             if(this.candyPending(s,p,now))return true;if(p.candyDisabled)return false;
             const targets=p.targets.map(t=>({...t,mon:s.mons.find(m=>m.uid===t.uid)})).filter(t=>t.mon&&candyXpGap(s,t.mon,t.goal)>0).sort((a,b)=>a.mon.level-b.mon.level);
-            const target=targets[0];if(!target)return false;
+            let target=targets[0];if(!target)return false;
+            let choice=candyChoice(s,target.mon,target.goal);
+            if(choice&&choice.xp>candyXpGap(s,target.mon,100)){
+                for(const other of targets.slice(1)){
+                    const stock=candyChoice(s,other.mon,other.goal);
+                    if(stock&&stock.xp<=candyXpGap(s,other.mon,100)){target=other;choice=stock;break;}
+                }
+            }
             e.status=`主线经验糖果 · 为${MONS.get(target.mon.id)?.name}补至 Lv.${target.goal}`;
             const why=e.budget.check(s,0,1);if(why){this.candyFallback(p,why);return false;}
-            let choice=candyChoice(s,target.mon,target.goal);
             if(!choice){
                 const blocked=e.budget.purchaseBlock();
                 if(blocked){this.candyFallback(p,blocked,{cost:null});return false;}
@@ -195,16 +201,22 @@
                 if(enabled(section)){d.click(section,'打开金币经验糖果商店');return true;}if(enabled(tab)){d.click(tab,'切换购买经验糖果');return true;}
                 const cards=$$('#shop-grid .sh-item[data-id]');
                 if(!cards.length){e.status='等待金币商店载入商品';return true;}
-                const offers=cards.filter(el=>DATA.automation.candies[el.dataset.id]&&!el.classList.contains('locked')).map(shopOffer)
-                    .filter(offer=>offer?.cost>0&&(offer.single?visible(offer.buy):enabled(offer.one)));
-                choice=candyChoice(s,target.mon,target.goal,offers.filter(offer=>!e.budget.check(s,offer.cost,0)&&(offer.single?enabled(offer.buy):true)));
-                if(!choice){
-                    const cheapest=offers.reduce((best,offer)=>!best||offer.cost<best.cost?offer:best,null);
-                    const limit=cheapest&&e.budget.check(s,cheapest.cost,0);
-                    this.candyFallback(p,limit||'没有已解锁且可单份购买的经验糖果',{cost:limit?cheapest.cost:null});return false;
+                const highest=highestShopCandy(s,cards);
+                if(!highest){this.candyFallback(p,'当前金币商店没有已解锁的经验糖果',{cost:null});return false;}
+                const offer=shopOffer(highest.el),name=ITEMS.get(offer.id)?.name||offer.id;
+                const xp=DATA.automation.candies[offer.id].xp[candyRegion(s)];
+                const recipient=targets.find(t=>candyXpGap(s,t.mon,100)>=xp);
+                if(!recipient){this.candyFallback(p,name+'的经验超出所有补练成员的当前等级上限',{cost:null});return false;}
+                if(!offer.single){
+                    if(enabled(offer.one)&&!offer.one.classList.contains('on')){d.click(offer.one,'限制经验糖果购买数量为一份');return true;}
+                    this.candyFallback(p,name+'的单份数量无法确认',{cost:null});return false;
                 }
-                if(!choice.single){d.click(choice.one,'限制经验糖果购买数量为一份');return true;}
-                this.candyClick(s,p,choice.buy,target.uid,choice.id,'buy',choice.cost,now);return !p.candyDisabled;
+                if(!offer.cost){this.candyFallback(p,name+'的单价无法确认',{cost:null});return false;}
+                const limit=e.budget.check(s,offer.cost,0);
+                if(limit||!enabled(offer.buy)){
+                    this.candyFallback(p,name+' · '+(limit||'购买按钮不可用'),{cost:limit?offer.cost:null});return false;
+                }
+                this.candyClick(s,p,offer.buy,recipient.uid,offer.id,'buy',offer.cost,now);return !p.candyDisabled;
             }
             p.candy={uid:target.uid,goal:target.goal};
             if(!d.nav('team'))return true;

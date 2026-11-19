@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const nativeRuntime = require('../tools/pokecatch-native-vm.cjs');
-const fields = ['reward','units','trainers','wild','xpEstimate','pools','shinyPools','foes','foesByStarter','leaders','gymFoes'];
+const fields = ['reward','units','trainers','wild','xpEstimate','pools','shinyPools','foes','foesByStarter','leaders','gymFoes','wildWeights'];
 
 function chapterSnapshot(bundle) {
     const runtime = nativeRuntime(bundle);

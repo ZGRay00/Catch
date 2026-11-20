@@ -2,7 +2,7 @@
         const panel=root.querySelector('#dex-panel');
         panel.innerHTML='<div class="dex-searchbar"><input id="dex-search" type="search" aria-label="搜索宝可梦的获取方式" placeholder="搜索名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>返回缺失列表</button></div><div class="list" id="dex-results" tabindex="-1" aria-label="图鉴结果"></div>';
         const input=panel.querySelector('#dex-search'),results=panel.querySelector('#dex-results'),clear=panel.querySelector('#dex-clear');
-        const methods={wild:'野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
+        const methods={wild:'野生遭遇',questWild:'解锁后野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
         let signature=null,returnSpecies=null;
         function search(value, showResults = refresh){
             if(showResults!==refresh)returnSpecies=null;
@@ -64,8 +64,19 @@
                     return[mon.id,tag,route?route.name:''];
                 });
                 const countUnit=settings.mode==='dex'&&settings.dexSpecies?.length?' 种目标宝可梦':' 条进化链';
-                if(!changed(['missing',countUnit,rows]))return;
+                const targets=dexSearchIds(s,settings,status);
+                for(const egg of s.pension?.eggs||[])targets.delete(egg.id);
+                const windows=settings.mode==='dex'?dexDayWindows(s,settings,targets,now):[];
+                const time=at=>new Date(at).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',hour12:false});
+                const hints=windows.map(w=>(w.at<=now?'当前':time(w.at))+'–'+time(w.until)+' · '+MONS.get(w.id).name+' · '+w.place);
+                if(!changed(['missing',countUnit,rows,hints]))return;
                 if(!rows.length){results.append(label('p','所选收集目标已全部捕获。'));return;}
+                if(hints.length){
+                    const details=document.createElement('details');
+                    details.append(label('summary','今日限时捕获 · '+hints[0]+(hints.length>1?' 等 '+hints.length+' 个窗口':'')));
+                    for(const hint of hints)details.append(label('div',hint,'hint'));
+                    results.append(details);
+                }
                 results.append(label('h3','待收集 · '+rows.length+countUnit,'dex-list-title'));
                 const wrap=label('div','',expanded?'dex-targets':'dex-compact');
                 for(const [id,tag,place] of rows){

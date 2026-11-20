@@ -6,6 +6,19 @@
         const used=s.under?.day===parisDay(now)?s.under.used||{}:{},candy=new Set((s.candy?.run?.mons||[]).map(m=>m.src));
         return(s.mons||[]).filter(m=>teamEligible(s,m,'sinnoh')&&!used[m.uid]&&!candy.has(m.uid));
     }
+    // Native event-team editor keeps one combat identity and separates the Tao fusions.
+    function undergroundApart(a,b){
+        const conflicts=(id,other)=>id===643&&(other===646||other===64602)||id===644&&(other===646||other===64601);
+        return conflicts(a.id,b.id)||conflicts(b.id,a.id);
+    }
+    function undergroundBayMembers(s,bay,now){
+        const reserved=new Set();
+        for(const [key,uids] of Object.entries(s.eventTeams||{})){
+            if(key.startsWith('under:')&&key!=='under:'+bay&&!undergroundBay(s,Number(key.slice(6))))
+                for(const uid of uids||[])reserved.add(uid);
+        }
+        return undergroundMembers(s,now).filter(m=>!reserved.has(m.uid));
+    }
     function undergroundBackgroundUnlocked(s){
         if(!s?.adv)return false;
         return currentRegion(s)==='sinnoh'||(s.travel?.to||[]).includes('sinnoh')||s.link?.from==='sinnoh'||s.link?.to==='sinnoh'&&s.link?.side==='to';
@@ -250,6 +263,7 @@
         }
         return{route,team,reason};
     }
+    const UNDER_START_FLOORS=[1,25,50,75,100];
     function undergroundStartFloor(settings,floors){
         const cap=settings.underAutoStart===false?settings.underFrom:Infinity;
         return floors.reduce((best,floor)=>Number.isInteger(floor)&&floor>0&&floor<=cap?Math.max(best,floor):best,0);
@@ -269,9 +283,10 @@
             const total=mon=>Object.values(mon.stats).reduce((sum,stat)=>sum+stat,0);
             const stronger=(a,b)=>total(b)-total(a)||a.id-b.id;
             const wild=inPool(1,nationalMax).sort(stronger),guards=inPool(387,493).sort(stronger).slice(0,10);
-            // Sample one strong wild opponent per theme type plus the native top-ten
-            // Sinnoh guard pool. The real expedition draws its enemies at launch.
-            const wildSamples=types?[...new Set(types.map(type=>wild.find(mon=>mon.types.includes(type))).filter(Boolean))]:wild.slice(0,3);
+            // Guards use the native top-ten Sinnoh pool.
+            // Stratify by strength across the whole wild pool (including dual types).
+            const count=Math.min(12,wild.length);
+            const wildSamples=Array.from({length:count},(_,i)=>wild[Math.floor((i+.5)*wild.length/count)]);
             samples={wild:wildSamples.map(mon=>mon.id),guards:guards.map(mon=>mon.id)};
             UNDER_FOE_POOLS.set(cacheKey,samples);
         }
@@ -281,6 +296,33 @@
             ...samples.guards.map(id=>({id,weight:1,level,statMult:2}))];
         return{foes,level};
     }
+    function undergroundTeamContext(s,settings,bay,floor,pool){
+        const context=battleContext(s,'under',{slot:bay,floor});
+        const levels=pool.map(mon=>mon.level).sort((a,b)=>b-a);
+        // Probe at the chosen start and near the level of the third strongest candidate.
+        const later=Math.min(300,Math.max(floor+10,Math.round(1+((levels[2]||30)-30)/.7)));
+        // Stress-test a guard checkpoint for depth. For income, weight later guards by their regular cadence.
+        const money=settings.underGoal==='money',probe=money?later:Math.ceil(later/10)*10;
+        const theme=s.under?.next?.[bay],foes=[];
+        for(const [start,share] of [[floor,.55],[probe,.45]]){
+            const group=start===floor?context.foes:undergroundFoes(s,theme,start).foes;
+            const guards=group.filter(f=>f.statMult===2).length;
+            const wild=group.length-guards;
+            const toGuard=10-start%10;
+            const guardFloor=Math.ceil(start/10)*10;
+            const band=start>=150?5:start>=100?4:start>=75?3:start>=50?2:start>=25?1:0;
+            // Expected floor money with the reference loot pool. Account unlocks can change roll weights.
+            const floorGold=[100,150,200,250,300,350][band]+2*[150,300,450,600,800,1000][band]*[.80,.765,.73,.7095,.653,.617][band];
+            for(const f of group){
+                const guard=f.statMult===2;
+                foes.push({...f,guard,statMult:(f.statMult||1)*(1+.007*Math.max(0,(guard?guardFloor:start)-101)),
+                    // A multiple of ten starts with both a wild fight and a guard.
+                    weight:share*(guard?1/(guards*(start===floor||!money?(start%10===0?1:toGuard+1):10)):1/wild),
+                    floorGold});
+            }
+        }
+        return {...context,foes,pool,force:true,objective:settings.underGoal==='money'?'underMoney':'underDepth'};
+    }
     // Public native Underground.starts(), build c8fb8b2e96. The best reached
     // floor is credited on return. A live native bay menu is authoritative on send.
     function undergroundStatus(s,now=Date.now()){
@@ -288,7 +330,7 @@
         const perDay=8+[1,1,2].slice(0,extra).reduce((n,value)=>n+value,0),sent=under.day===day?Math.max(0,Math.floor(Number(under.sent)||0)):0;
         const ready=slots.filter(slot=>slot.recalled!=null||Number.isFinite(+slot.end)&&+slot.end>0&&+slot.end<=now),running=slots.filter(slot=>!ready.includes(slot));
         const ends=running.map(slot=>Number(slot.end)).filter(end=>Number.isFinite(end)&&end>now);
-        const best=Math.max(0,Math.floor(Number(under.best)||0)),startFloors=[1,...[25,50,75,100].filter(floor=>floor<=best)];
+        const best=Math.max(0,Math.floor(Number(under.best)||0)),startFloors=UNDER_START_FLOORS.filter(floor=>floor===1||floor<=best);
         return{day,slots,ready,running,perDay,sent,left:Math.max(0,perDay-sent),capacity:Math.max(1+extra,slots.length),best,startFloors,nextReturn:ends.length?Math.min(...ends):now+60000,nextReset:nextParisReset(now)};
     }
     function undergroundBay(s,bay,status=undergroundStatus(s)){

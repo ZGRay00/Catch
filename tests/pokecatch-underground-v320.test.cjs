@@ -128,6 +128,13 @@ test('the chosen starting floor must be an available native option within the us
     const f=fixture(t,{underFrom:70}),changes=[];f.show('#ug-root [data-ug-go]',{ugGo:'0'});const select=f.show('#ug-root [data-ug-from="0"]',{}, {value:'1',options:[1,25,50,75].map(value=>({value:String(value)})),dispatchEvent:event=>changes.push(event.type)});f.tick();
     assert.equal(select.value,'50');assert.deepEqual(changes,['change']);assert.equal(f.clicks.length,0);assert.equal(f.prepared.length,0);
 });
+test('a partial native floor menu cannot spend a dispatch at the wrong starting floor',t=>{
+    const f=fixture(t,{underAutoStart:false,underFrom:75});f.s.under.best=129;
+    f.show('#ug-root [data-ug-go]',{ugGo:'0'});
+    const select=f.show('#ug-root [data-ug-from="0"]',{}, {value:'1',options:[{value:'1'}],dispatchEvent:()=>{}});
+    f.tick();assert.equal(f.clicks.length,0);assert.equal(f.prepared.length,0);
+    select.options.push({value:'75'});f.tick();assert.equal(select.value,'75');assert.equal(f.clicks.length,0);
+});
 test('saved checkpoints unlock exactly at the four expedition milestones and stop at 100',()=>{
     for(const [best,target]of [[0,1],[24,1],[25,25],[49,25],[50,50],[74,50],[75,75],[99,75],[100,100],[125,100],[300,100]]){
         const status=H.undergroundStatus({under:{best}});
@@ -178,4 +185,63 @@ test('a geode batch larger than the remaining budget opens only one existing geo
 test('geode inventory without a ready UI waits instead of reporting the task complete',t=>{
     const f=fixture(t,{underOpenGeodes:true});f.e.automation.state.underDone=1;f.s.under.geodes=[1,0,0,0];f.tick();
     assert.equal(f.completed.length,0);assert.equal(f.clicks.length,0);assert.ok(f.e.nextWake>f.now());assert.match(f.e.status,/晶洞/);
+});
+
+test('expedition goals survive queue normalization and change both scoring and the plan cache',t=>{
+    const f=fixture(t),s=f.s,planner=f.e.automation;
+    assert.equal(H.normalizeSettings({underGoal:'unknown'}).underGoal,'depth');
+    assert.equal(H.normalizeJobs([{settings:{mode:'underground',underGoal:'money'}}])[0].settings.underGoal,'money');
+    s.under.next=['crystal'];
+    const team=s.mons.slice(0,3),first=planner.undergroundPlan(s,0,25,team,f.now());
+    assert.equal(first,planner.undergroundPlan(s,0,25,team,f.now()));
+    const depth=H.undergroundTeamContext(s,{underGoal:'depth'},0,25,team);
+    assert.equal(depth.objective,'underDepth');
+    assert.ok(depth.foes.some(m=>m.guard)&&depth.foes.some(m=>!m.guard));
+    assert.ok(depth.foes.every(m=>Number.isFinite(m.weight)&&m.weight>0));
+    f.e.settings.underGoal='money';
+    assert.equal(H.undergroundTeamContext(s,f.e.settings,0,25,team).objective,'underMoney');
+    const key=planner.undergroundPlanKey(s,0,25,team);
+    assert.notEqual(key,first.key);
+    assert.notEqual(key,planner.undergroundPlanKey(s,0,50,team));
+    s.under.next=['dark'];assert.notEqual(key,planner.undergroundPlanKey(s,0,25,team));
+});
+test('dedicated dispatch fills a disabled bay by exact UID, respects another bay and rechecks before sending',t=>{
+    const f=fixture(t,{optimizeRaid:true}),s=f.s;
+    s.under.extra=1;s.under.next=['crystal','dark'];s.eventTeams={'under:0':[],'under:1':['m3','m4','m5']};
+    const go=f.show('#ug-root [data-ug-go]',{ugGo:'0'},{disabled:true}),edit=f.show('[data-ug-slot]',{ugSlot:'0.0'});
+    f.save();f.tick();
+    assert.equal(f.clicks[0].el,edit);
+    const own=f.e.driver.ownedDialog;assert.equal(own.type,'underTeam');assert.deepEqual(own.uids,['m0','m1','m2']);
+    f.e.driver.ownedDialog=null;s.eventTeams['under:0']=[...own.uids];go.disabled=false;f.save();
+    f.e.ensurePrepared=()=>{f.e.read=()=>({...s,under:{...s.under,used:{m1:1}}});return false;};
+    f.tick();assert.equal(f.clicks.length,1);assert.equal(f.e.automation.state.underLaunch,undefined);
+    f.e.read=()=>s;f.e.ensurePrepared=()=>false;f.tick();f.tick();
+    assert.equal(f.clicks.filter(c=>c.el===go).length,1);
+});
+test('underground plans honor picker identities and mutually exclusive forms even on the three-member fast path',t=>{
+    const f=fixture(t),ids=[643,646,25],pool=ids.map((id,i)=>({...f.s.mons[i],id}));
+    assert.deepEqual(f.e.automation.undergroundPlan(f.s,0,1,pool,f.now()).uids,[]);
+    pool[1].id=643;assert.deepEqual(f.e.automation.undergroundPlan(f.s,0,1,pool,f.now()).uids,[]);
+    pool[0].id=25;pool[1].id=6;pool[2].shiny=true;
+    assert.equal(f.e.automation.undergroundPlan(f.s,0,1,pool,f.now()).uids.length,3);
+    const large=[...pool,{...pool[0],uid:'strong1',id:643},{...pool[0],uid:'strong2',id:646}];
+    f.s.under.next=['dark'];const ctx=H.undergroundTeamContext(f.s,H.DEFAULTS,0,100,large);
+    const plan=H.planAdventureTeam({...f.s,mons:large,team:[]},H.DEFAULTS,[],ctx);
+    assert.equal(plan.uids.length,3);assert.ok(!['strong1','strong2'].every(uid=>plan.uids.includes(uid)));
+});
+
+test('completed small-box search matches all twenty trios on both objectives',t=>{
+    const f=fixture(t),pool=f.s.mons,s={...f.s,team:[],road:[],under:{...f.s.under,next:['crystal']}};
+    for(const goal of ['depth','money']){
+        const ctx=H.undergroundTeamContext(s,{underGoal:goal},0,100,pool);
+        const chosen=H.planAdventureTeam(s,H.DEFAULTS,[],ctx);
+        let best=0;
+        for(let i=0;i<4;i++)for(let j=i+1;j<5;j++)for(let k=j+1;k<6;k++){
+            const trio=[pool[i],pool[j],pool[k]];
+            const trial=H.planAdventureTeam(s,H.DEFAULTS,trio.map(mon=>mon.uid),{...ctx,pool:trio});
+            best=Math.max(best,trial.score);
+        }
+        assert.ok(Math.abs(chosen.score-best)<1e-8);
+        assert.equal(chosen.uids.length,3);
+    }
 });

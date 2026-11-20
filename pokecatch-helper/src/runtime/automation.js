@@ -365,6 +365,34 @@
             if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
             e.services.underground=null;e.services.lastCompleted.underground=now;e.telemetry.sample=null;e.status='后台归队处理完成，继续原任务';e.persist();return true;
         }
+        undergroundPlanKey(s,bay,floor,pool){
+            return JSON.stringify([accountId(s),Number(bay),s.under?.next?.[bay],floor,this.e.settings.underGoal,
+                s.adv.unlocked,s.adv.badges,rosterFingerprint({...s,mons:pool})]);
+        }
+        undergroundPlan(s,bay,floor,pool,now){
+            const e=this.e,key=this.undergroundPlanKey(s,bay,floor,pool);
+            if(this.lastUnderPlan?.key===key)return this.lastUnderPlan;
+            if(pool.length<=3){
+                const unique=new Set(pool.map(m=>DATA.combat.singles[m.id]||m.id+':'+!!m.shiny));
+                const legal=unique.size===pool.length&&!pool.some(m=>pool.some(other=>undergroundApart(m,other)));
+                return this.lastUnderPlan={key,uids:legal?pool.map(m=>m.uid):[]};
+            }
+            let search;
+            if(e.teamSearch?.signature!==key){
+                const context=undergroundTeamContext(s,e.settings,bay,floor,pool);
+                context.progressive=true;context.now=now;
+                context.pool=[...pool].sort((a,b)=>b.level-a.level||(b.rank||0)-(a.rank||0));
+                search=adventureTeamSearch({...s,team:[],road:[]},e.settings,[],context,true);
+            }
+            const plan=e.evaluateTeamSearch(key,search);
+            if(!plan){e.status='地下探险 · 正在比较'+(e.settings.underGoal==='money'?'金币时薪':'冲层续航');return null;}
+            if(plan.uids.length===3){
+                const byUid=new Map(pool.map(m=>[m.uid,m]));
+                const names=plan.uids.map(uid=>MONS.get(byUid.get(uid)?.id)?.name||uid);
+                e.log(`地下第 ${Number(bay)+1} 队 · 第 ${floor} 层 · ${e.settings.underGoal==='money'?'刷金币':'冲层'} · ${names.join('、')}${plan.limited?'（本次计算预算内推荐）':''}`);
+            }
+            return this.lastUnderPlan={key,uids:plan.uids};
+        }
         dispatchUnderground(s,now,task){
             const e=this.e,d=e.driver,status=undergroundStatus(s,now);
             e.lastProgress=now;e.telemetry.sample=null;e.status='后台地下派遣 · 仅使用空闲成员';
@@ -399,18 +427,11 @@
                     if(task.bay!=null&&undergroundBay(s,task.bay,status))task.returning=true;
                     if(!task.returning){
                         const idle=undergroundIdleMembers(s,e,now);
-                        if(!task.uids?.length){
-                            const context=battleContext(s,'under',{slot:task.bay,floor:undergroundStartFloor(e.settings,status.startFloors)});
-                            const planning={...context,pool:idle,force:true,objective:'coverage',now};
-                            let plan;
-                            if(idle.length>=24){
-                                const chapters=[...new Set(context.foes.map(foe=>foe.chapter??s.adv.chapter).concat(s.adv.chapter))];
-                                const key=JSON.stringify(['underground-dispatch',task.bay,e.settings.mode,context.key,context.foes,
-                                    rosterFingerprint({...s,mons:idle}),s.team,s.autoSwitch!==false,adventureTeamWeatherKey(s,chapters,now)]);
-                                plan=e.evaluateTeamSearch(key,adventureTeamSearch(s,e.settings,[],planning,true));
-                                if(!plan){e.status='后台地下派遣 · 正在比较空闲队员';return true;}
-                            }else plan=planAdventureTeam(s,e.settings,[],planning);
-                            task.uids=plan.uids;task.teamReady=false;e.persist();
+                        const floor=this.selectUndergroundStart(task.bay,status);if(!floor)return true;
+                        if(!task.uids?.length||task.planKey!==this.undergroundPlanKey(s,task.bay,floor,idle)){
+                            const plan=this.undergroundPlan(s,task.bay,floor,idle,now);
+                            if(!plan)return true;
+                            task.uids=plan.uids;task.planKey=plan.key;task.teamReady=false;e.persist();
                         }
                         const allowed=new Set(idle.map(mon=>mon.uid));
                         if(task.uids.length!==DATA.automation.under.team||task.uids.some(uid=>!allowed.has(uid))){task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台地下派遣暂缓：空闲成员不足或已被前台任务使用');}
@@ -423,11 +444,10 @@
                             }
                             const go=controls.find(el=>Number(el.dataset.ugGo)===task.bay);
                             if(enabled(go)){
-                                const floor=this.selectUndergroundStart(task.bay,status);if(!floor)return true;
                                 // Re-read immediately before the irreversible native send.
-                                const latest=e.read(),valid=new Set(undergroundIdleMembers(latest,e,now).map(mon=>mon.uid)),actual=latest.eventTeams?.[`under:${task.bay}`]||[];
+                                const latest=e.read(),available=undergroundIdleMembers(latest,e,now),valid=new Set(available.map(mon=>mon.uid)),actual=latest.eventTeams?.[`under:${task.bay}`]||[];
                                 const checked=undergroundStatus(latest,now);
-                                if(!checked.left||undergroundBay(latest,task.bay,checked)||actual.length!==task.uids.length||actual.some((uid,i)=>uid!==task.uids[i]||!valid.has(uid))||latest.adv.pending||latest.adv.event||latest.adv.zone||latest.adv.tower||latest.adv.league||adventureDispatchWait(latest,e,now)){task.returning=true;return true;}
+                                if(!checked.left||undergroundBay(latest,task.bay,checked)||actual.length!==task.uids.length||actual.some((uid,i)=>uid!==task.uids[i]||!valid.has(uid))||task.planKey!==this.undergroundPlanKey(latest,task.bay,floor,available)||latest.adv.pending||latest.adv.event||latest.adv.zone||latest.adv.tower||latest.adv.league||adventureDispatchWait(latest,e,now)){task.returning=true;return true;}
                                 task.launch={bay:task.bay,uids:[...task.uids],ids:status.slots.map(job=>String(job.id)),at:now};e.persist();
                                 if(!d.click(go,`后台派遣地下空闲队伍 · 第 ${floor} 层出发`))delete task.launch;
                                 e.persist();return true;
@@ -543,9 +563,10 @@
         }
         selectUndergroundStart(bay,status){
             const settings=this.e.settings,select=$(`#ug-root [data-ug-from="${bay}"]`);
-            if(!select&&undergroundStartFloor(settings,status.startFloors)===1)return 1;
+            const expected=undergroundStartFloor(settings,status.startFloors);
+            if(!select&&expected===1)return 1;
             const floor=select&&undergroundStartFloor(settings,[...select.options].filter(option=>!option.disabled).map(option=>Number(option.value)));
-            if(!floor||!enabled(select)){
+            if(!floor||(settings.underAutoStart===false&&floor<expected)||!enabled(select)){
                 this.e.status='地下探险 · 等待游戏显示已开放的起始楼层';return 0;
             }
             if(+select.value===floor)return floor;
@@ -589,20 +610,37 @@
             if(status.ready.length){this.wait('地下通道已归队，等待领取按钮刷新',now+2000);return;}
             const ownedFx=$('.gd-fx .gd-ok:not([hidden])')||$('.gd-fx .gd-skip');if(enabled(ownedFx)){d.click(ownedFx,'完成晶洞奖励动画');return;}
             if(cfg.optimizeRaid&&undergroundMembers(s,now).length<DATA.automation.under.team){this.wait('可派遣队员不足，等待归队或巴黎时间次日恢复',running?untilReturn:status.nextReset);return;}
-            const goes=$$('#ug-root [data-ug-go]').filter(enabled);
-            for(const go of goes){
-                const slot=go.dataset.ugGo,key=undergroundTeamKey(s,slot,now);
-                if(undergroundBay(s,slot,status))continue;
-                if(cfg.optimizeRaid&&!d.recent.has(key)){const edit=$$('[data-ug-slot]').find(el=>el.dataset.ugSlot?.split('.')[0]===slot&&enabled(el));if(edit&&d.click(edit,'按派遣主题配置队伍')){d.ownedDialog={type:'team',key,optimized:false};return;}}
+            const controls=$$('#ug-root [data-ug-go]');
+            for(const go of controls){
+                const slot=Number(go.dataset.ugGo),teamKey='under:'+slot;
+                if(undergroundBay(s,slot,status)||!cfg.optimizeRaid&&!enabled(go))continue;
                 const floor=this.selectUndergroundStart(slot,status);if(!floor)return;
-                const configured=s.eventTeams?.[`under:${slot}`]||[];
-                if(configured.length===DATA.automation.under.team&&e.ensurePrepared(s,battleContext(s,'under',{slot:Number(slot),floor}),{},now))return;
-                this.state.underLaunch={bay:Number(slot),uids:[...configured],ids:status.slots.map(job=>String(job.id)),at:now};e.persist();
+                const configured=s.eventTeams?.[teamKey]||[];
+                let plan;
+                if(cfg.optimizeRaid){
+                    plan=this.undergroundPlan(s,slot,floor,undergroundBayMembers(s,slot,now),now);
+                    if(!plan)return;
+                    if(plan.uids.length!==DATA.automation.under.team)continue;
+                    if(configured.length!==plan.uids.length||configured.some((uid,i)=>uid!==plan.uids[i])){
+                        const edit=$$('[data-ug-slot]').find(el=>Number(el.dataset.ugSlot?.split('.')[0])===slot&&enabled(el));
+                        if(d.click(edit,'按地下主题和出发层配置队伍')){
+                            d.ownedDialog={type:'underTeam',key:plan.key,teamKey,bay:slot,floor,uids:plan.uids,started:now};
+                        }
+                        return;
+                    }
+                }
+                if(!enabled(go))continue;
+                if(configured.length===DATA.automation.under.team&&e.ensurePrepared(s,battleContext(s,'under',{slot,floor}),{},now))return;
+                if(plan){
+                    const latest=e.read(),live=latest?.eventTeams?.[teamKey]||[];
+                    if(!latest||!undergroundStatus(latest,now).left||undergroundBay(latest,slot)||
+                        live.length!==configured.length||live.some((uid,i)=>uid!==configured[i])||
+                        this.undergroundPlanKey(latest,slot,floor,undergroundBayMembers(latest,slot,now))!==plan.key)return;
+                }
+                this.state.underLaunch={bay:slot,uids:[...configured],ids:status.slots.map(job=>String(job.id)),at:now};e.persist();
                 if(!d.click(go,`派遣地下通道队伍 · 第 ${floor} 层出发`)){delete this.state.underLaunch;e.persist();}
                 return;
             }
-            const unconfigured=$$('[data-ug-slot]').filter(enabled).find(el=>!d.recent.has(undergroundTeamKey(s,el.dataset.ugSlot?.split('.')[0],now)));
-            if(cfg.optimizeRaid&&unconfigured){const slot=unconfigured.dataset.ugSlot?.split('.')[0],key=undergroundTeamKey(s,slot,now);if(d.click(unconfigured,'配置地下通道队伍')){d.ownedDialog={type:'team',key,optimized:false};return;}}
             this.wait(running?`地下通道等待返回 · 已领取 ${this.state.underDone||0}/${cfg.underRuns}`:cfg.optimizeRaid?'等待地下通道解锁或可用派遣队伍':'请在游戏内配置三只可派遣成员，或开启特殊战自动配队',running?untilReturn:now+60000);
         }
         openGeodes(s){

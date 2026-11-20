@@ -295,7 +295,8 @@
         const routeFoes=route?chapters.filter(Boolean).flatMap(c=>chapterCombatFoes(s,c)):null;
         const foes = (context.foes || routeFoes || chapterThreats(s)).filter(m=>MONS.has(m.id)&&m.weight>0);
         const objective=context.objective||(['money','train','progress','dex'].includes(settings.mode)?settings.mode==='dex'?'progress':settings.mode:'coverage'),execution=objective!=='coverage';
-        const allowRescue=helperSwitchEnabled(s,settings);
+        const underground=objective==='underMoney'||objective==='underDepth';
+        const allowRescue=!underground&&helperSwitchEnabled(s,settings);
         const encounters=allowRescue?foes.flatMap(foe=>{
             if(!foe.wildWeight)return [foe];
             const weight=Math.min(foe.weight,foe.wildWeight),wild={...foe,weight,singleWild:true,gymCount:0};
@@ -315,6 +316,7 @@
         // and live-node overrides separate without resolving every species anew.
         const weatherByChapter=new Map(),instant=context.now??Date.now();
         const weatherRows=weights.map(foe=>{
+            if(underground)return{weather:{},signature:'underground'};
             const chapter=weatherChapterOfFoe(s,foe,context),ref=weatherReference(s,chapter,foe,context);
             let nodes=weatherByChapter.get(chapter);
             if(!nodes){nodes=new Map();weatherByChapter.set(chapter,nodes);}
@@ -365,6 +367,47 @@
         const work=[];
         const utility = (team,summary) => {
             const rows=team.map(values);
+            if(underground){
+                if(!rows.length)return 0;
+                let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0;
+                for(let i=0;i<weights.length;i++){
+                    const foe=weights[i],details=rows.map(row=>row.details[i]);
+                    // Underground shuffles the party before encounters. Rotate ties in native
+                    // deployment priority instead of rewarding an adventure party's fixed lead.
+                    let clears=0,elapsed=0,orders=0;
+                    const priority=Math.max(...details.map(d=>d.deployment));
+                    for(let j=0;j<rows.length;j++){
+                        if(details[j].deployment!==priority)continue;
+                        const leadRow=rows[j],solo=leadRow.solo[i];
+                        const rest=details.filter((d,k)=>k!==j);
+                        const outcomes=[solo.coverage===1?solo:deployedBattle([details[j],...rest],true)];
+                        if(rest.length===2&&solo.coverage!==1&&rest[0].deployment===rest[1].deployment)
+                            outcomes.push(deployedBattle([details[j],rest[1],rest[0]],true));
+                        for(const battle of outcomes){
+                            const cost=battle.deaths+(1-leadRow.endurance[i]);
+                            const credit=battle.coverage===1?1/(1+cost):0;
+                            const alive=Math.min(3,Math.max(0,rows.length-battle.deaths));
+                            const wall=alive===3?45:alive===2?54:81;
+                            clears+=credit/outcomes.length;
+                            elapsed+=(2.8*Math.min(30,battle.turns)+(foe.guard?0:credit*(wall+2.324)))/outcomes.length;
+                        }
+                        orders++;
+                    }
+                    const survival=clears/orders;
+                    retained+=foe.weight*survival;
+                    if(foe.guard){
+                        guardWeight+=foe.weight;guardCredit+=foe.weight*survival;
+                        weakestGuard=Math.min(weakestGuard,survival);
+                    }else{
+                        regularWeight+=foe.weight;gold+=foe.weight*foe.floorGold*survival;
+                    }
+                    seconds+=foe.weight*elapsed/orders;
+                }
+                const depth=.85*retained/totalWeight+.15*weakestGuard;
+                // Relative objectives, not a displayed win probability or measured income.
+                const guardLoss=(guardWeight-guardCredit)/Math.max(.001,regularWeight);
+                return objective==='underDepth'?depth:gold*(1-guardLoss)/Math.max(1,seconds);
+            }
             let gymSum=0,gymWorst=1,worstEfficiency=Infinity;
             const routeScore=weights.reduce((sum,foe,i)=>{
                 let count=0;
@@ -455,7 +498,7 @@
             const fallback=chosen.slice(),seen=new Set(used);
             for(const mon of [...party,...candidates]){
                 if(fallback.length>=size)break;
-                if(!pool.includes(mon)||seen.has(identity(mon)))continue;
+                if(!pool.includes(mon)||seen.has(identity(mon))||underground&&fallback.some(other=>undergroundApart(mon,other)))continue;
                 seen.add(identity(mon));fallback.push(mon);
             }
             const uids=fallback.map(m=>m.uid);
@@ -470,6 +513,7 @@
                     for(let i=0;i<size;i++){
                         if(protectedUids.has(fallback[i].uid))continue;
                         const trial=fallback.slice();trial[i]=mon;
+                        if(underground&&trial.some(other=>undergroundApart(mon,other)))continue;
                         const score=utility(trial);
                         if(score>best&&score>base*1.05+.01){
                             best=score;
@@ -503,7 +547,7 @@
         while (chosen.length < size) {
             let best = null, score = -Infinity;
             for (const mon of candidates) {
-                if (used.has(identity(mon))) continue;
+                if (used.has(identity(mon))||underground&&chosen.some(other=>undergroundApart(mon,other))) continue;
                 const value = utility([...chosen,mon]);
                 if (value > score + 1e-8 || Math.abs(value-score)<1e-8&&(!best||prefer(mon,best)<0)) { best=mon;score=value; }
                 if(sliced)yield;
@@ -518,14 +562,34 @@
             return {uids:(apply?chosen:incumbent).map(m=>m.uid),changed:apply,checkpointScore:apply?score:incumbentScore,gain:incumbentScore?score/incumbentScore-1:0,reg,objective,opponents:foes.length,reason:apply?'采用预算内改善最大的合法阵容':'已评估的提升未过换队门槛'};
         }
         if(context.progressive)yield checkpoint();
+        // At most 56 unordered trios. Each candidate is a yield point, with the greedy
+        // incumbent already available if the scheduler runs out of time.
+        const smallExpedition=underground&&size===3&&!pinned.length&&candidates.length<=8;
+        if(smallExpedition){
+            let best=chosen.length===3?utility(chosen):-Infinity;
+            for(let i=0;i<candidates.length-2;i++)for(let j=i+1;j<candidates.length-1;j++){
+                const a=candidates[i],b=candidates[j];
+                if(identity(a)===identity(b)||undergroundApart(a,b))continue;
+                for(let k=j+1;k<candidates.length;k++){
+                    const c=candidates[k];
+                    if(identity(a)===identity(c)||identity(b)===identity(c)||undergroundApart(a,c)||undergroundApart(b,c))continue;
+                    const trio=[a,b,c],score=utility(trio);
+                    if(score>best+1e-8){
+                        chosen.splice(0,chosen.length,...trio);best=score;
+                        if(context.progressive)yield checkpoint();
+                    }
+                    if(sliced)yield;
+                }
+            }
+        }
         // Two bounded replacement passes recover combinations a single greedy fill misses.
-        for(let pass=0;pass<(context.lowBudget?1:2);pass++){
+        for(let pass=0;!smallExpedition&&pass<(context.lowBudget?1:2);pass++){
             let improved=false;
             for(let slot=0;slot<chosen.length;slot++){
                 if(protectedUids.has(chosen[slot].uid))continue;
                 const rest=chosen.filter((_,i)=>i!==slot),taken=new Set(rest.map(identity));let best=chosen[slot],score=utility(chosen);
                 for(const mon of candidates){
-                    if(taken.has(identity(mon)))continue;
+                    if(taken.has(identity(mon))||underground&&rest.some(other=>undergroundApart(mon,other)))continue;
                     const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
                     if(value>score+1e-8||Math.abs(value-score)<1e-8&&best.evolutionItemLocked&&!mon.evolutionItemLocked){best=mon;score=value;}
                     if(sliced)yield;
@@ -549,7 +613,7 @@
             const currentScore=utility(currentOrder);
             if(currentScore>=orderedScore-1e-8){chosen.splice(0,chosen.length,...currentOrder);orderedScore=currentScore;}
         }
-        const orderMatters=execution&&chosen.length>1&&(s.autoSwitch===false||weights.some((_,i)=>{
+        const orderMatters=!underground&&execution&&chosen.length>1&&(s.autoSwitch===false||weights.some((_,i)=>{
             const priorities=chosen.map(mon=>values(mon).details[i].deployment);
             return new Set(priorities).size<priorities.length;
         }));

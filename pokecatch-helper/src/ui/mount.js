@@ -23,8 +23,7 @@
         const host = document.createElement('div'); host.id = 'pokecatch-auto-helper';
         host.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;position:fixed;right:14px;top:86px;z-index:2147483000;max-width:calc(100vw - 20px);';
         const root = host.attachShadow({ mode: 'open' });
-        const underStartControls = `<label class="setting"><span><input type="checkbox" data-setting="underAutoStart">地下探险从最高已解锁起点出发</span></label>
-            <label class="field" data-under-manual><span>手动起点上限</span><input type="number" min="1" max="300" data-setting="underFrom"></label>`;
+        const underStartControls = `<label class="field"><span>地下探险出发层</span><select data-setting="underStartChoice"><option value="auto">最高已解锁层</option>${UNDER_START_FLOORS.map(n=>`<option value="${n}">第 ${n} 层</option>`).join('')}</select></label><div class="hint" data-under-start-note></div><label class="field"><span>地下自动配队目标</span><select data-setting="underGoal"><option value="depth">冲层 · 优先连战和守卫</option><option value="money">刷金币 · 优先每小时收益</option></select></label>`;
         const purchaseToggle = `<label class="purchase-toggle">
             <strong>自动购买</strong><span data-purchase-state aria-hidden="true"></span>
             <input type="checkbox" role="switch" data-setting="autoPurchase" aria-label="自动购买">
@@ -428,7 +427,7 @@
                 if(engine.settings.mode==='breed')updateBreedingOptions(engine.state);
             }
             for (const input of root.querySelectorAll('[data-setting]')) {
-                const value = engine.settings[input.dataset.setting];
+                const value = input.dataset.setting==='underStartChoice'?(engine.settings.underAutoStart?'auto':undergroundStartFloor(engine.settings,UNDER_START_FLOORS)):engine.settings[input.dataset.setting];
                 if (input.type === 'checkbox') input.checked = value;
                 else if(!budgetDrafts.has(input))input.value = String(value);
                 if(input.dataset.setting!=='autoPurchase')input.disabled = engine.running||!!engine.suspended;
@@ -436,7 +435,6 @@
             root.querySelectorAll('[data-mode]').forEach(button => { const on = button.dataset.mode === engine.settings.mode; button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); });
             if(lastMode!==engine.settings.mode){lastMode=engine.settings.mode;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
             root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode));
-            root.querySelectorAll('[data-under-manual]').forEach(el=>el.classList.toggle('hidden',engine.settings.underAutoStart));
             query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
             query('#train-rank-settings').hidden=!engine.settings.trainGems;
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
@@ -539,6 +537,12 @@
             if(document.hidden||ui.folded||ui.workspace!=='activity'||tab!=='maps'||!s?.adv)engine.releaseRankingView();
             if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(now);
             if(document.hidden)return;
+            if(s?.adv&&!ui.folded&&['tasks','settings'].includes(ui.workspace)){
+                const best=Number(s.under?.best)||0,selected=undergroundStartFloor(engine.settings,UNDER_START_FLOORS);
+                const floor=undergroundStartFloor(engine.settings,UNDER_START_FLOORS.filter(n=>n===1||n<=best));
+                const note=`下次从第 ${floor} 层出发 · 历史最高 ${best} 层`+(!engine.settings.underAutoStart&&floor<selected?' · 解锁所选楼层后自动使用':'');
+                for(const el of root.querySelectorAll('[data-under-start-note]'))if(el.textContent!==note)el.textContent=note;
+            }
             const nativePaused=engine.running&&!!s?.adv?.paused;
             commandbar.classList.toggle('has-task',locked);
             if(locked&&['dex','weather','eggs'].includes(ui.workspace)){
@@ -835,7 +839,8 @@
             }
             if (engine.running||engine.suspended) return false;
             const previous=engine.settings;
-            engine.settings=normalizeSettings({...previous,[key]:value});
+            const patch=key==='underStartChoice'?{underAutoStart:value==='auto',underFrom:value==='auto'?previous.underFrom:Number(value)}:{[key]:value};
+            engine.settings=normalizeSettings({...previous,...patch});
             try {
                 if(engine.account&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
                 if (key === 'mode') { engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }

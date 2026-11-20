@@ -12,8 +12,34 @@ test('desert egg forecasts require an available incubator and champion, and neve
     s.adv.badges=['Maître Unys'];s.pension.eggs=[{id:25}];
     assert.equal(H.nextWildWindow(s,settings,[636],noon,168),null);
     s.pension.eggs=[];s.adv.gifts['egg:636']=true;
-    assert.equal(H.nextWildWindow(s,settings,[636],noon,168),null);
+    const repeat=H.nextWildWindow(s,settings,[636],noon,168);
+    assert.equal(repeat.row.id,69);assert.equal(repeat.eggPlace,undefined);
+    const sources=H.unovaAcquisitionSources(s,636,repeat.at,false);
+    assert.equal(sources.find(x=>x.kind==='questWild').available,true);
+    assert.equal(sources.find(x=>x.kind==='lootEgg').available,false);
     delete s.adv.gifts['egg:636'];assert.equal(H.nextWildWindow(s,{...settings,mode:'shiny'},[636],noon,168),null);
+});
+
+test('a new desert weather window interrupts an ordinary dex rotation, then releases the route',()=>{
+    const s=state(636),cfg={...H.DEFAULTS,mode:'dex',region:'all',dexSpecies:[594,636]};
+    delete s.dex[594];
+    const opens=H.nextWildWindow(s,cfg,[636],noon,168).at;
+    const before=H.dexRanking(s,cfg,{},opens-1);
+    const rows=H.dexRanking(s,cfg,{},opens);
+    assert.equal(rows[0].window.id,636);assert.equal(rows[0].window.at,opens);
+    assert.equal(before.some(r=>r.window?.id===636),false);
+    const current=rows.find(r=>r.id===74);
+    const engine=new H.Engine({},cfg);engine.visit={started:opens};
+    assert.equal(engine.huntAlternate(s,current,rows,opens).id,69);
+    s.adv.chapter=69;
+    engine.visit.started=opens-3600000;
+    assert.equal(engine.huntAlternate(s,rows[0],rows,opens),null);
+    const until=rows[0].window.until;
+    if(new Date(until).getHours()!==0)assert.equal(H.dexRanking(s,cfg,{},until).some(r=>r.window?.id===636),false);
+    s.pension.eggs=[{id:636}];assert.equal(H.dexRanking(s,cfg,{},opens)[0].window,undefined);
+    s.pension.eggs=[];assert.equal(H.dexRanking(s,{...cfg,dexRegions:['sinnoh']},{},opens).length,0);
+    const daily=H.dailyCaptureWindow(s,cfg,opens);
+    assert.equal(daily.settings.dexSpecies[0],636);assert.equal(daily.until,rows[0].window.until);
 });
 function state(missing){
     const dex=Object.fromEntries(H.ROOTS.filter(m=>m.id!==missing).map(m=>[m.id,{caught:1}]));
@@ -42,6 +68,16 @@ test('Alomomola is offered in ripple chapters; no common wild or gift outcome is
     s.adv.unlocked=73;s.adv.chapter=72;
     assert.equal(H.dexRanking(s,cfg,{},noon).length,0);
     assert.ok(H.acquisitionSources(s,594,noon).every(row=>!row.available));
+});
+test('equally short overlapping dex windows share completed attempts without discarding a generated encounter',()=>{
+    const cfg={...H.DEFAULTS,mode:'dex',rotateMinutes:15},engine=new H.Engine({},cfg);
+    engine.visit={started:noon,runs:4};
+    const expiry=noon+8*60000,current={key:'a',members:[69],priority:3,window:{id:636,until:expiry}};
+    const peer={key:'b',members:[66],priority:3,window:{id:513,until:expiry}};
+    const rows=[current,peer],s={adv:{chapter:69,runs:4}};
+    assert.equal(engine.huntAlternate(s,current,rows,noon+5*60000),null);
+    s.adv.runs=5;assert.equal(engine.huntAlternate(s,current,rows,noon+5*60000),peer);
+    current.marked=true;assert.equal(engine.huntAlternate(s,current,rows,noon+5*60000),null);
 });
 test('an existing wild ripple wins over route cooldown; an item ripple does not',()=>{
     const s=state(594),until=noon+600000,cooldowns={74:until,83:until};

@@ -187,21 +187,7 @@
         cycle.setDate(cycle.getDate()+12);
         const end=hours===undefined&&hasSeasonal?cycle.getTime():firstHour+(Math.floor(hours??48)-1)*WEATHER_DATA.slotMs;
         const chapters=new Set(rows.flatMap(row=>row.members));
-        const boundaries=new Set();
-        for(let at=firstHour;at<=end;at+=WEATHER_DATA.slotMs)boundaries.add(at);
-        // In fractional-offset time zones local phase and season changes can fall inside a weather slot.
-        const day=new Date(now);day.setHours(0,0,0,0);
-        for(;day.getTime()<=end;day.setDate(day.getDate()+1)){
-            for(const hour of [0,8,10,20]){
-                const at=new Date(day).setHours(hour,0,0,0);
-                if(at>now&&at<=end)boundaries.add(at);
-            }
-        }
-        for(const [id,pos] of Object.entries(s.roam?.at||{})){
-            const at=Number(pos?.until);
-            if(chapters.has(pos?.ch)&&WEATHER_DATA.roamingWeather[id]&&!s.roam?.caught?.includes(+id)&&at>now&&at<=end)boundaries.add(at);
-        }
-        for(const at of [...boundaries].sort((a,b)=>a-b)){
+        for(const at of huntBoundaries(s,chapters,now,end)){
             const season=weatherSeason(at),possible=rowsBySeason[SEASON_KEYS.indexOf(season)];
             if(!possible.length)continue;
             const matching=possible.filter(row=>huntRouteMatches(s,settings,row,at));
@@ -217,6 +203,24 @@
             }
         }
         return null;
+    }
+    function huntBoundaries(s,chapters,now,end){
+        const firstHour=(Math.floor(now/WEATHER_DATA.slotMs)+1)*WEATHER_DATA.slotMs;
+        const boundaries=new Set();
+        for(let at=firstHour;at<=end;at+=WEATHER_DATA.slotMs)boundaries.add(at);
+        // In fractional-offset time zones local phase and season changes can fall inside a weather slot.
+        const day=new Date(now);day.setHours(0,0,0,0);
+        for(;day.getTime()<=end;day.setDate(day.getDate()+1)){
+            for(const hour of [0,8,10,20]){
+                const at=new Date(day).setHours(hour,0,0,0);
+                if(at>now&&at<=end)boundaries.add(at);
+            }
+        }
+        for(const [id,pos] of Object.entries(s.roam?.at||{})){
+            const at=Number(pos?.until);
+            if(chapters.has(pos?.ch)&&WEATHER_DATA.roamingWeather[id]&&!s.roam?.caught?.includes(+id)&&at>now&&at<=end)boundaries.add(at);
+        }
+        return [...boundaries].sort((a,b)=>a-b);
     }
     // Only native battle state is evidence of a real wild shiny. UI badges, sprites,
     // previews and daily raid cards cannot activate this guard.

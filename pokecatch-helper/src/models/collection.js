@@ -114,7 +114,7 @@
         }
         const phenomena={ripple:'水面波纹',grass:'晃动的草丛',dust:'尘土',shadow:'桥上阴影'};
         for(const source of unovaAcquisitionSources(s,id,now)){
-            const detail=source.kind==='lootEgg'
+            const detail=source.kind==='questWild'?'取得沙漠赠蛋后，大晴天还可在此地野生遇见':source.kind==='lootEgg'
                 ? `获得合众冠军徽章后，大晴天在此地点探索道具节点有 ${Math.round(source.chance*100)}% 概率获得一次性赠蛋`
                 : `${phenomena[source.phenomenon]}触发野生遭遇时，当前天气下直接抽中${MONS.get(id).name}的概率为 ${Math.round(source.chance*1000)/10}%`;
             const marked=source.marked?(source.kind==='lootEgg'?'当前路线已生成道具节点':'当前路线已生成此现象'):'';
@@ -183,10 +183,41 @@
     }
     const dexPrerequisites=[...new Set(DATA.chapters.flatMap(c=>c.special.flatMap(source=>source.caught||[])))];
     const branchedGifts=DATA.chapters.flatMap(c=>c.gifts.filter(gift=>gift.byStarter));
+    const timedDexStatics=DATA.chapters.flatMap(c=>c.special.filter(spec=>spec.kind==='static'&&(spec.skies?.length||spec.night||spec.day)).map(spec=>({chapter:c.id,spec})));
+    const timedUnovaIds=[...UNOVA_SOURCE_INDEX].filter(([id,routes])=>routes.some(r=>r.egg?.id===id||r.day||r.night||Object.values(r.weatherWeights||{}).some(weights=>weights[id]))).map(([id])=>id);
+    let dexDayCache;
+    function dexDayWindows(s,settings,wanted,now){
+        const statics=timedDexStatics.filter(({spec})=>wanted.has(spec.id));
+        const ids=timedUnovaIds.filter(id=>wanted.has(id));
+        if(!ids.length&&!statics.length)return [];
+        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings.dexWeather,ids,statics.map(({spec})=>[spec.id,s.items?.[spec.needs],spec.caught?.map(id=>!!s.dex?.[id])]),
+            s.adv.badges,s.adv.gifts,s.pension?.eggs?.map(e=>e.id),s.pension?.open?.eggs,s.roam?.at,s.roam?.caught]);
+        if(dexDayCache?.signature===signature&&now>=dexDayCache.from&&now<dexDayCache.until)return dexDayCache.windows;
+        const chapters=new Set(availableChapters(s,settings).map(c=>c.id));
+        const end=new Date(now).setHours(24,0,0,0);
+        const times=[now,...huntBoundaries(s,chapters,now,end-1),end],windows=[],last=new Map();
+        function record(id,chapter,place,at,until){
+            const key=chapter+'|'+id+'|'+place,previous=last.get(key);
+            if(previous?.until===at){previous.until=until;return;}
+            const window={id,chapter,place,at,until};windows.push(window);last.set(key,window);
+        }
+        for(let i=0;i<times.length-1;i++){
+            const at=times[i],until=times[i+1];
+            for(const {chapter,spec} of statics){
+                if(chapters.has(chapter)&&huntWeatherMatches(s,settings,chapter,at)&&specialAvailable(s,spec,at,chapter))
+                    record(spec.id,chapter,CHAPTERS.get(chapter).name,at,until);
+            }
+            for(const id of ids)for(const source of unovaAcquisitionSources(s,id,at,false)){
+                if(source.available&&chapters.has(source.chapter)&&huntWeatherMatches(s,settings,source.chapter,at)&&
+                    (source.skies?.length||source.timeLimited))record(id,source.chapter,source.nodeName,at,until);
+            }
+        }
+        dexDayCache={signature,from:now,until:times[1],windows};return windows;
+    }
     function dexRanking(s, settings, cooldowns = {}, now = Date.now(), status = dexStatus(s, settings)) {
         const wanted=dexSearchIds(s,settings,status);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
-        const inputs=[huntRankingInputs(s,settings,[...wanted],now),settings.gifts,s.adv.gifts,s.adv.badges,s.items,
+        const inputs=[huntRankingInputs(s,settings,[...wanted],now),settings.gifts,s.adv.gifts,s.adv.badges,s.items,s.roam?.at,
             settings.gifts&&Object.keys(FOSSIL_NAMES).map(item=>s.link?.stash?.items?.[item]||0),
             s.pension?.eggs?.length,s.pension?.open?.eggs,dexPrerequisites.map(id=>!!s.dex?.[id]),
             settings.gifts&&branchedGifts.map(gift=>giftChoices(s,gift))];
@@ -194,6 +225,7 @@
     }
     function rankDexTargets(s,settings,wanted,now){
         const specialByChapter=new Map();
+        const openWindows=dexDayWindows(s,settings,wanted,now).filter(w=>w.at<=now&&now<w.until);
         const eggSpace=(s.pension?.eggs?.length||0)<Math.max(1,Number(s.pension?.open?.eggs)||1);
         for(const species of wanted){
             for(const source of unovaAcquisitionSources(s,species,now)){
@@ -238,6 +270,7 @@
                 if(score>beforeOrdinarySources)specialNodesOnly=false;
                 for(const source of specialByChapter.get(id)||[]){
                     const egg=source.kind==='lootEgg';
+                    if(source.kind==='questWild')specialNodesOnly=false;
                     hasWild ||= !egg;
                     const catchFactor=egg?1:Math.max(.08,MONS.get(source.id).rate/255);
                     score+=source.weight*catchFactor;
@@ -245,8 +278,17 @@
                     if(!hits.get(source.id)?.marked)hits.set(source.id,{id:source.id,special:true,kind:source.kind,place:source.nodeName,marked:!!source.marked});
                 }
             }
-            return { ...row, targets: [...hits.values()], marked, hasWild, specialNodesOnly, score: score / Math.max(15, row.units) };
-        }).filter(row=>row.targets.length).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.score-a.score||a.id-b.id);
+            const window=openWindows.filter(w=>row.members.includes(w.chapter)&&hits.has(w.id)).sort((a,b)=>a.until-b.until)[0];
+            const targets=[...hits.values()];
+            const limitedWild=targets.some(hit=>hit.weather?.length||row.members.some(id=>{
+                const h=WILD_HABITATS.get(id)?.get(hit.id);
+                return h&&(!h.ordinary||h.phases.size<3||h.seasonMask!==15);
+            }));
+            const phenomenonOnly=targets.some(hit=>hit.kind==='phenomenon'&&!WILD_HABITATS.get(row.id)?.has(hit.id));
+            const priority=window?3:limitedWild?2:phenomenonOnly?1:0;
+            return { ...row, targets, marked, hasWild, specialNodesOnly, window, priority, score: score / Math.max(15, row.units) };
+        }).filter(row=>row.targets.length).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.priority-a.priority||
+            (a.window?.until||0)-(b.window?.until||0)||b.score-a.score||a.id-b.id);
     }
     const PARIS_CALENDAR=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Paris',year:'numeric',month:'2-digit',day:'2-digit'});
     let calendarMinute,calendarDay;

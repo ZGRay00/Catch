@@ -6,8 +6,12 @@
         const targets=id?[id]:base.dexSpecies;
         if(!targets?.length)return null;
         const cfg={...base,mode:'dex',dexSpecies:targets};
-        const missing=dexStatus(s,cfg).missing.map(mon=>mon.id);
+        const status=dexStatus(s,cfg),missing=status.missing.map(mon=>mon.id);
         if(!missing.length)return null;
+        const wanted=dexSearchIds(s,cfg,status);
+        for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
+        const opportunity=dexDayWindows(s,cfg,wanted,now).filter(w=>w.at<=now&&w.until>now).sort((a,b)=>a.until-b.until)[0];
+        if(opportunity)return{kind:'window',until:opportunity.until,settings:{mode:'dex',dexSpecies:[opportunity.id],afterDex:'stop',progress:false,legends:false,raids:false}};
         // Only interrupt for a currently available target that loses its known wild
         // sources at the next boundary. An ordinary all-day source can wait.
         let until=Math.min((Math.floor(now/WEATHER_DATA.slotMs)+1)*WEATHER_DATA.slotMs,seasonWindow(now).endsAt);

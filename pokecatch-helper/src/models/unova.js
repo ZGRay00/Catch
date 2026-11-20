@@ -31,14 +31,14 @@
         const rollChance=(UNOVA_ENCOUNTERS.chance[0]+UNOVA_ENCOUNTERS.chance[1])/2;
         const pendingNodes=useLiveNodes&&!a.event&&!a.zone&&!a.league&&!a.tower&&Array.isArray(a.nodes)
             ? a.nodes.slice(Math.max(0,a.node||0)) : [];
-        return routes.map(route=>{
+        const sources=routes.map(route=>{
             const kind=route.egg?.id===id?'lootEgg':'phenomenon';
             const number=/^Route (\d+)(?: \((est|nord)\))?$/.exec(route.name);
             const nodeName=number?number[1]+'号道路'+({est:'东部',nord:'北部'}[number[2]]||''):UNOVA_PLACES[route.name]||route.name;
             const node=WEATHER_DATA.chapters[route.chapter]?.nodes.find(n=>n.kind==='route'&&n.name===route.name);
             const sky=nodeWeather(s,route.chapter,node,now);
             const actualNodes=a.chapter===route.chapter?pendingNodes.filter(n=>n.name===route.name):[];
-            const target={kind,chapter:route.chapter,nodeName,originalName:route.name,id,marked:false};
+            const target={kind,chapter:route.chapter,nodeName,originalName:route.name,id,marked:false,timeLimited:!!(route.day||route.night)};
             let reason=!regionOpen?'尚未进入合众':route.chapter>a.unlocked?'章节尚未解锁':'',weight;
             if(kind==='lootEgg'){
                 const egg=route.egg,incubator=s.pension?.eggs||[];
@@ -76,4 +76,15 @@
             }
             return {...target,available:!reason,reason,weight:reason?0:weight};
         });
+        // The native Desert Resort habitat enables its sun-only wild entry after the egg quest.
+        if(id===636&&a.gifts?.['egg:636']&&!shinyOnly){
+            const egg=sources.find(source=>source.kind==='lootEgg');
+            if(egg){
+                const node=WEATHER_DATA.chapters[egg.chapter]?.nodes.find(n=>n.kind==='route'&&n.name===egg.originalName);
+                const available=regionOpen&&egg.chapter<=a.unlocked&&egg.skies.includes(nodeWeather(s,egg.chapter,node,now));
+                sources.push({...egg,kind:'questWild',marked:false,available,weight:available ? .01 : 0,chance:undefined,
+                    reason:!regionOpen?'尚未进入合众':egg.chapter>a.unlocked?'章节尚未解锁':available?'':'等待沙漠地带出现大晴天'});
+            }
+        }
+        return sources;
     }

@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.6.1",
-  "scriptSha256": "33cd34fa6048d984b8ce03d75708bfd571956bde17fd18d5e1e05cc92df08d50",
-  "metadataSha256": "737df5c379f8ecebe30d9a3054b3080d07fabc2f380e1054695e022fda5abe88",
+  "version": "5.6.3",
+  "scriptSha256": "7e37ed5ec0c0e7205322fed174d1b7441635dbbe5a7e6367e4ff339346ca2fc9",
+  "metadataSha256": "b3f611d7bf3642b3ab1800723c63a4b6d48f3702f1b95c03dab14a8beff28e8a",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "2af55a68aad6e83429b5e92a597aa18d644c6aad61a03f063572ba49b92f93d7"
+      "sha256": "0dc8bfa46a09058f3dd03c569af860ebd77c347e2f2173d31d3e49f484a14e4f"
     },
     {
       "file": "build.manifest.json",
@@ -42,7 +42,7 @@
     },
     {
       "file": "src/models/unova.js",
-      "sha256": "b528802e35c37f1b905f93decbfbe7f819810f4472e7f0d2ec29b57217b7e70e"
+      "sha256": "9528f73e2d81fd108ac802cfc10466af3cf8a1116d03d0808a3b6ecfc0ccc0a5"
     },
     {
       "file": "src/data/candy.js",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "095369deacde144af2b71c9f6a4ff0afb330fb32e3b2c1c47bf537cf90c7c31d"
+      "sha256": "6d4628e1636c4e88b2ac0c8cefa0520869defd9335cb82c11a52450785bf100b"
     },
     {
       "file": "src/models/facilities.js",
@@ -62,11 +62,11 @@
     },
     {
       "file": "src/models/daily.js",
-      "sha256": "e73bf469266c0490eaa0a41d3b8dfbaa163fadd5c9ebb14c0f979741fc5e47d5"
+      "sha256": "8575930ad2c50a2a1feaadeacf4c0126298f08c374d3c5400976b1c6e1d38c47"
     },
     {
       "file": "src/services/background.js",
-      "sha256": "166b35303c26899659bad2a07e387cc8cc732d4b9bed1bafd2d8f84bd87f5534"
+      "sha256": "37b08b7e871f029268251f1beac31fb6a0f23abe6aa7dca05bffaedb6cb878b0"
     },
     {
       "file": "src/models/farming.js",
@@ -94,7 +94,7 @@
     },
     {
       "file": "src/models/weather.js",
-      "sha256": "bfeff938277bdfe1b735384a6c829e5320fca02774564a101264bf3d3252b35a"
+      "sha256": "0f071ae6d2f88ba36001992454ac127e05ab276a947d8bc125ba5df8ad6cdcc1"
     },
     {
       "file": "src/models/roster.js",
@@ -114,7 +114,7 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "7e33cbfdc865edc1cf497fdcef96b9e2fde2f590328fc82e98ba482eaa569648"
+      "sha256": "4dbe0d72b3f434ae7d3f59e076d57cb7f9b4cd40a6efcca40cbbaf1f74696a16"
     },
     {
       "file": "src/models/routes-training.js",
@@ -122,7 +122,7 @@
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "1c88d26d6706eb0eb88359118afed656a8e6c99d6d349bd7b2b9ff7ca01beb5e"
+      "sha256": "e273a7afce9d54ef3c933803f56f6dd370625f8fb29b2b64272a8d28923d48d0"
     },
     {
       "file": "src/core/telemetry.js",
@@ -130,11 +130,11 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "aaf13e5cb13d7fb48e76cd3882671423d25aea433359b3607c020a1ad1e97ff4"
+      "sha256": "970ba18406bc4742df457d3f6a0967dcbfe05ab82e20e228511054ce0ba7b17f"
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "60fa28493c89b3ade25eeb628e72b7d3a9d320430240136bb9ee220328a65023"
+      "sha256": "0180d2087f0110e33c87fc4680135086a8dfebf8b7d303d55e63ef21737e4dd4"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -142,11 +142,11 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "69bdff4da2ab5e5cfed771613371269808a938ebfe1492b6a87649d93ea3e240"
+      "sha256": "0fbef0769a901a3f93bf2e4e2f6f5986ffc3c63c4f0ed5f40838103864750706"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "601ce4ce4aa5ec870b5eb50b7ee83182cb1a6a0ec3b2aa8e53e7293f9c95ed8e"
+      "sha256": "e3444456dc98af3b2320105cc88128062d0e9f1ee91cd3a98bb82b16165a838a"
     },
     {
       "file": "src/ui/panel-style.js",
@@ -154,7 +154,7 @@
     },
     {
       "file": "src/ui/dex-panel.js",
-      "sha256": "bdaea1c77d4b98e74a3fde62983d3d20b1ba3dc08daa31401bdad70e2150bac1"
+      "sha256": "ff506d14a7b76ea80036cdc7df5f52f3081727ed8c7f7668004cdb7b7de34de6"
     },
     {
       "file": "src/ui/weather-panel.js",
@@ -170,7 +170,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "6f03527ab3ac906b73a92deb080ee9649a95378067e5fee43d8ddc148dd53b7a"
+      "sha256": "f4a7a76e66046bdd6581d4ae64171f199e45e9664e2b7b80b92eebf2871ad96c"
     }
   ]
 }

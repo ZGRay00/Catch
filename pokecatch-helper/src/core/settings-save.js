@@ -37,7 +37,7 @@
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
         dexRegions:[],dexSpecies:[],dexWeather:[],shinyRegions:[],shinySpecies:[],shinyWeather:[],
-        underRuns:1,underAutoStart:true,underFrom:1,underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
+        underRuns:1,underAutoStart:true,underFrom:1,underGoal:'depth',underOpenGeodes:true,towerFloor:100,towerRuns:1,candyFloor:50,candyRuns:1,
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
         autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
@@ -56,6 +56,7 @@
         if(raw.underFrom!==undefined&&typeof raw.underAutoStart!=='boolean')raw={...raw,underAutoStart:!(Number(raw.underFrom)>1)};
         if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
+        out.underGoal=raw.underGoal==='money'?'money':'depth';
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
         // A missing switch belongs to a pre-switch profile. Only an explicit boolean can enable an imported switch.
         if(Object.hasOwn(raw,'autoPurchase'))out.autoPurchase=raw.autoPurchase===true;

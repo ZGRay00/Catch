@@ -113,18 +113,18 @@ async function main(){
         assert.equal(seasonalDex.otherForms,false);assert.match(seasonalDex.summer,/夏季限定/);
         checks.push('the dex distinguishes a summer-only encounter source from four separately tracked seasonal sightings');
         const expedition=await evaluate(`(()=>{
-            const r=${root},e=__pcExecutionTest.engine,selector='[data-setting="underAutoStart"]';
+            const r=${root},e=__pcExecutionTest.engine,selector='[data-setting="underStartChoice"]';
             const task=r.querySelector('#pane-tasks '+selector),settings=r.querySelector('#pane-settings '+selector);
-            const before=task.checked&&settings.checked;
-            settings.click();
-            const manual=[...r.querySelectorAll('[data-under-manual]')].every(el=>!el.classList.contains('hidden'));
-            const limit=r.querySelector('#pane-tasks [data-setting="underFrom"]');
-            limit.value='50';limit.dispatchEvent(new Event('change',{bubbles:true}));
-            const value=r.querySelector('#pane-settings [data-setting="underFrom"]').value;
-            task.click();e.onChange();
-            return {before,manual,value,restored:settings.checked&&[...r.querySelectorAll('[data-under-manual]')].every(el=>el.classList.contains('hidden')),buddyVisible:!r.querySelector('[data-setting="trainBuddy"]').closest('details')};
+            const before=task.value==='auto'&&settings.value==='auto';
+            task.value='50';task.dispatchEvent(new Event('change',{bubbles:true}));
+            const manual=!e.settings.underAutoStart&&e.settings.underFrom===50,value=settings.value;
+            settings.value='auto';settings.dispatchEvent(new Event('change',{bubbles:true}));e.onChange();
+            const goals=[...r.querySelectorAll('[data-setting="underGoal"]')];
+            goals[0].value='money';goals[0].dispatchEvent(new Event('change',{bubbles:true}));
+            const sharedGoal=goals.length===2&&goals.every(el=>el.value==='money')&&e.settings.underGoal==='money';
+            return {before,manual,value,sharedGoal,restored:task.value==='auto'&&e.settings.underAutoStart,buddyVisible:!r.querySelector('[data-setting="trainBuddy"]').closest('details')};
         })()`);
-        assert.deepEqual(expedition,{before:true,manual:true,value:'50',restored:true,buddyVisible:true});checks.push('underground task and background settings share the highest-start toggle and manual ceiling; the training companion has a distinct setting');
+        assert.deepEqual(expedition,{before:true,manual:true,value:'50',sharedGoal:true,restored:true,buddyVisible:true});checks.push('underground task and background settings share the same starting-floor selector and preserve automatic mode');
         const raidNote=await evaluate(`(()=>{
             const r=${root},e=__pcExecutionTest.engine;
             e.raidCheckNote='已按设置跳过拥有的异色目标';

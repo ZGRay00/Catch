@@ -134,7 +134,7 @@
             const raid=this.driver.raid;
             const special=this.driver.ownedDialog;
             const flowOwner=this.services.underground&&this.automation.owner?.kind==='receipt'&&this.automation.owner.selector==='.ug-back'?null:this.automation.snapshotOwner();
-            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...special.type==='factoryTeam'?{uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
+            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...['factoryTeam','underTeam'].includes(special.type)?{bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
                 activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null},
                 budget:{spent:this.budget.spent,used:this.budget.used}};
         }
@@ -226,7 +226,7 @@
             this.raidReturn=cp.raidReturn||null;
             if(this.manual)return;
             this.automation.restoreOwner(cp.flowOwner);
-            if(['team','ally','factoryTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
+            if(['team','ally','factoryTeam','underTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
             if((cp.raidProbe||this.raidReturn)&&!s.adv.event?.raid){
                 this.raidProbe=true;
                 this.raidProbeStarted=now;
@@ -483,7 +483,7 @@
                 const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
                 this.interruptedPicker=null;
                 if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
-                else if(['team','factoryTeam','backgroundUnderTeam'].includes(own?.type)){
+                else if(['team','factoryTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
                     const close=$('#evt-pick [data-evt-close]');
                     if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
                 }
@@ -880,6 +880,12 @@
             if (this.driver.pendingMap) {
                 const pending = this.driver.pendingMap;
                 const mode=this.settings.mode;
+                if(mode==='dex'&&pending.options?.dexWindow){
+                    const current=dexRanking(s,this.settings,this.cooldowns,now).find(r=>r.key===pending.row.key);
+                    if(!current?.window&&!current?.marked){
+                        this.driver.pendingMap=null;this.status='捕获窗口已关闭，重新选择图鉴路线';return;
+                    }
+                }
                 if(pending.options?.huntSeason&&pending.options.huntSeason!==weatherSeason(now)){
                     const rows=mode==='dex'?dexRanking(s,this.settings,{},now):shinyRanking(s,this.settings,{},now);
                     if(!rows.some(row=>row.key===pending.row.key)){
@@ -924,7 +930,8 @@
             const speed = $(`#speed-btns [data-speed="${this.settings.speed}"]`);
             if (s.adv.speed !== this.settings.speed && this.driver.nav('adventure')) { this.driver.click(speed, '设置游戏内速度'); return; }
             const dex=this.settings.mode==='dex'?dexStatus(s,this.settings):null;
-            const directedHunt=this.settings.mode==='shiny'||(dex?.missing.length>0&&this.settings.dexSpecies.length>0);
+            let dexRoutes=dex?.missing.length?dexRanking(s,this.settings,this.cooldowns,now,dex):[];
+            const directedHunt=this.settings.mode==='shiny'||(dex?.missing.length>0&&(this.settings.dexSpecies.length>0||dexRoutes[0]?.window));
             if(!directedHunt&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(roadPending)this.telemetry.sample=null;
@@ -934,6 +941,7 @@
                 if (sample?.valid) { this.log(`${this.target.name} 实测 ${Math.round(sample.net / sample.seconds * 60)} ₽/分钟${sample.xp != null ? ` · ${Math.round(sample.xp / sample.seconds * 60)} EXP/分钟` : ''}`); this.persist(); }
                 if (this.visit && totalDeaths(s, this.target) - this.visit.deaths >= this.settings.lossLimit && safeBoundary) {
                     this.cooldowns[this.target.key] = now + 15 * 60000; this.log(`${this.target.name} 连续失败，避开 15 分钟`); this.target = null; this.telemetry.sample = null;
+                    if(dex)dexRoutes=dexRanking(s,this.settings,this.cooldowns,now,dex);
                 }
             }
             if (this.settings.mode === 'progress') { this.progress(s, now); return; }
@@ -965,7 +973,7 @@
                     if (this.settings.afterDex === 'stop'||this.queueRunning) { this.completeTask(done); return; }
                     this.status = done+'，转为刷钱'; this.money(s, now); return;
                 }
-                const rows = dexRanking(s, this.settings, this.cooldowns, now, status);
+                const rows = dexRoutes;
                 if(rows.length)this.weatherWindow=null;
                 const stillNeeded = rows.find(r => r.key === this.target?.key);
                 if(!rows.length&&status.missing.every(mon=>s.pension?.eggs?.some(egg=>egg.id===mon.id))){
@@ -977,7 +985,8 @@
                 if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
                     if(directedHunt&&this.settings.autoTeam&&this.fitTeam(s,now))return;
                     if(safeBoundary&&stillNeeded.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
-                    const detail=stillNeeded.specialNodesOnly?' · 等待生成目标节点':'';
+                    const limit=stillNeeded.window;
+                    const detail=limit?` · 优先 ${MONS.get(limit.id).name}（${limit.place}，至 ${new Date(limit.until).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}）`:stillNeeded.specialNodesOnly?' · 等待生成目标节点':'';
                     this.status = `补图鉴 · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}${detail}`; this.driver.nav('adventure'); return;
                 }
                 if (!safeBoundary&&!startingBattle&&!(directedHunt&&this.ordinaryBattleKey(s))) {this.waitForHuntBoundary(rows[0]);return;}
@@ -1272,13 +1281,25 @@
         }
         huntAlternate(s,current,rows,now){
             if(!current?.members.includes(s.adv.chapter)||!this.visit||current.marked||rows.length<2)return null;
+            if(this.settings.mode==='dex'){
+                const best=rows[0];
+                if(best.key!==current.key&&(best.marked||best.priority>current.priority||
+                    (best.window&&current.window&&best.window.until<current.window.until)))return best;
+                if(current.window){
+                    // Give a different target with the same deadline a turn after a complete attempt.
+                    const peer=rows.find(r=>r.window?.until===current.window.until&&r.window.id!==current.window.id);
+                    const share=Math.min(this.settings.rotateMinutes*60000,Math.max(60000,(current.window.until-this.visit.started)/2));
+                    if(peer&&s.adv.runs>this.visit.runs&&now-this.visit.started>=share)return peer;
+                    return null;
+                }
+            }
             const newRoll=current.specialNodesOnly&&s.adv.nodes?.length>0&&s.adv.runs>this.visit.runs;
             if(!newRoll&&now-this.visit.started<this.settings.rotateMinutes*60000)return null;
             return rows.find(row=>row.key!==current.key);
         }
         travelHunt(row,alternate,now){
-            if(alternate&&this.target){
-                this.cooldowns[this.target.key]=now+5*60000;
+            if(alternate&&this.target&&!alternate.window&&!alternate.marked){
+                this.cooldowns[this.target.key]=Math.min(now+5*60000,(Math.floor(now/WEATHER_DATA.slotMs)+1)*WEATHER_DATA.slotMs);
                 this.log(`搜寻轮换 · ${this.target.name} → ${row.name}`);
             }
             this.travel(row,now);
@@ -1335,6 +1356,7 @@
         }
         travel(row, now, options = {}) {
             const s=this.read();if(this.holdWildShiny(s,now))return;
+            if(this.settings.mode==='dex'&&row.window)options={...options,dexWindow:true};
             if(!options.huntSeason&&(this.settings.mode==='dex'&&row.hasWild||this.settings.mode==='shiny'&&row.expected>0))options={...options,huntSeason:weatherSeason(now)};
             if(!options.zone&&this.ensurePrepared(s,battleContext(s,'map',{row,roamId:options.roamId}),{row:routeDescriptor(row),options},now))return;
             this.driver.pendingMap = { row, options, started: now };

@@ -19,11 +19,14 @@
         if(day&&day!==parisDay(now))return now;
         return Math.min(now+wait,nextParisReset(now));
     }
-    function dailyRaidStatus(s,skipOwned,draw,now){
+    function dailyRaidStatus(s,skipOwned,draw,now,regions){
         const raids=s?.raids,adv=s?.adv;
-        if(!raids||!adv?.badges?.includes('Maître')||adv.event?.raid)return null;
-        const day=parisDay(now),reroll=raids.reroll?.day===day?raids.reroll.to:null;
+        if(!adv?.badges?.includes('Maître')||adv.event?.raid)return null;
         const eligible=RAID_CHAMPIONS.filter(c=>adv.unlocked>c.id||c.badges.some(b=>adv.badges.includes(b))).map(c=>c.reg);
+        const selected=regions?.length?eligible.filter(reg=>regions.includes(reg)):eligible;
+        if(regions?.length&&!selected.length)return {reason:'所选地区的团体战尚未解锁',until:null};
+        if(!raids)return null;
+        const day=parisDay(now),reroll=raids.reroll?.day===day?raids.reroll.to:null;
         if(!eligible.length)return null;
         const drawn=raids.seen===day||!!reroll;
         const observed=drawn&&draw?.day===day&&draw.reroll===reroll&&eligible.includes(draw.reg)&&
@@ -36,7 +39,8 @@
         };
         // Draw mode awards one region per day. Older multi-region schedules must finish every unlocked region.
         const reg=observed?.reg||reroll;
-        const done=drawn?(reg?eligible.includes(reg)&&completed(reg):eligible.some(completed)):eligible.every(completed);
+        if(reg&&regions?.length&&!regions.includes(reg))return {reason:'今日抽取的团体战不在所选地区',until:nextParisReset(now)};
+        const done=drawn?(reg?eligible.includes(reg)&&completed(reg):eligible.some(completed)):selected.every(completed);
         if(done)return {reason:'今日可挑战的团体战已完成',until:nextParisReset(now)};
         if(skipOwned&&observed&&s.dex?.[observed.boss]?.shiny){
             return {reason:'已按设置跳过今日已拥有的异色目标',until:nextParisReset(now)};

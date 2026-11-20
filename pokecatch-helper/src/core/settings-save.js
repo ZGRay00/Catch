@@ -1,5 +1,5 @@
     const MODE_NAMES = { dex: '补齐图鉴', money: '自动刷钱', legend: '指定传说战', roam: '游荡捕获', item: '指定道具', train: '目标练级', progress: '推进主线',
-        breed:'繁殖孵蛋',shiny:'指定野生刷闪',underground:'地下通道',tower:'对战塔',candy:'糖果工厂',elite:'精英联盟',world:'世界首领',resource:'采购与使用' };
+        breed:'繁殖孵蛋',shiny:'指定野生刷闪',underground:'地下通道',tower:'对战塔',candy:'糖果工厂',elite:'精英联盟',world:'世界首领',raid:'每日团体战',resource:'采购与使用' };
     const FLOW_MODES = new Set(['breed','underground','tower','candy','elite','world','resource']);
     const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','lastExplore'];
     function raidIdentity(s,value=s?.adv?.event){
@@ -42,7 +42,7 @@
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
         autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
-        dailyMain:'current',dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
+        dailyMain:'current',dailyRaidRegions:[],dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;
     const BUDGET_LIMITS = Object.freeze({spendBudget:1e12, dailySpendBudget:1e12, moneyReserve:1e12, useBudget:99999});
@@ -63,7 +63,8 @@
         // Public game buttons are ×1 (1) and ×3 (4). On the hosted game,
         // an old save with speed 2 advances at the highest supported speed <= 2.
         if(raw.speed===2||raw.speed==='2')out.speed=1;
-        const choices = { mode: Object.keys(MODE_NAMES), dailyMain:['current','dex','money','shiny','train'], speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
+        const choices = { mode: Object.keys(MODE_NAMES), dailyMain:['current','dex','money','shiny','train','raid'], speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
+        out.dailyRaidRegions=DATA.regions.map(r=>r.key).filter(key=>Array.isArray(raw.dailyRaidRegions)&&raw.dailyRaidRegions.includes(key));
         for (const [k, allowed] of Object.entries(choices)) if (allowed.includes(raw[k])) out[k] = raw[k];
         for (const [k, lo, hi] of [['sampleMinutes', 1, 30], ['rotateMinutes', 2, 120], ['raidMinutes', 5, 720], ['lossLimit', 1, 20], ['stopMinutes', 0, 1440], ['moneyTarget', 0, 1e12], ['legendTier', 0, 5], ['legendMinutes', 5, 720], ['roamMinutes', 5, 720], ['itemQuantity', 1, 99999], ['trainLevel', 1, 100], ['resumeSeconds', 3, 300], ['teamMinutes', 1, 60]]) {
             out[k] = clamp(raw[k], lo, hi, DEFAULTS[k]);

@@ -1,4 +1,4 @@
-    const DAILY_BASE_MODES=new Set(['money','train','dex','shiny','item']);
+    const DAILY_BASE_MODES=new Set(['money','train','dex','shiny','item','raid']);
     function dailyMainMode(settings){
         return !settings.dailyMain||settings.dailyMain==='current'?settings.mode:settings.dailyMain;
     }
@@ -44,11 +44,11 @@
         const open=kind=>!(marks[kind]>now),end=nextParisReset(now),day=parisDay(now);
         if(base.dailyCandy&&open('candy')&&(s.candy?.run||s.candy?.played!==day&&s.candy?.last?.day!==day))
             return {kind:'candy',until:end,settings:{mode:'candy',candyRuns:1,candyFloor:0}};
+        if(base.dailyTower&&open('tower')&&towerProgress(s,now).best<base.towerFloor)
+            return {kind:'tower',until:end,settings:{mode:'tower',towerRuns:Math.min(2,base.towerRuns)}};
         const edition=s.wb?.tryEd||s.wb?.ed;
         if(base.dailyWorld&&open('world')&&!(edition&&s.wb?.caught===edition))
             return {kind:'world',until:end,settings:{mode:'world',worldActions:1,worldCapture:true}};
-        if(base.dailyTower&&open('tower')&&towerProgress(s,now).best<base.towerFloor)
-            return {kind:'tower',until:end,settings:{mode:'tower',towerRuns:Math.min(2,base.towerRuns)}};
         if(base.dailyElite&&open('elite')&&undergroundBackgroundUnlocked(s)){
             const reg=base.eliteRegion==='current'?currentRegion(s):base.eliteRegion;
             const best=s.eliteLeague?.[reg]?.t||0;

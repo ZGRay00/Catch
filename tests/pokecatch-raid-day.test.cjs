@@ -27,6 +27,33 @@ function card(reg,boss,{done=false,disabled=false}={}){
         querySelector:sel=>sel==='.boss'?portrait:sel==='[data-raid-go]'&&!done?go:null};
 }
 
+test('raid main uses map order, narrows to the saved selection and advances past a settled card',t=>{
+    const {s,e,now,entries,caught}=fixture(t);
+    s.adv.unlocked=70;
+    Object.assign(e.settings,{mode:'raid',raids:false,optimizeRaid:false});
+    e.driver.nav=()=>true;e.ensurePrepared=()=>false;e.driver.click=()=>true;
+    entries.push(card('hoenn',52),card('johto',183),card('kanto',35));
+    assert.equal(e.priorityRaid(s,now),true);
+    e.driver.raidStep(s,now);assert.equal(e.driver.raid.reg,'kanto');
+    caught('kanto',35);e.finishRaidReturn(now);assert.equal(e.nextRaid,now);
+    e.driver.raidStep(s,now+1);assert.equal(e.driver.raid.reg,'johto');
+    e.settings.dailyRaidRegions=['hoenn'];e.driver.raidStep(s,now+2);assert.equal(e.driver.raid.reg,'hoenn');
+    caught('hoenn',52);assert.match(e.raidDailyStatus(s,now).reason,/已完成/);
+    e.settings.mode='progress';assert.equal(e.raidDailyStatus(s,now),null);
+});
+
+test('an unselected draw waits for refresh, then handles a changed draw or newly unlocked region',t=>{
+    const {s,e,now,day,entries}=fixture(t);
+    Object.assign(e.settings,{mode:'raid',dailyRaidRegions:['johto']});
+    assert.match(e.raidDailyStatus(s,now).reason,/未解锁/);
+    s.adv.unlocked=31;s.raids.seen=day;
+    e.driver.nav=()=>true;e.driver.click=()=>{throw Error('opened a card outside the selection');};
+    entries.push(card('kanto',35));e.driver.raidStep(s,now);
+    const rest=e.raidDailyStatus(s,now);assert.match(rest.reason,/不在所选地区/);
+    assert.equal(e.raidDailyStatus(s,rest.until),null);
+    s.raids.reroll={day,to:'johto'};assert.equal(e.raidDailyStatus(s,now),null);
+});
+
 test('a drawn raid completed today never takes the adventure page or interrupts training, even after reload',t=>{
     const {s,e,now,day,caught,load}=fixture(t);
     s.adv.unlocked=64;s.raids.seen=day;caught('kanto',35);

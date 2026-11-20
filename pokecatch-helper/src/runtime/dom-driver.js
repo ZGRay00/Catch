@@ -354,7 +354,7 @@
             // Missing or hidden controls must use the normal UI timeout rather than wait forever.
             if(this.pendingMap?.row===row)delete this.pendingMap.waiting;
             if (!this.nav('map')) return false;
-            if (!options.zone && !this.clearLoops(s, row.key)) return false;
+            if (!options.zone && !options.leaveZone && !this.clearLoops(s, row.key)) return false;
             const reg = $(`#map-root .rg.open[data-rg="${row.reg}"]`);
             if (!reg) throw new Error(`地图地区未解锁：${row.reg}`);
             if (!reg.classList.contains('active')) {
@@ -388,6 +388,10 @@
             }
             // The map remembers its elite tab across activities and region switches.
             if(row.league){const ordinary=$('#map-root [data-lg-view="league"]:not(.on)');if(enabled(ordinary)){this.click(ordinary,'切回普通联盟');return false;}}
+            if(options.leaveZone){
+                const go=$(`#map-root .mp-go[data-go="${row.league?'L':row.id}"]`);
+                return this.click(go,'返回原章节，先处理通关日常');
+            }
             // Give the helper exclusive native looping; remember the previous set for restoration.
             const unwanted = $$('#map-root [data-loop][aria-checked="true"]').find(el => String(el.dataset.loop) !== row.key);
             if (unwanted) { this.click(unwanted, '关闭其他章节循环'); return false; }
@@ -582,12 +586,20 @@
                 return false;
             }
             const entries=$$('#raid-root .rc-card[data-rc]');
-            const cards=entries.filter(card=>!card.classList.contains('done')&&enabled(card.querySelector('[data-raid-go]')));
+            let cards=entries.filter(card=>!card.classList.contains('done')&&enabled(card.querySelector('[data-raid-go]')));
+            if(this.e.settings.mode==='raid'){
+                const regions=this.e.settings.dailyRaidRegions;
+                cards=RAID_CHAMPIONS.filter(c=>(!regions.length||regions.includes(c.reg))&&
+                    (s.adv.unlocked>c.id||c.badges.some(b=>s.adv.badges?.includes(b))))
+                    .map(c=>cards.find(entry=>entry.dataset.rc===c.reg)).filter(Boolean);
+            }
             const day=parisDay(now),bossOf=card=>monIdFrom(card.querySelector('.boss'))||monIdFrom(card.querySelector('h3'));
             if(entries.length===1)this.e.rememberDraw(s,entries[0].dataset.rc,bossOf(entries[0]),now);
             let skippedOwned=false,skippedCooldown=false;
             const card = cards.find(card => {
                 const reg=card.dataset.rc,boss=bossOf(card);
+                const key=reg+'|'+day,finishedBoss=s.raids?.doneBoss?.[key];
+                if(this.e.settings.mode==='raid'&&s.raids?.done?.[key]>0&&(finishedBoss==null||finishedBoss===boss))return false;
                 if(this.e.raidReturn&&(this.e.raidReturn.date!==day||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
                 if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > now){skippedCooldown=true;return false;}
                 if(this.e.settings.skipOwnedShiny&&(card.querySelector('.chip-own')||s.dex?.[boss]?.shiny)){skippedOwned=true;return false;}

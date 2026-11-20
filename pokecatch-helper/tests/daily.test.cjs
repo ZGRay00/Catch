@@ -28,6 +28,18 @@ test('tower uses the weekly record, respects the configured limit and caps it at
     assert.equal(H.dailyFacility(s,cfg,{},now).settings.towerRuns,2);
     s.tower={best:{week:H.towerWeek(now),floor:20}};assert.equal(H.dailyFacility(s,cfg,{},now),null);
 });
+test('ordinary legend yields only to an available facility; elite and world captures keep their session',()=>{
+    const s=save(),e=engine(s);
+    e.daily.checking=true;e.driver.map=()=>{throw Error('unexpected departure');};
+    for(const zone of [{id:493},{id:150,elite:1}]){
+        s.adv.zone=zone;e.zoneId=zone.id;assert.equal(e.yieldLegendToDaily(s,now),false);
+    }
+    s.adv.zone={id:150,back:8};e.zoneId=150;s.candy={played:H.parisDay(now)};
+    assert.equal(e.yieldLegendToDaily(s,now),false);
+    delete s.candy.played;s.adv.battle={enemies:[{id:35,shiny:true}]};e.driver.nav=()=>true;
+    assert.equal(e.yieldLegendToDaily(s,now+30001),true);
+    assert.match(e.status,/糖果工厂已排队/);
+});
 test('an expiring wild source inserts only an explicitly selected, still missing target',()=>{
     const s=save(),at=new Date(2026,10,20,8).getTime();
     // Use the actual tables and find a local boundary, including on hosts in other time zones.

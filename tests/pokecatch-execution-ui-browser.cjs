@@ -61,6 +61,44 @@ async function main(){
         })()`);
         assert.deepEqual(order,['candy',true,false,'world','挂机',false]);
         checks.push('a daily run reserves the factory during a trainer fight and dispatches the world boss before a marked dex route');
+        const legendOrder=await evaluate(`(async()=>{
+            const r=${root},e=__pcExecutionTest.engine,initial={...e.settings},marks={...e.dailyMarks},calls=[];
+            const page=document.createElement('section');page.id='screen-map';page.className='active';
+            page.innerHTML='<div id="map-root"><button class="rg open active" data-rg="kanto">关都</button><button class="mp-row sel" data-ch="0">原章节</button><button class="mp-go" data-go="0">继续</button></div>';
+            document.body.append(page);const before={...fixtureState.adv};
+            try{
+                e.settings={...initial,mode:'dex',dailyMain:'dex',dailyWindow:true,dailyCandy:true,dailyTower:true,dailyWorld:true,dailyElite:false,raids:true};
+                e.dailyMarks={};Object.assign(fixtureState.adv,{zone:{id:150,foe:150,back:0},battle:{kind:'wild',enemies:[{id:150,hp:4}]}});
+                commitExecution();page.querySelector('.mp-go').onclick=()=>calls.push('返回原章节');
+                r.querySelector('[data-mode="daily"]').click();r.querySelector('#start').click();clearTimeout(e.timer);
+                await e.step();calls.push([e.running,e.dailyZoneExit?.kind,e.daily?.job]);
+                delete fixtureState.adv.battle;commitExecution();e.driver.lastClick=0;await e.step();await e.step();
+                calls.push(e.daily?.job);delete fixtureState.adv.zone;commitExecution();
+                await e.step();calls.push(e.daily?.job?.kind);e.completeTask('模拟免费场结算');
+                await e.step();calls.push(e.daily?.job?.kind);return calls;
+            }finally{if(e.running)e.stop();page.remove();fixtureState.adv=before;e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();}
+        })()`);
+        assert.deepEqual(legendOrder,[[true,'candy',null],'返回原章节',null,'candy','tower']);
+        checks.push('adopted Mewtwo encounter settles before one native map return, then factory and tower run before raids or dex');
+        const raidMain=await evaluate(`(async()=>{
+            const r=${root},e=__pcExecutionTest.engine,initial={...e.settings},marks={...e.dailyMarks};
+            try{
+                e.dailyMarks={};e.settings={...initial,raids:false,dailyCandy:true,dailyWindow:false,dailyWorld:false,dailyTower:false,dailyElite:false};
+                r.querySelector('[data-mode="daily"]').click();
+                const menu=r.querySelector('[data-setting="dailyMain"]');menu.value='raid';menu.dispatchEvent(new Event('change',{bubbles:true}));
+                const box=r.querySelector('#daily-raid-targets');if(!box.getClientRects().length)throw Error('Invisible raid filters');
+                box.querySelector('[data-daily-raid="hoenn"]').click();box.querySelector('[data-daily-raid="kanto"]').click();
+                const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.dailyRaidRegions;
+                r.querySelector('#start').click();clearTimeout(e.timer);await e.step();
+                const chore=e.daily?.job?.kind;e.completeTask('模拟工厂结算');await e.step();
+                const active=[e.settings.mode,e.raidProbe,box.querySelector('input').disabled];
+                fixtureState.raids={seen:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Paris'}),done:{}};
+                fixtureState.raids.done['kanto|'+fixtureState.raids.seen]=Date.now();commitExecution();await e.step();
+                return [saved,chore,active,e.running,e.raidProbe,e.status.includes('等待每日刷新')];
+            }finally{if(e.running)e.stop();delete fixtureState.raids;e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();}
+        })()`);
+        assert.deepEqual(raidMain,[['kanto','hoenn'],'candy',['raid',true,true],true,false,true]);
+        checks.push('daily raid regions persist in map order, the factory runs first, and completed draws wait for refresh');
         const dailyMain=await evaluate(`(async()=>{
             const r=${root},e=__pcExecutionTest.engine;
             const initial={...e.settings},marks={...e.dailyMarks},results=[];

@@ -16,7 +16,7 @@
         const keep=uid=>{if(typeof uid==='string'&&uid)protectedUids.add(uid);};
         for(const uid of e.daily?.checkpoint?.session?.trainProtected||[])keep(uid);
         keep(s.buddy?.uid);keep(e.automation?.buddyTask?.uid);keep(e.automation?.state?.evolution?.uid);keep(e.automation?.owner?.uid);keep(e.preparation?.candy?.uid);
-        if(e.settings?.mode==='train'&&e.settings.trainUid!=='team')keep(e.settings.trainUid);
+        if(e.settings?.mode==='train')trainingUids(s,e.settings).forEach(keep);
         if(e.settings?.mode==='resource')keep(e.settings.useUid);
         for(const p of [e.preparation,e.raidPreparation])if(p){for(const key of ['uids','originalTeam'])for(const uid of p[key]||[])keep(uid);for(const target of p.targets||[])keep(target.uid);}
         for(const target of e.coach?.ready?.targets||[])keep(target.uid);

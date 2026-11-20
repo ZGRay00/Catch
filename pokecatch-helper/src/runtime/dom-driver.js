@@ -120,7 +120,7 @@
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
             if(task.fitBasis){
-                const b=task.fitBasis,e=this.e,pins=e.settings.mode==='train'?(e.trainProtected||(e.settings.trainUid==='team'?s.team:[e.settings.trainUid])):[];
+                const b=task.fitBasis,e=this.e,pins=e.settings.mode==='train'?trainingUids(s,e.settings,e.trainProtected):[];
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
                 if(!e.settings.autoTeam||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
                     e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==roamingSettings(e.settings).roamId||

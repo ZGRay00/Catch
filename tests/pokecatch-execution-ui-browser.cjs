@@ -40,7 +40,7 @@ async function main(){
                 r.querySelector('[data-mode="progress"]').click();
                 const set=(key,value)=>{const el=r.querySelector('[data-setting="'+key+'"]');el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
                 const raid=r.querySelector('[data-setting="raids"]');if(raid.checked)raid.click();
-                for(const mode of ['dex','money','shiny']){
+                for(const mode of ['dex','money','shiny','train']){
                     set('dailyMain',mode);if(mode==='money')set('moneyTarget','1');
                     e.dailyMarks={};r.querySelector('#start-daily').click();clearTimeout(e.timer);
                     await e.step();const child=e.daily?.job?.kind;
@@ -54,11 +54,25 @@ async function main(){
             }finally{if(e.running)e.stop();e.dailyMarks=marks;e.settings=initial;e.persist();e.onChange();}
             return results;
         })()`);
-        for(const [i,mode] of ['dex','money','shiny'].entries())
+        for(const [i,mode] of ['dex','money','shiny','train'].entries())
             assert.deepEqual(dailyMain[i],[mode,'candy',mode,'progress',mode,'progress',true]);
         checks.push('each daily main survives a facility handoff and preserves the ordinary selection; a satisfied money goal lets the factory finish first');
         assert.deepEqual(await evaluate('[__pcExecutionTest.engine.settings.spendBudget,__pcExecutionTest.engine.settings.autoPurchase]'),[20000,true]);
         checks.push('a pre-switch account with a saved positive procurement budget retains that authorization');
+        const trainees=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,initial={...e.settings};
+            try{
+                fixtureState.mons.push({uid:'pc-target',id:9,level:70,reg:'kanto'});commitExecution();
+                const set=(key,value)=>{const el=r.querySelector('[data-setting="'+key+'"]');el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
+                set('dailyMain','train');r.querySelector('#daily-edit-goal').click();set('trainUid','selected');
+                r.querySelector('#train-members input').click();
+                const pc=r.querySelector('#train-pc');pc.dispatchEvent(new Event('focus'));pc.value='pc-target';pc.dispatchEvent(new Event('change',{bubbles:true}));
+                const gems=r.querySelector('[data-setting="trainGems"]'),off=!gems.checked;gems.click();set('trainRank',2);
+                return [e.settings.mode,e.settings.trainUids,off,e.settings.trainGems,e.settings.trainRank];
+            }finally{fixtureState.mons.pop();e.settings=initial;e.persist();commitExecution();}
+        })()`);
+        assert.deepEqual(trainees,['train',['a','pc-target'],true,true,2]);
+        checks.push('daily training selects individual party and PC targets and explicitly enables rank-up');
         const panes=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;const views=[];
             for(const key of ['tasks','dex','weather','eggs','settings','activity']){
                 r.querySelector('[data-workspace="'+key+'"]').click();

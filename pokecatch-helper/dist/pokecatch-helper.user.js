@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.5.0
+// @version      5.6.0
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.5.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '5.6.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -443,7 +443,7 @@
         autoTeam: true, teamMinutes: 5,autoEvolve:true,activeSwitch:false,
         autoPrepare:true,prepareMargin:2,prepareGap:3,prepareIdleMinutes:5,progressCandy:true,
         legendId: 145, legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
-        trainUid: 'team', trainLevel: 100,
+        trainUid: 'team', trainUids: [], trainLevel: 100, trainGems: false, trainRank: 1,
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
         dexRegions:[],dexSpecies:[],dexWeather:[],shinyRegions:[],shinySpecies:[],shinyWeather:[],
@@ -472,7 +472,7 @@
         // Public game buttons are ×1 (1) and ×3 (4). On the hosted game,
         // an old save with speed 2 advances at the highest supported speed <= 2.
         if(raw.speed===2||raw.speed==='2')out.speed=1;
-        const choices = { mode: Object.keys(MODE_NAMES), dailyMain:['current','dex','money','shiny'], speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
+        const choices = { mode: Object.keys(MODE_NAMES), dailyMain:['current','dex','money','shiny','train'], speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
         for (const [k, allowed] of Object.entries(choices)) if (allowed.includes(raw[k])) out[k] = raw[k];
         for (const [k, lo, hi] of [['sampleMinutes', 1, 30], ['rotateMinutes', 2, 120], ['raidMinutes', 5, 720], ['lossLimit', 1, 20], ['stopMinutes', 0, 1440], ['moneyTarget', 0, 1e12], ['legendTier', 0, 5], ['legendMinutes', 5, 720], ['roamMinutes', 5, 720], ['itemQuantity', 1, 99999], ['trainLevel', 1, 100], ['resumeSeconds', 3, 300], ['teamMinutes', 1, 60]]) {
             out[k] = clamp(raw[k], lo, hi, DEFAULTS[k]);
@@ -503,6 +503,8 @@
         if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
         if([243,244,245,380,381,481,641,642].includes(+raw.roamId))out.roamId=+raw.roamId;
         if (ITEMS.has(raw.itemId)) out.itemId = raw.itemId;
+        out.trainUids = [...new Set((Array.isArray(raw.trainUids) ? raw.trainUids : []).filter(uid => typeof uid === 'string' && uid.length > 0 && uid.length <= 120))].slice(0,6);
+        out.trainRank = Math.floor(clamp(raw.trainRank,1,5,1));
         if (typeof raw.trainUid === 'string' && raw.trainUid.length > 0 && raw.trainUid.length <= 120) out.trainUid = raw.trainUid;
         return out;
     }
@@ -647,8 +649,9 @@
             break;
         case 'train': {
             const training=trainingStatus(s,cfg,e.trainProtected);
-            if(training.missing)return{failed:true,reason:'练级目标不在冒险队伍中，请重新选择'};
-            if(training.complete)reason=`练级目标已达到 Lv.${cfg.trainLevel}`;
+            if(training.conflict)return{failed:true,reason:'指定目标占用同一出战名额，请分成两个培育任务'};
+            if(training.missing)return{failed:true,reason:cfg.trainUid==='selected'?'培育目标未持有、地区不符或未加入手动队伍，请核对选择':'练级目标不在冒险队伍中，请重新选择'};
+            if(training.complete){reason=`练级目标已达到 Lv.${cfg.trainLevel}`;if(cfg.trainGems&&cfg.trainLevel===100&&cfg.trainUid!=='team'&&training.targets.some(m=>(m.rank||0)<cfg.trainRank))reason+=' · 部分目标未升阶，请核对最终形态、库存宝石和道具额度';}
             else if(training.capped)return{failed:true,reason:`已达到当前等级上限 Lv.${training.cap}，请推进主线后继续`};
             break;
         }
@@ -728,7 +731,7 @@
         const keep=uid=>{if(typeof uid==='string'&&uid)protectedUids.add(uid);};
         for(const uid of e.daily?.checkpoint?.session?.trainProtected||[])keep(uid);
         keep(s.buddy?.uid);keep(e.automation?.buddyTask?.uid);keep(e.automation?.state?.evolution?.uid);keep(e.automation?.owner?.uid);keep(e.preparation?.candy?.uid);
-        if(e.settings?.mode==='train'&&e.settings.trainUid!=='team')keep(e.settings.trainUid);
+        if(e.settings?.mode==='train')trainingUids(s,e.settings).forEach(keep);
         if(e.settings?.mode==='resource')keep(e.settings.useUid);
         for(const p of [e.preparation,e.raidPreparation])if(p){for(const key of ['uids','originalTeam'])for(const uid of p[key]||[])keep(uid);for(const target of p.targets||[])keep(target.uid);}
         for(const target of e.coach?.ready?.targets||[])keep(target.uid);
@@ -3099,21 +3102,58 @@
         const values=DATA.regions.filter(r=>open.has(r.key)&&r.start<=s.adv.unlocked).map(r=>regional(r.key));
         return Math.min(100,...(values.length?values:[caps.main]));
     }
+    function trainingUids(s,settings,pinned) {
+        if (Array.isArray(pinned) && pinned.length) return [...pinned];
+        if (settings.trainUid === 'selected') return [...(settings.trainUids || [])];
+        return settings.trainUid === 'team' ? [...(s.team || [])] : [settings.trainUid];
+    }
+    function trainingParty(s,targets){
+        const roster=new Map(s.mons.map(mon=>[mon.uid,mon])), seen=new Set(), uids=[];
+        for(const uid of new Set([...targets,...s.team])){
+            const mon=roster.get(uid);if(!mon)continue;
+            const slot=DATA.combat.singles[mon.id]||mon.id+':'+Number(!!mon.shiny);
+            if(seen.has(slot))continue;
+            seen.add(slot);uids.push(uid);
+            if(uids.length===6)break;
+        }
+        return uids;
+    }
     function trainingStatus(s, settings, protectedUids = null) {
-        const party = partyMons(s), ids=settings.trainUid==='team'&&protectedUids?.length?protectedUids:null;
-        const targets = ids ? ids.map(uid=>(s.mons||[]).find(m=>m.uid===uid)).filter(Boolean) : settings.trainUid === 'team' ? party : party.filter(m => m.uid === settings.trainUid);
-        const missing=!targets.length||!!ids&&(targets.length!==ids.length||ids.some(uid=>!s.team?.includes(uid)));
+        const ids=trainingUids(s,settings,protectedUids), party=partyMons(s);
+        const source=settings.trainUid==='selected'&&settings.autoTeam?s.mons||[]:party;
+        const targets=ids.map(uid=>source.find(mon=>mon.uid===uid)).filter(Boolean);
+        const usedSlots=new Set(targets.map(mon=>DATA.combat.singles[mon.id]||mon.id+':'+Number(!!mon.shiny)));
+        const conflict=settings.trainUid==='selected'&&usedSlots.size!==targets.length;
+        const missing=conflict||!ids.length || targets.length!==ids.length || settings.trainUid==='selected'&&targets.some(mon=>!teamEligible(s,mon));
         const available = targets.filter(m => m.level < Math.min(settings.trainLevel, trainingCap(s, m)));
-        return { targets, available, missing, complete: !missing && targets.every(m => m.level >= settings.trainLevel),
+        return { targets, available, missing, conflict, complete: !missing && targets.every(m => m.level >= settings.trainLevel),
             capped: targets.length > 0 && !available.length && targets.some(m => m.level < settings.trainLevel),
             cap: targets.length ? Math.min(...targets.map(m => trainingCap(s, m))) : 0 };
+    }
+    function trainingGemTarget(s,cfg,pinned,budget,skipped={}) {
+        if(cfg.mode!=='train'||!cfg.trainGems||cfg.trainUid==='team'||cfg.trainLevel!==100)return null;
+        const status=trainingStatus(s,cfg,pinned);
+        if(status.missing)return null;
+        const gems=s.under?.gems||{};
+        for(const mon of status.targets){
+            const next=(mon.rank||0)+1, model=MONS.get(mon.id);
+            if(!model||mon.level!==100||next>cfg.trainRank||trainingCap(s,mon)<100||
+                EVOLUTION_DATA.rules[mon.id]?.length||budget.check(s,0,next))continue;
+            // The native rank button verifies rarity. Both types can supply the cost,
+            // but several smaller gem stacks cannot pay for one rank together.
+            const stock=Object.entries(gems).filter(([key,count])=>model.types.includes(key.split(':')[0])&&Number.isSafeInteger(count)&&count>=next);
+            if(!stock.length)continue;
+            const key=JSON.stringify([mon.id,next,stock.sort()]);
+            if(skipped[mon.uid]!==key)return {uid:mon.uid,id:mon.id,next,key};
+        }
+        return null;
     }
     function selectTrainingBuddy(s,settings,preparation=null,protectedUids=null){
         const party=new Set(s.team||[]),road=new Set(Array.isArray(s.road)&&s.road.length?s.road:s.team||[]);
         let targets;
         if(preparation)targets=preparation.targets||[];
         else if(settings.mode==='train'){
-            const ids=settings.trainUid==='team'?(protectedUids?.length?protectedUids:s.team||[]):[settings.trainUid];
+            const ids=trainingUids(s,settings,protectedUids);
             targets=ids.map(uid=>({uid,goal:settings.trainLevel}));
         }else return null;
         const goals=new Map(targets.map(target=>[target.uid,target.goal]));
@@ -4156,7 +4196,7 @@
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
             if(task.fitBasis){
-                const b=task.fitBasis,e=this.e,pins=e.settings.mode==='train'?(e.trainProtected||(e.settings.trainUid==='team'?s.team:[e.settings.trainUid])):[];
+                const b=task.fitBasis,e=this.e,pins=e.settings.mode==='train'?trainingUids(s,e.settings,e.trainProtected):[];
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
                 if(!e.settings.autoTeam||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
                     e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==roamingSettings(e.settings).roamId||
@@ -4706,7 +4746,7 @@
         get buffRetry(){return this.state.buffRetry||={};}
         set buffRetry(value){this.state.buffRetry=value||{};}
         constructor(engine){this.e=engine;this.state={};this.owner=null;this.lastService=0;}
-        begin(s){this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
+        begin(s){this.rankUI=null;this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
         wait(text,at){this.e.status=text;this.e.lastProgress=Date.now();this.e.nextWake=at||null;}
         fail(text){this.e.failTask(text);}
         done(text){this.e.completeTask(text);}
@@ -5493,6 +5533,85 @@
                 e.returnFromDaily('首领暂无可执行机会',Math.min(nextParisReset(now),cd.length?Math.min(...cd):now+30*60000),now);return;
             }
             this.wait(delta>=cfg.worldActions?'本次攻击目标已完成，等待世界首领捕获阶段':'等待世界首领阶段、登录或可用攻击成员',cd.length?Math.min(...cd):now+60000);
+        }
+        advanceTrainingRank(s,now,target=null){
+            const e=this.e,d=e.driver,receipt=this.state.rankReceipt;
+            if(receipt){
+                const fx=$('.rk-fx');
+                if(visible(fx)&&now-receipt.at<=90000){
+                    const ok=fx.querySelector('.rk-ok');
+                    if(enabled(ok))d.click(ok,'结束宝石升阶动画');
+                    else if(e.settings.animations)d.click(fx.querySelector('.rk-skip'),'跳过宝石升阶动画');
+                    return true;
+                }
+                const mon=s.mons.find(m=>m.uid===receipt.uid);
+                if(!visible(fx)&&mon?.id===receipt.id && mon.rank===receipt.next){
+                    const card=$('#modal-root.open .mon-modal .mon-card');
+                    if(visible(card)&&monIdFrom(card.querySelector('.dc-hero')||card)===mon.id){
+                        d.click(card.querySelector('.dc-x'),'关闭升阶后的成员详情');return true;
+                    }
+                    delete this.state.rankReceipt;this.rankUI=null;
+                    if(Number.isFinite(receipt.oldXp)&&Number.isFinite(e.startTrainingXp)){
+                        const resetXp=experienceTotal({...s,mons:[{...mon,level:5,xp:0}]},[mon.uid]);
+                        if(resetXp!=null)e.startTrainingXp-=receipt.oldXp-resetXp;
+                    }
+                    e.teamCheck=null;e.telemetry.sample=null;
+                    e.log('宝石升阶已确认 · '+MONS.get(mon.id).name+' '+mon.rank+' 阶，继续练级');e.persist();
+                    return true;
+                }
+                if(now-receipt.at>90000)this.fail('宝石使用结果尚未确认，请核对目标阶数和库存后继续');
+                else e.status='等待游戏保存目标阶数';
+                return true;
+            }
+            let task=this.rankUI;
+            if(!task){
+                if(!target||s.adv.pending||this.owner||d.ownedDialog||visible($('#modal-root.open')))return false;
+                task=this.rankUI={...target,stage:'team',at:now};
+            }
+            const skip=reason=>{
+                (this.state.rankSkipped||={})[task.uid]=task.key;
+                e.log('跳过本次升阶 · '+reason);this.rankUI=null;
+                return false;
+            };
+            const current=trainingGemTarget(s,e.settings,e.trainProtected,e.budget,this.state.rankSkipped);
+            if(current?.uid!==task.uid||current.key!==task.key||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league){
+                this.rankUI=null;return false;
+            }
+            if(now-task.at>30000)return skip('游戏未显示预期的升阶控件');
+            e.status='目标培育 · '+MONS.get(task.id).name+' → '+task.next+' 阶';
+            const modal=$('#modal-root.open .modal');
+            if(task.stage==='team'){
+                if(visible(modal))return skip('页面出现其他弹窗');
+                if(!d.nav('team'))return true;
+                const member=$$('#team-slots [data-uid],#team-mini.show [data-uid]').find(el=>el.dataset.uid===task.uid&&enabled(el));
+                if(member&&d.click(member,'打开指定培育队员'))task.stage='card';
+                return true;
+            }
+            if(!visible(modal))return true;
+            if(task.stage==='card'){
+                const card=modal.querySelector('.mon-card');
+                if(!modal.matches('.mon-modal')||!card||monIdFrom(card.querySelector('.dc-hero')||card)!==task.id)return skip('目标详情与所选队员不符');
+                const button=card.querySelector('.more-actions .rk-btn');
+                if(!enabled(button)){
+                    if(d.click(card.querySelector('.dc-x'),'关闭未满足升阶条件的详情'))skip('当前没有足够的对应稀有度宝石或游戏尚未开放升阶');
+                    return true;
+                }
+                if(d.click(button,'查看指定队员升阶费用')){task.card=modal;task.stage='confirm';}
+                return true;
+            }
+            if(modal===task.card)return true;
+            if(!modal.matches('.rk-modal:not(.lgp-modal)')||!modal.querySelector('.rk-q'))return skip('无法核对升阶窗口');
+            const costText=modal.querySelector('.dc-fact b')?.textContent||'';
+            const counts=costText.match(/\d+/g);
+            if(modal.querySelector('.ot-warn')||counts?.length!==1||Number(counts[0])!==task.next){
+                if(d.click(modal.querySelector('.modal-actions .ghost'),'取消条件不符的升阶'))skip('游戏提示仍可进化或费用已变化');
+                return true;
+            }
+            // spentClick persists the receipt and allowance together before dispatch.
+            this.state.rankReceipt={uid:task.uid,id:task.id,next:task.next,at:now,oldXp:experienceTotal(s,[task.uid])};
+            if(this.spentClick(modal.querySelector('.modal-actions .gold'),s,0,task.next,'使用库存宝石升阶'))this.rankUI=null;
+            else{delete this.state.rankReceipt;e.persist();}
+            return true;
         }
         buddyTarget(s){
             const e=this.e,a=s.adv;
@@ -6490,7 +6609,7 @@
             this.startBattle = !cp && s.adv.battle ? this.ordinaryBattleKey(s) : null;
             this.startItems=itemCounter(s,cfg.itemId);
             this.sessionItemId=cfg.itemId;
-            this.trainProtected=cfg.mode==='train'?(cfg.trainUid==='team'?[...s.team]:[cfg.trainUid]):[];
+            this.trainProtected=cfg.mode==='train'?trainingUids(s,cfg):[];
             this.trainingSelection=cfg.trainUid;
             this.startTrainingXp=cfg.mode==='train'?experienceTotal(s,this.trainProtected):null;
             const xpRegion=cfg.mode==='train'?economicRegion(s):null;
@@ -6704,6 +6823,11 @@
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=daily?dailyMainMode(this.settings):this.settings.mode;
                 if(daily&&(!DAILY_BASE_MODES.has(mode)||!s.adv.badges?.includes('Maître')))throw new Error('取得关都冠军徽章后，请在通关日常中选择每日主线');
+                if(mode==='train'&&this.settings.trainUid==='selected'&&!cp){
+                    const plan=trainingStatus(s,this.settings);
+                    if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');
+                    if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
+                }
                 const ownedFlow=mode==='tower'&&!!s.adv.tower&&s.adv.tower.kind!=='candy'||mode==='candy'&&s.adv.tower?.kind==='candy'||mode==='elite'&&!!s.adv.league||mode==='world'&&s.adv.zone?.id===493;
                 if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend')&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
                 const rememberedRaid=cp?.activity?.raid;
@@ -6807,7 +6931,7 @@
                 if(this.services.underground?.action==='dispatch'&&!this.services.underground.launch)this.services.underground.returning=true;
                 this.driver.recent?.clear();
                 this.coach.checked=null;this.coach.ready=null;
-                this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;
+                this.automation.owner=null;this.automation.rankUI=null;this.automation.buddyTask=null;this.automation.buffUI=null;
                 this.automation.eggFX=null;delete this.automation.state.eggReceiptUntil;
                 this.legendProbe=null;this.farmWait=null;
                 this.nextWake=null;
@@ -6986,7 +7110,7 @@
             if(this.automation.state.resourceBuffTx?.at!=null)this.automation.state.resourceBuffTx.at+=duration;
             if(this.automation.state.resourceTx?.at!=null)this.automation.state.resourceTx.at+=duration;
             if(this.automation.state.pensionPurchase?.at!=null)this.automation.state.pensionPurchase.at+=duration;
-            for(const tx of [this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure])if(tx?.at!=null)tx.at+=duration;
+            for(const tx of [this.automation.rankUI,this.automation.state.rankReceipt,this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure])if(tx?.at!=null)tx.at+=duration;
             if(this.automation.state.candyEndedAt!=null)this.automation.state.candyEndedAt+=duration;
             const eggs=this.automation.state;
             if(eggs.eggService){eggs.eggService.started+=duration;if(eggs.eggService.tx)eggs.eggService.tx.at+=duration;}
@@ -7060,6 +7184,7 @@
                 if(selector&&visible($('#modal-root.open '+selector)))this.automation.own(this.settings.mode==='elite'?'gem':'receipt',selector);
             }
             // FX can cover an owned item card; finish the top overlay before using the card again.
+            if ((this.automation.rankUI||this.automation.state.rankReceipt)&&this.automation.advanceTrainingRank(s,now))return;
             if (this.automation.evolutionUI(s,now) || this.automation.eggUI(s,now) || this.driver.animations(s) || this.driver.dismissInformation?.(s) || this.driver.receipt() || this.automation.finishDeparture(s,now) || this.automation.dialog(s) || this.driver.dialog(s)) return;
             if (this.driver.ownedDialog) return;
             if (visible($('#modal-root.open')) || visible($('#evt-pick'))) {
@@ -7112,6 +7237,21 @@
                 if(this.preparation.roadWait)this.preparation.roadWait.at=now;
                 this.preparation.routeCheck=0;this.preparation.routeProfile=null;this.lastProgress=now;
                 this.log('继续之前的补练任务');
+            }
+            const canCultivate=!inActivity&&!this.preparation&&!this.raidProbe&&!this.raidReturn&&!settling&&this.settings.mode==='train';
+            if(canCultivate&&this.settings.trainUid==='selected'&&this.settings.autoTeam&&!outcome?.failed){
+                const ids=trainingUids(s,this.settings,this.trainProtected);
+                const needsParty=ids.some(uid=>!s.team.includes(uid))&&(!outcome||trainingGemTarget(s,this.settings,ids,this.budget,this.automation.state.rankSkipped));
+                if(needsParty){
+                    if(this.driver.teamTask){this.driver.adventureTeam(s,now);return;}
+                    if(now<this.teamRetryAt){this.status='等待游戏允许重新配置培育队伍';this.lastProgress=now;return;}
+                    this.driver.teamTask={uids:trainingParty(s,ids),members:[s.adv.chapter],chapter:s.adv.chapter,started:now,attempts:0};
+                    this.status='正在把指定培育目标编入冒险队伍';return;
+                }
+            }
+            if(canCultivate&&!this.driver.teamTask&&this.settings.trainGems){
+                const target=trainingGemTarget(s,this.settings,this.trainProtected,this.budget,this.automation.state.rankSkipped);
+                if(target && this.automation.advanceTrainingRank(s,now,target))return;
             }
             if(outcome){
                 const p=this.preparation;
@@ -7383,7 +7523,7 @@
             const roamId=roam?roamingSettings(this.settings).roamId:undefined;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
-            const pinned=this.settings.mode==='train'?(this.trainProtected||(this.settings.trainUid==='team'?s.team:[this.settings.trainUid])):[];
+            const pinned=this.settings.mode==='train'?trainingUids(s,this.settings,this.trainProtected):[];
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
             if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths)return false;
@@ -7802,7 +7942,7 @@
 
     // Node-only exports for planning, accounting and browser regression tests.
     if (typeof module === 'object' && module.exports && typeof document === 'undefined') {
-        module.exports = { DATA, DEFAULTS, MONS, ROOTS, ITEMS, MODE_NAMES, normalizeSettings, decodeSave, economicRegion, moneyFactor, accountId, captured, dexStatus, candidates, specialAvailable, dexRanking, moneyRanking, itemRanking, xpRanking, trainingCap, trainingStatus, selectTrainingBuddy, experienceTotal, partyMons, rosterFingerprint, teamEligible, effectiveStats, expectedDamage, matchupScore, chapterThreats, chapterFoes, giftChoices, planAdventureTeam, ownedItems, itemCounter, sourceAvailable, legendProgress, estimateRate, teamFingerprint, metricsKey, activeYieldBuff, yieldFingerprint, parisDay, allyStrength, Telemetry, Engine, DOMDriver, phaseAt, encounterDataErrors,Automation,Budget,shinyOwned,shinyRanking,pensionPlan,parsePrice,normalizeJobs,undergroundTeamKey,undergroundMembers,battleContext,preparationPlan,battleRouteFit,preparationRoutes,LevelCoach,candyRegion,candyXpGap,candyChoice,teamCacheStats,clearTeamCache };
+        module.exports = { DATA, DEFAULTS, MONS, ROOTS, ITEMS, MODE_NAMES, normalizeSettings, decodeSave, economicRegion, moneyFactor, accountId, captured, dexStatus, candidates, specialAvailable, dexRanking, moneyRanking, itemRanking, xpRanking, trainingCap, trainingGemTarget, trainingStatus, selectTrainingBuddy, experienceTotal, partyMons, rosterFingerprint, teamEligible, effectiveStats, expectedDamage, matchupScore, chapterThreats, chapterFoes, giftChoices, planAdventureTeam, ownedItems, itemCounter, sourceAvailable, legendProgress, estimateRate, teamFingerprint, metricsKey, activeYieldBuff, yieldFingerprint, parisDay, allyStrength, Telemetry, Engine, DOMDriver, phaseAt, encounterDataErrors,Automation,Budget,shinyOwned,shinyRanking,pensionPlan,parsePrice,normalizeJobs,undergroundTeamKey,undergroundMembers,battleContext,preparationPlan,battleRouteFit,preparationRoutes,LevelCoach,candyRegion,candyXpGap,candyChoice,teamCacheStats,clearTeamCache };
         Object.assign(module.exports,{MULTI_HIT_DATA,damageRollMean,attackTurns,chapterCombatFoes,resolveCombatWeatherNode,combatWeather,deploymentScore,matchupDetails,deployedBattle,battleSwitchCandidate,preparationCosts,preparationReadiness,rebuildPreparationContext,trainingCandidates,leagueTrainingModel});
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
@@ -8483,7 +8623,9 @@
         document.addEventListener('freeze',leavePage);
 
         function manualEvent(event){
-            if(!engine.running||!engine.settings.manualPause||!outside(event))return;
+            if(!engine.running||!outside(event))return;
+            if(engine.automation?.rankUI)engine.automation.rankUI=null;
+            if(!engine.settings.manualPause)return;
             const changed=!engine.manual,previousHeld=engine.inputHeld;
             engine.manualInput();
             if(engine.manual){
@@ -8638,7 +8780,7 @@
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
             <details class="target" id="daily-routine"><summary>通关日常</summary>
-                <label class="field"><span>每日主线</span><select data-setting="dailyMain"><option value="current">沿用当前挂机任务</option><option value="dex">补图鉴</option><option value="money">刷钱</option><option value="shiny">野生刷闪</option></select></label>
+                <label class="field"><span>每日主线</span><select data-setting="dailyMain"><option value="current">沿用当前挂机任务</option><option value="dex">补图鉴</option><option value="money">刷钱</option><option value="shiny">野生刷闪</option><option value="train">目标练级 / 培育</option></select></label>
                 <div class="sub" id="daily-state"></div>
                 <button type="button" id="daily-edit-goal">打开主线目标设置</button>
                 <div class="checks">
@@ -8655,7 +8797,7 @@
                 <div data-fields="legend" class="hidden"><div class="field"><span>传说目标</span><select data-setting="legendId" aria-label="传说战目标"></select></div><div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div><div class="field"><span>最长等待</span><input data-setting="legendMinutes" type="number" min="5" max="720" aria-label="传说战最长分钟数"></div><label class="setting"><span><input type="checkbox" data-setting="roamAllowMasterBall">允许游荡目标自动消耗库存大师球</span></label><div class="hint">游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div></div>
                 <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限</span><input data-setting="roamMinutes" type="number" min="5" max="720" aria-label="游荡搜寻最长分钟数"></div><label class="setting"><span><input type="checkbox" data-setting="roamAllowMasterBall">允许游戏自动使用库存大师球</span></label><div class="hint">在线追踪目标驻留地图，捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。默认不允许消耗大师球，持有大师球时会提示等待你处理。</div></div>
                 <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div></div>
-                <div data-fields="train" class="hidden"><div class="field"><span>练级对象</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div></div>
+                <div data-fields="train" class="hidden"><div class="field"><span>练级对象</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><div id="train-members" class="checks"></div><label id="train-pc-field" class="field"><span>从电脑添加（最多六只）</span><select id="train-pc" aria-label="从电脑添加培育目标"><option value="">选择成员…</option></select></label><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div><label><input data-setting="trainGems" type="checkbox">使用库存宝石升阶（指定目标 · Lv.100）</label><div id="train-rank-settings"><label class="field"><span>目标阶数</span><input type="number" data-setting="trainRank" min="1" max="5"></label><small>仅对指定的最终形态生效。目标等级设为 100 后，升阶会回到 Lv.5，再练至 Lv.100。每颗宝石占一份道具额度。</small></div></div>
                 <div data-fields="progress" class="hidden"><div class="field"><span>完成章节</span><select data-setting="progressUntil" aria-label="主线目标章节"></select></div><label class="setting"><span><input type="checkbox" data-setting="autoTravel">达到条件后自动跨地区开局</span></label></div>
                 <fieldset id="hunt-filters" style="min-width:0;margin:8px 0;padding:9px;border:1px solid #40516a;border-radius:8px">
                     <legend>搜寻条件</legend>
@@ -8971,6 +9113,7 @@
                 }else addOption(added,uid,name);
                 if(uid===selected)found=true;
             }
+            if(field==='trainUid')option('selected','指定一只或多只队员');
             for(const m of members)option(m.uid,(MONS.get(m.id)?.name||m.id)+' · Lv.'+m.level+(m.shiny?' ✦':''));
             if(!found)option(selected,missingLabel);
             for(const extra of options.slice(index))extra.remove();
@@ -8978,9 +9121,38 @@
             if(select.value!==selected)select.value=selected;
         }
         function partyOptions(s,both=false) {
-            if(both||engine.settings.mode==='train')updateMemberOptions('trainUid',partyMons(s),'原目标已离队 · 请选择');
+            if(both||engine.settings.mode==='train'){
+                const members=partyMons(s), cfg=engine.settings, box=query('#train-members');
+                updateMemberOptions('trainUid',members,'原目标已离队 · 请选择');
+                const pcField=query('#train-pc-field'),pc=query('#train-pc');
+                pcField.classList.toggle('hidden',cfg.trainUid!=='selected'||!cfg.autoTeam);
+                pc.disabled=engine.running||!!engine.suspended||cfg.trainUids.length>=6;
+                box.hidden=cfg.trainUid!=='selected';
+                box.classList.toggle('hidden',box.hidden);
+                const key=JSON.stringify([box.hidden,engine.running,!!engine.suspended,cfg.trainUids,members.map(m=>[m.uid,m.id,m.level,!!m.shiny])]);
+                if(memberKeys.get('trainMembers')!==key){
+                    memberKeys.set('trainMembers',key);box.replaceChildren();
+                    if(!box.hidden)for(const uid of new Set([...members.map(m=>m.uid),...cfg.trainUids])){
+                        const m=members.find(mon=>mon.uid===uid)||s.mons?.find(mon=>mon.uid===uid), label=document.createElement('label'), input=document.createElement('input');
+                        input.type='checkbox';input.checked=cfg.trainUids.includes(uid);input.disabled=engine.running||!!engine.suspended||!input.checked&&cfg.trainUids.length>=6;
+                        input.onchange=()=>changeSetting('trainUids',input.checked?[...cfg.trainUids,uid]:cfg.trainUids.filter(id=>id!==uid));
+                        label.append(input,m?(MONS.get(m.id)?.name||m.id)+' · Lv.'+m.level+(m.shiny?' ✦':''):'已离队 · 取消选择');box.append(label);
+                    }
+                }
+            }
             if(both||engine.settings.mode==='resource')updateMemberOptions('useUid',s.mons||[],'原目标已离开PC · 请选择');
         }
+        const pcTrainee=query('#train-pc');
+        function listPcTrainees(){
+            const s=engine.state;if(!s||pcTrainee.disabled)return;
+            const selected=new Set([...s.team,...engine.settings.trainUids]);
+            const fragment=document.createDocumentFragment();addOption(fragment,'','选择成员…');
+            for(const mon of s.mons)if(!selected.has(mon.uid)&&teamEligible(s,mon))
+                addOption(fragment,mon.uid,(MONS.get(mon.id)?.name||mon.id)+' · Lv.'+mon.level+(mon.shiny?' ✦':'')+' · '+mon.uid);
+            pcTrainee.replaceChildren(fragment);
+        }
+        pcTrainee.addEventListener('focus',listPcTrainees);
+        pcTrainee.onchange=()=>{const uid=pcTrainee.value;pcTrainee.value='';if(uid&&engine.settings.trainUids.length<6)changeSetting('trainUids',[...engine.settings.trainUids,uid]);};
         function showCategory(value){category=value;root.querySelectorAll('[data-category]').forEach(el=>el.classList.toggle('on',el.dataset.category===value));root.querySelectorAll('[data-group]').forEach(el=>el.classList.toggle('hidden',el.dataset.group!==value));}
         function syncSettings() {
             syncHunt();
@@ -9000,6 +9172,7 @@
             root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode));
             root.querySelectorAll('[data-under-manual]').forEach(el=>el.classList.toggle('hidden',engine.settings.underAutoStart));
             query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
+            query('#train-rank-settings').hidden=!engine.settings.trainGems;
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
             query('#task-purchase').hidden=!['progress','breed','resource'].includes(mode);
             if(mode==='resource'){
@@ -9134,7 +9307,7 @@
             query('#daily-edit-goal').hidden=locked||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
             const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
-                baseMode==='dex'?'缺失的基础形态':baseMode==='money'?dailyBase.moneyTarget?'目标 '+dailyBase.moneyTarget.toLocaleString()+' ₽':'持续刷钱':'';
+                baseMode==='train'?(dailyBase.trainUid==='selected'?dailyBase.trainUids.length+' 只指定队员':dailyBase.trainUid==='team'?'全队':'指定队员')+' · Lv.'+dailyBase.trainLevel:baseMode==='dex'?'缺失的基础形态':baseMode==='money'?dailyBase.moneyTarget?'目标 '+dailyBase.moneyTarget.toLocaleString()+' ₽':'持续刷钱':'';
             query('#daily-state').textContent=!s?.adv?.badges?.includes('Maître')?'取得关都冠军徽章后开放。':
                 !DAILY_BASE_MODES.has(baseMode)?'请选择每日主线，或先选择一个挂机任务。':
                 (engine.daily?.job?'正在执行'+MODE_NAMES[engine.settings.mode]+'，完成后继续':'可执行的日常、周常完成后继续')+MODE_NAMES[baseMode]+(goal?' · '+goal:'');
@@ -9512,7 +9685,7 @@
         query('#fold').onclick=()=>fold(true);
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function jobTitle(cfg){const target={legend:MONS.get(cfg.legendId)?.name,roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
-        function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid','shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil','region',...(['dex','shiny'].includes(cfg.mode)?['Species','Weather','Regions'].map(suffix=>cfg.mode+suffix):[])].map(key=>cfg[key]));}
+        function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendTier','roamId','itemId','trainUid',...(cfg.mode==='train'?['trainUids','trainLevel','trainRank','trainGems']:[]),'shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil','region',...(['dex','shiny'].includes(cfg.mode)?['Species','Weather','Regions'].map(suffix=>cfg.mode+suffix):[])].map(key=>cfg[key]));}
         query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings)&&current.progress){current.progress={budget:current.progress.budget};}Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
         query('#start-queue').onclick=()=>{engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start();syncSettings();render();};

@@ -174,7 +174,7 @@
             this.startBattle = !cp && s.adv.battle ? this.ordinaryBattleKey(s) : null;
             this.startItems=itemCounter(s,cfg.itemId);
             this.sessionItemId=cfg.itemId;
-            this.trainProtected=cfg.mode==='train'?(cfg.trainUid==='team'?[...s.team]:[cfg.trainUid]):[];
+            this.trainProtected=cfg.mode==='train'?trainingUids(s,cfg):[];
             this.trainingSelection=cfg.trainUid;
             this.startTrainingXp=cfg.mode==='train'?experienceTotal(s,this.trainProtected):null;
             const xpRegion=cfg.mode==='train'?economicRegion(s):null;
@@ -388,6 +388,11 @@
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=daily?dailyMainMode(this.settings):this.settings.mode;
                 if(daily&&(!DAILY_BASE_MODES.has(mode)||!s.adv.badges?.includes('Maître')))throw new Error('取得关都冠军徽章后，请在通关日常中选择每日主线');
+                if(mode==='train'&&this.settings.trainUid==='selected'&&!cp){
+                    const plan=trainingStatus(s,this.settings);
+                    if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');
+                    if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
+                }
                 const ownedFlow=mode==='tower'&&!!s.adv.tower&&s.adv.tower.kind!=='candy'||mode==='candy'&&s.adv.tower?.kind==='candy'||mode==='elite'&&!!s.adv.league||mode==='world'&&s.adv.zone?.id===493;
                 if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend')&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
                 const rememberedRaid=cp?.activity?.raid;
@@ -491,7 +496,7 @@
                 if(this.services.underground?.action==='dispatch'&&!this.services.underground.launch)this.services.underground.returning=true;
                 this.driver.recent?.clear();
                 this.coach.checked=null;this.coach.ready=null;
-                this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;
+                this.automation.owner=null;this.automation.rankUI=null;this.automation.buddyTask=null;this.automation.buffUI=null;
                 this.automation.eggFX=null;delete this.automation.state.eggReceiptUntil;
                 this.legendProbe=null;this.farmWait=null;
                 this.nextWake=null;
@@ -670,7 +675,7 @@
             if(this.automation.state.resourceBuffTx?.at!=null)this.automation.state.resourceBuffTx.at+=duration;
             if(this.automation.state.resourceTx?.at!=null)this.automation.state.resourceTx.at+=duration;
             if(this.automation.state.pensionPurchase?.at!=null)this.automation.state.pensionPurchase.at+=duration;
-            for(const tx of [this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure])if(tx?.at!=null)tx.at+=duration;
+            for(const tx of [this.automation.rankUI,this.automation.state.rankReceipt,this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure])if(tx?.at!=null)tx.at+=duration;
             if(this.automation.state.candyEndedAt!=null)this.automation.state.candyEndedAt+=duration;
             const eggs=this.automation.state;
             if(eggs.eggService){eggs.eggService.started+=duration;if(eggs.eggService.tx)eggs.eggService.tx.at+=duration;}
@@ -744,6 +749,7 @@
                 if(selector&&visible($('#modal-root.open '+selector)))this.automation.own(this.settings.mode==='elite'?'gem':'receipt',selector);
             }
             // FX can cover an owned item card; finish the top overlay before using the card again.
+            if ((this.automation.rankUI||this.automation.state.rankReceipt)&&this.automation.advanceTrainingRank(s,now))return;
             if (this.automation.evolutionUI(s,now) || this.automation.eggUI(s,now) || this.driver.animations(s) || this.driver.dismissInformation?.(s) || this.driver.receipt() || this.automation.finishDeparture(s,now) || this.automation.dialog(s) || this.driver.dialog(s)) return;
             if (this.driver.ownedDialog) return;
             if (visible($('#modal-root.open')) || visible($('#evt-pick'))) {
@@ -796,6 +802,21 @@
                 if(this.preparation.roadWait)this.preparation.roadWait.at=now;
                 this.preparation.routeCheck=0;this.preparation.routeProfile=null;this.lastProgress=now;
                 this.log('继续之前的补练任务');
+            }
+            const canCultivate=!inActivity&&!this.preparation&&!this.raidProbe&&!this.raidReturn&&!settling&&this.settings.mode==='train';
+            if(canCultivate&&this.settings.trainUid==='selected'&&this.settings.autoTeam&&!outcome?.failed){
+                const ids=trainingUids(s,this.settings,this.trainProtected);
+                const needsParty=ids.some(uid=>!s.team.includes(uid))&&(!outcome||trainingGemTarget(s,this.settings,ids,this.budget,this.automation.state.rankSkipped));
+                if(needsParty){
+                    if(this.driver.teamTask){this.driver.adventureTeam(s,now);return;}
+                    if(now<this.teamRetryAt){this.status='等待游戏允许重新配置培育队伍';this.lastProgress=now;return;}
+                    this.driver.teamTask={uids:trainingParty(s,ids),members:[s.adv.chapter],chapter:s.adv.chapter,started:now,attempts:0};
+                    this.status='正在把指定培育目标编入冒险队伍';return;
+                }
+            }
+            if(canCultivate&&!this.driver.teamTask&&this.settings.trainGems){
+                const target=trainingGemTarget(s,this.settings,this.trainProtected,this.budget,this.automation.state.rankSkipped);
+                if(target && this.automation.advanceTrainingRank(s,now,target))return;
             }
             if(outcome){
                 const p=this.preparation;
@@ -1067,7 +1088,7 @@
             const roamId=roam?roamingSettings(this.settings).roamId:undefined;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
-            const pinned=this.settings.mode==='train'?(this.trainProtected||(this.settings.trainUid==='team'?s.team:[this.settings.trainUid])):[];
+            const pinned=this.settings.mode==='train'?trainingUids(s,this.settings,this.trainProtected):[];
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
             if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths)return false;

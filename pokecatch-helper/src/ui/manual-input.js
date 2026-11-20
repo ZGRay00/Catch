@@ -26,7 +26,9 @@
         document.addEventListener('freeze',leavePage);
 
         function manualEvent(event){
-            if(!engine.running||!engine.settings.manualPause||!outside(event))return;
+            if(!engine.running||!outside(event))return;
+            if(engine.automation?.rankUI)engine.automation.rankUI=null;
+            if(!engine.settings.manualPause)return;
             const changed=!engine.manual,previousHeld=engine.inputHeld;
             engine.manualInput();
             if(engine.manual){

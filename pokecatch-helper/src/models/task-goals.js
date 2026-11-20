@@ -28,8 +28,9 @@
             break;
         case 'train': {
             const training=trainingStatus(s,cfg,e.trainProtected);
-            if(training.missing)return{failed:true,reason:'练级目标不在冒险队伍中，请重新选择'};
-            if(training.complete)reason=`练级目标已达到 Lv.${cfg.trainLevel}`;
+            if(training.conflict)return{failed:true,reason:'指定目标占用同一出战名额，请分成两个培育任务'};
+            if(training.missing)return{failed:true,reason:cfg.trainUid==='selected'?'培育目标未持有、地区不符或未加入手动队伍，请核对选择':'练级目标不在冒险队伍中，请重新选择'};
+            if(training.complete){reason=`练级目标已达到 Lv.${cfg.trainLevel}`;if(cfg.trainGems&&cfg.trainLevel===100&&cfg.trainUid!=='team'&&training.targets.some(m=>(m.rank||0)<cfg.trainRank))reason+=' · 部分目标未升阶，请核对最终形态、库存宝石和道具额度';}
             else if(training.capped)return{failed:true,reason:`已达到当前等级上限 Lv.${training.cap}，请推进主线后继续`};
             break;
         }

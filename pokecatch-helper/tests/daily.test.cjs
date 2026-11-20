@@ -81,3 +81,61 @@ test('a weekly tower checkpoint restores the selected shiny targets, budget and 
     assert.equal(reload.settings.mode,'shiny');assert.equal(reload.idleTaskSettings().mode,'progress');
     assert.equal(reload.budget.used,4);assert.equal(reload.dailyStep(s,now+6000,false),false);
 });
+
+test('daily training keeps individual PC and party UIDs across a facility interruption and reload',()=>{
+    const s=save(),e=engine(s);
+    s.mons.push({uid:'b',id:9,level:82},{uid:'c',id:25,level:20});
+    const cfg=H.normalizeSettings({mode:'train',dailyMain:'train',trainUid:'selected',trainUids:['b','a','b'],trainGems:true});
+    e.settings=cfg;e.beginTask(s,null,now);e.daily={base:cfg,menuMode:'money',job:null};
+    assert.deepEqual(e.trainProtected,['b','a']);
+    assert.equal(H.trainingStatus(s,cfg).missing,false);
+    assert.equal(H.trainingStatus(s,{...cfg,autoTeam:false}).missing,true);
+    assert.ok(e.dailyStep(s,now,false));e.persist();
+    const restored=new H.Engine(e.storage);restored.loadAccount(s);
+    const cp=restored.checkpoint;restored.settings=restored.taskSettings(cp.settings);
+    restored.daily=cp.daily;restored.beginTask(s,cp,now+1000);
+    restored.returnFromDaily('结束',H.nextParisReset(now),now+2000);
+    assert.deepEqual(restored.trainProtected,['b','a']);assert.equal(restored.settings.trainGems,true);
+    assert.equal(restored.idleTaskSettings().mode,'money');
+    s.team=['a','b','c'];assert.equal(H.selectTrainingBuddy(s,cfg), 'a');
+    s.mons[1].level=s.mons[0].level=100;assert.equal(H.trainingStatus(s,cfg).complete,true);
+    s.mons[1].id=s.mons[0].id;assert.equal(H.trainingStatus(s,cfg).conflict,true);
+});
+
+test('rank-up is opt-in, explicit, final-form only and bounded by a single gem stack, rank and use allowance',()=>{
+    const s=save(),e=engine(s);s.mons[0].level=100;s.under={gems:{'fire:2':1,'flying:2':1}};
+    const cfg=H.normalizeSettings({mode:'train',trainUid:'selected',trainUids:['a'],trainGems:true,trainRank:2});
+    e.settings=cfg;
+    const pick=(extra={},skipped={})=>H.trainingGemTarget(s,{...cfg,...extra},null,e.budget,skipped);
+    const first=pick();assert.equal(first.next,1);assert.equal(first.uid,'a');
+    assert.equal(pick({},{a:first.key}),null);
+    for(const extra of [{trainGems:false},{mode:'money'},{trainUid:'team'},{trainLevel:95},{trainUids:[]}])assert.equal(pick(extra),null);
+    assert.equal(H.normalizeSettings({}).trainGems,false);
+    s.mons[0].id=5;assert.equal(pick(),null);s.mons[0].id=6;
+    s.mons[0].rank=1;assert.equal(pick(),null);
+    s.under.gems['fire:2']=2;assert.equal(pick().next,2);
+    e.budget.used=cfg.useBudget-1;assert.equal(pick(),null);e.budget.used=0;
+    assert.equal(pick({trainRank:1}),null);
+    s.mons[0].level=99;assert.equal(pick(),null);
+});
+
+test('native rank confirmation reserves exactly once and reconciles the saved result after reload',t=>{
+    const s=save(),e=engine(s),a=e.automation;
+    e.settings=H.normalizeSettings({mode:'train',trainUid:'selected',trainUids:['a'],trainGems:true});
+    s.mons[0].level=100;s.under={gems:{'fire:2':1}};
+    const target=H.trainingGemTarget(s,e.settings,null,e.budget);
+    const node=()=>({isConnected:true,closest:()=>null,getClientRects:()=>[{}],getAttribute:()=>null});
+    const gold=node(),modal={...node(),matches:sel=>sel.includes('.rk-modal'),querySelector:sel=>({'.rk-q':{},'.dc-fact b':{textContent:'1 颗宝石'},'.modal-actions .gold':gold})[sel]};
+    const oldDoc=global.document,oldStyle=global.getComputedStyle;
+    global.document={hidden:false,querySelector:sel=>sel==='#modal-root.open .modal'?modal:null};
+    global.getComputedStyle=()=>({display:'block',visibility:'visible',opacity:1});
+    t.after(()=>{if(oldDoc===undefined)delete global.document;else global.document=oldDoc;if(oldStyle===undefined)delete global.getComputedStyle;else global.getComputedStyle=oldStyle;});
+    e.mayPersist=()=>true;let saved,clicks=0;e.persist=()=>{saved=structuredClone(a.state);return true;};
+    e.driver.click=el=>{assert.equal(el,gold);assert.ok(saved.rankReceipt);assert.equal(e.budget.used,1);clicks++;return true;};
+    a.rankUI={...target,stage:'confirm',at:now};
+    assert.ok(a.advanceTrainingRank(s,now));assert.equal(clicks,1);
+    a.rankUI=null;a.state=saved;assert.ok(a.advanceTrainingRank(s,now+1000));assert.equal(clicks,1);
+    Object.assign(s.mons[0],{level:5,rank:1,xp:0});assert.ok(a.advanceTrainingRank(s,now+2000));
+    assert.equal(a.state.rankReceipt,undefined);assert.equal(clicks,1);assert.equal(e.budget.used,1);
+    assert.equal(H.trainingStatus(s,e.settings).complete,false);
+});

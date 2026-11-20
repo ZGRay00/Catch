@@ -35,7 +35,7 @@
         get buffRetry(){return this.state.buffRetry||={};}
         set buffRetry(value){this.state.buffRetry=value||{};}
         constructor(engine){this.e=engine;this.state={};this.owner=null;this.lastService=0;}
-        begin(s){this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
+        begin(s){this.rankUI=null;this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
         wait(text,at){this.e.status=text;this.e.lastProgress=Date.now();this.e.nextWake=at||null;}
         fail(text){this.e.failTask(text);}
         done(text){this.e.completeTask(text);}
@@ -822,6 +822,85 @@
                 e.returnFromDaily('首领暂无可执行机会',Math.min(nextParisReset(now),cd.length?Math.min(...cd):now+30*60000),now);return;
             }
             this.wait(delta>=cfg.worldActions?'本次攻击目标已完成，等待世界首领捕获阶段':'等待世界首领阶段、登录或可用攻击成员',cd.length?Math.min(...cd):now+60000);
+        }
+        advanceTrainingRank(s,now,target=null){
+            const e=this.e,d=e.driver,receipt=this.state.rankReceipt;
+            if(receipt){
+                const fx=$('.rk-fx');
+                if(visible(fx)&&now-receipt.at<=90000){
+                    const ok=fx.querySelector('.rk-ok');
+                    if(enabled(ok))d.click(ok,'结束宝石升阶动画');
+                    else if(e.settings.animations)d.click(fx.querySelector('.rk-skip'),'跳过宝石升阶动画');
+                    return true;
+                }
+                const mon=s.mons.find(m=>m.uid===receipt.uid);
+                if(!visible(fx)&&mon?.id===receipt.id && mon.rank===receipt.next){
+                    const card=$('#modal-root.open .mon-modal .mon-card');
+                    if(visible(card)&&monIdFrom(card.querySelector('.dc-hero')||card)===mon.id){
+                        d.click(card.querySelector('.dc-x'),'关闭升阶后的成员详情');return true;
+                    }
+                    delete this.state.rankReceipt;this.rankUI=null;
+                    if(Number.isFinite(receipt.oldXp)&&Number.isFinite(e.startTrainingXp)){
+                        const resetXp=experienceTotal({...s,mons:[{...mon,level:5,xp:0}]},[mon.uid]);
+                        if(resetXp!=null)e.startTrainingXp-=receipt.oldXp-resetXp;
+                    }
+                    e.teamCheck=null;e.telemetry.sample=null;
+                    e.log('宝石升阶已确认 · '+MONS.get(mon.id).name+' '+mon.rank+' 阶，继续练级');e.persist();
+                    return true;
+                }
+                if(now-receipt.at>90000)this.fail('宝石使用结果尚未确认，请核对目标阶数和库存后继续');
+                else e.status='等待游戏保存目标阶数';
+                return true;
+            }
+            let task=this.rankUI;
+            if(!task){
+                if(!target||s.adv.pending||this.owner||d.ownedDialog||visible($('#modal-root.open')))return false;
+                task=this.rankUI={...target,stage:'team',at:now};
+            }
+            const skip=reason=>{
+                (this.state.rankSkipped||={})[task.uid]=task.key;
+                e.log('跳过本次升阶 · '+reason);this.rankUI=null;
+                return false;
+            };
+            const current=trainingGemTarget(s,e.settings,e.trainProtected,e.budget,this.state.rankSkipped);
+            if(current?.uid!==task.uid||current.key!==task.key||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league){
+                this.rankUI=null;return false;
+            }
+            if(now-task.at>30000)return skip('游戏未显示预期的升阶控件');
+            e.status='目标培育 · '+MONS.get(task.id).name+' → '+task.next+' 阶';
+            const modal=$('#modal-root.open .modal');
+            if(task.stage==='team'){
+                if(visible(modal))return skip('页面出现其他弹窗');
+                if(!d.nav('team'))return true;
+                const member=$$('#team-slots [data-uid],#team-mini.show [data-uid]').find(el=>el.dataset.uid===task.uid&&enabled(el));
+                if(member&&d.click(member,'打开指定培育队员'))task.stage='card';
+                return true;
+            }
+            if(!visible(modal))return true;
+            if(task.stage==='card'){
+                const card=modal.querySelector('.mon-card');
+                if(!modal.matches('.mon-modal')||!card||monIdFrom(card.querySelector('.dc-hero')||card)!==task.id)return skip('目标详情与所选队员不符');
+                const button=card.querySelector('.more-actions .rk-btn');
+                if(!enabled(button)){
+                    if(d.click(card.querySelector('.dc-x'),'关闭未满足升阶条件的详情'))skip('当前没有足够的对应稀有度宝石或游戏尚未开放升阶');
+                    return true;
+                }
+                if(d.click(button,'查看指定队员升阶费用')){task.card=modal;task.stage='confirm';}
+                return true;
+            }
+            if(modal===task.card)return true;
+            if(!modal.matches('.rk-modal:not(.lgp-modal)')||!modal.querySelector('.rk-q'))return skip('无法核对升阶窗口');
+            const costText=modal.querySelector('.dc-fact b')?.textContent||'';
+            const counts=costText.match(/\d+/g);
+            if(modal.querySelector('.ot-warn')||counts?.length!==1||Number(counts[0])!==task.next){
+                if(d.click(modal.querySelector('.modal-actions .ghost'),'取消条件不符的升阶'))skip('游戏提示仍可进化或费用已变化');
+                return true;
+            }
+            // spentClick persists the receipt and allowance together before dispatch.
+            this.state.rankReceipt={uid:task.uid,id:task.id,next:task.next,at:now,oldXp:experienceTotal(s,[task.uid])};
+            if(this.spentClick(modal.querySelector('.modal-actions .gold'),s,0,task.next,'使用库存宝石升阶'))this.rankUI=null;
+            else{delete this.state.rankReceipt;e.persist();}
+            return true;
         }
         buddyTarget(s){
             const e=this.e,a=s.adv;

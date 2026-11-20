@@ -33,7 +33,7 @@
         autoTeam: true, teamMinutes: 5,autoEvolve:true,activeSwitch:false,
         autoPrepare:true,prepareMargin:2,prepareGap:3,prepareIdleMinutes:5,progressCandy:true,
         legendId: 145, legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
-        trainUid: 'team', trainLevel: 100,
+        trainUid: 'team', trainUids: [], trainLevel: 100, trainGems: false, trainRank: 1,
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
         dexRegions:[],dexSpecies:[],dexWeather:[],shinyRegions:[],shinySpecies:[],shinyWeather:[],
@@ -62,7 +62,7 @@
         // Public game buttons are ×1 (1) and ×3 (4). On the hosted game,
         // an old save with speed 2 advances at the highest supported speed <= 2.
         if(raw.speed===2||raw.speed==='2')out.speed=1;
-        const choices = { mode: Object.keys(MODE_NAMES), dailyMain:['current','dex','money','shiny'], speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
+        const choices = { mode: Object.keys(MODE_NAMES), dailyMain:['current','dex','money','shiny','train'], speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
         for (const [k, allowed] of Object.entries(choices)) if (allowed.includes(raw[k])) out[k] = raw[k];
         for (const [k, lo, hi] of [['sampleMinutes', 1, 30], ['rotateMinutes', 2, 120], ['raidMinutes', 5, 720], ['lossLimit', 1, 20], ['stopMinutes', 0, 1440], ['moneyTarget', 0, 1e12], ['legendTier', 0, 5], ['legendMinutes', 5, 720], ['roamMinutes', 5, 720], ['itemQuantity', 1, 99999], ['trainLevel', 1, 100], ['resumeSeconds', 3, 300], ['teamMinutes', 1, 60]]) {
             out[k] = clamp(raw[k], lo, hi, DEFAULTS[k]);
@@ -93,6 +93,8 @@
         if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
         if([243,244,245,380,381,481,641,642].includes(+raw.roamId))out.roamId=+raw.roamId;
         if (ITEMS.has(raw.itemId)) out.itemId = raw.itemId;
+        out.trainUids = [...new Set((Array.isArray(raw.trainUids) ? raw.trainUids : []).filter(uid => typeof uid === 'string' && uid.length > 0 && uid.length <= 120))].slice(0,6);
+        out.trainRank = Math.floor(clamp(raw.trainRank,1,5,1));
         if (typeof raw.trainUid === 'string' && raw.trainUid.length > 0 && raw.trainUid.length <= 120) out.trainUid = raw.trainUid;
         return out;
     }

@@ -85,21 +85,58 @@
         const values=DATA.regions.filter(r=>open.has(r.key)&&r.start<=s.adv.unlocked).map(r=>regional(r.key));
         return Math.min(100,...(values.length?values:[caps.main]));
     }
+    function trainingUids(s,settings,pinned) {
+        if (Array.isArray(pinned) && pinned.length) return [...pinned];
+        if (settings.trainUid === 'selected') return [...(settings.trainUids || [])];
+        return settings.trainUid === 'team' ? [...(s.team || [])] : [settings.trainUid];
+    }
+    function trainingParty(s,targets){
+        const roster=new Map(s.mons.map(mon=>[mon.uid,mon])), seen=new Set(), uids=[];
+        for(const uid of new Set([...targets,...s.team])){
+            const mon=roster.get(uid);if(!mon)continue;
+            const slot=DATA.combat.singles[mon.id]||mon.id+':'+Number(!!mon.shiny);
+            if(seen.has(slot))continue;
+            seen.add(slot);uids.push(uid);
+            if(uids.length===6)break;
+        }
+        return uids;
+    }
     function trainingStatus(s, settings, protectedUids = null) {
-        const party = partyMons(s), ids=settings.trainUid==='team'&&protectedUids?.length?protectedUids:null;
-        const targets = ids ? ids.map(uid=>(s.mons||[]).find(m=>m.uid===uid)).filter(Boolean) : settings.trainUid === 'team' ? party : party.filter(m => m.uid === settings.trainUid);
-        const missing=!targets.length||!!ids&&(targets.length!==ids.length||ids.some(uid=>!s.team?.includes(uid)));
+        const ids=trainingUids(s,settings,protectedUids), party=partyMons(s);
+        const source=settings.trainUid==='selected'&&settings.autoTeam?s.mons||[]:party;
+        const targets=ids.map(uid=>source.find(mon=>mon.uid===uid)).filter(Boolean);
+        const usedSlots=new Set(targets.map(mon=>DATA.combat.singles[mon.id]||mon.id+':'+Number(!!mon.shiny)));
+        const conflict=settings.trainUid==='selected'&&usedSlots.size!==targets.length;
+        const missing=conflict||!ids.length || targets.length!==ids.length || settings.trainUid==='selected'&&targets.some(mon=>!teamEligible(s,mon));
         const available = targets.filter(m => m.level < Math.min(settings.trainLevel, trainingCap(s, m)));
-        return { targets, available, missing, complete: !missing && targets.every(m => m.level >= settings.trainLevel),
+        return { targets, available, missing, conflict, complete: !missing && targets.every(m => m.level >= settings.trainLevel),
             capped: targets.length > 0 && !available.length && targets.some(m => m.level < settings.trainLevel),
             cap: targets.length ? Math.min(...targets.map(m => trainingCap(s, m))) : 0 };
+    }
+    function trainingGemTarget(s,cfg,pinned,budget,skipped={}) {
+        if(cfg.mode!=='train'||!cfg.trainGems||cfg.trainUid==='team'||cfg.trainLevel!==100)return null;
+        const status=trainingStatus(s,cfg,pinned);
+        if(status.missing)return null;
+        const gems=s.under?.gems||{};
+        for(const mon of status.targets){
+            const next=(mon.rank||0)+1, model=MONS.get(mon.id);
+            if(!model||mon.level!==100||next>cfg.trainRank||trainingCap(s,mon)<100||
+                EVOLUTION_DATA.rules[mon.id]?.length||budget.check(s,0,next))continue;
+            // The native rank button verifies rarity. Both types can supply the cost,
+            // but several smaller gem stacks cannot pay for one rank together.
+            const stock=Object.entries(gems).filter(([key,count])=>model.types.includes(key.split(':')[0])&&Number.isSafeInteger(count)&&count>=next);
+            if(!stock.length)continue;
+            const key=JSON.stringify([mon.id,next,stock.sort()]);
+            if(skipped[mon.uid]!==key)return {uid:mon.uid,id:mon.id,next,key};
+        }
+        return null;
     }
     function selectTrainingBuddy(s,settings,preparation=null,protectedUids=null){
         const party=new Set(s.team||[]),road=new Set(Array.isArray(s.road)&&s.road.length?s.road:s.team||[]);
         let targets;
         if(preparation)targets=preparation.targets||[];
         else if(settings.mode==='train'){
-            const ids=settings.trainUid==='team'?(protectedUids?.length?protectedUids:s.team||[]):[settings.trainUid];
+            const ids=trainingUids(s,settings,protectedUids);
             targets=ids.map(uid=>({uid,goal:settings.trainLevel}));
         }else return null;
         const goals=new Map(targets.map(target=>[target.uid,target.goal]));

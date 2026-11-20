@@ -53,6 +53,23 @@ test('wallet-only saves skip hatch reconciliation and deep ledger copies; new eg
     assert.equal(JSON.parse(f.data.get(f.key)).stats.shinyObserved,1);
 });
 
+test('unobserved offline hatches leave no PC scans on unrelated battle saves',t=>{
+    const f=fixture();f.s.stats.hatched+=7;f.commit();
+    const ledger=f.e.nurseryMonitor.ledger,observe=t.mock.method(ledger,'observe'),backfill=t.mock.method(ledger,'reconcileHatchlings');
+    for(let i=0;i<20;i++){f.s.money=i;f.commit();}
+    assert.equal(ledger.stats.unknownHatched,7);
+    assert.equal(observe.mock.callCount(),0);assert.equal(backfill.mock.callCount(),0);
+});
+
+test('an unchanged save still expires a pending disappearance after the matching window',()=>{
+    const f=fixture();f.s.pension.eggs=[{id:25,uid:'removed',shiny:false}];f.commit();
+    f.s.pension.eggs=[];f.commit();
+    const ledger=f.e.nurseryMonitor.ledger,at=ledger.pending[0].at;
+    f.e.nurseryMonitor.observe(f.e.state,at+120000,false);assert.equal(ledger.pending.length,1);
+    f.e.nurseryMonitor.observe(f.e.state,at+120001,false);assert.equal(ledger.pending.length,0);
+    assert.equal(JSON.parse(f.data.get(f.key)).stats.unconfirmedDisappearances,1);
+});
+
 test('history backfill uses hatchling evidence from the current decoded save and persists it exactly once',()=>{
     const f=fixture(),source=new H.NurseryLedger(),at=Date.now(),unknown={build:'unknown-test-build'};
     const egg={uid:'observed-egg',id:25,k:17,sp:2};

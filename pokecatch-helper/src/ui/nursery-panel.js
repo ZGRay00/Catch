@@ -1,7 +1,7 @@
     function mountNurseryPanel(root,engine,{preferences={},save=()=>{},onChange=()=>{}}={}){
         const box=document.createElement('div');box.id='nursery-info';box.className='nursery-card';
         box.innerHTML=`<div class="nursery-heading"><h3>孵化器</h3><span id="nursery-summary"></span></div>
-            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
+            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
             <h3>下一枚与闪蛋预测</h3><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
@@ -101,7 +101,7 @@
                 scan=nurseryForecastSteps(s,{...options,estimateUnverified:true});advance();
             }
             snap.forecast=forecast;
-            write('#nursery-shiny',snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
+            write('#nursery-shiny',snap.counts.unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');

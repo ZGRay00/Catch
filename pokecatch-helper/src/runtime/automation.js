@@ -274,8 +274,7 @@
                 if(!eggs.length)return false;
                 if($$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
                 // The native ready control wins over wall-clock estimates when already visible.
-                const ready=$$('#pen-eggs .pen-egg.ready[data-egg]').find(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
-                if(!ready&&!eggs.some(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now))return false;
+                if(!readyBackgroundEggs(s,now).length)return false;
                 const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=this.state.eggService={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
@@ -293,13 +292,14 @@
                 else{task.returning=true;this.state.eggRetryAt=now+60000;delete task.tx;e.log('收蛋未获确认，暂缓一分钟后重试');}
             }
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
-            const due=eggs.some(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now)||
-                $$('#pen-eggs .pen-egg.ready[data-egg]').some(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
+            const due=readyBackgroundEggs(s,now).length>0;
             if(!e.settings.autoEggs||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
-                const ready=$$('#pen-eggs .pen-egg.ready[data-egg]').find(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
-                if(ready){
+                const buttons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
+                if(buttons.length){
+                    const rules=buttons.length>1?nurseryRuntimeOptions():null;
+                    const ready=(rules&&buttons.find(el=>eggOutcome(s,eggs.find(egg=>String(egg.uid)===el.dataset.egg),rules).shiny===true))||buttons[0];
                     task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};e.persist();
                     if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptUntil=now+15000;}
                     else delete task.tx;
@@ -484,12 +484,12 @@
             }
             if(this.state.hatch&&!eggs.some(x=>x.uid===this.state.hatch.uid)){
                 const tx=this.state.hatch, count=s.stats?.hatched||0;
-                if(tx.target && count===tx.before){
+                if(count===tx.before){
                     if(tx.disappearedAt==null){tx.disappearedAt=now;e.persist();}
                     if(now-tx.disappearedAt<NURSERY_LEDGER_LIMITS.windowMs){
-                        this.wait('目标蛋已离开孵化器，等待游戏写入孵化计数');return;
+                        this.wait((tx.target?'目标蛋':'蛋')+'已离开孵化器，等待游戏写入孵化计数');return;
                     }
-                    e.log('未收到目标蛋的孵化确认，继续等待下一枚目标蛋');
+                    e.log('未收到游戏孵化计数，本枚蛋未计入任务');
                 }
                 if(count>tx.before&&tx.target)this.state.hatched=(this.state.hatched||0)+1;
                 if(this.owner?.kind==='receipt'&&this.owner.selector==='.dexcard-modal'&&!visible($('#modal-root.open .dexcard-modal')))this.owner=null;

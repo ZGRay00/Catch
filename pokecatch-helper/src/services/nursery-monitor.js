@@ -45,8 +45,16 @@
                     const latest=this.e.raw!=null&&this.e.state?this.e.state:s;
                     const key=JSON.stringify([options.build,latest.trainer?.since,latest.trainer?.id,latest.stats?.hatched,latest.pension?.eggs]);
                     const l=this.ledger;
-                    if(!l.initialized||l.dirty||key!==this.observationKey||l.pending.length||l.credits.length||l.stats.unknownHatched){
-                        l.observe(latest,now,options);this.observationKey=key;
+                    const expired=row=>now-row.at>NURSERY_LEDGER_LIMITS.windowMs;
+                    if(!l.initialized||key!==this.observationKey||l.pending.some(expired)||l.credits.some(expired)){
+                        l.observe(latest,now,options);
+                        this.observationKey=key;
+                        this.evidenceRows=l.hatchlingsAwaitingEvidence();
+                        this.evidenceSave=this.evidenceRows.length&&this.e.raw!=null?latest:null;
+                    }else if(this.evidenceRows.length&&latest!==this.evidenceSave){
+                        // A later PC save can identify an unknown hatch without replaying the whole ledger.
+                        if(l.reconcileHatchlings(latest,now,this.evidenceRows))this.evidenceRows=l.hatchlingsAwaitingEvidence();
+                        this.evidenceSave=this.evidenceRows.length&&this.e.raw!=null?latest:null;
                     }
                     if(!l.dirty){this.error='';return result();}
                     if(!this.e.mayPersist())return result();

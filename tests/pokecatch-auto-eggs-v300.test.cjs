@@ -136,6 +136,30 @@ test('a confirmed target shiny egg preserves the parent setup and is first to ha
     f.advance(10000);f.e.automation.breed(f.s,f.now());assert.deepEqual(f.clicks().map(c=>c.uid),['shiny']);
 });
 
+test('background collection prioritizes only confirmed shiny, mature eggs, then keeps native order',t=>{
+    const f=fixture(t),now=f.now();
+    f.s.pension.eggs=[{id:1,uid:'unknown',k:3,hatchAt:now},{id:4,uid:'ordinary',shiny:false,hatchAt:now},
+        {id:7,uid:'ready-shiny',shiny:true,hatchAt:now},{id:25,uid:'future-shiny',shiny:true,hatchAt:now+60000}];
+    for(let i=0;i<4;i++){f.service();f.advance(1200);}
+    assert.deepEqual(f.clicks().map(c=>c.uid),['ready-shiny','unknown','ordinary']);
+    assert.equal(f.e.automation.state.autoHatched,3);
+});
+
+test('a late counter for a non-target hatch cannot finish the following target',t=>{
+    const f=fixture(t,{mode:'breed',breedId:1,breedGoal:1,breedShiny:false},{deferCommit:true});
+    const tick=()=>{f.e.automation.breed(f.s,f.now());f.advance(1200);};
+    f.s.pension.eggs[0].hatchAt=f.now()+1200;
+    f.s.pension.eggs.unshift({id:4,uid:'other',hatchAt:f.now()});
+    tick();f.s.pension.eggs.shift();tick();tick();
+    assert.deepEqual(f.clicks().map(c=>c.uid),['other']);
+    f.s.stats.hatched++;tick();
+    assert.deepEqual(f.clicks().map(c=>c.uid),['other','egg-a']);
+    f.s.pension.eggs=[];tick();
+    assert.equal(f.e.automation.state.hatched||0,0);
+    f.s.stats.hatched++;tick();
+    assert.equal(f.e.automation.state.hatched,1);assert.match(f.e.status,/目标已完成/);
+});
+
 test('a manually chosen incomplete party does not start native auto-fill through egg collection', t => {
     const f = fixture(t, { autoTeam: false }), before = [...f.s.team];
     assert.equal(f.service(), false);

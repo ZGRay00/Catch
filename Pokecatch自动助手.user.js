@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.6.3
+// @version      5.6.4
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.6.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '5.6.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1369,7 +1369,7 @@
     // These functions read decoded saves. They never consume a roll, save or game action.
     const NURSERY_BUILDS=Object.freeze({
         '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
-        'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a'
+        'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze(Object.values(NURSERY_BUILDS)),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -1692,10 +1692,12 @@
             const unknown=count-shiny-plain;
             this.event('hatch-confirmed',`已核对孵化 ${count} 枚：异色 ${shiny}、普通 ${plain}${unknown?'、结果未知 '+unknown:''}`,now);
         }
-        reconcileHatchlings(s,now){
-            if(!this.stats.unknownHatched)return;
-            const rows=this.recent.filter(row=>row.status==='hatched'&&!row.known&&row.source!=='duplicate'&&row.uid
+        hatchlingsAwaitingEvidence(){
+            if(!this.stats.unknownHatched)return [];
+            return this.recent.filter(row=>row.status==='hatched'&&!row.known&&row.source!=='duplicate'&&row.uid
                 &&Number.isSafeInteger(row.egg?.k)&&row.egg.k>=0);
+        }
+        reconcileHatchlings(s,now,rows=this.hatchlingsAwaitingEvidence()){
             if(!rows.length)return;
             // Native hatchEgg copies the egg UID and serial to an actual hatchling. Duplicates
             // can pay candy instead, and a previous PC UID collision creates a different UID.
@@ -1714,6 +1716,7 @@
                 this.stats.unknownHatched--;confirmed++;
             }
             if(confirmed)this.event('hatch-evidence',`已按孵出个体的蛋身份与编号补全 ${confirmed} 枚闪色记录`,now);
+            return confirmed;
         }
         observe(s,now=Date.now(),options={}){
             if(!s||typeof s!=='object'||Array.isArray(s))return options.snapshot===false?undefined:this.snapshot();
@@ -1818,8 +1821,16 @@
                     const latest=this.e.raw!=null&&this.e.state?this.e.state:s;
                     const key=JSON.stringify([options.build,latest.trainer?.since,latest.trainer?.id,latest.stats?.hatched,latest.pension?.eggs]);
                     const l=this.ledger;
-                    if(!l.initialized||l.dirty||key!==this.observationKey||l.pending.length||l.credits.length||l.stats.unknownHatched){
-                        l.observe(latest,now,options);this.observationKey=key;
+                    const expired=row=>now-row.at>NURSERY_LEDGER_LIMITS.windowMs;
+                    if(!l.initialized||key!==this.observationKey||l.pending.some(expired)||l.credits.some(expired)){
+                        l.observe(latest,now,options);
+                        this.observationKey=key;
+                        this.evidenceRows=l.hatchlingsAwaitingEvidence();
+                        this.evidenceSave=this.evidenceRows.length&&this.e.raw!=null?latest:null;
+                    }else if(this.evidenceRows.length&&latest!==this.evidenceSave){
+                        // A later PC save can identify an unknown hatch without replaying the whole ledger.
+                        if(l.reconcileHatchlings(latest,now,this.evidenceRows))this.evidenceRows=l.hatchlingsAwaitingEvidence();
+                        this.evidenceSave=this.evidenceRows.length&&this.e.raw!=null?latest:null;
                     }
                     if(!l.dirty){this.error='';return result();}
                     if(!this.e.mayPersist())return result();
@@ -5180,8 +5191,7 @@
                 if(!eggs.length)return false;
                 if($$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
                 // The native ready control wins over wall-clock estimates when already visible.
-                const ready=$$('#pen-eggs .pen-egg.ready[data-egg]').find(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
-                if(!ready&&!eggs.some(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now))return false;
+                if(!readyBackgroundEggs(s,now).length)return false;
                 const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=this.state.eggService={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
@@ -5199,13 +5209,14 @@
                 else{task.returning=true;this.state.eggRetryAt=now+60000;delete task.tx;e.log('收蛋未获确认，暂缓一分钟后重试');}
             }
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
-            const due=eggs.some(egg=>Number.isFinite(egg.hatchAt)&&egg.hatchAt>0&&egg.hatchAt<=now)||
-                $$('#pen-eggs .pen-egg.ready[data-egg]').some(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
+            const due=readyBackgroundEggs(s,now).length>0;
             if(!e.settings.autoEggs||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
-                const ready=$$('#pen-eggs .pen-egg.ready[data-egg]').find(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
-                if(ready){
+                const buttons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
+                if(buttons.length){
+                    const rules=buttons.length>1?nurseryRuntimeOptions():null;
+                    const ready=(rules&&buttons.find(el=>eggOutcome(s,eggs.find(egg=>String(egg.uid)===el.dataset.egg),rules).shiny===true))||buttons[0];
                     task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};e.persist();
                     if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptUntil=now+15000;}
                     else delete task.tx;
@@ -5390,12 +5401,12 @@
             }
             if(this.state.hatch&&!eggs.some(x=>x.uid===this.state.hatch.uid)){
                 const tx=this.state.hatch, count=s.stats?.hatched||0;
-                if(tx.target && count===tx.before){
+                if(count===tx.before){
                     if(tx.disappearedAt==null){tx.disappearedAt=now;e.persist();}
                     if(now-tx.disappearedAt<NURSERY_LEDGER_LIMITS.windowMs){
-                        this.wait('目标蛋已离开孵化器，等待游戏写入孵化计数');return;
+                        this.wait((tx.target?'目标蛋':'蛋')+'已离开孵化器，等待游戏写入孵化计数');return;
                     }
-                    e.log('未收到目标蛋的孵化确认，继续等待下一枚目标蛋');
+                    e.log('未收到游戏孵化计数，本枚蛋未计入任务');
                 }
                 if(count>tx.before&&tx.target)this.state.hatched=(this.state.hatched||0)+1;
                 if(this.owner?.kind==='receipt'&&this.owner.selector==='.dexcard-modal'&&!visible($('#modal-root.open .dexcard-modal')))this.owner=null;
@@ -8701,7 +8712,7 @@
     function mountNurseryPanel(root,engine,{preferences={},save=()=>{},onChange=()=>{}}={}){
         const box=document.createElement('div');box.id='nursery-info';box.className='nursery-card';
         box.innerHTML=`<div class="nursery-heading"><h3>孵化器</h3><span id="nursery-summary"></span></div>
-            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
+            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
             <h3>下一枚与闪蛋预测</h3><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
@@ -8801,7 +8812,7 @@
                 scan=nurseryForecastSteps(s,{...options,estimateUnverified:true});advance();
             }
             snap.forecast=forecast;
-            write('#nursery-shiny',snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
+            write('#nursery-shiny',snap.counts.unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');

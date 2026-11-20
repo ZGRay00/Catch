@@ -133,10 +133,12 @@
             const unknown=count-shiny-plain;
             this.event('hatch-confirmed',`已核对孵化 ${count} 枚：异色 ${shiny}、普通 ${plain}${unknown?'、结果未知 '+unknown:''}`,now);
         }
-        reconcileHatchlings(s,now){
-            if(!this.stats.unknownHatched)return;
-            const rows=this.recent.filter(row=>row.status==='hatched'&&!row.known&&row.source!=='duplicate'&&row.uid
+        hatchlingsAwaitingEvidence(){
+            if(!this.stats.unknownHatched)return [];
+            return this.recent.filter(row=>row.status==='hatched'&&!row.known&&row.source!=='duplicate'&&row.uid
                 &&Number.isSafeInteger(row.egg?.k)&&row.egg.k>=0);
+        }
+        reconcileHatchlings(s,now,rows=this.hatchlingsAwaitingEvidence()){
             if(!rows.length)return;
             // Native hatchEgg copies the egg UID and serial to an actual hatchling. Duplicates
             // can pay candy instead, and a previous PC UID collision creates a different UID.
@@ -155,6 +157,7 @@
                 this.stats.unknownHatched--;confirmed++;
             }
             if(confirmed)this.event('hatch-evidence',`已按孵出个体的蛋身份与编号补全 ${confirmed} 枚闪色记录`,now);
+            return confirmed;
         }
         observe(s,now=Date.now(),options={}){
             if(!s||typeof s!=='object'||Array.isArray(s))return options.snapshot===false?undefined:this.snapshot();

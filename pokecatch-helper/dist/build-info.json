@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.6.3",
-  "scriptSha256": "7e37ed5ec0c0e7205322fed174d1b7441635dbbe5a7e6367e4ff339346ca2fc9",
-  "metadataSha256": "b3f611d7bf3642b3ab1800723c63a4b6d48f3702f1b95c03dab14a8beff28e8a",
+  "version": "5.6.4",
+  "scriptSha256": "185e3f614ee28a11c030de1a08582cb52a7010b16631159241ef38d2c4a37dfa",
+  "metadataSha256": "b34739af6997bf574c447205fd611e24e1b584d2e9d9c1eae9cae5873b523f19",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "0dc8bfa46a09058f3dd03c569af860ebd77c347e2f2173d31d3e49f484a14e4f"
+      "sha256": "68ebfac1183d337805c2a4345f59a9bf04c4618f29bd1f4cf0bea90505dd8b72"
     },
     {
       "file": "build.manifest.json",
@@ -74,15 +74,15 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "98595a9839018fdadbb2742abf9d4c3a104bd205ae5889c102f9c51a6b85819c"
+      "sha256": "9ec437aa95b08cfa648d700d23fc3a62884afaaa5354cdd4dfbdfa9cb5feac9a"
     },
     {
       "file": "src/models/nursery-ledger.js",
-      "sha256": "2442e5a6f7851aaca31b67abcd63e965a63f9a7224d9e66fb8d4befa2f88d205"
+      "sha256": "4aa4e945a18073085336e80188071ea2b6d6b7dbbe30bb80b2593edd829ad51e"
     },
     {
       "file": "src/services/nursery-monitor.js",
-      "sha256": "03cd29897458f98d9912e1837c39766c16972902490e7eb6940c5c6e5b2ce34e"
+      "sha256": "251397f32ff948169db08f572d10b31da88f150ec6aad6041a98ac204c6a882d"
     },
     {
       "file": "data/weather.json",
@@ -134,7 +134,7 @@
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "0180d2087f0110e33c87fc4680135086a8dfebf8b7d303d55e63ef21737e4dd4"
+      "sha256": "075bff33c4891abf8449dc87fe66d8caccee81a4e3ad74194cc8b568153ed5b2"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -162,7 +162,7 @@
     },
     {
       "file": "src/ui/nursery-panel.js",
-      "sha256": "f4b7b608440e72e6283f4c88ed8b0b27173829fc611d1ee5f5ab20e70ee10c27"
+      "sha256": "c5053b2f583781e72c421c921f67419526df0ce259329a59bff4505f10548eab"
     },
     {
       "file": "src/ui/manual-input.js",

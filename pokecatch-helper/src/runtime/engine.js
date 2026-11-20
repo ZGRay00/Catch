@@ -1086,24 +1086,25 @@
             const row=frontier?current:pending?.row||this.target||current;
             const objective=this.settings.mode==='train'?'train':['money','item','shiny'].includes(this.settings.mode)||this.settings.mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':'progress';
             const roamId=roam?roamingSettings(this.settings).roamId:undefined;
+            const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
             const pinned=this.settings.mode==='train'?trainingUids(s,this.settings,this.trainProtected):[];
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
-            if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
+            if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths)return false;
             const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
-            const context={reg:row.reg||c.reg,foes,objective,now,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
+            const context={reg:row.reg||c.reg,foes,objective,dexReplay,now,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
             let plan;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:foes.length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.runId,policy,c.id,key,context.reg,weatherKey,objective,autoSwitch,deaths,roster,s.team,foes]);
+                const signature=JSON.stringify(['adventure',this.runId,policy,c.id,key,!!dexReplay,context.reg,weatherKey,objective,autoSwitch,deaths,roster,s.team,foes]);
                 plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,{...context,progressive:true},true));
             }else plan=planAdventureTeam(s,this.settings,pinned,context);
             if(!plan){this.status='正在评估冒险队伍 · '+(row.name||c.name);return true;}
-            this.teamCheck={key,policy,limited:!!plan.limited,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
-                reason:[plan.changed||plan.limited?plan.reason:'模拟收益未过换队门槛，保留现有队伍',plan.backup].filter(Boolean).join(' · '),gain:plan.gain,opponents:plan.opponents};
+            this.teamCheck={key,policy,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+                reason:[plan.changed||plan.limited||plan.retainedForHunt?plan.reason:'模拟收益未过换队门槛，保留现有队伍',plan.backup].filter(Boolean).join(' · '),gain:plan.gain,opponents:plan.opponents};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
             const nameOf=uid=>MONS.get(s.mons.find(mon=>mon.uid===uid)?.id)?.name||uid;

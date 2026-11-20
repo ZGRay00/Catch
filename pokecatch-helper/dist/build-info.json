@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.6.0",
-  "scriptSha256": "b0648954835e3c7aaa82c03289f81fdec53c5bf2ff59ae0b03049baa16c994ad",
-  "metadataSha256": "34e0dcdeac2bf899159ff4367f5cc466ee912ded152119b2eeab11164a3f14df",
+  "version": "5.6.1",
+  "scriptSha256": "33cd34fa6048d984b8ce03d75708bfd571956bde17fd18d5e1e05cc92df08d50",
+  "metadataSha256": "737df5c379f8ecebe30d9a3054b3080d07fabc2f380e1054695e022fda5abe88",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "fd3d3b328e3ad7ba1f27a45642cea7e174f56f16eccf35d6d005f5822937b995"
+      "sha256": "2af55a68aad6e83429b5e92a597aa18d644c6aad61a03f063572ba49b92f93d7"
     },
     {
       "file": "build.manifest.json",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "d3ed69d17592e9e7f84063426ea36b977b5b7a0ab8ae4bd22489297b6f2c69d7"
+      "sha256": "166b35303c26899659bad2a07e387cc8cc732d4b9bed1bafd2d8f84bd87f5534"
     },
     {
       "file": "src/models/farming.js",
@@ -114,11 +114,11 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "420681a86a49dd4b77da7b82fc742ae02ee5f2a0b1e0eaa2846b4cad430c344d"
+      "sha256": "7e33cbfdc865edc1cf497fdcef96b9e2fde2f590328fc82e98ba482eaa569648"
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "e6eed5aab258b9a2eabf0f4fdec0bdc2bcd29f17ed13ab4dc352ca6af3e978c2"
+      "sha256": "0444aeaf2ec8855189bc2c5fb086588d4f512d3185ddb6f568b22afc5ebbefae"
     },
     {
       "file": "src/models/collection.js",
@@ -138,11 +138,11 @@
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "1c02943da7484b1a6e6652304103531bf4fab489369ed1b870f12f211276bea9"
+      "sha256": "3224ac7eb53a73c1deecd19581de2feb7dd8fe19ef726e2f7b1a173bbb3e17bc"
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "4f998aefdb3568552d67414ae202773f0d3ef77074c890151c30ad5d2006e9bb"
+      "sha256": "69bdff4da2ab5e5cfed771613371269808a938ebfe1492b6a87649d93ea3e240"
     },
     {
       "file": "src/runtime/node-exports.js",

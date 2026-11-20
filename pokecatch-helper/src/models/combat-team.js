@@ -284,6 +284,10 @@
     function planAdventureTeam(s, settings, pinned = [], context = {}) {
         return adventureTeamSearch(s,settings,pinned,context,false).next().value;
     }
+    function isDexReplay(s,settings,chapter){
+        return settings.mode==='dex' && chapter && chapter.id<s.adv.unlocked &&
+            chapter.loop!==CHAPTERS.get(s.adv.unlocked)?.loop;
+    }
     function* adventureTeamSearch(s,settings,pinned,context,sliced){
         const reg = context.reg || currentRegion(s), party = partyMons(s), size=Math.floor(clamp(context.size,1,6,6));
         const pool=(context.pool||s.mons||[]).filter(m=>teamEligible(s,m,reg));
@@ -409,6 +413,22 @@
             return score/(1+clamp(context.trainingPenalty,0,2,0)*burden);
         };
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
+        let force=context.force;
+        // Check the real party before a progressive box search can publish a replacement.
+        if(context.dexReplay && party.length===size && !pinned.length && foes.length && party.every(mon=>pool.includes(mon))){
+            const map={kind:'map',id:context.dexReplay.id,reg,foes,now:instant};
+            const assessment=yield* readinessSearch(s,settings,map,s.team,sliced);
+            if(assessment.ready){
+                force=false;
+                const fit=assessment.fit;
+                if(fit.worstDeaths===0 && fit.turns<=2 && fit.worstTurns<=3){
+                    for(const mon of party)yield* computeValues(mon,sliced);
+                    const score=utility(party);
+                    return {uids:party.map(mon=>mon.uid),changed:false,score,currentScore:score,gain:0,opponents:foes.length,reg,objective,
+                        retainedForHunt:true,reason:'补图鉴保留原队 · 预计平均 '+fit.turns.toFixed(1)+' 回合/对手，最慢 '+fit.worstTurns.toFixed(1)+' 回合，无预计倒下'};
+                }
+            }
+        }
         const chosen = [], used = new Set();
         const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
         // Only training projections carry this flag. Resolve equal combat scores
@@ -553,7 +573,7 @@
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
         const reorder=!changed&&orderChanged&&(improve||fasterOrder||s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
-        const apply=context.force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
+        const apply=force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
         const sharedType=result.find((mon,i)=>result.slice(0,i).some(other=>MONS.get(other.id)?.types.some(t=>MONS.get(mon.id)?.types.includes(t))));
         let backup='';
         if(sharedType&&execution){

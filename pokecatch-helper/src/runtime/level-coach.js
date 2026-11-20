@@ -102,6 +102,7 @@
                         if((s.adv.battle||s.adv.pending)&&!e.canStartRoute?.(s)){e.status='当前队伍无需额外补练，等待安全节点安排出战';e.driver.nav('adventure');return true;}
                         if(now<e.teamRetryAt){e.status='可直接挑战的队伍等待原生配队重试';e.driver.nav('adventure');return true;}
                         e.driver.teamTask={chapter:s.adv.chapter,members:[s.adv.chapter],uids:plan.uids,started:now,attempts:0,preparationReady:true};
+                        e.log('补练预检安排换队 · '+context.label+' · '+assessment.reason);
                         e.status=`使用现有战力挑战${context.label}，准备队伍上阵`;return true;
                     }
                     if(roadPending){e.telemetry.sample=null;e.lastProgress=now;e.status='现有战力已足够，等待治疗点应用队伍';e.driver.nav('adventure');return true;}

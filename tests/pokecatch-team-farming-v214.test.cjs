@@ -82,3 +82,27 @@ test('mainline fitting does not optimize a replay map before returning to its fr
     const {s,e,now}=fixture(t,'progress');assert.equal(await fit(e,s,now),false);assert.equal(e.driver.teamTask,null);assert.equal(e.teamCheck,null);
     s.adv.chapter=s.adv.unlocked;assert.equal(await fit(e,s,now+1000),true);assert.equal(e.teamCheck.objective,'progress');
 });
+
+test('collecting on Mt Chimney retains a fast legal six through preparation and live fitting',async t=>{
+    const {s,e}=fixture(t,'dex'),now=Date.UTC(2026,10,20,10);
+    const chapter=H.DATA.chapters.find(c=>c.reg==='hoenn'&&c.name==='烟囱山'),row=route(chapter.id);
+    const ids=[150,249,250,382,383,384,13,57,14,468,424,49];
+    const levels=[100,100,100,100,100,100,100,59,100,74,64,53];
+    s.mons=ids.map((id,i)=>({uid:'m'+id,id,reg:'hoenn',level:levels[i]}));
+    s.team=s.mons.slice(0,6).map(m=>m.uid);s.road=[...s.team];
+    s.adv.chapter=chapter.id;s.adv.unlocked=83;s.adv.badges=['Maître Hoenn'];s.travel.to=['hoenn'];
+    const before=[...s.team];e.settings.autoPrepare=true;e.target=row;
+    const context={...H.battleContext(s,'map',{row}),now};
+    const validation=H.preparationReadiness(s,e.settings,context);
+    assert.ok(validation.ready&&validation.fit.turns<=2&&validation.fit.worstDeaths===0);
+    assert.deepEqual(H.preparationPlan(s,e.settings,context).uids,before);
+    assert.equal(e.coach.ensure(s,context,{row},now),false);
+    assert.equal(e.driver.teamTask,null);
+    assert.equal(await fit(e,s,now),false);assert.equal(e.driver.teamTask,null);
+    assert.match(e.teamCheck.reason,/补图鉴保留原队/);
+    // An actual loss must bypass the replay shortcut. A weak party still gets replacements.
+    assert.notDeepEqual(H.preparationPlan(s,e.settings,{...context,forcePreparation:true}).uids,before);
+    for(const mon of s.mons.slice(0,6))mon.level=3;
+    assert.notDeepEqual(H.preparationPlan(s,e.settings,context).uids,before);
+    assert.equal(await fit(e,s,now+1200),true);assert.ok(e.driver.teamTask);
+});

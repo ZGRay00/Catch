@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.6.0
+// @version      5.6.1
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.6.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '5.6.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -957,7 +957,7 @@
         const stage=task?.pending?'等待拖放存档确认':task?'正在调整队伍':pending?'等待治疗点应用新队伍':c.autoTeam===false?'保留手动队伍':'当前冒险队伍';
         let team=`${stage}：${describe(task?.uids||s.team||[])}`;
         if(pending)team+=`；当前行进阵容：${describe(road)}`;
-        let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':'按当前路线评估打点、回合数和生存能力';
+        let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':e.manual?'当前由你控制；最近的配队操作可在运行日志中查看':'按当前路线评估打点、回合数和生存能力';
         const check=e.teamCheck,key=String(destination?.key??current?.loop);
         if(!p&&c.autoTeam!==false&&check?.mode===c.mode&&check.key===key&&check.reason){
             reason=check.reason+(check.opponents?` · 覆盖 ${check.opponents} 组对手`: '');
@@ -2736,6 +2736,10 @@
     function planAdventureTeam(s, settings, pinned = [], context = {}) {
         return adventureTeamSearch(s,settings,pinned,context,false).next().value;
     }
+    function isDexReplay(s,settings,chapter){
+        return settings.mode==='dex' && chapter && chapter.id<s.adv.unlocked &&
+            chapter.loop!==CHAPTERS.get(s.adv.unlocked)?.loop;
+    }
     function* adventureTeamSearch(s,settings,pinned,context,sliced){
         const reg = context.reg || currentRegion(s), party = partyMons(s), size=Math.floor(clamp(context.size,1,6,6));
         const pool=(context.pool||s.mons||[]).filter(m=>teamEligible(s,m,reg));
@@ -2861,6 +2865,22 @@
             return score/(1+clamp(context.trainingPenalty,0,2,0)*burden);
         };
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
+        let force=context.force;
+        // Check the real party before a progressive box search can publish a replacement.
+        if(context.dexReplay && party.length===size && !pinned.length && foes.length && party.every(mon=>pool.includes(mon))){
+            const map={kind:'map',id:context.dexReplay.id,reg,foes,now:instant};
+            const assessment=yield* readinessSearch(s,settings,map,s.team,sliced);
+            if(assessment.ready){
+                force=false;
+                const fit=assessment.fit;
+                if(fit.worstDeaths===0 && fit.turns<=2 && fit.worstTurns<=3){
+                    for(const mon of party)yield* computeValues(mon,sliced);
+                    const score=utility(party);
+                    return {uids:party.map(mon=>mon.uid),changed:false,score,currentScore:score,gain:0,opponents:foes.length,reg,objective,
+                        retainedForHunt:true,reason:'补图鉴保留原队 · 预计平均 '+fit.turns.toFixed(1)+' 回合/对手，最慢 '+fit.worstTurns.toFixed(1)+' 回合，无预计倒下'};
+                }
+            }
+        }
         const chosen = [], used = new Set();
         const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
         // Only training projections carry this flag. Resolve equal combat scores
@@ -3005,7 +3025,7 @@
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
         const reorder=!changed&&orderChanged&&(improve||fasterOrder||s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
-        const apply=context.force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
+        const apply=force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
         const sharedType=result.find((mon,i)=>result.slice(0,i).some(other=>MONS.get(other.id)?.types.some(t=>MONS.get(mon.id)?.types.includes(t))));
         let backup='';
         if(sharedType&&execution){
@@ -3450,8 +3470,10 @@
         const ordinary=['map','progress'].includes(context.kind),configured=ordinary?[]:configuredBattleTeam(s,context);
         const choose=ordinary?settings.autoTeam:settings.optimizeRaid||['tower','worldAttack'].includes(context.kind);
         const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true,now};
-        const actual=ordinary&&choose?yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool},sliced):null;
-        const ready=!!actual&&!context.forcePreparation&&!!preparationReadiness(s,settings,context,actual.uids)?.ready;
+        const chapter=CHAPTERS.get(context.id);
+        const dexReplay=context.kind==='map'&&!context.roamId&&!context.forcePreparation&&isDexReplay(s,settings,chapter)?chapter:null;
+        const actual=ordinary&&choose?yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool,dexReplay},sliced):null;
+        const ready=!!actual&&!context.forcePreparation&&(actual.retainedForHunt||!!preparationReadiness(s,settings,context,actual.uids)?.ready);
         // A saved facility party takes precedence over every other candidate.
         // Its training preview only needs the individuals the native event will use.
         const fixedUids=configured.length?new Set(configured.slice(0,context.size||6)):null;
@@ -6018,6 +6040,7 @@
                         if((s.adv.battle||s.adv.pending)&&!e.canStartRoute?.(s)){e.status='当前队伍无需额外补练，等待安全节点安排出战';e.driver.nav('adventure');return true;}
                         if(now<e.teamRetryAt){e.status='可直接挑战的队伍等待原生配队重试';e.driver.nav('adventure');return true;}
                         e.driver.teamTask={chapter:s.adv.chapter,members:[s.adv.chapter],uids:plan.uids,started:now,attempts:0,preparationReady:true};
+                        e.log('补练预检安排换队 · '+context.label+' · '+assessment.reason);
                         e.status=`使用现有战力挑战${context.label}，准备队伍上阵`;return true;
                     }
                     if(roadPending){e.telemetry.sample=null;e.lastProgress=now;e.status='现有战力已足够，等待治疗点应用队伍';e.driver.nav('adventure');return true;}
@@ -7521,24 +7544,25 @@
             const row=frontier?current:pending?.row||this.target||current;
             const objective=this.settings.mode==='train'?'train':['money','item','shiny'].includes(this.settings.mode)||this.settings.mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':'progress';
             const roamId=roam?roamingSettings(this.settings).roamId:undefined;
+            const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
             const pinned=this.settings.mode==='train'?trainingUids(s,this.settings,this.trainProtected):[];
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
-            if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
+            if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths)return false;
             const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
-            const context={reg:row.reg||c.reg,foes,objective,now,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
+            const context={reg:row.reg||c.reg,foes,objective,dexReplay,now,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
             let plan;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:foes.length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.runId,policy,c.id,key,context.reg,weatherKey,objective,autoSwitch,deaths,roster,s.team,foes]);
+                const signature=JSON.stringify(['adventure',this.runId,policy,c.id,key,!!dexReplay,context.reg,weatherKey,objective,autoSwitch,deaths,roster,s.team,foes]);
                 plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,{...context,progressive:true},true));
             }else plan=planAdventureTeam(s,this.settings,pinned,context);
             if(!plan){this.status='正在评估冒险队伍 · '+(row.name||c.name);return true;}
-            this.teamCheck={key,policy,limited:!!plan.limited,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
-                reason:[plan.changed||plan.limited?plan.reason:'模拟收益未过换队门槛，保留现有队伍',plan.backup].filter(Boolean).join(' · '),gain:plan.gain,opponents:plan.opponents};
+            this.teamCheck={key,policy,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+                reason:[plan.changed||plan.limited||plan.retainedForHunt?plan.reason:'模拟收益未过换队门槛，保留现有队伍',plan.backup].filter(Boolean).join(' · '),gain:plan.gain,opponents:plan.opponents};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
             const nameOf=uid=>MONS.get(s.mons.find(mon=>mon.uid===uid)?.id)?.name||uid;

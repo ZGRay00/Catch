@@ -242,7 +242,7 @@
         const stage=task?.pending?'等待拖放存档确认':task?'正在调整队伍':pending?'等待治疗点应用新队伍':c.autoTeam===false?'保留手动队伍':'当前冒险队伍';
         let team=`${stage}：${describe(task?.uids||s.team||[])}`;
         if(pending)team+=`；当前行进阵容：${describe(road)}`;
-        let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':'按当前路线评估打点、回合数和生存能力';
+        let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':e.manual?'当前由你控制；最近的配队操作可在运行日志中查看':'按当前路线评估打点、回合数和生存能力';
         const check=e.teamCheck,key=String(destination?.key??current?.loop);
         if(!p&&c.autoTeam!==false&&check?.mode===c.mode&&check.key===key&&check.reason){
             reason=check.reason+(check.opponents?` · 覆盖 ${check.opponents} 组对手`: '');

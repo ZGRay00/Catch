@@ -433,8 +433,10 @@
         const ordinary=['map','progress'].includes(context.kind),configured=ordinary?[]:configuredBattleTeam(s,context);
         const choose=ordinary?settings.autoTeam:settings.optimizeRaid||['tower','worldAttack'].includes(context.kind);
         const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true,now};
-        const actual=ordinary&&choose?yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool},sliced):null;
-        const ready=!!actual&&!context.forcePreparation&&!!preparationReadiness(s,settings,context,actual.uids)?.ready;
+        const chapter=CHAPTERS.get(context.id);
+        const dexReplay=context.kind==='map'&&!context.roamId&&!context.forcePreparation&&isDexReplay(s,settings,chapter)?chapter:null;
+        const actual=ordinary&&choose?yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool,dexReplay},sliced):null;
+        const ready=!!actual&&!context.forcePreparation&&(actual.retainedForHunt||!!preparationReadiness(s,settings,context,actual.uids)?.ready);
         // A saved facility party takes precedence over every other candidate.
         // Its training preview only needs the individuals the native event will use.
         const fixedUids=configured.length?new Set(configured.slice(0,context.size||6)):null;

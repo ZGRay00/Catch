@@ -26,6 +26,37 @@ async function main(){
         const html=path.join(dir,'index.html');fs.writeFileSync(html,'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><body><script>'+setup+'</script><script>'+source.replace(/<\/script/gi,'<\\/script')+'</script></body>');
         await send('Page.navigate',{url:pathToFileURL(html).href});for(let n=0;n<80&&!await evaluate('!!window.__pokecatchHelper?.ready');n++)await delay(50);assert.equal(await evaluate('!!window.__pokecatchHelper?.ready'),true);
         const root="document.querySelector('#pokecatch-auto-helper').shadowRoot";
+        const daily=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;
+            r.querySelector('#daily-routine').open=true;
+            const button=r.querySelector('#start-daily');button.click();
+            const result=[e.running,e.daily?.base.mode,button.disabled,r.querySelector('#run-state').textContent];
+            r.querySelector('#stop').click();r.querySelector('#daily-routine').open=false;return result;})()`);
+        assert.deepEqual(daily,[true,'dex',true,'通关日常 · '+H.MODE_NAMES.dex]);
+        checks.push('daily routine starts from Tasks and stops using the normal task controls');
+        const dailyMain=await evaluate(`(async()=>{
+            const r=${root},e=__pcExecutionTest.engine;
+            const initial={...e.settings},marks={...e.dailyMarks},results=[];
+            try{
+                r.querySelector('[data-mode="progress"]').click();
+                const set=(key,value)=>{const el=r.querySelector('[data-setting="'+key+'"]');el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
+                const raid=r.querySelector('[data-setting="raids"]');if(raid.checked)raid.click();
+                for(const mode of ['dex','money','shiny']){
+                    set('dailyMain',mode);if(mode==='money')set('moneyTarget','1');
+                    e.dailyMarks={};r.querySelector('#start-daily').click();clearTimeout(e.timer);
+                    await e.step();const child=e.daily?.job?.kind;
+                    e.completeTask('模拟工厂结算');const resumed=e.settings.mode;
+                    const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id));
+                    if(mode==='money')await e.step();
+                    const stoppedOnGoal=mode==='money'?!e.running:true;
+                    if(e.running)r.querySelector('#stop').click();
+                    results.push([mode,child,resumed,saved.settings.mode,saved.resume?.daily.base.mode,e.settings.mode,stoppedOnGoal]);
+                }
+            }finally{if(e.running)e.stop();e.dailyMarks=marks;e.settings=initial;e.persist();e.onChange();}
+            return results;
+        })()`);
+        for(const [i,mode] of ['dex','money','shiny'].entries())
+            assert.deepEqual(dailyMain[i],[mode,'candy',mode,'progress',mode,'progress',true]);
+        checks.push('each daily main survives a facility handoff and preserves the ordinary selection; a satisfied money goal lets the factory finish first');
         assert.deepEqual(await evaluate('[__pcExecutionTest.engine.settings.spendBudget,__pcExecutionTest.engine.settings.autoPurchase]'),[20000,true]);
         checks.push('a pre-switch account with a saved positive procurement budget retains that authorization');
         const panes=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;const views=[];

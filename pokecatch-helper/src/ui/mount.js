@@ -45,7 +45,20 @@
             <section id="pane-tasks" aria-label="任务"><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
-            <div class="target">
+            <details class="target" id="daily-routine"><summary>通关日常</summary>
+                <label class="field"><span>每日主线</span><select data-setting="dailyMain"><option value="current">沿用当前挂机任务</option><option value="dex">补图鉴</option><option value="money">刷钱</option><option value="shiny">野生刷闪</option></select></label>
+                <div class="sub" id="daily-state"></div>
+                <button type="button" id="daily-edit-goal">打开主线目标设置</button>
+                <div class="checks">
+                    <label><input type="checkbox" data-setting="dailyWindow">抢即将结束的图鉴窗口</label>
+                    <label><input type="checkbox" data-setting="dailyCandy">糖果工厂免费场</label>
+                    <label><input type="checkbox" data-setting="dailyWorld">世界首领攻击与捕获</label>
+                    <label><input type="checkbox" data-setting="dailyTower">每日至多两场对战塔</label>
+                    <label><input type="checkbox" data-setting="dailyElite">每日挑战一阶精英联盟</label>
+                </div>
+                <p class="hint">捕获窗口使用补图鉴中指定的物种与筛选条件。团体战、孵蛋和地下派遣沿用各自开关。活动结束后继续挂机，共用当前任务预算。</p>
+                <button type="button" id="start-daily">开始通关日常</button>
+            </details><div class="target">
                 <div class="field" id="scope-field"><span>规划范围</span><select data-setting="region" aria-label="规划地区"><option value="current">当前地区</option><option value="all">所有已解锁地区</option></select></div>
                 <div data-fields="legend" class="hidden"><div class="field"><span>传说目标</span><select data-setting="legendId" aria-label="传说战目标"></select></div><div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div><div class="field"><span>最长等待</span><input data-setting="legendMinutes" type="number" min="5" max="720" aria-label="传说战最长分钟数"></div><label class="setting"><span><input type="checkbox" data-setting="roamAllowMasterBall">允许游荡目标自动消耗库存大师球</span></label><div class="hint">游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div></div>
                 <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限</span><input data-setting="roamMinutes" type="number" min="5" max="720" aria-label="游荡搜寻最长分钟数"></div><label class="setting"><span><input type="checkbox" data-setting="roamAllowMasterBall">允许游戏自动使用库存大师球</span></label><div class="hint">在线追踪目标驻留地图，捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。默认不允许消耗大师球，持有大师球时会提示等待你处理。</div></div>
@@ -523,6 +536,17 @@
             query('#resume').textContent=engine.manual&&s?.adv?.event?.raid?'接管当前团体战':engine.suspended?'继续原任务':'立即恢复';
             query('#action').textContent = wait?.detail||(nativePaused?'在游戏中继续冒险后，助手会接着执行当前任务。':engine.nextWake>now?`预计等待 ${Math.max(1,Math.ceil((engine.nextWake-now)/60000))} 分钟 · ${engine.action||'按游戏时间结算'}`:engine.action || (engine.running?'助手已接管，按当前任务执行':'选择任务与目标后开始'));
             query('#start').disabled = locked; query('#stop').disabled = !locked;
+            const dailyBase=engine.daily?.base||engine.settings,baseMode=engine.daily?.base.mode||dailyMainMode(dailyBase);
+            const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
+            query('#start-daily').disabled=locked||!canDaily;
+            query('#daily-edit-goal').hidden=locked||!DAILY_BASE_MODES.has(baseMode);
+            const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
+            const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
+                baseMode==='dex'?'缺失的基础形态':baseMode==='money'?dailyBase.moneyTarget?'目标 '+dailyBase.moneyTarget.toLocaleString()+' ₽':'持续刷钱':'';
+            query('#daily-state').textContent=!s?.adv?.badges?.includes('Maître')?'取得关都冠军徽章后开放。':
+                !DAILY_BASE_MODES.has(baseMode)?'请选择每日主线，或先选择一个挂机任务。':
+                (engine.daily?.job?'正在执行'+MODE_NAMES[engine.settings.mode]+'，完成后继续':'可执行的日常、周常完成后继续')+MODE_NAMES[baseMode]+(goal?' · '+goal:'');
+            if(engine.daily&&!wait&&!nativePaused)query('#run-state').textContent='通关日常 · '+MODE_NAMES[engine.settings.mode];
             query('#start').textContent = s?.adv?.event?.raid ? '接管当前团体战' : s?.adv?.zone ? '接管当前传说战' : '开始当前任务';
             query('#queue-count').textContent=engine.queue.filter(job=>job.status!=='done').length;
             query('#add-job').disabled=locked;query('#start-queue').disabled=locked||!engine.queue.some(job=>job.status!=='done');
@@ -845,7 +869,7 @@
         });
         // A mobile browser can hide the page or activate a command before its number keyboard emits change.
         root.addEventListener('click',event=>{
-            if(event.target.closest?.('#start,#start-queue,#add-job')&&!commitBudgetDrafts(true))event.stopImmediatePropagation();
+            if(event.target.closest?.('#start,#start-daily,#start-queue,#add-job')&&!commitBudgetDrafts(true))event.stopImmediatePropagation();
         },true);
         root.addEventListener('click',event=>{
             const button=event.target.closest('button');if(!button)return;
@@ -900,6 +924,13 @@
         query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings)&&current.progress){current.progress={budget:current.progress.budget};}Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
         query('#start-queue').onclick=()=>{engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start();syncSettings();render();};
+        query('#start-daily').onclick=()=>{engine.queueRunning=false;engine.start(false,true);syncSettings();render();};
+        query('#daily-edit-goal').onclick=()=>{
+            const mode=dailyMainMode(engine.settings);
+            if(!DAILY_BASE_MODES.has(mode)||!changeSetting('mode',mode))return;
+            const field=['dex','shiny'].includes(mode)?query('#hunt-filters'):query(`[data-fields="${mode}"]`);
+            field?.scrollIntoView({block:'nearest'});field?.querySelector('summary,select,input')?.focus({preventScroll:true});
+        };
         query('#stop').onclick=()=>{engine.stop();syncSettings();render();};
         query('#resume').onclick=()=>{engine.resumeManual();render();};
         query('#reset').onclick=()=>{if(engine.running||engine.suspended)return;engine.metrics={};engine.telemetry=new Telemetry(engine.metrics);engine.persist();engine.log('已清除金币、经验与道具采样');render();};

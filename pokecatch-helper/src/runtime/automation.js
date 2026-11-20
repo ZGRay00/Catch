@@ -644,13 +644,21 @@
                 if(active){this.wait(`对战塔进行中 · 已过 ${progress.cleared} 层 / 目标 ${cfg.towerFloor}`);d.nav('adventure');return;}
             }
             if(!active&&!run&&(best>=cfg.towerFloor||this.state.towerReached)){this.done('对战塔目标楼层已完成');return;}
-            if(!run&&(this.state.towerAttempts||0)>=cfg.towerRuns){this.fail('已达到对战塔尝试上限，目标楼层尚未完成');return;}
+            if(!run&&((this.state.towerAttempts||0)>=cfg.towerRuns||e.daily?.job?.kind==='tower'&&e.dailyMarks.tower>now)){
+                if(e.daily?.job?.kind==='tower')this.done('今日对战塔尝试已完成');
+                else this.fail('已达到对战塔尝试上限，目标楼层尚未完成');
+                return;
+            }
             if(!this.raidPage('tower'))return;
             const tab=$('#tower-root [data-tw-tab="tower"]:not(.on)');if(enabled(tab)){d.click(tab,'打开爬塔进度');return;}
             const go=$('#tower-root [data-tw-go]');if(enabled(go)){
                 if(!run&&e.ensurePrepared(s,battleContext(s,'tower',{floor:cfg.towerFloor}),{},now))return;
                 this.state.towerLaunch={at:now,week};e.persist();
                 if(!d.click(go,run?'继续本周对战塔':'开始本周对战塔'))delete this.state.towerLaunch;
+                else if(!run&&e.daily?.job?.kind==='tower'){
+                    const last=cfg.towerRuns===1||e.dailyMarks.towerFirst>now;
+                    e.dailyMarks[last?'tower':'towerFirst']=nextParisReset(now);
+                }
                 e.persist();return;
             }
             this.wait('等待对战塔解锁、登录或可用成员');
@@ -695,6 +703,7 @@
             }
             if((this.state.candyDone||0)>=cfg.candyRuns){this.done('糖果工厂目标场次已完成，奖励已由游戏发放');return;}
             const day=parisDay(now),played=s.candy?.played===day;
+            if(played&&e.daily?.job?.kind==='candy'){this.done('今日工厂机会已用');return;}
             const dailyKey=JSON.stringify([accountId(s),day,identity(last)]);
             // The server can explicitly reopen the factory on the same day. Only a
             // rendered native lock proves exhaustion; reload checks the server again.
@@ -736,15 +745,33 @@
             const e=this.e,cfg=e.settings,d=e.driver,reg=cfg.eliteRegion==='current'?currentRegion(s):cfg.eliteRegion,best=Number(s.eliteLeague?.[reg]?.t)||0;
             if(s.adv.league){if(s.adv.league.reg!==reg){this.fail('当前精英联盟与所选地区不同');return;}this.wait(`精英联盟 · ${reg} · ${s.adv.league.tier||best+1} 阶`);d.nav('adventure');this.own('gem','.lgp-modal');return;}
             if(best>=cfg.eliteTier){this.done('精英联盟目标阶级已完成');return;}
+            if(e.daily?.job?.launched){
+                if(now-e.daily.job.launched<15000)this.wait('等待精英联盟场次确认');
+                else this.done('本日精英联盟挑战已提交');
+                return;
+            }
             if(!d.nav('map'))return;
-            const region=$(`#map-root .rg.open[data-rg="${reg}"]`);if(!region){this.fail('精英联盟所在地区尚未开放');return;}if(!region.classList.contains('active')){d.click(region,'选择精英联盟地区');return;}
-            const row=$('#map-root .mp-row[data-ch="L"]');if(!row){this.fail('当前地区没有可用联盟入口');return;}if(!row.classList.contains('sel')){d.click(row,'选择联盟');return;}
+            const region=$(`#map-root .rg.open[data-rg="${reg}"]`);
+            if(region&&!region.classList.contains('active')){d.click(region,'选择精英联盟地区');return;}
+            const row=$('#map-root .mp-row[data-ch="L"]');
+            if(!region||!row){
+                const reason=!region?'精英联盟所在地区尚未开放':'当前地区没有可用联盟入口';
+                if(e.daily?.job?.kind==='elite')e.returnFromDaily(reason,Math.min(nextParisReset(now),now+30*60000),now);
+                else this.fail(reason);
+                return;
+            }
+            if(!row.classList.contains('sel')){d.click(row,'选择联盟');return;}
             const tab=$('#map-root [data-lg-view="elite"]:not(.on)');if(enabled(tab)){d.click(tab,'切换精英联盟');return;}
             const go=$(`#map-root [data-league="${reg}"][data-tier="${best+1}"]`);
             const key=`elite:${reg}:${best+1}|${rosterFingerprint(s)}`,edit=$(`#map-root [data-lg-team="${reg}"]`);
             if(cfg.optimizeRaid&&!d.recent.has(key)&&enabled(edit)){if(d.click(edit,'按整座精英联盟配置队伍'))d.ownedDialog={type:'team',key,optimized:false};return;}
             if(enabled(go)&&e.ensurePrepared(s,battleContext(s,'elite',{reg,tier:best+1}),{},now))return;
-            if(enabled(go)){d.click(go,'挑战下一阶精英联盟');return;}
+            if(enabled(go)){
+                if(d.click(go,'挑战下一阶精英联盟')&&e.daily?.job?.kind==='elite'){
+                    e.daily.job.launched=now;e.dailyMarks.elite=nextParisReset(now);e.persist();
+                }
+                return;
+            }
             this.wait('精英联盟尚未满足开放条件；需要联盟通关和地下通道开放');
         }
         world(s,now){
@@ -763,6 +790,10 @@
             // The native daily counter is saved before the attack and retaliation animation.
             // A brief gap separates the spill being hidden from the result card appearing.
             const settling=this.state.worldResultAt!=null&&now-this.state.worldResultAt<3000;
+            const daily=e.daily?.job?.kind==='world';
+            if(daily&&delta>=cfg.worldActions&&!resultVisible&&!settling){
+                e.returnFromDaily('今日首领攻击已完成',Math.min(nextParisReset(now),now+30*60000),now);return;
+            }
             if(delta>=cfg.worldActions&&!cfg.worldCapture&&!resultVisible&&!settling){this.done('世界首领攻击次数目标已完成');return;}
             if(!d.nav('raid'))return;
             if(cfg.animations&&enabled(skip)){d.click(skip,'跳过世界首领攻击动画');return;}
@@ -773,15 +804,23 @@
                 if(e.ensurePrepared(s,battleContext(s,'worldCapture',{id:493}),{},now))return;
                 if(d.click(capture,'进入世界首领捕获'))this.state.worldCaptureStarted=true;return;
             }
-            const attack=$('[data-wb-atk]');if(enabled(attack)&&delta<cfg.worldActions){
+            const capPage=$('[data-wb-cap]');
+            if(daily&&enabled(capPage)){d.click(capPage,'打开世界首领捕获阶段');return;}
+            const attack=$('[data-wb-atk]');if(enabled(attack)&&delta<cfg.worldActions&&(!daily||!(e.dailyMarks.attack>now))){
                 if(e.ensurePrepared(s,battleContext(s,'worldAttack'),{},now))return;
-                if(d.click(attack,'使用本次世界首领攻击机会')){this.state.waitUntil=now+3000;this.state.waitLabel='世界首领攻击提交中';}return;
+                if(d.click(attack,'使用本次世界首领攻击机会')){
+                    this.state.waitUntil=now+3000;this.state.waitLabel='世界首领攻击提交中';
+                    if(daily){e.dailyMarks.attack=nextParisReset(now);e.persist();}
+                }return;
             }
             const banner=$('#raid-root .rh-hb.wb[data-wb-go]');if(enabled(banner)){d.click(banner,'进入世界首领');return;}
-            const capPage=$('[data-wb-cap]');if(cfg.worldCapture&&enabled(capPage)){d.click(capPage,'打开世界首领捕获阶段');return;}
+            if(cfg.worldCapture&&enabled(capPage)){d.click(capPage,'打开世界首领捕获阶段');return;}
             const home=$('#raid-root [data-raid-page="home"]');
             if(enabled(home)&&!visible($('#raid-root .wb-view,#raid-root .wb-recap'))){d.click(home,'返回活动首页，查找世界首领');return;}
             const cd=$$('[data-wb-cd]').map(el=>+el.dataset.wbCd).filter(n=>n>now);
+            if(daily&&visible($('#raid-root .wb-view'))){
+                e.returnFromDaily('首领暂无可执行机会',Math.min(nextParisReset(now),cd.length?Math.min(...cd):now+30*60000),now);return;
+            }
             this.wait(delta>=cfg.worldActions?'本次攻击目标已完成，等待世界首领捕获阶段':'等待世界首领阶段、登录或可用攻击成员',cd.length?Math.min(...cd):now+60000);
         }
         buddyTarget(s){

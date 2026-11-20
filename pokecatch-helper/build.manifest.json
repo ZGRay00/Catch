@@ -38,6 +38,7 @@
       "file": "src/models/facilities.js"
     },
     {"kind":"source","file":"src/models/task-goals.js"},
+    {"kind":"source","file":"src/models/daily.js"},
     {
       "kind": "source",
       "file": "src/services/background.js"

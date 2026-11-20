@@ -14,6 +14,7 @@
         if(!s?.adv)return[];
         const protectedUids=new Set([...(s.team||[]),...(s.road||[]),...(e.trainProtected||[]),...(e.driver?.teamTask?.uids||[])]);
         const keep=uid=>{if(typeof uid==='string'&&uid)protectedUids.add(uid);};
+        for(const uid of e.daily?.checkpoint?.session?.trainProtected||[])keep(uid);
         keep(s.buddy?.uid);keep(e.automation?.buddyTask?.uid);keep(e.automation?.state?.evolution?.uid);keep(e.automation?.owner?.uid);keep(e.preparation?.candy?.uid);
         if(e.settings?.mode==='train'&&e.settings.trainUid!=='team')keep(e.settings.trainUid);
         if(e.settings?.mode==='resource')keep(e.settings.useUid);

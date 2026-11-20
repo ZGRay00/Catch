@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "5.3.9",
-  "scriptSha256": "5ba2e5e7169633798ab122e5c2740b8cae1d187526a9b09feac2a7c515d8407d",
-  "metadataSha256": "10aee6e58c3ed2aa2c288c1d44137445d2f858593e08a906e95eb00788e91dff",
+  "version": "5.5.0",
+  "scriptSha256": "491d6bcc34bd6b00ff5e16b875c86b4cb5f3c08f597c4634440d69233d36154c",
+  "metadataSha256": "de2ebbfe68dd41d006c1c8b1a3f34daa5f5717765c975225ac5e59d297b4c574",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "9ebbe30dbed8ebc2eaf797f89187bf2e955f8f5ba6599f71c0aed5f5654d55b3"
+      "sha256": "290559c0fc208b33a9d377ab3f78f4cf9911653a57fc091009aa70b59388e86d"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "2389005c23b835b1721b51143d85b9a9668526c70b2be80a16a84cfa7a162479"
+      "sha256": "81b915a8ac3ed456ffc16b9b606cc1afc351b60b24ddfef9f1b312bbc8e1bb7e"
     },
     {
       "file": "userscript.header.txt",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "658a135fc52d82401735f2e389495b48c28aca2c44018c373a4fd7194791030b"
+      "sha256": "ceeb257a96491a18862cfe0ab87c39be51fd012ab4b5f2988ec0b25a4e797eb0"
     },
     {
       "file": "src/models/facilities.js",
@@ -61,8 +61,12 @@
       "sha256": "691684fc08b7c149160712d0a4eb7732636aad65431c75f9a69002f00a2537c0"
     },
     {
+      "file": "src/models/daily.js",
+      "sha256": "e73bf469266c0490eaa0a41d3b8dfbaa163fadd5c9ebb14c0f979741fc5e47d5"
+    },
+    {
       "file": "src/services/background.js",
-      "sha256": "d51a70a54d8cd54e82d6c8ff034fe1d146ba01cb40811a784406dd33858f3c4e"
+      "sha256": "63708d6852378497a99e3dafc7a1a447ae2c5eebc6029996e8e9817263ceb307"
     },
     {
       "file": "src/models/farming.js",
@@ -130,7 +134,7 @@
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "4bf291c0454f1cdc719543b2c0a2cc830267481ba434cd06538c9e21e64034d6"
+      "sha256": "0f4732155e384e79371a492f7d44393dfab4ff337aea734a66e021b3b9a9a0a1"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -138,11 +142,11 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "a96e2a325cf1bba2e91ea9c944d99d6e89d24ca3f24286f4562bb1f070ad22a3"
+      "sha256": "cf0ae5e98854a6fa8e0156ec22683c069cfa5a656e5505e58bf91bf1a4c82dac"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "309002c3b87dae766e1433e002b7897815083b617dae7d158c3b66ded83d370e"
+      "sha256": "42090b43f0375f28b205c616481ab4d96b6ef2d1ad257348a20623261d7b5849"
     },
     {
       "file": "src/ui/panel-style.js",
@@ -166,7 +170,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "90a6a926b9d043672b8c7cce2135c83244671901539a660c5e9258269cd8e6c3"
+      "sha256": "6da99aa26e6ed32e2799cdb21fb5bd99b05173e142cc6547195a121d0632562f"
     }
   ]
 }

@@ -52,6 +52,7 @@
                 <div class="checks">
                     <label><input type="checkbox" data-setting="dailyWindow">抢即将结束的图鉴窗口</label>
                     <label><input type="checkbox" data-setting="dailyCandy">糖果工厂免费场</label>
+                    <label><input type="checkbox" id="daily-shiny-raid">每日异色团体战</label>
                     <label><input type="checkbox" data-setting="dailyWorld">世界首领攻击与捕获</label>
                     <label><input type="checkbox" data-setting="dailyTower">每日至多两场对战塔</label>
                     <label><input type="checkbox" data-setting="dailyElite">每日挑战一阶精英联盟</label>
@@ -438,6 +439,8 @@
             }
             const card=selectedCard();
             const dailyBase=engine.daily?.base||engine.settings;
+            query('#daily-shiny-raid').checked=dailyBase.raids;
+            query('#daily-shiny-raid').disabled=engine.running||!!engine.suspended;
             const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
             const legendFields=query('[data-fields="legend"]');
             const destination=query(dailyLegend?'#daily-legend-fields':'#ordinary-target');
@@ -470,7 +473,7 @@
                     :'主线补练买糖已关闭，可在设置中开启 EXP Candy 选项。';
             }
             query('[data-setting="autoTeam"]').closest('label').classList.remove('hidden');
-            const raidMode=!(independent||mode==='roam');
+            const raidMode=!(independent||mode==='roam')||(mode==='legend'&&!!engine.daily&&!engine.daily.job);
             query('[data-setting="raids"]').closest('label').classList.toggle('hidden',!raidMode);
             query('#raid-check').classList.toggle('hidden',!raidMode||!engine.settings.raids);
             query('[data-setting="gifts"]').closest('label').classList.toggle('hidden',independent);
@@ -680,7 +683,7 @@
             if (mode === 'legend') {
                 const p = legendProgress(s, settings);
                 primary = settings.legendTier ? `${p.tier}/${settings.legendTier}` : p.done ? '已完成' : '待捕获'; primaryLabel = settings.legendTier ? '精英阶级' : '普通捕获'; goalLabel = p.zone.monName || p.zone.name; goalValue = settings.legendTier ? `推进至 ${settings.legendTier} 阶` : '全部轮换形态'; percent = p.done ? 100 : settings.legendTier ? p.tier / settings.legendTier * 100 : 0;
-                hint = p.roaming&&!settings.legendTier?'该目标普通捕获通过在线游荡追踪完成；需要对应地区冠军，按实际驻留地图搜寻。可切换“游荡捕获”设置搜寻时限。此模式不插入每日团体战。':`${p.zone.condition || '按游戏中的开放条件挑战。'} ${settings.legendTier?'精英战逐阶推进。':'剩余形态：'+p.missingForms.map(id=>MONS.get(id)?.name||id).join('、')+'。'}此模式不插入每日团体战。`;
+                hint = p.roaming&&!settings.legendTier?'该目标普通捕获通过在线游荡追踪完成；需要对应地区冠军，按实际驻留地图搜寻。可切换“游荡捕获”设置搜寻时限。':`${p.zone.condition || '按游戏中的开放条件挑战。'} ${settings.legendTier?'精英战逐阶推进。':'剩余形态：'+p.missingForms.map(id=>MONS.get(id)?.name||id).join('、')+'。'}`;
             } else if(mode==='roam'){
                 const p=roamingProgress(s,settings,now),location=CHAPTERS.get(p.location?.ch);
                 primary=p.captured?'已捕获':p.unlocked?'追踪中':'未解锁';primaryLabel='游荡目标';goalLabel=MONS.get(settings.roamId)?.name||settings.roamId;goalValue=location?`${DATA.regions.find(region=>region.key===location.reg)?.name||location.reg} · ${location.name}`:'等待原生驻留地点';percent=p.captured?100:0;
@@ -977,6 +980,7 @@
         query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings)&&current.progress){current.progress={budget:current.progress.budget};}Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
         query('#start-queue').onclick=()=>{dailySelected=false;engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start(false,selectedCard()==='daily');syncSettings();render();};
+        query('#daily-shiny-raid').onchange=event=>changeSetting('raids',event.target.checked);
         query('#daily-edit-goal').onclick=()=>{
             const mode=dailyMainMode(engine.settings);
             if(!DAILY_BASE_MODES.has(mode)||!changeSetting('mode',mode))return;

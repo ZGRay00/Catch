@@ -89,7 +89,12 @@ for(const caught of [false,true]){
         assert.equal(e.dailyMarks.world,opens);assert.equal(e.nextWake,null);
         assert.equal(H.dailyFacility(s,base,e.dailyMarks,opens-1),null);
         assert.equal(H.dailyFacility(s,base,e.dailyMarks,opens).kind,'world');
-        assert.equal(e.priorityRaid(s,now+1),false);assert.deepEqual(clicks,[]);
+        assert.equal(e.priorityRaid(s,now+1),!caught);
+        if(!caught){
+            e.probeRaid(s,now+2);assert.deepEqual(clicks,['打开每日异色团体战']);
+            s.raids.done['johto|'+day]=1;e.probeRaid(s,now+3);
+        }else assert.deepEqual(clicks,[]);
+        assert.equal(e.raidProbe,false);assert.equal(e.settings.mode,'legend');
         let target;e.travel=row=>{target=row.id;};e.legend(s,now+2);assert.equal(target,145);
     });
 }

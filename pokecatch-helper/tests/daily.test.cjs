@@ -30,6 +30,7 @@ test('tower uses the weekly record, respects the configured limit and caps it at
 });
 test('ordinary legend yields only to an available facility; elite and world captures keep their session',()=>{
     const s=save(),e=engine(s);
+    e.daily.base.raids=false;
     e.daily.checking=true;e.driver.map=()=>{throw Error('unexpected departure');};
     for(const zone of [{id:493},{id:150,elite:1}]){
         s.adv.zone=zone;e.zoneId=zone.id;assert.equal(e.yieldLegendToDaily(s,now),false);
@@ -39,6 +40,24 @@ test('ordinary legend yields only to an available facility; elite and world capt
     delete s.candy.played;s.adv.battle={enemies:[{id:35,shiny:true}]};e.driver.nav=()=>true;
     assert.equal(e.yieldLegendToDaily(s,now+30001),true);
     assert.match(e.status,/糖果工厂已排队/);
+});
+test('a due daily shiny raid can leave an ordinary legend zone safely; cooldowns, cleared draws and protected battles are respected',()=>{
+    const s=save(),e=engine(s);
+    Object.assign(e.daily.base,{mode:'legend',dailyMain:'legend',raids:true,dailyCandy:false,dailyTower:false,dailyWorld:false,dailyElite:false});
+    e.settings=e.daily.base;e.zoneId=145;s.adv.zone={id:145,back:8};
+    e.raidEntryBlock=()=>null;
+    let exits=0;e.driver.map=(row,state,options)=>{assert.equal(row.id,8);assert.equal(options.leaveZone,true);exits++;return true;};
+    e.driver.nav=()=>true;
+    const end=H.nextParisReset(now),day=H.parisDay(now);
+    s.raids={seen:day,done:{['kanto|'+day]:1}};
+    assert.equal(e.yieldLegendToDaily(s,now),false);
+    e.nextRaid=end+60000;assert.equal(e.yieldLegendToDaily(s,end+1),false);
+    s.adv.battle={enemies:[{id:145}]};assert.ok(e.yieldLegendToDaily(s,end+61000));assert.equal(exits,0);
+    s.adv.battle={enemies:[{id:25,shiny:true}]};assert.ok(e.yieldLegendToDaily(s,end+62000));assert.equal(exits,0);
+    delete s.adv.battle;assert.ok(e.yieldLegendToDaily(s,end+63000));assert.equal(exits,1);
+    assert.ok(e.yieldLegendToDaily(s,end+64000));assert.equal(exits,1);
+    delete s.adv.zone;assert.equal(e.yieldLegendToDaily(s,end+65000),false);
+    assert.ok(e.priorityRaid(s,end+65000));assert.equal(e.daily.base.mode,'legend');
 });
 test('an expiring wild source inserts only an explicitly selected, still missing target',()=>{
     const s=save(),at=new Date(2026,10,20,8).getTime();

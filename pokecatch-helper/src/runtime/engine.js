@@ -248,12 +248,15 @@
                 }
                 return false;
             }
+            const raidDue=()=>daily.base.raids&&now>=this.nextRaid&&!this.driver.raid&&!this.raidReturn&&
+                !this.raidDailyStatus(s,now)&&!this.raidEntryBlock(s);
+            if(this.dailyZoneExit?.kind==='raid'&&!this.dailyZoneExit.clicked&&!raidDue())this.dailyZoneExit=null;
             if(!this.dailyZoneExit){
                 const flow=this.automation.state;
                 if(this.preparation||this.driver.ownedDialog||this.automation.owner||this.services.underground||
                     flow.eggService||flow.evolution||flow.hatch||this.automation.buddyTask||this.automation.buffUI||flow.autoBuffTx)return false;
                 if(now<this.dailyCheckAt)return false;
-                const plan=dailyFacility(s,daily.base,this.dailyMarks,now);
+                const plan=dailyFacility(s,daily.base,this.dailyMarks,now)||(raidDue()?{kind:'raid'}:null);
                 if(!plan){this.dailyCheckAt=Math.min(nextParisReset(now),now+30000);return false;}
                 this.dailyZoneExit={kind:plan.kind};
                 daily.checking=true;
@@ -1528,8 +1531,16 @@
             this.log('团体战已结束，返回主任务');this.nextRaid=raidRetryAt(now,this.driver.raid.date);
             this.driver.raid=null;this.target=null;this.raidCheckNote='团体战已结束，继续原任务';
         }
+        raidEntryBlock(s){
+            if(!s.adv.badges?.includes('Maître'))return '尚未获得关都联盟冠军徽章';
+            const tab=$('#tabs [data-screen="raid"]');
+            if(tab?.classList.contains('locked')||tab?.classList.contains('hold'))return tab.dataset?.why||'游戏的团体战入口暂不可用';
+            return null;
+        }
         priorityRaid(s,now,knownStatus){
-            if((!this.settings.raids&&this.settings.mode!=='raid')||FLOW_MODES.has(this.settings.mode)||['roam','legend'].includes(this.settings.mode))return false;
+            const mode=this.settings.mode;
+            if((!this.settings.raids&&mode!=='raid')||FLOW_MODES.has(mode)||mode==='roam'||
+                (mode==='legend'&&(!this.daily||this.daily.job)))return false;
             const rest=knownStatus===undefined?this.raidDailyStatus(s,now):knownStatus;
             if(rest){
                 this.raidBoundarySince=null;
@@ -1539,13 +1550,10 @@
             }
             if(this.raidProbe){this.probeRaid(s,now);return true;}
             if(now<this.nextRaid||this.driver.raid||this.raidReturn||this.raidPreparation)return false;
-            if(!s.adv.badges?.includes('Maître')){
-                this.raidCheckNote='尚未获得关都联盟冠军徽章';return false;
-            }
-            const tab=$('#tabs [data-screen="raid"]');
-            if(tab?.classList.contains('locked')||tab?.classList.contains('hold')){
+            const blocked=this.raidEntryBlock(s);
+            if(blocked){
                 this.raidBoundarySince=null;
-                this.raidCheckNote=tab.dataset?.why||'游戏的团体战入口暂不可用';return false;
+                this.raidCheckNote=blocked;return false;
             }
             const p=this.preparation,d=this.driver,a=this.automation,flow=a.state;
             if(p&&(p.phase!=='train'||!['progress','map'].includes(p.context.kind))||d.pendingMap||d.navigation||d.teamTask||a.owner||a.buddyTask||a.buffUI||

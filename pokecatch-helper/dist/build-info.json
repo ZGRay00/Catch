@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.8.4",
-  "scriptSha256": "fe6e671bc4a97d6277161f499978faba5ba2886a8d4c9eb7166aecbfc60abfd8",
-  "metadataSha256": "71fe45e4f592d73d27a9e7d6c9c15e094a6eabae2c83735e4765540011e716a3",
+  "version": "5.8.5",
+  "scriptSha256": "27f2d77f889244dacf9f1f18277a4b5e08171fbb66aedfa2a852bec748b71749",
+  "metadataSha256": "616ef81ba71db92d0572b7af1c945eaf1ae4644ef0617c4bd869c4d1af7a8f1f",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "71125f57763b26095401141a56d5c08077af66ae3e3f856123756834b0476987"
+      "sha256": "d246b48743867f14305daea5d40c6e5e96380c9ec0fec4a6109489dba2e2a0c8"
     },
     {
       "file": "build.manifest.json",
@@ -142,7 +142,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "fbcba57a6665401bb60ee417818a98403a1fc4676a33136df93e3064f7f00b58"
+      "sha256": "d8373f445c463e1f285e0856b32aad9bc15cb97518765b2acd508c724a899854"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -170,7 +170,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "87ad9d378aab5c06084cf87f8e184493ddf2956c9b64bfa42cda941f6831e25e"
+      "sha256": "60e301d157e2864a282303fa5b7d0283b8dcd1414c9cebe0a3ba1d121ec7e486"
     }
   ]
 }

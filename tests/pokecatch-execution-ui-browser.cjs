@@ -101,18 +101,26 @@ async function main(){
                 const target=r.querySelector('#daily-legend-fields [data-setting="legendId"]');if(!target.getClientRects().length)throw Error('Invisible legendary target');
                 target.value='385';target.dispatchEvent(new Event('change',{bubbles:true}));
                 const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.legendId;
+                const dailyRaid=r.querySelector('#daily-shiny-raid');
+                if(dailyRaid.checked||!dailyRaid.getClientRects().length)throw Error('Expected the visible saved daily raid preference');
+                dailyRaid.click();
+                if(!r.querySelector('[data-setting="raids"]').checked)throw Error('Daily raid settings differ');
                 fixtureState.raids={seen:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Paris'}),done:{}};
-                fixtureState.raids.done['kanto|'+fixtureState.raids.seen]=Date.now();commitExecution();
+                commitExecution();
                 r.querySelector('#start').click();clearTimeout(e.timer);await e.step();
                 const chore=e.daily?.job?.kind;e.completeTask('模拟工厂结算');
                 const origTravel=e.travel,origServices=e.serviceBackground;e.serviceBackground=()=>false;
                 let zone=0;e.travel=row=>{zone=row.id;};
-                try{await e.step();return [saved,chore,e.settings.mode,e.raidProbe,zone];}
+                try{
+                    await e.step();if(!e.raidProbe||zone||!dailyRaid.disabled)throw Error('Expected daily shiny raid before legendary travel');
+                    fixtureState.raids.done['kanto|'+fixtureState.raids.seen]=Date.now();commitExecution();
+                    await e.step();return [saved,chore,e.settings.mode,e.raidProbe,zone];
+                }
                 finally{e.travel=origTravel;e.serviceBackground=origServices;}
             }finally{if(e.running)e.stop();delete fixtureState.raids;e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();}
         })()`);
         assert.deepEqual(legendMain,[385,'candy','legend',false,385]);
-        checks.push('the daily legendary target persists and routes to Jirachi after factory settlement even with the daily shiny raid cleared');
+        checks.push('daily shiny raids use the saved switch and run after the factory, then the daily legendary main routes to Jirachi');
         const dailyMain=await evaluate(`(async()=>{
             const r=${root},e=__pcExecutionTest.engine;
             const initial={...e.settings},marks={...e.dailyMarks},results=[];

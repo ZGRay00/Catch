@@ -27,12 +27,40 @@ async function main(){
         await send('Page.navigate',{url:pathToFileURL(html).href});for(let n=0;n<80&&!await evaluate('!!window.__pokecatchHelper?.ready');n++)await delay(50);assert.equal(await evaluate('!!window.__pokecatchHelper?.ready'),true);
         const root="document.querySelector('#pokecatch-auto-helper').shadowRoot";
         const daily=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;
-            r.querySelector('#daily-routine').open=true;
-            const button=r.querySelector('#start-daily');button.click();
+            const choices=[...r.querySelectorAll('.modes [data-group="adventure"]')].filter(el=>el.getClientRects().length);
+            if(choices.map(el=>el.dataset.mode).join(',')!=='dex,money,progress,daily'||r.querySelector('#daily-routine').getClientRects().length)throw Error('Adventure task grid');
+            choices[3].click();
+            if(e.running||choices[3].getAttribute('aria-pressed')!=='true'||!r.querySelector('#daily-routine').getClientRects().length||r.querySelector('#ordinary-target').getClientRects().length||!r.querySelector('#add-job').disabled)throw Error('Daily card selection');
+            const button=r.querySelector('#start');if(button.textContent!=='开始通关日常')throw Error('Daily start label');button.click();
             const result=[e.running,e.daily?.base.mode,button.disabled,r.querySelector('#run-state').textContent];
-            r.querySelector('#stop').click();r.querySelector('#daily-routine').open=false;return result;})()`);
-        assert.deepEqual(daily,[true,'dex',true,'通关日常 · '+H.MODE_NAMES.dex]);
+            r.querySelector('#stop').click();choices[0].click();
+            if(!r.querySelector('#ordinary-target').getClientRects().length||r.querySelector('#daily-routine').getClientRects().length||button.textContent!=='开始当前任务')throw Error('Return to ordinary task');
+            return result;})()`);
+        assert.deepEqual(daily,[true,'dex',true,'通关日常 · 检查待办']);
         checks.push('daily routine starts from Tasks and stops using the normal task controls');
+        const order=await evaluate(`(async()=>{
+            const e=__pcExecutionTest.engine,r=${root},initial={...e.settings},marks={...e.dailyMarks},calls=[];
+            const original=e.followMarkedHunt,screen=document.createElement('div');
+            screen.id='screen-adventure';screen.className='active';screen.textContent='模拟冒险战斗';document.body.append(screen);
+            try{
+                e.settings={...initial,mode:'dex',dailyMain:'dex',raids:false,dailyWindow:false,dailyCandy:true,dailyWorld:true,dailyTower:false,dailyElite:false};
+                e.dailyMarks={};fixtureState.adv.battle={kind:'trainer',enemies:[{id:25,hp:5}]};commitExecution();
+                e.followMarkedHunt=()=>{if(e.settings.mode!=='dex')return false;calls.push('挂机');return true;};
+                r.querySelector('[data-mode="daily"]').click();r.querySelector('#start').click();clearTimeout(e.timer);
+                await e.step();calls.push(e.daily?.job?.kind);
+                await e.step();calls.push(e.daily?.job?.waitingForBattle&&e.status.includes('日常已排队'));
+                delete fixtureState.adv.battle;commitExecution();await e.step();
+                calls.push(e.daily.job.waitingForBattle);e.completeTask('模拟工厂结算');
+                await e.step();calls.push(e.daily?.job?.kind);e.completeTask('模拟世界首领结算');
+                await e.step();calls.push(e.daily?.checking);
+                return calls;
+            }finally{
+                if(e.running)e.stop();screen.remove();e.followMarkedHunt=original;delete fixtureState.adv.battle;
+                e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();
+            }
+        })()`);
+        assert.deepEqual(order,['candy',true,false,'world','挂机',false]);
+        checks.push('a daily run reserves the factory during a trainer fight and dispatches the world boss before a marked dex route');
         const dailyMain=await evaluate(`(async()=>{
             const r=${root},e=__pcExecutionTest.engine;
             const initial={...e.settings},marks={...e.dailyMarks},results=[];
@@ -40,9 +68,10 @@ async function main(){
                 r.querySelector('[data-mode="progress"]').click();
                 const set=(key,value)=>{const el=r.querySelector('[data-setting="'+key+'"]');el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
                 const raid=r.querySelector('[data-setting="raids"]');if(raid.checked)raid.click();
+                r.querySelector('[data-mode="daily"]').click();
                 for(const mode of ['dex','money','shiny','train']){
                     set('dailyMain',mode);if(mode==='money')set('moneyTarget','1');
-                    e.dailyMarks={};r.querySelector('#start-daily').click();clearTimeout(e.timer);
+                    e.dailyMarks={};r.querySelector('#start').click();clearTimeout(e.timer);
                     await e.step();const child=e.daily?.job?.kind;
                     e.completeTask('模拟工厂结算');const resumed=e.settings.mode;
                     const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id));
@@ -64,7 +93,7 @@ async function main(){
             try{
                 fixtureState.mons.push({uid:'pc-target',id:9,level:70,reg:'kanto'});commitExecution();
                 const set=(key,value)=>{const el=r.querySelector('[data-setting="'+key+'"]');el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
-                set('dailyMain','train');r.querySelector('#daily-edit-goal').click();set('trainUid','selected');
+                r.querySelector('[data-mode="daily"]').click();set('dailyMain','train');r.querySelector('#daily-edit-goal').click();set('trainUid','selected');
                 r.querySelector('#train-members input').click();
                 const pc=r.querySelector('#train-pc');pc.dispatchEvent(new Event('focus'));pc.value='pc-target';pc.dispatchEvent(new Event('change',{bubbles:true}));
                 const gems=r.querySelector('[data-setting="trainGems"]'),off=!gems.checked;gems.click();set('trainRank',2);

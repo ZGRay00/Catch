@@ -239,7 +239,12 @@
         }
         dailyStep(s,now,windowFirst){
             const {base,job}=this.daily,d=this.driver,a=this.automation,flow=a.state;
-            if(!safeRaidDeparture(s)||this.preparation||this.raidProbe||this.raidReturn||d.raid||
+            // During the opening pass reserve an available chore even if the current
+            // native battle must finish first. No map or facility click happens here.
+            const safe=safeRaidDeparture(s);
+            if(s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)return false;
+            if(!safe&&!job&&(!this.daily.checking||!s.adv.battle))return false;
+            if(this.preparation||this.raidProbe||this.raidReturn||d.raid||
                 d.teamTask||d.ownedDialog||a.owner||a.buddyTask||a.buffUI||flow.autoBuffTx||
                 flow.hatch||flow.eggService||flow.evolution||this.services.underground)return false;
             if(job){
@@ -268,7 +273,7 @@
             }
             if(!plan)return false;
             this.daily.checkpoint=this.progressSnapshot();
-            this.daily.job={kind:plan.kind,until:plan.until,started:now};
+            this.daily.job={kind:plan.kind,until:plan.until,started:now,waitingForBattle:!safe};
             this.settings=this.taskSettings({...base,...plan.settings,autoPrepare:false,raids:false,
                 ...(plan.kind==='window'?{autoTeam:false}:{})});
             this.beginTask(s,{budget:this.daily.checkpoint.budget},now,true);
@@ -280,10 +285,10 @@
             if(!s?.adv){this.stop('存档不可用，无法恢复挂机');return;}
             this.dailyMarks[job.kind]=job.kind==='window'?now+30000:until;
             this.settings=this.taskSettings(base);
-            this.daily.job=null;delete this.daily.checkpoint;
+            this.daily.job=null;this.daily.checking=true;delete this.daily.checkpoint;
             this.beginTask(s,{...checkpoint,budget:{used:this.budget.used,spent:this.budget.spent}},now,true);
             this.dailyCheckAt=0;
-            this.status=reason+' · 返回'+MODE_NAMES[this.settings.mode];this.log(this.status);this.persist();
+            this.status=reason+' · 检查剩余日常';this.log(this.status);this.persist();
         }
         completeTask(reason){
             if(this.daily?.job){this.returnFromDaily(reason);return;}
@@ -413,12 +418,13 @@
                 this.errors=0;this.lastCheckpoint=0;
                 this.checkpoint=null;
                 this.daily=cp?.daily&&!this.queueRunning&&DAILY_BASE_MODES.has(cp.daily.base?.mode)?cp.daily:
-                    daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null}:null;
+                    daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null,checking:true}:null;
+                if(this.daily)this.daily.checking??=!this.daily.job;
                 if(daily)this.settings=this.taskSettings(this.daily.base);
                 this.dailyCheckAt=this.dailyWindowCheckAt=0;
                 this.beginTask(s,cp,this.started);
                 if(!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
-                this.log(`开始${MODE_NAMES[this.settings.mode]}`);
+                this.log(this.daily?'开始通关日常 · '+(this.daily.job?MODE_NAMES[this.settings.mode]:'检查待办'):`开始${MODE_NAMES[this.settings.mode]}`);
                 if (s.adv.event?.raid) {
                     const raid = s.adv.event;
                     const remembered=cp?.activity?.raid,same=remembered?.reg===(raid.reg||currentRegion(s))&&remembered?.boss===raid.id&&(!remembered.date||remembered.date===(raid.date||parisDay()));
@@ -430,7 +436,7 @@
                     this.zoneId = s.adv.zone.id;this.zoneStarted=cp?.activity?.zone?.id===this.zoneId?clamp(cp.activity.zone.started,1,Date.now(),Date.now()):Date.now();
                     this.status = `已接管当前传说战 · ${MONS.get(s.adv.zone.foe || this.zoneId)?.name || this.zoneId}`;
                     this.log(this.status);
-                } else this.status = '规划中';
+                } else this.status = this.daily?.checking?'正在检查通关日常':'规划中';
                 if(cp){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
                 this.persist(); this.schedule(50);
             } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;} try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
@@ -766,24 +772,47 @@
             }
             if(this.holdWildShiny(s,now))return;
             const inActivity=s.adv.event||s.adv.zone||s.adv.tower||s.adv.league;
+            const reserved=this.daily?.job;
+            if(reserved?.waitingForBattle&&!inActivity){
+                if(now>=reserved.until){this.returnFromDaily('日常时段已结束',now,now);return;}
+                if(!safeRaidDeparture(s)){
+                    this.status='日常已排队 · '+MODE_NAMES[this.settings.mode]+' · 等待当前遭遇或选择结算';
+                    this.lastProgress=now;this.driver.nav('adventure');return;
+                }
+                reserved.waitingForBattle=false;reserved.started=now;this.persist();
+            }
             if(inActivity&&this.daily?.job&&this.daily.job.kind!=='window')this.daily.job.started=now;
             const outcome=inActivity?null:this.preparation?.terminalGoal||adventureTaskOutcome(s,this,now);
             if(!outcome&&!this.adoptManualPreparation(s,now))return;
             const startingBattle = !!this.startBattle && this.startBattle === this.ordinaryBattleKey(s);
             if (!startingBattle) this.startBattle = null;
             const flow=this.automation.state;
-            const settling=!!(this.services.underground||flow.hatch||flow.evolution||flow.autoBuffTx||this.automation.buffUI||this.automation.buddyTask);
+            const settling=!!(this.services.underground||flow.hatch||flow.eggService||flow.evolution||flow.autoBuffTx||this.automation.buffUI||this.automation.buddyTask);
             const foregroundFirst=startingBattle&&!settling;
             // A finite main goal can already be satisfied at login or by a facility reward.
             // Give remaining daily work a turn before honoring the main task's stop condition.
             const finishDaily=outcome&&!outcome.failed&&this.daily&&!this.daily.job&&!this.preparation;
             if(finishDaily&&this.driver.raid&&!this.raidProbe&&!this.raidReturn)this.finishRaidReturn(now);
-            const scheduleDaily=!outcome||finishDaily;
-            if(!inActivity&&!outcome&&!this.preparation&&!this.raidProbe&&!this.raidReturn&&!settling&&!this.driver.teamTask&&this.followMarkedHunt(s,now))return;
+            const opening=this.daily?.checking&&!this.daily.job&&!inActivity;
+            const scheduleDaily=opening||!outcome||finishDaily;
+            if(opening&&this.driver.raid&&!this.raidProbe&&!this.raidReturn)this.finishRaidReturn(now);
+            if(opening&&s.adv.pending&&!settling){
+                this.status='检查日常前等待当前游戏选择结算';this.lastProgress=now;this.driver.nav('adventure');return;
+            }
             if(this.daily&&!inActivity&&scheduleDaily&&this.dailyStep(s,now,true))return;
-            if((!foregroundFirst||finishDaily)&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
-            if(!foregroundFirst&&this.serviceBackground(s,now))return;
+            if(this.daily&&(opening||!foregroundFirst||finishDaily)&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
             if(this.daily&&!inActivity&&scheduleDaily&&this.dailyStep(s,now,false))return;
+            if(opening&&!settling&&!this.driver.teamTask&&!this.preparation&&!this.raidProbe&&!this.raidReturn){
+                if(this.raidBoundarySince!=null){
+                    this.status='每日团体战已排队，等待当前遭遇结算';this.lastProgress=now;this.driver.nav('adventure');return;
+                }
+                this.daily.checking=false;
+                this.log('当前可执行日常已检查，开始挂机 · '+MODE_NAMES[this.settings.mode]);this.persist();
+            }
+            if(!inActivity&&!outcome&&!this.preparation&&!this.raidProbe&&!this.raidReturn&&!settling&&!this.driver.teamTask&&this.followMarkedHunt(s,now))return;
+            if(!this.daily&&!foregroundFirst&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
+            const enteringFacility=this.daily?.job&&this.daily.job.kind!=='window'&&!inActivity;
+            if(!foregroundFirst&&(!enteringFacility||settling)&&this.serviceBackground(s,now))return;
             if(finishDaily&&!safeRaidDeparture(s)&&(dailyFacility(s,this.daily.base,this.dailyMarks,now)||this.raidBoundarySince!=null)){
                 this.status='每日主线已达标，当前战斗结束后处理剩余日常';this.lastProgress=now;return;
             }
@@ -1392,6 +1421,7 @@
             if(!this.settings.raids||FLOW_MODES.has(this.settings.mode)||['roam','legend'].includes(this.settings.mode))return false;
             const rest=this.raidDailyStatus(s,now);
             if(rest){
+                this.raidBoundarySince=null;
                 if(this.raidProbe||this.raidReturn)this.deferRaid(rest.reason,now,0);
                 this.raidCheckNote=''; // The panel reads today's live evidence; a stale note must not survive midnight.
                 return false;
@@ -1403,6 +1433,7 @@
             }
             const tab=$('#tabs [data-screen="raid"]');
             if(tab?.classList.contains('locked')||tab?.classList.contains('hold')){
+                this.raidBoundarySince=null;
                 this.raidCheckNote=tab.dataset?.why||'游戏的团体战入口暂不可用';return false;
             }
             const p=this.preparation,d=this.driver,a=this.automation,flow=a.state;

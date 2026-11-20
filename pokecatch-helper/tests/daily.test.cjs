@@ -60,6 +60,22 @@ test('unavailable entrance yields to the base and has a bounded retry',()=>{
     assert.ok(e.dailyStep(s,now+91000,true));assert.equal(e.settings.mode,'item');
     assert.ok(e.dailyMarks.candy>now+91000);assert.equal(e.dailyStep(s,now+92000,false),false);
 });
+test('opening pass reserves a facility across reload and rechecks the next chore before farming',()=>{
+    const s=save(),e=engine(s);
+    e.daily.base.dailyWorld=true;e.daily.checking=true;
+    s.adv.battle={kind:'trainer',enemies:[{id:25,hp:8}]};
+    s.adv.pending={type:'gift'};assert.equal(e.dailyStep(s,now,false),false);
+    delete s.adv.pending;
+    assert.ok(e.dailyStep(s,now,false));assert.equal(e.daily.job.waitingForBattle,true);
+    e.persist();const reload=new H.Engine(e.storage);reload.loadAccount(s);
+    assert.equal(reload.checkpoint.daily.job.waitingForBattle,true);
+    delete s.adv.battle;
+    e.returnFromDaily('模拟结算',H.nextParisReset(now),now+1000);
+    assert.equal(e.daily.checking,true);
+    assert.ok(e.dailyStep(s,now+2000,false));assert.equal(e.daily.job.kind,'world');
+    e.returnFromDaily('模拟结算',H.nextParisReset(now),now+3000);
+    assert.equal(e.dailyStep(s,now+4000,false),false);
+});
 test('legacy and imported daily settings keep the ordinary task when no valid independent main is specified',()=>{
     for(const dailyMain of [undefined,'tower','invalid']){
         const cfg=H.normalizeSettings({mode:'train',dailyMain});

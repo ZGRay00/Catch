@@ -269,6 +269,41 @@
         return floors.reduce((best,floor)=>Number.isInteger(floor)&&floor>0&&floor<=cap?Math.max(best,floor):best,0);
     }
     const UNDER_THEMES={flooded:['water','grass','electric'],volcanic:['fire','rock','ground'],crystal:['ice','psychic','steel'],dark:['ghost','dark','poison'],ancient:['dragon','fighting'],galleries:['normal','bug','flying']};
+    // Cheap seed for the bounded search. Score learned damaging moves and bulk
+    // against the theme; the detailed search still uses actual dual-type foes and guards.
+    function* expeditionSeedOrder(pool,types,identity,sliced){
+        const entries=[];
+        for(const mon of pool){
+            const model=MONS.get(mon.id),stats=effectiveStats(mon),defense=defensiveTypes(model);
+            const moves=damagingMoves(model).filter(entry=>entry.level<=mon.level);
+            const bulk=Math.sqrt(stats.hp*Math.sqrt(stats.def*stats.spd));
+            const scores=types.map(type=>{
+                let attack=0;
+                for(const {move,stab} of moves){
+                    const effect=DATA.chart[move.type]?.[type]??1;
+                    attack=Math.max(attack,stats[move.cat==='phys'?'atk':'spa']*move.power*(move.acc/100)*stab*effect);
+                }
+                return Math.sqrt(attack)*Math.sqrt(bulk/Math.max(.25,defense[type]??1))*Math.sqrt(mon.level);
+            });
+            entries.push({mon,scores,total:scores.reduce((sum,n)=>sum+n,0)});
+            if(sliced&&entries.length%8===0)yield;
+        }
+        entries.sort((a,b)=>b.total-a.total||String(a.mon.uid).localeCompare(String(b.mon.uid)));
+        const bestByType=types.map(()=>0),selected=[],taken=new Set();
+        while(selected.length<3){
+            let best,gain=-Infinity;
+            for(const entry of entries){
+                if(taken.has(identity(entry.mon))||selected.some(mon=>undergroundApart(mon,entry.mon)))continue;
+                const value=entry.scores.reduce((sum,score,i)=>sum+.7*Math.max(0,score-bestByType[i])+.3*score,0);
+                if(value>gain){best=entry;gain=value;}
+            }
+            if(!best)break;
+            selected.push(best.mon);taken.add(identity(best.mon));
+            best.scores.forEach((score,i)=>{bestByType[i]=Math.max(bestByType[i],score);});
+            if(sliced)yield;
+        }
+        return [...selected,...entries.map(entry=>entry.mon).filter(mon=>!selected.includes(mon))];
+    }
     const UNDER_FOE_POOLS=new Map();
     function undergroundFoes(s,theme,floor){
         const nationalMax=DATA.regions.reduce((highest,region)=>{
@@ -321,7 +356,7 @@
                     floorGold});
             }
         }
-        return {...context,foes,pool,force:true,objective:settings.underGoal==='money'?'underMoney':'underDepth'};
+        return {...context,foes,pool,themeTypes:UNDER_THEMES[theme]||Object.keys(DATA.types),force:true,objective:settings.underGoal==='money'?'underMoney':'underDepth'};
     }
     // Public native Underground.starts(), build c8fb8b2e96. The best reached
     // floor is credited on return. A live native bay menu is authoritative on send.

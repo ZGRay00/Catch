@@ -151,6 +151,34 @@
         return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
     }
     let wildForecastCache;
+    // Called only after ranking finds no available catch route, including routes on cooldown.
+    function hasWeatherBlockedTarget(s,cfg,targets,now){
+        const wanted=new Set(targets),dex=cfg.mode==='dex',filter=cfg[cfg.mode+'Weather']||[];
+        if(filter.length){
+            const next=nextWildWindow(s,cfg,targets,now);
+            if(next&&!huntRouteMatches(s,cfg,next.row,now))return true;
+        }
+        for(const ch of availableChapters(s,cfg)){
+            const habitat=WILD_HABITATS.get(ch.id);
+            const nativeWild=habitat&&targets.some(id=>habitat.has(id));
+            const excluded=filter.length&&!huntWeatherMatches(s,cfg,ch.id,now);
+            if(dex&&ch.special.some(spec=>spec.kind==='static'&&wanted.has(spec.id)&&!spec.caught?.some(id=>!s.dex?.[id])&&
+                (specialBlockReason(s,spec,now,ch.id)==='地点天气条件尚未满足'||excluded&&specialAvailable(s,spec,now,ch.id))))return true;
+            if(!nativeWild)continue;
+            const data=WEATHER_DATA.chapters[ch.id],sky=chapterWeather(s,ch.id,now);
+            if(!data||!sky.known)continue;
+            const phase=phaseAt(s,now,ch.id);
+            const climates=data.fixed?[].concat(data.fixed):['clear',...Object.keys(data.weights||{})];
+            for(const key of climates){
+                if(key===(sky.key||'clear')||filter.length&&!filter.includes(key)||phase==='night'&&!data.fixed&&WEATHER_DATA.types[key]?.daylight)continue;
+                const table=weatherEncounterTable(data,{source:data.fixed?'fixed':'natural',key},phase,now);
+                if(WEATHER_DATA.tables[table]?.some(([id,weight])=>weight>0&&wanted.has(id)))return true;
+            }
+        }
+        return targets.some(id=>UNOVA_SOURCE_INDEX.has(id)&&unovaAcquisitionSources(s,id,now,false,!dex).some(source=>
+            (dex||source.kind==='phenomenon')&&huntRegionMatches(s,cfg,CHAPTERS.get(source.chapter)?.reg)&&
+            (source.weatherBlocked||source.available&&!huntWeatherMatches(s,cfg,source.chapter,now))));
+    }
     function nextWildWindow(s,settings,ids,now=Date.now(),hours) {
         const targets=Array.from(new Set(ids));
         const eggState=settings.mode==='dex'&&targets.some(id=>UNOVA_SOURCE_INDEX.get(id)?.some(route=>route.egg?.id===id))

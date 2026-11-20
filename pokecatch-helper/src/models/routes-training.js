@@ -307,10 +307,11 @@
         return availableRankedRoutes(rows,cooldowns,now);
     }
     function completeYieldRanking(request,cooldowns,now){
-        let cached=routeRankings.get(request.kind);
+        const slot=request.cacheSlot||request.kind;
+        let cached=routeRankings.get(slot);
         if(cached?.signature!==request.signature){
             cached={signature:request.signature,rows:request.search(false).next().value};
-            routeRankings.set(request.kind,cached);
+            routeRankings.set(slot,cached);
         }
         return selectYieldRoutes(request,cached.rows,cooldowns,now);
     }

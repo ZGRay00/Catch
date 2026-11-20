@@ -43,6 +43,7 @@
         autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
         dailyMain:'current',dailyRaidRegions:[],dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
+        huntWeatherFallback:'wait',
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;
     const BUDGET_LIMITS = Object.freeze({spendBudget:1e12, dailySpendBudget:1e12, moneyReserve:1e12, useBudget:99999});
@@ -56,6 +57,7 @@
         if(raw.underFrom!==undefined&&typeof raw.underAutoStart!=='boolean')raw={...raw,underAutoStart:!(Number(raw.underFrom)>1)};
         if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
+        if(['money','xp'].includes(raw.huntWeatherFallback))out.huntWeatherFallback=raw.huntWeatherFallback;
         out.underGoal=raw.underGoal==='money'?'money':'depth';
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
         // A missing switch belongs to a pre-switch profile. Only an explicit boolean can enable an imported switch.

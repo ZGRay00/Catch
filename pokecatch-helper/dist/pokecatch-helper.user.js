@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      5.7.1
+// @version      5.8.2
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '5.7.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '5.8.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -358,7 +358,7 @@
                     else if(a.gifts?.['egg:'+id])reason='本存档已领取一次性赠蛋';
                     else if(!a.badges?.includes(egg.badge))reason='需要合众冠军徽章';
                     else if(incubator.length>=Math.max(1,s.pension?.open?.eggs||1))reason='孵化器已满';
-                    else if(!liveItems.length&&!egg.skies.includes(sky))reason='等待沙漠地带出现大晴天';
+                    else if(!liveItems.length&&!egg.skies.includes(sky)){target.weatherBlocked=true;reason='等待沙漠地带出现大晴天';}
                 }
                 target.marked=!reason&&liveItems.length>0;
                 // With one ordinary and one possible phenomenon item, either node can award the one-off egg.
@@ -378,9 +378,9 @@
                 target.phenomenon=route.phenomenon;
                 target.skies=base[id]?[]:Object.keys(conditional).filter(key=>conditional[key][id]);
                 target.marked=shares.length>0&&!reason;
-                if(!reason&&!target.marked&&!share)reason='等待现象所需天气';
                 if(!reason&&!target.marked&&route.day&&phaseAt(s,now,route.chapter)==='night')reason='此路段只在白天生成';
                 if(!reason&&!target.marked&&route.night&&phaseAt(s,now,route.chapter)!=='night')reason='此路段只在夜间生成';
+                if(!reason&&!target.marked&&!share){target.weatherBlocked=true;reason='等待现象所需天气';}
                 weight=target.marked?shares.reduce((sum,n)=>sum+n,0):route.blocks*rollChance*(1-UNOVA_ENCOUNTERS.itemFraction)*share;
             }
             return {...target,available:!reason,reason,weight:reason?0:weight};
@@ -391,7 +391,7 @@
             if(egg){
                 const node=WEATHER_DATA.chapters[egg.chapter]?.nodes.find(n=>n.kind==='route'&&n.name===egg.originalName);
                 const available=regionOpen&&egg.chapter<=a.unlocked&&egg.skies.includes(nodeWeather(s,egg.chapter,node,now));
-                sources.push({...egg,kind:'questWild',marked:false,available,weight:available ? .01 : 0,chance:undefined,
+                sources.push({...egg,kind:'questWild',marked:false,available,weatherBlocked:regionOpen&&egg.chapter<=a.unlocked&&!available,weight:available ? .01 : 0,chance:undefined,
                     reason:!regionOpen?'尚未进入合众':egg.chapter>a.unlocked?'章节尚未解锁':available?'':'等待沙漠地带出现大晴天'});
             }
         }
@@ -464,6 +464,7 @@
         autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
         dailyMain:'current',dailyRaidRegions:[],dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
+        huntWeatherFallback:'wait',
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;
     const BUDGET_LIMITS = Object.freeze({spendBudget:1e12, dailySpendBudget:1e12, moneyReserve:1e12, useBudget:99999});
@@ -477,6 +478,7 @@
         if(raw.underFrom!==undefined&&typeof raw.underAutoStart!=='boolean')raw={...raw,underAutoStart:!(Number(raw.underFrom)>1)};
         if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
+        if(['money','xp'].includes(raw.huntWeatherFallback))out.huntWeatherFallback=raw.huntWeatherFallback;
         out.underGoal=raw.underGoal==='money'?'money':'depth';
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
         // A missing switch belongs to a pre-switch profile. Only an explicit boolean can enable an imported switch.
@@ -1005,6 +1007,41 @@
         return floors.reduce((best,floor)=>Number.isInteger(floor)&&floor>0&&floor<=cap?Math.max(best,floor):best,0);
     }
     const UNDER_THEMES={flooded:['water','grass','electric'],volcanic:['fire','rock','ground'],crystal:['ice','psychic','steel'],dark:['ghost','dark','poison'],ancient:['dragon','fighting'],galleries:['normal','bug','flying']};
+    // Cheap seed for the bounded search. Score learned damaging moves and bulk
+    // against the theme; the detailed search still uses actual dual-type foes and guards.
+    function* expeditionSeedOrder(pool,types,identity,sliced){
+        const entries=[];
+        for(const mon of pool){
+            const model=MONS.get(mon.id),stats=effectiveStats(mon),defense=defensiveTypes(model);
+            const moves=damagingMoves(model).filter(entry=>entry.level<=mon.level);
+            const bulk=Math.sqrt(stats.hp*Math.sqrt(stats.def*stats.spd));
+            const scores=types.map(type=>{
+                let attack=0;
+                for(const {move,stab} of moves){
+                    const effect=DATA.chart[move.type]?.[type]??1;
+                    attack=Math.max(attack,stats[move.cat==='phys'?'atk':'spa']*move.power*(move.acc/100)*stab*effect);
+                }
+                return Math.sqrt(attack)*Math.sqrt(bulk/Math.max(.25,defense[type]??1))*Math.sqrt(mon.level);
+            });
+            entries.push({mon,scores,total:scores.reduce((sum,n)=>sum+n,0)});
+            if(sliced&&entries.length%8===0)yield;
+        }
+        entries.sort((a,b)=>b.total-a.total||String(a.mon.uid).localeCompare(String(b.mon.uid)));
+        const bestByType=types.map(()=>0),selected=[],taken=new Set();
+        while(selected.length<3){
+            let best,gain=-Infinity;
+            for(const entry of entries){
+                if(taken.has(identity(entry.mon))||selected.some(mon=>undergroundApart(mon,entry.mon)))continue;
+                const value=entry.scores.reduce((sum,score,i)=>sum+.7*Math.max(0,score-bestByType[i])+.3*score,0);
+                if(value>gain){best=entry;gain=value;}
+            }
+            if(!best)break;
+            selected.push(best.mon);taken.add(identity(best.mon));
+            best.scores.forEach((score,i)=>{bestByType[i]=Math.max(bestByType[i],score);});
+            if(sliced)yield;
+        }
+        return [...selected,...entries.map(entry=>entry.mon).filter(mon=>!selected.includes(mon))];
+    }
     const UNDER_FOE_POOLS=new Map();
     function undergroundFoes(s,theme,floor){
         const nationalMax=DATA.regions.reduce((highest,region)=>{
@@ -1057,7 +1094,7 @@
                     floorGold});
             }
         }
-        return {...context,foes,pool,force:true,objective:settings.underGoal==='money'?'underMoney':'underDepth'};
+        return {...context,foes,pool,themeTypes:UNDER_THEMES[theme]||Object.keys(DATA.types),force:true,objective:settings.underGoal==='money'?'underMoney':'underDepth'};
     }
     // Public native Underground.starts(), build c8fb8b2e96. The best reached
     // floor is credited on return. A live native bay menu is authoritative on send.
@@ -1535,7 +1572,9 @@
                 // Hold the egg number and the pending berry fixed while changing
                 // only the selected parent's shiny status.
                 const plainRate=nurseryEggRate({bx}),shinyRate=nurseryEggRate({sp:2,bx});
-                result.nextEgg={...row,parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
+                const withBerry=withoutBerry*NURSERY_RULES.berryMultiplier;
+                result.nextEgg={...row,withoutBerryShiny:roll<withoutBerry,withBerryShiny:roll<withBerry,
+                    parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
             }
             if(row.shiny&&result.hits.length<keep)result.hits.push(row);
             for(const key of Object.keys(scenarios)){
@@ -1554,6 +1593,7 @@
     function nurserySnapshot(s,options={}){
         const now=Number.isFinite(options.now)?options.now:Date.now(),eggs=Array.isArray(s?.pension?.eggs)?s.pension.eggs:[];
         const eggRows=eggs.map(egg=>{const outcome=eggOutcome(s,egg,options),readyKnown=Number.isFinite(egg?.hatchAt);return{uid:egg?.uid??null,id:egg?.id??null,k:egg?.k??null,laidAt:egg?.laidAt??null,hatchAt:egg?.hatchAt??null,
+            berryApplied:egg?.bx===undefined?false:nurseryFlag(egg.bx)?!!egg.bx:null,
             readyKnown,ready:readyKnown&&now>=egg.hatchAt,remainingMs:readyKnown?Math.max(0,egg.hatchAt-now):null,...outcome};});
         const total=eggRows.length,known=eggRows.filter(row=>row.known).length,shiny=eggRows.filter(row=>row.known&&row.shiny).length;
         const capacity=Math.min(NURSERY_RULES.maxEggs,Math.max(1,total,Number(s?.pension?.open?.eggs)||1));
@@ -2015,6 +2055,34 @@
         return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
     }
     let wildForecastCache;
+    // Called only after ranking finds no available catch route, including routes on cooldown.
+    function hasWeatherBlockedTarget(s,cfg,targets,now){
+        const wanted=new Set(targets),dex=cfg.mode==='dex',filter=cfg[cfg.mode+'Weather']||[];
+        if(filter.length){
+            const next=nextWildWindow(s,cfg,targets,now);
+            if(next&&!huntRouteMatches(s,cfg,next.row,now))return true;
+        }
+        for(const ch of availableChapters(s,cfg)){
+            const habitat=WILD_HABITATS.get(ch.id);
+            const nativeWild=habitat&&targets.some(id=>habitat.has(id));
+            const excluded=filter.length&&!huntWeatherMatches(s,cfg,ch.id,now);
+            if(dex&&ch.special.some(spec=>spec.kind==='static'&&wanted.has(spec.id)&&!spec.caught?.some(id=>!s.dex?.[id])&&
+                (specialBlockReason(s,spec,now,ch.id)==='地点天气条件尚未满足'||excluded&&specialAvailable(s,spec,now,ch.id))))return true;
+            if(!nativeWild)continue;
+            const data=WEATHER_DATA.chapters[ch.id],sky=chapterWeather(s,ch.id,now);
+            if(!data||!sky.known)continue;
+            const phase=phaseAt(s,now,ch.id);
+            const climates=data.fixed?[].concat(data.fixed):['clear',...Object.keys(data.weights||{})];
+            for(const key of climates){
+                if(key===(sky.key||'clear')||filter.length&&!filter.includes(key)||phase==='night'&&!data.fixed&&WEATHER_DATA.types[key]?.daylight)continue;
+                const table=weatherEncounterTable(data,{source:data.fixed?'fixed':'natural',key},phase,now);
+                if(WEATHER_DATA.tables[table]?.some(([id,weight])=>weight>0&&wanted.has(id)))return true;
+            }
+        }
+        return targets.some(id=>UNOVA_SOURCE_INDEX.has(id)&&unovaAcquisitionSources(s,id,now,false,!dex).some(source=>
+            (dex||source.kind==='phenomenon')&&huntRegionMatches(s,cfg,CHAPTERS.get(source.chapter)?.reg)&&
+            (source.weatherBlocked||source.available&&!huntWeatherMatches(s,cfg,source.chapter,now))));
+    }
     function nextWildWindow(s,settings,ids,now=Date.now(),hours) {
         const targets=Array.from(new Set(ids));
         const eggState=settings.mode==='dex'&&targets.some(id=>UNOVA_SOURCE_INDEX.get(id)?.some(route=>route.egg?.id===id))
@@ -2899,9 +2967,17 @@
             const rows=team.map(values);
             if(underground){
                 if(!rows.length)return 0;
-                let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0;
+                let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0,reserveCredit=0;
                 for(let i=0;i<weights.length;i++){
                     const foe=weights[i],details=rows.map(row=>row.details[i]);
+                    // A fresh lead can hide a weak bench. Use the second-best solo
+                    // survivor as a small tie-break for later fights after wear.
+                    let first=0,second=0;
+                    for(const row of rows){
+                        const solo=row.solo[i],value=solo.coverage*row.endurance[i]/Math.max(1,solo.turns);
+                        if(value>=first){second=first;first=value;}else second=Math.max(second,value);
+                    }
+                    reserveCredit+=foe.weight*second;
                     // Underground shuffles the party before encounters. Rotate ties in native
                     // deployment priority instead of rewarding an adventure party's fixed lead.
                     let clears=0,elapsed=0,orders=0;
@@ -2936,7 +3012,8 @@
                 const depth=.85*retained/totalWeight+.15*weakestGuard;
                 // Relative objectives, not a displayed win probability or measured income.
                 const guardLoss=(guardWeight-guardCredit)/Math.max(.001,regularWeight);
-                return objective==='underDepth'?depth:gold*(1-guardLoss)/Math.max(1,seconds);
+                const primary=objective==='underDepth'?depth:gold*(1-guardLoss)/Math.max(1,seconds);
+                return primary*(1+.04*reserveCredit/totalWeight);
             }
             let gymSum=0,gymWorst=1,worstEfficiency=Infinity;
             const routeScore=weights.reduce((sum,foe,i)=>{
@@ -3025,6 +3102,9 @@
         // A legal incumbent is available before cold matchup rows are computed.
         // Only the live adventure scheduler consumes these checkpoints.
         if(context.progressive){
+            if(underground&&candidates.length>size){
+                candidates=yield* expeditionSeedOrder(candidates,context.themeTypes||Object.keys(DATA.types),identity,sliced);
+            }
             const fallback=chosen.slice(),seen=new Set(used);
             for(const mon of [...party,...candidates]){
                 if(fallback.length>=size)break;
@@ -3033,6 +3113,10 @@
             }
             const uids=fallback.map(m=>m.uid);
             yield {uids,changed:JSON.stringify(uids)!==JSON.stringify(s.team),gain:0,opponents:foes.length,reg,objective,reason:'计算预算已到，采用合法基础阵容'};
+            if(underground&&fallback.length===size){
+                for(const mon of fallback)yield* computeValues(mon,sliced);
+                yield {uids,changed:true,checkpointScore:utility(fallback),reg,objective,opponents:foes.length,reason:'已按通道敌人与守卫核对初选三人队'};
+            }
             // On slow devices compare a few legal alternatives before scanning the
             // whole box. The scheduler retains the best completed checkpoint.
             if(candidates.length>64&&fallback.length===size){
@@ -3045,7 +3129,7 @@
                         const trial=fallback.slice();trial[i]=mon;
                         if(underground&&trial.some(other=>undergroundApart(mon,other)))continue;
                         const score=utility(trial);
-                        if(score>best&&score>base*1.05+.01){
+                        if(score>best+1e-8&&(underground||score>base*1.05+.01)){
                             best=score;
                             yield {uids:trial.map(m=>m.uid),changed:true,gain:score/base-1,checkpointScore:score,reg,objective,opponents:foes.length,reason:'局部替换改善当前地图的模型表现'};
                         }else yield;
@@ -3486,10 +3570,11 @@
         return availableRankedRoutes(rows,cooldowns,now);
     }
     function completeYieldRanking(request,cooldowns,now){
-        let cached=routeRankings.get(request.kind);
+        const slot=request.cacheSlot||request.kind;
+        let cached=routeRankings.get(slot);
         if(cached?.signature!==request.signature){
             cached={signature:request.signature,rows:request.search(false).next().value};
-            routeRankings.set(request.kind,cached);
+            routeRankings.set(slot,cached);
         }
         return selectYieldRoutes(request,cached.rows,cooldowns,now);
     }
@@ -5306,16 +5391,20 @@
         undergroundPlan(s,bay,floor,pool,now){
             const e=this.e,key=this.undergroundPlanKey(s,bay,floor,pool);
             if(this.lastUnderPlan?.key===key)return this.lastUnderPlan;
+            const availability=()=>{
+                const countLegend=mons=>mons.reduce((n,mon)=>n+Number(!!MONS.get(mon.id)?.legend),0);
+                return `可派候选 ${pool.length} 只 · 盒中传说/幻之 ${countLegend(s.mons)} 只，可派 ${countLegend(pool)} 只`;
+            };
             if(pool.length<=3){
                 const unique=new Set(pool.map(m=>DATA.combat.singles[m.id]||m.id+':'+!!m.shiny));
                 const legal=unique.size===pool.length&&!pool.some(m=>pool.some(other=>undergroundApart(m,other)));
+                if(pool.length===3&&legal)e.log(`地下第 ${Number(bay)+1} 队 · ${availability()} · ${pool.map(m=>MONS.get(m.id).name).join('、')}`);
                 return this.lastUnderPlan={key,uids:legal?pool.map(m=>m.uid):[]};
             }
             let search;
             if(e.teamSearch?.signature!==key){
                 const context=undergroundTeamContext(s,e.settings,bay,floor,pool);
                 context.progressive=true;context.now=now;
-                context.pool=[...pool].sort((a,b)=>b.level-a.level||(b.rank||0)-(a.rank||0));
                 search=adventureTeamSearch({...s,team:[],road:[]},e.settings,[],context,true);
             }
             const plan=e.evaluateTeamSearch(key,search);
@@ -5323,7 +5412,7 @@
             if(plan.uids.length===3){
                 const byUid=new Map(pool.map(m=>[m.uid,m]));
                 const names=plan.uids.map(uid=>MONS.get(byUid.get(uid)?.id)?.name||uid);
-                e.log(`地下第 ${Number(bay)+1} 队 · 第 ${floor} 层 · ${e.settings.underGoal==='money'?'刷金币':'冲层'} · ${names.join('、')}${plan.limited?'（本次计算预算内推荐）':''}`);
+                e.log(`地下第 ${Number(bay)+1} 队 · 第 ${floor} 层 · ${e.settings.underGoal==='money'?'刷金币':'冲层'} · ${availability()} · ${names.join('、')}${plan.limited?'（限时推荐）':''}`);
             }
             return this.lastUnderPlan={key,uids:plan.uids};
         }
@@ -6885,6 +6974,7 @@
             this.preparation=this.raidPreparation=this.coach.checked=this.coach.ready=this.coach.combat=null;
             this.zoneId=this.zoneStarted=this.legendProbe=this.farmWait=this.weatherWindow=null;
             this.dailyZoneExit=null;
+            this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
             this.roamProbeAt=this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
             this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
@@ -7399,6 +7489,7 @@
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;
             if(this.daily?.job&&this.daily.job.kind!=='window')this.daily.job.started+=duration;
             if(this.dailyZoneExit?.started!=null)this.dailyZoneExit.started+=duration;
+            if(this.weatherFarm?.started!=null)this.weatherFarm.started+=duration;
             this.lastProgress=delayed?Math.min(now,this.lastProgress+duration):now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
             if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
@@ -7549,6 +7640,8 @@
             if(this.settings.mode!=='raid'&&!this.daily&&!foregroundFirst&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
             const enteringFacility=this.daily?.job&&this.daily.job.kind!=='window'&&!inActivity;
             if(!foregroundFirst&&(!enteringFacility||settling)&&this.serviceBackground(s,now))return;
+            if(!inActivity&&!outcome&&!settling&&!this.daily?.job&&!this.preparation&&!this.driver.teamTask&&
+                !this.raidProbe&&!this.raidReturn&&!this.driver.raid&&this.weatherFarmStep(s,now))return;
             if(finishDaily&&!safeRaidDeparture(s)&&(dailyFacility(s,this.daily.base,this.dailyMarks,now)||this.raidBoundarySince!=null)){
                 this.status='每日主线已达标，当前战斗结束后处理剩余日常';this.lastProgress=now;return;
             }
@@ -7961,7 +8054,7 @@
             return this.evaluateRouteRanking(request,cooldowns,now,view);
         }
         evaluateRouteRanking(request,cooldowns,now,view=false){
-            const kind=request.kind;
+            const kind=request.cacheSlot||request.kind;
             if(view)this.releaseRankingView(kind);
             let job=this.rankingJobs.get(kind);
             if(job&&job.signature!==request.signature){this.cancelRankingJob(kind);job=null;}
@@ -8085,6 +8178,64 @@
             const label=window.eggPlace?'等待赠蛋天气':'等待野生出没时段';
             const place=window.eggPlace?`${window.row.name} / ${window.eggPlace}`:window.row.name;
             this.waitForFarm(`${label} · ${MONS.get(window.id).name} · ${place} · ${SEASON_NAMES[window.season]} ${when}`,now);
+            return true;
+        }
+        weatherFarmStep(s,now){
+            const cfg=this.settings,kind=cfg.huntWeatherFallback;
+            if(!['money','xp'].includes(kind)||!['dex','shiny'].includes(cfg.mode)||this.driver.pendingMap?.options?.zone)return false;
+            const dex=cfg.mode==='dex',status=dex?dexStatus(s,cfg):null;
+            const rows=dex?dexRanking(s,cfg,{},now,status):shinyRanking(s,cfg,{},now);
+            // The hunt model already invalidates this entry on weather, roster, unlocks and target changes.
+            const ranking=routeRankings.get(cfg.mode);
+            if(!rows.length&&this.weatherEvidence?.ranking!==ranking){
+                const targets=dex?[...dexSearchIds(s,cfg,status)].filter(id=>!s.pension?.eggs?.some(egg=>egg.id===id)):missingShinies(s,cfg);
+                this.weatherEvidence={ranking,blocked:!!targets.length&&hasWeatherBlockedTarget(s,cfg,targets,now)};
+            }
+            if(rows.length||!this.weatherEvidence?.blocked){
+                if(this.weatherFarm){
+                    this.cancelRankingJob('weatherFarm/'+kind);
+                    this.weatherFarm=null;this.driver.navigation=null;this.farmWait=null;this.weatherWindow=null;
+                    this.log(rows.length?'捕捉窗口已开放，返回搜寻目标':'已重新核对目标，结束天气等待期间的挂机');
+                }
+                return false;
+            }
+            if(!this.weatherFarm){
+                this.weatherFarm={cooldowns:{}};this.target=this.visit=this.telemetry.sample=null;
+                this.driver.pendingMap=this.driver.navigation=this.legendProbe=null;
+            }
+            const farm=this.weatherFarm,label=kind==='xp'?'当前队伍练级':'刷钱';
+            this.lastProgress=now;
+            this.status='等待捕捉天气 · '+label;
+            if(kind==='xp'&&!partyMons(s).some(mon=>mon.level<trainingCap(s,mon))){
+                this.status+=' · 队员均已达到当前等级上限';return true;
+            }
+            if(!farm.row||!(farm.reviewAt>now)){
+                const options={...cfg,mode:kind==='xp'?'train':'money',region:'current'};
+                const request=yieldRankingRequest(kind,s,options,this.metrics,now);
+                request.cacheSlot='weatherFarm/'+kind;
+                const ranked=this.evaluateRouteRanking(request,{...this.cooldowns,...farm.cooldowns},now);
+                if(!ranked?.length||!(ranked[0].rate>0)){
+                    this.status+=ranked?' · 暂无可获收益的地图':' · 正在比较地图';return true;
+                }
+                farm.row=ranked[0];farm.reviewAt=now+15000;
+            }
+            const row=farm.row;
+            if(row.key!==farm.key){farm.key=row.key;farm.started=null;farm.clicked=0;farm.deaths=totalDeaths(s,row);}
+            this.status+=' · '+row.name;
+            if(totalDeaths(s,row)-farm.deaths>=cfg.lossLimit){
+                farm.cooldowns[row.key]=now+15*60000;farm.row=null;farm.key=null;
+                this.log(row.name+'达到挂机失败上限，重新选择收益地图');return true;
+            }
+            if(row.members.includes(s.adv.chapter)&&s.adv.loops?.length===1&&String(s.adv.loops[0])===row.key){
+                farm.started=null;farm.clicked=0;this.driver.nav('adventure');return true;
+            }
+            if(s.adv.pending||s.adv.battle&&!this.ordinaryBattleKey(s)){farm.started=null;return true;}
+            farm.started??=now;
+            if(now-farm.started>60000){
+                farm.cooldowns[row.key]=now+5*60000;farm.row=null;farm.key=null;
+                this.log('天气等待期间未能进入'+row.name+'，稍后重试');return true;
+            }
+            if(!farm.clicked&&this.driver.map(row,s))farm.clicked=now;
             return true;
         }
         ordinaryBattleKey(s) {
@@ -8814,7 +8965,8 @@
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
             <h3>下一枚与闪蛋预测</h3><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
-            <dl id="nursery-berry-plan" hidden><dt>无果即闪</dt><dd id="nursery-natural"></dd><dt>仅用果才闪</dt><dd id="nursery-berry-only"></dd></dl>
+            <div id="nursery-feed" class="sub"></div>
+            <dl id="nursery-berry-plan" hidden><dt>首枚无果闪蛋</dt><dd id="nursery-natural"></dd><dt>最近的用果窗口</dt><dd id="nursery-berry-only"></dd></dl>
             <div id="nursery-condition" class="hint"></div>
             <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
             <div id="nursery-observed" class="sub"></div><div id="nursery-segment" class="hint"></div><div id="nursery-error" class="hint warn"></div>
@@ -8914,12 +9066,18 @@
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');
-                for(const id of ['forecast','scenarios','basis'])write('#nursery-'+id,'');
+                for(const id of ['forecast','scenarios','basis','feed'])write('#nursery-'+id,'');
                 query('#nursery-berry-plan').hidden=true;
             }else{
                 const nextLabel=next?`下一枚自然蛋 #${next.k} · ${name(next.eggId)}${next.shiny?' ✦ 闪光':' · 普通'} · 亲本槽 ${next.parent.slot}${next.bx?' · 靛莓果生效':''}`:'';
                 const sequence=f.active?(flash?`第 ${flash.position} 枚自然蛋为闪蛋（${name(flash.eggId)}，编号 ${flash.k}）`:`已扫描 ${f.scanned} 枚自然蛋，未找到闪蛋`):'';
                 const reference=f.certainty==='reference';
+                let feed='';
+                if(next&&f.known){
+                    const effect=next.withoutBerryShiny?'无果也会闪':next.withBerryShiny?'需要靛莓果才会闪':'用靛莓果仍为普通';
+                    feed=`下一枚 #${next.k} · ${effect}。`+(next.bx?'已记录待用靛莓果。':next.withBerryShiny&&!next.withoutBerryShiny?'现在可喂百变怪，须在这枚自然蛋产出前生效。':'');
+                }else if(reference)feed='当前游戏程序尚未核对，请勿依据参考序列消耗靛莓果。';
+                write('#nursery-feed',feed);
                 write('#nursery-next',next?(reference?'旧规则参考 · ':'按当前条件预测 · ')+nextLabel:'下一枚自然蛋暂无法预测 · '+f.reason);
                 write('#nursery-forecast',f.active?(reference?'预计 · '+sequence+' · 旧规则单枚参考闪率 '+percent(f.nextRate):sequence):Number.isFinite(f.nextRate)?
                     (f.rateVerified?'仅可估计单枚闪率 ':'旧规则单枚参考闪率 ')+percent(f.nextRate)+'（按当前亲本池）':'');
@@ -8928,7 +9086,8 @@
                 const windowPrefix=reference?'参考 · ':'';
                 write('#nursery-natural',f.active?windowPrefix+windowLabel(f.firstWithoutBerry):'');
                 write('#nursery-berry-only',f.active?windowPrefix+windowLabel(f.firstBerryOnly)+(f.known&&f.firstBerryOnly?
-                    (f.firstBerryOnly.position===1&&f.pendingBerry?' · 靛莓果已生效':' · 在这枚产出前用靛莓果'):''):'');
+                    (f.firstBerryOnly.position===1?(f.pendingBerry?' · 已为下一枚备果':' · 就是下一枚'):
+                        ` · 等下一枚编号变成 #${f.firstBerryOnly.k} 再喂`):''):'');
                 const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
                 const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];
                 write('#nursery-scenarios',f.active?windowPrefix+`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'');
@@ -8947,7 +9106,7 @@
             if(f?.active)condition.push('距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。');
             if(next?.eggId===351||snap.eggRows.some(row=>row.id===351))condition.push('飘浮泡泡的形态取决于实际孵出时的培育屋天气。');
             write('#nursery-condition',condition.join(' '));
-            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,eggEvidence(row),duration(row.remainingMs)]));
+            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.berryApplied,eggEvidence(row),duration(row.remainingMs)]));
             if(listKey!==eggListKey){
                 eggListKey=listKey;eggs.replaceChildren();
                 if(!snap.counts.total)eggs.textContent='孵化器目前没有蛋。';
@@ -8955,7 +9114,7 @@
                     const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.known&&row.shiny);
                     const title=document.createElement('div'),basis=document.createElement('div'),time=document.createElement('span');
                     title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+(row.known?row.shiny?'✦ 闪光':'普通':'待判定')+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
-                    basis.className='hint';basis.textContent=eggEvidence(row);title.appendChild(basis);
+                    basis.className='hint';basis.textContent=eggEvidence(row)+' · '+(row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果');title.appendChild(basis);
                     time.textContent=duration(row.remainingMs);item.dataset.ready=String(row.ready);item.append(title,time);eggs.appendChild(item);
                 }
             }
@@ -9179,6 +9338,7 @@
                     <legend>搜寻条件</legend>
                     <details><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
                     <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
+                    <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">当前队伍练级</option></select></label>
                     <details><summary id="hunt-species-summary"></summary>
                         <input id="hunt-search" type="search" aria-label="搜索目标物种" placeholder="中文名、英文名或编号">
                         <div class="field"><select id="hunt-picker" aria-label="可添加的物种"></select><button type="button" id="hunt-add">添加</button></div>

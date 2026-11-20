@@ -245,3 +245,29 @@ test('completed small-box search matches all twenty trios on both objectives',t=
         assert.equal(chosen.uids.length,3);
     }
 });
+
+for(const goal of ['depth','money']){
+    test('budgeted expedition seeds are competitive even with equal levels and birds first: '+goal,t=>{
+        const f=fixture(t,{underGoal:goal}),s=f.s;
+        const ids=[18,17,16,...Array.from({length:80},(_,i)=>i+20),150,382,483];
+        const pool=ids.map((id,i)=>({uid:'u'+i,id,reg:'sinnoh',level:100}));
+        Object.assign(s,{mons:pool,team:[],road:[]});s.under.next=['crystal'];s.adv.unlocked=83;
+        const planner=f.e.automation,ctx=H.undergroundTeamContext(s,f.e.settings,0,100,pool);
+        const score=team=>H.planAdventureTeam(s,f.e.settings,team.map(mon=>mon.uid),{...ctx,pool:team}).score;
+        // Stop at the first legal checkpoint just as a severely constrained device can.
+        f.e.evaluateTeamSearch=(_key,steps)=>{
+            for(const part of steps)if(part?.uids)return {...part,limited:true};
+            assert.fail('no budget checkpoint');
+        };
+        const plan=planner.undergroundPlan(s,0,100,pool,f.now());
+        const trio=plan.uids.map(uid=>pool.find(mon=>mon.uid===uid));
+        assert.equal(trio.length,3);
+        assert.ok(score(trio)>score(pool.slice(0,3)),'improves the original bird trio using the full expedition objective');
+        assert.ok(trio.some(mon=>[150,382,483].includes(mon.id)));
+        planner.lastUnderPlan=null;
+        assert.deepEqual(planner.undergroundPlan(s,0,100,[...pool].reverse(),f.now()).uids,plan.uids);
+        // Same-family members remain legal if those are actually the available picks.
+        assert.deepEqual(planner.undergroundPlan(s,0,100,pool.slice(0,3),f.now()).uids,pool.slice(0,3).map(mon=>mon.uid));
+        assert.match(f.e.logs[0].text,/盒中传说\/幻之 3 只，可派 0 只/);
+    });
+}

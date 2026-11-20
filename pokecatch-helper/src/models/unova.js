@@ -49,7 +49,7 @@
                     else if(a.gifts?.['egg:'+id])reason='本存档已领取一次性赠蛋';
                     else if(!a.badges?.includes(egg.badge))reason='需要合众冠军徽章';
                     else if(incubator.length>=Math.max(1,s.pension?.open?.eggs||1))reason='孵化器已满';
-                    else if(!liveItems.length&&!egg.skies.includes(sky))reason='等待沙漠地带出现大晴天';
+                    else if(!liveItems.length&&!egg.skies.includes(sky)){target.weatherBlocked=true;reason='等待沙漠地带出现大晴天';}
                 }
                 target.marked=!reason&&liveItems.length>0;
                 // With one ordinary and one possible phenomenon item, either node can award the one-off egg.
@@ -69,9 +69,9 @@
                 target.phenomenon=route.phenomenon;
                 target.skies=base[id]?[]:Object.keys(conditional).filter(key=>conditional[key][id]);
                 target.marked=shares.length>0&&!reason;
-                if(!reason&&!target.marked&&!share)reason='等待现象所需天气';
                 if(!reason&&!target.marked&&route.day&&phaseAt(s,now,route.chapter)==='night')reason='此路段只在白天生成';
                 if(!reason&&!target.marked&&route.night&&phaseAt(s,now,route.chapter)!=='night')reason='此路段只在夜间生成';
+                if(!reason&&!target.marked&&!share){target.weatherBlocked=true;reason='等待现象所需天气';}
                 weight=target.marked?shares.reduce((sum,n)=>sum+n,0):route.blocks*rollChance*(1-UNOVA_ENCOUNTERS.itemFraction)*share;
             }
             return {...target,available:!reason,reason,weight:reason?0:weight};
@@ -82,7 +82,7 @@
             if(egg){
                 const node=WEATHER_DATA.chapters[egg.chapter]?.nodes.find(n=>n.kind==='route'&&n.name===egg.originalName);
                 const available=regionOpen&&egg.chapter<=a.unlocked&&egg.skies.includes(nodeWeather(s,egg.chapter,node,now));
-                sources.push({...egg,kind:'questWild',marked:false,available,weight:available ? .01 : 0,chance:undefined,
+                sources.push({...egg,kind:'questWild',marked:false,available,weatherBlocked:regionOpen&&egg.chapter<=a.unlocked&&!available,weight:available ? .01 : 0,chance:undefined,
                     reason:!regionOpen?'尚未进入合众':egg.chapter>a.unlocked?'章节尚未解锁':available?'':'等待沙漠地带出现大晴天'});
             }
         }

@@ -5,7 +5,8 @@
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
             <h3>下一枚与闪蛋预测</h3><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
-            <dl id="nursery-berry-plan" hidden><dt>无果即闪</dt><dd id="nursery-natural"></dd><dt>仅用果才闪</dt><dd id="nursery-berry-only"></dd></dl>
+            <div id="nursery-feed" class="sub"></div>
+            <dl id="nursery-berry-plan" hidden><dt>首枚无果闪蛋</dt><dd id="nursery-natural"></dd><dt>最近的用果窗口</dt><dd id="nursery-berry-only"></dd></dl>
             <div id="nursery-condition" class="hint"></div>
             <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
             <div id="nursery-observed" class="sub"></div><div id="nursery-segment" class="hint"></div><div id="nursery-error" class="hint warn"></div>
@@ -105,12 +106,18 @@
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');
-                for(const id of ['forecast','scenarios','basis'])write('#nursery-'+id,'');
+                for(const id of ['forecast','scenarios','basis','feed'])write('#nursery-'+id,'');
                 query('#nursery-berry-plan').hidden=true;
             }else{
                 const nextLabel=next?`下一枚自然蛋 #${next.k} · ${name(next.eggId)}${next.shiny?' ✦ 闪光':' · 普通'} · 亲本槽 ${next.parent.slot}${next.bx?' · 靛莓果生效':''}`:'';
                 const sequence=f.active?(flash?`第 ${flash.position} 枚自然蛋为闪蛋（${name(flash.eggId)}，编号 ${flash.k}）`:`已扫描 ${f.scanned} 枚自然蛋，未找到闪蛋`):'';
                 const reference=f.certainty==='reference';
+                let feed='';
+                if(next&&f.known){
+                    const effect=next.withoutBerryShiny?'无果也会闪':next.withBerryShiny?'需要靛莓果才会闪':'用靛莓果仍为普通';
+                    feed=`下一枚 #${next.k} · ${effect}。`+(next.bx?'已记录待用靛莓果。':next.withBerryShiny&&!next.withoutBerryShiny?'现在可喂百变怪，须在这枚自然蛋产出前生效。':'');
+                }else if(reference)feed='当前游戏程序尚未核对，请勿依据参考序列消耗靛莓果。';
+                write('#nursery-feed',feed);
                 write('#nursery-next',next?(reference?'旧规则参考 · ':'按当前条件预测 · ')+nextLabel:'下一枚自然蛋暂无法预测 · '+f.reason);
                 write('#nursery-forecast',f.active?(reference?'预计 · '+sequence+' · 旧规则单枚参考闪率 '+percent(f.nextRate):sequence):Number.isFinite(f.nextRate)?
                     (f.rateVerified?'仅可估计单枚闪率 ':'旧规则单枚参考闪率 ')+percent(f.nextRate)+'（按当前亲本池）':'');
@@ -119,7 +126,8 @@
                 const windowPrefix=reference?'参考 · ':'';
                 write('#nursery-natural',f.active?windowPrefix+windowLabel(f.firstWithoutBerry):'');
                 write('#nursery-berry-only',f.active?windowPrefix+windowLabel(f.firstBerryOnly)+(f.known&&f.firstBerryOnly?
-                    (f.firstBerryOnly.position===1&&f.pendingBerry?' · 靛莓果已生效':' · 在这枚产出前用靛莓果'):''):'');
+                    (f.firstBerryOnly.position===1?(f.pendingBerry?' · 已为下一枚备果':' · 就是下一枚'):
+                        ` · 等下一枚编号变成 #${f.firstBerryOnly.k} 再喂`):''):'');
                 const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
                 const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];
                 write('#nursery-scenarios',f.active?windowPrefix+`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'');
@@ -138,7 +146,7 @@
             if(f?.active)condition.push('距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。');
             if(next?.eggId===351||snap.eggRows.some(row=>row.id===351))condition.push('飘浮泡泡的形态取决于实际孵出时的培育屋天气。');
             write('#nursery-condition',condition.join(' '));
-            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,eggEvidence(row),duration(row.remainingMs)]));
+            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.berryApplied,eggEvidence(row),duration(row.remainingMs)]));
             if(listKey!==eggListKey){
                 eggListKey=listKey;eggs.replaceChildren();
                 if(!snap.counts.total)eggs.textContent='孵化器目前没有蛋。';
@@ -146,7 +154,7 @@
                     const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.known&&row.shiny);
                     const title=document.createElement('div'),basis=document.createElement('div'),time=document.createElement('span');
                     title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+(row.known?row.shiny?'✦ 闪光':'普通':'待判定')+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
-                    basis.className='hint';basis.textContent=eggEvidence(row);title.appendChild(basis);
+                    basis.className='hint';basis.textContent=eggEvidence(row)+' · '+(row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果');title.appendChild(basis);
                     time.textContent=duration(row.remainingMs);item.dataset.ready=String(row.ready);item.append(title,time);eggs.appendChild(item);
                 }
             }

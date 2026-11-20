@@ -369,9 +369,17 @@
             const rows=team.map(values);
             if(underground){
                 if(!rows.length)return 0;
-                let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0;
+                let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0,reserveCredit=0;
                 for(let i=0;i<weights.length;i++){
                     const foe=weights[i],details=rows.map(row=>row.details[i]);
+                    // A fresh lead can hide a weak bench. Use the second-best solo
+                    // survivor as a small tie-break for later fights after wear.
+                    let first=0,second=0;
+                    for(const row of rows){
+                        const solo=row.solo[i],value=solo.coverage*row.endurance[i]/Math.max(1,solo.turns);
+                        if(value>=first){second=first;first=value;}else second=Math.max(second,value);
+                    }
+                    reserveCredit+=foe.weight*second;
                     // Underground shuffles the party before encounters. Rotate ties in native
                     // deployment priority instead of rewarding an adventure party's fixed lead.
                     let clears=0,elapsed=0,orders=0;
@@ -406,7 +414,8 @@
                 const depth=.85*retained/totalWeight+.15*weakestGuard;
                 // Relative objectives, not a displayed win probability or measured income.
                 const guardLoss=(guardWeight-guardCredit)/Math.max(.001,regularWeight);
-                return objective==='underDepth'?depth:gold*(1-guardLoss)/Math.max(1,seconds);
+                const primary=objective==='underDepth'?depth:gold*(1-guardLoss)/Math.max(1,seconds);
+                return primary*(1+.04*reserveCredit/totalWeight);
             }
             let gymSum=0,gymWorst=1,worstEfficiency=Infinity;
             const routeScore=weights.reduce((sum,foe,i)=>{
@@ -495,6 +504,9 @@
         // A legal incumbent is available before cold matchup rows are computed.
         // Only the live adventure scheduler consumes these checkpoints.
         if(context.progressive){
+            if(underground&&candidates.length>size){
+                candidates=yield* expeditionSeedOrder(candidates,context.themeTypes||Object.keys(DATA.types),identity,sliced);
+            }
             const fallback=chosen.slice(),seen=new Set(used);
             for(const mon of [...party,...candidates]){
                 if(fallback.length>=size)break;
@@ -503,6 +515,10 @@
             }
             const uids=fallback.map(m=>m.uid);
             yield {uids,changed:JSON.stringify(uids)!==JSON.stringify(s.team),gain:0,opponents:foes.length,reg,objective,reason:'计算预算已到，采用合法基础阵容'};
+            if(underground&&fallback.length===size){
+                for(const mon of fallback)yield* computeValues(mon,sliced);
+                yield {uids,changed:true,checkpointScore:utility(fallback),reg,objective,opponents:foes.length,reason:'已按通道敌人与守卫核对初选三人队'};
+            }
             // On slow devices compare a few legal alternatives before scanning the
             // whole box. The scheduler retains the best completed checkpoint.
             if(candidates.length>64&&fallback.length===size){
@@ -515,7 +531,7 @@
                         const trial=fallback.slice();trial[i]=mon;
                         if(underground&&trial.some(other=>undergroundApart(mon,other)))continue;
                         const score=utility(trial);
-                        if(score>best&&score>base*1.05+.01){
+                        if(score>best+1e-8&&(underground||score>base*1.05+.01)){
                             best=score;
                             yield {uids:trial.map(m=>m.uid),changed:true,gain:score/base-1,checkpointScore:score,reg,objective,opponents:foes.length,reason:'局部替换改善当前地图的模型表现'};
                         }else yield;

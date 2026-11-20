@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.7.1**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.8.2**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.7.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.8.2.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+5.8.2 孵蛋页分开显示在栏蛋的靛莓果标记、下一枚自然蛋用果后的结果和未来用果窗口。本次发布还包含 5.8.0 的天气等待挂机选项，以及 5.8.1 的地下探险配队改进。
 
 5.7.1 通关日常优先安排糖果工厂免费场和对战塔。启动时已在普通传说地图，助手会返回原章节处理日常；若正在捕获传说目标或异色，先等本场结算。每日主线新增「团体战」，默认按地图顺序挑战，也可勾选一个或多个地区。
 

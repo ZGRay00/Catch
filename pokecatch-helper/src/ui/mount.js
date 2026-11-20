@@ -68,6 +68,7 @@
                     <legend>搜寻条件</legend>
                     <details><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
                     <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
+                    <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">当前队伍练级</option></select></label>
                     <details><summary id="hunt-species-summary"></summary>
                         <input id="hunt-search" type="search" aria-label="搜索目标物种" placeholder="中文名、英文名或编号">
                         <div class="field"><select id="hunt-picker" aria-label="可添加的物种"></select><button type="button" id="hunt-add">添加</button></div>

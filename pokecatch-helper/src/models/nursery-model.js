@@ -163,7 +163,9 @@
                 // Hold the egg number and the pending berry fixed while changing
                 // only the selected parent's shiny status.
                 const plainRate=nurseryEggRate({bx}),shinyRate=nurseryEggRate({sp:2,bx});
-                result.nextEgg={...row,parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
+                const withBerry=withoutBerry*NURSERY_RULES.berryMultiplier;
+                result.nextEgg={...row,withoutBerryShiny:roll<withoutBerry,withBerryShiny:roll<withBerry,
+                    parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
             }
             if(row.shiny&&result.hits.length<keep)result.hits.push(row);
             for(const key of Object.keys(scenarios)){
@@ -182,6 +184,7 @@
     function nurserySnapshot(s,options={}){
         const now=Number.isFinite(options.now)?options.now:Date.now(),eggs=Array.isArray(s?.pension?.eggs)?s.pension.eggs:[];
         const eggRows=eggs.map(egg=>{const outcome=eggOutcome(s,egg,options),readyKnown=Number.isFinite(egg?.hatchAt);return{uid:egg?.uid??null,id:egg?.id??null,k:egg?.k??null,laidAt:egg?.laidAt??null,hatchAt:egg?.hatchAt??null,
+            berryApplied:egg?.bx===undefined?false:nurseryFlag(egg.bx)?!!egg.bx:null,
             readyKnown,ready:readyKnown&&now>=egg.hatchAt,remainingMs:readyKnown?Math.max(0,egg.hatchAt-now):null,...outcome};});
         const total=eggRows.length,known=eggRows.filter(row=>row.known).length,shiny=eggRows.filter(row=>row.known&&row.shiny).length;
         const capacity=Math.min(NURSERY_RULES.maxEggs,Math.max(1,total,Number(s?.pension?.open?.eggs)||1));

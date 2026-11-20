@@ -26,6 +26,17 @@ async function main(){
         const html=path.join(dir,'index.html');fs.writeFileSync(html,'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><body><script>'+setup+'</script><script>'+source.replace(/<\/script/gi,'<\\/script')+'</script></body>');
         await send('Page.navigate',{url:pathToFileURL(html).href});for(let n=0;n<80&&!await evaluate('!!window.__pokecatchHelper?.ready');n++)await delay(50);assert.equal(await evaluate('!!window.__pokecatchHelper?.ready'),true);
         const root="document.querySelector('#pokecatch-auto-helper').shadowRoot";
+        const standby=await evaluate(`(()=>{
+            const r=${root},menu=r.querySelector('[data-setting="huntWeatherFallback"]');
+            const choose=value=>{menu.value=value;menu.dispatchEvent(new Event('change',{bubbles:true}));};
+            const initial=menu.value,shown=!!menu.getClientRects().length;
+            choose('xp');const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.huntWeatherFallback;
+            r.querySelector('[data-mode="money"]').click();const hidden=!menu.getClientRects().length;
+            r.querySelector('[data-mode="dex"]').click();const returned=menu.value;
+            choose(initial);return [initial,shown,saved,hidden,returned];
+        })()`);
+        assert.deepEqual(standby,['wait',true,'xp',true,'xp']);
+        checks.push('weather standby is visible for a hunt and keeps its selection after switching tasks');
         const daily=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;
             const choices=[...r.querySelectorAll('.modes [data-group="adventure"]')].filter(el=>el.getClientRects().length);
             if(choices.map(el=>el.dataset.mode).join(',')!=='dex,money,progress,daily'||r.querySelector('#daily-routine').getClientRects().length)throw Error('Adventure task grid');

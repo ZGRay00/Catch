@@ -372,16 +372,20 @@
         undergroundPlan(s,bay,floor,pool,now){
             const e=this.e,key=this.undergroundPlanKey(s,bay,floor,pool);
             if(this.lastUnderPlan?.key===key)return this.lastUnderPlan;
+            const availability=()=>{
+                const countLegend=mons=>mons.reduce((n,mon)=>n+Number(!!MONS.get(mon.id)?.legend),0);
+                return `可派候选 ${pool.length} 只 · 盒中传说/幻之 ${countLegend(s.mons)} 只，可派 ${countLegend(pool)} 只`;
+            };
             if(pool.length<=3){
                 const unique=new Set(pool.map(m=>DATA.combat.singles[m.id]||m.id+':'+!!m.shiny));
                 const legal=unique.size===pool.length&&!pool.some(m=>pool.some(other=>undergroundApart(m,other)));
+                if(pool.length===3&&legal)e.log(`地下第 ${Number(bay)+1} 队 · ${availability()} · ${pool.map(m=>MONS.get(m.id).name).join('、')}`);
                 return this.lastUnderPlan={key,uids:legal?pool.map(m=>m.uid):[]};
             }
             let search;
             if(e.teamSearch?.signature!==key){
                 const context=undergroundTeamContext(s,e.settings,bay,floor,pool);
                 context.progressive=true;context.now=now;
-                context.pool=[...pool].sort((a,b)=>b.level-a.level||(b.rank||0)-(a.rank||0));
                 search=adventureTeamSearch({...s,team:[],road:[]},e.settings,[],context,true);
             }
             const plan=e.evaluateTeamSearch(key,search);
@@ -389,7 +393,7 @@
             if(plan.uids.length===3){
                 const byUid=new Map(pool.map(m=>[m.uid,m]));
                 const names=plan.uids.map(uid=>MONS.get(byUid.get(uid)?.id)?.name||uid);
-                e.log(`地下第 ${Number(bay)+1} 队 · 第 ${floor} 层 · ${e.settings.underGoal==='money'?'刷金币':'冲层'} · ${names.join('、')}${plan.limited?'（本次计算预算内推荐）':''}`);
+                e.log(`地下第 ${Number(bay)+1} 队 · 第 ${floor} 层 · ${e.settings.underGoal==='money'?'刷金币':'冲层'} · ${availability()} · ${names.join('、')}${plan.limited?'（限时推荐）':''}`);
             }
             return this.lastUnderPlan={key,uids:plan.uids};
         }

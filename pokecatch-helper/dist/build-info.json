@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.7.1",
-  "scriptSha256": "70845e665585e4d0bf86eb033b2d11617333a88dc29f5a719b3c874c85db6e44",
-  "metadataSha256": "6cbbd2d58fb3f412302d2d0fc1d3d5a60ab98537b49d3eb696d3c0235df470f3",
+  "version": "5.8.2",
+  "scriptSha256": "76f31a2ae548813d225bcbef8c95b171338bf918aad9292d58c8073022ccaefa",
+  "metadataSha256": "9f26458d43eb25c18899924c5282341a16b2483130c7f539d179a0324f7e31f2",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "936d9bc7d7712d514467265ab5f01405630185e80fdca78a123a4fbfcc4b103d"
+      "sha256": "baac53a0408f629b488ada4c98252829bc2fa0c03e08c490c57781a563250a32"
     },
     {
       "file": "build.manifest.json",
@@ -42,7 +42,7 @@
     },
     {
       "file": "src/models/unova.js",
-      "sha256": "9528f73e2d81fd108ac802cfc10466af3cf8a1116d03d0808a3b6ecfc0ccc0a5"
+      "sha256": "2f278a90a9838ec4798f08c037b54fa17d056e74abb8d0b0db3a2f6609f4ec26"
     },
     {
       "file": "src/data/candy.js",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "ff020a447593647ea400f875fd88ad4fff22a2ac554e76346968b28b04318959"
+      "sha256": "811a7f463331609545e2e812328a75569e100534f23c1e0e5509e41d18133a66"
     },
     {
       "file": "src/models/facilities.js",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "37b08b7e871f029268251f1beac31fb6a0f23abe6aa7dca05bffaedb6cb878b0"
+      "sha256": "fed7182cf560dfc438477acfdd053942ecd76c47fefefb76b1f532a0c43b0c81"
     },
     {
       "file": "src/models/farming.js",
@@ -74,7 +74,7 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "9ec437aa95b08cfa648d700d23fc3a62884afaaa5354cdd4dfbdfa9cb5feac9a"
+      "sha256": "2761979fe05eb7792655f2d3cadcdd30fd8ec94b95ad34129f7592babdd0411c"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -94,7 +94,7 @@
     },
     {
       "file": "src/models/weather.js",
-      "sha256": "0f071ae6d2f88ba36001992454ac127e05ab276a947d8bc125ba5df8ad6cdcc1"
+      "sha256": "02c6c11d253fdaf199b5f007968ba637d8d60644f2461a0bf36f4233a3b79543"
     },
     {
       "file": "src/models/roster.js",
@@ -114,11 +114,11 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "4dbe0d72b3f434ae7d3f59e076d57cb7f9b4cd40a6efcca40cbbaf1f74696a16"
+      "sha256": "5d44fb9605ed36cd1360b1ef0a2108c7021485132add41283a3f0ddba51e961b"
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "0444aeaf2ec8855189bc2c5fb086588d4f512d3185ddb6f568b22afc5ebbefae"
+      "sha256": "58835b9e4571c9a6a5a563e5639d916006ede81077307af86911578318cfd4a8"
     },
     {
       "file": "src/models/collection.js",
@@ -134,7 +134,7 @@
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "075bff33c4891abf8449dc87fe66d8caccee81a4e3ad74194cc8b568153ed5b2"
+      "sha256": "2f43839dbccca34a34912d0da36d8786f767123627810c6ca28d4f3c255b68e2"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -142,7 +142,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "620429e09a404792a1e109af5a0620ad2bcefad48c562833ada8a44e96152432"
+      "sha256": "2d61401cc479e8090e93b44d3227a2be1287f10b10d5e5847aa8b00ff0b3446f"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -162,7 +162,7 @@
     },
     {
       "file": "src/ui/nursery-panel.js",
-      "sha256": "c5053b2f583781e72c421c921f67419526df0ce259329a59bff4505f10548eab"
+      "sha256": "50d1b5aa923f08212e387d19a593795cfe34417c7a204337b5989a041f24a6c5"
     },
     {
       "file": "src/ui/manual-input.js",
@@ -170,7 +170,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "53b1482f14ee01e0863a3885cf9814aa93c53da898fdc24ebdd0e7df54ff468e"
+      "sha256": "a95ac3f72f47c4b389dbf4cfe6d89144ad0baa7d0f685c9d8f5b14094ba339ae"
     }
   ]
 }

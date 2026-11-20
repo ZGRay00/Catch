@@ -188,6 +188,7 @@
             this.preparation=this.raidPreparation=this.coach.checked=this.coach.ready=this.coach.combat=null;
             this.zoneId=this.zoneStarted=this.legendProbe=this.farmWait=this.weatherWindow=null;
             this.dailyZoneExit=null;
+            this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
             this.roamProbeAt=this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
             this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
@@ -702,6 +703,7 @@
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;
             if(this.daily?.job&&this.daily.job.kind!=='window')this.daily.job.started+=duration;
             if(this.dailyZoneExit?.started!=null)this.dailyZoneExit.started+=duration;
+            if(this.weatherFarm?.started!=null)this.weatherFarm.started+=duration;
             this.lastProgress=delayed?Math.min(now,this.lastProgress+duration):now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
             if(this.raidProbe&&this.raidProbeStarted!=null)this.raidProbeStarted+=duration;
@@ -852,6 +854,8 @@
             if(this.settings.mode!=='raid'&&!this.daily&&!foregroundFirst&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
             const enteringFacility=this.daily?.job&&this.daily.job.kind!=='window'&&!inActivity;
             if(!foregroundFirst&&(!enteringFacility||settling)&&this.serviceBackground(s,now))return;
+            if(!inActivity&&!outcome&&!settling&&!this.daily?.job&&!this.preparation&&!this.driver.teamTask&&
+                !this.raidProbe&&!this.raidReturn&&!this.driver.raid&&this.weatherFarmStep(s,now))return;
             if(finishDaily&&!safeRaidDeparture(s)&&(dailyFacility(s,this.daily.base,this.dailyMarks,now)||this.raidBoundarySince!=null)){
                 this.status='每日主线已达标，当前战斗结束后处理剩余日常';this.lastProgress=now;return;
             }
@@ -1264,7 +1268,7 @@
             return this.evaluateRouteRanking(request,cooldowns,now,view);
         }
         evaluateRouteRanking(request,cooldowns,now,view=false){
-            const kind=request.kind;
+            const kind=request.cacheSlot||request.kind;
             if(view)this.releaseRankingView(kind);
             let job=this.rankingJobs.get(kind);
             if(job&&job.signature!==request.signature){this.cancelRankingJob(kind);job=null;}
@@ -1388,6 +1392,64 @@
             const label=window.eggPlace?'等待赠蛋天气':'等待野生出没时段';
             const place=window.eggPlace?`${window.row.name} / ${window.eggPlace}`:window.row.name;
             this.waitForFarm(`${label} · ${MONS.get(window.id).name} · ${place} · ${SEASON_NAMES[window.season]} ${when}`,now);
+            return true;
+        }
+        weatherFarmStep(s,now){
+            const cfg=this.settings,kind=cfg.huntWeatherFallback;
+            if(!['money','xp'].includes(kind)||!['dex','shiny'].includes(cfg.mode)||this.driver.pendingMap?.options?.zone)return false;
+            const dex=cfg.mode==='dex',status=dex?dexStatus(s,cfg):null;
+            const rows=dex?dexRanking(s,cfg,{},now,status):shinyRanking(s,cfg,{},now);
+            // The hunt model already invalidates this entry on weather, roster, unlocks and target changes.
+            const ranking=routeRankings.get(cfg.mode);
+            if(!rows.length&&this.weatherEvidence?.ranking!==ranking){
+                const targets=dex?[...dexSearchIds(s,cfg,status)].filter(id=>!s.pension?.eggs?.some(egg=>egg.id===id)):missingShinies(s,cfg);
+                this.weatherEvidence={ranking,blocked:!!targets.length&&hasWeatherBlockedTarget(s,cfg,targets,now)};
+            }
+            if(rows.length||!this.weatherEvidence?.blocked){
+                if(this.weatherFarm){
+                    this.cancelRankingJob('weatherFarm/'+kind);
+                    this.weatherFarm=null;this.driver.navigation=null;this.farmWait=null;this.weatherWindow=null;
+                    this.log(rows.length?'捕捉窗口已开放，返回搜寻目标':'已重新核对目标，结束天气等待期间的挂机');
+                }
+                return false;
+            }
+            if(!this.weatherFarm){
+                this.weatherFarm={cooldowns:{}};this.target=this.visit=this.telemetry.sample=null;
+                this.driver.pendingMap=this.driver.navigation=this.legendProbe=null;
+            }
+            const farm=this.weatherFarm,label=kind==='xp'?'当前队伍练级':'刷钱';
+            this.lastProgress=now;
+            this.status='等待捕捉天气 · '+label;
+            if(kind==='xp'&&!partyMons(s).some(mon=>mon.level<trainingCap(s,mon))){
+                this.status+=' · 队员均已达到当前等级上限';return true;
+            }
+            if(!farm.row||!(farm.reviewAt>now)){
+                const options={...cfg,mode:kind==='xp'?'train':'money',region:'current'};
+                const request=yieldRankingRequest(kind,s,options,this.metrics,now);
+                request.cacheSlot='weatherFarm/'+kind;
+                const ranked=this.evaluateRouteRanking(request,{...this.cooldowns,...farm.cooldowns},now);
+                if(!ranked?.length||!(ranked[0].rate>0)){
+                    this.status+=ranked?' · 暂无可获收益的地图':' · 正在比较地图';return true;
+                }
+                farm.row=ranked[0];farm.reviewAt=now+15000;
+            }
+            const row=farm.row;
+            if(row.key!==farm.key){farm.key=row.key;farm.started=null;farm.clicked=0;farm.deaths=totalDeaths(s,row);}
+            this.status+=' · '+row.name;
+            if(totalDeaths(s,row)-farm.deaths>=cfg.lossLimit){
+                farm.cooldowns[row.key]=now+15*60000;farm.row=null;farm.key=null;
+                this.log(row.name+'达到挂机失败上限，重新选择收益地图');return true;
+            }
+            if(row.members.includes(s.adv.chapter)&&s.adv.loops?.length===1&&String(s.adv.loops[0])===row.key){
+                farm.started=null;farm.clicked=0;this.driver.nav('adventure');return true;
+            }
+            if(s.adv.pending||s.adv.battle&&!this.ordinaryBattleKey(s)){farm.started=null;return true;}
+            farm.started??=now;
+            if(now-farm.started>60000){
+                farm.cooldowns[row.key]=now+5*60000;farm.row=null;farm.key=null;
+                this.log('天气等待期间未能进入'+row.name+'，稍后重试');return true;
+            }
+            if(!farm.clicked&&this.driver.map(row,s))farm.clicked=now;
             return true;
         }
         ordinaryBattleKey(s) {

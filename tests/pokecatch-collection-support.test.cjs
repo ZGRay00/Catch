@@ -13,6 +13,89 @@ function fixture(t,settings={}){
 }
 function catchAll(s){s.dex=Object.fromEntries(H.ROOTS.map(m=>[m.id,{caught:1}]));}
 
+test('weather standby is opt-in and survives saved settings and queued task normalization',t=>{
+    const {s,e}=fixture(t,{huntWeatherFallback:'xp'});e.persist();
+    const restored=new H.Engine(e.storage);restored.loadAccount(s);
+    assert.equal(restored.settings.huntWeatherFallback,'xp');
+    assert.equal(H.normalizeSettings({},restored.settings).huntWeatherFallback,'xp');
+    assert.equal(H.normalizeSettings({huntWeatherFallback:'money'}).huntWeatherFallback,'money');
+    assert.equal(H.normalizeSettings({huntWeatherFallback:'invalid'}).huntWeatherFallback,'wait');
+    assert.equal(H.normalizeSettings({}).huntWeatherFallback,'wait');
+});
+
+for(const [mode,kind] of [['dex','money'],['shiny','xp']]){
+    test(mode+' keeps its weather filter while farming and returns at a roaming weather expiry',async t=>{
+        const {s,e,save,calls}=fixture(t,{mode,huntWeatherFallback:kind});
+        const now=Date.now(),until=now+45000;
+        s.adv.unlocked=0;s.mons[0].level=5;
+        const natural=H.chapterWeather(s,0,until).key||'clear';
+        const [roamer]=Object.entries(H.WEATHER_DATA.roamingWeather).find(([,sky])=>sky!==natural);
+        const id=[...H.weatherEncounterPool(s,0,until).keys()].find(id=>id!==s.mons[0].id);
+        s.roam={at:{[roamer]:{ch:0,until}},caught:[]};
+        e.settings=H.normalizeSettings({...e.settings,[mode+'Weather']:[natural],[mode+'Species']:[id]});save();
+        const row={key:'0',id:0,name:'模拟挂机地图',members:[0],rate:100};
+        let compared=0,departures=0;
+        e.evaluateRouteRanking=request=>{compared++;assert.equal(request.kind,kind);return [row];};
+        e.driver.map=()=>{departures++;return true;};e.automation.autoBuff=()=>false;
+        await e.step(now);assert.equal(departures,1);assert.match(e.status,/等待捕捉天气/);
+        await e.step(now+1200);assert.equal(departures,1);assert.equal(compared,1);
+        s.adv.loops=[0];save();await e.step(now+2400);
+        assert.equal(e.settings.mode,mode);assert.equal(e.settings.huntWeatherFallback,kind);
+        assert.equal(calls.money,0);assert.deepEqual(e.settings[mode+'Species'],[id]);
+        await e.step(until);assert.equal(e.weatherFarm,null);
+        const hunt=e.driver.pendingMap?.row;
+        assert.equal(hunt?.id,0);
+        assert.ok(mode==='dex'?hunt.targets.some(hit=>hit.id===id):hunt.expected>0);
+        assert.ok(e.logs.some(entry=>entry.text.includes('捕捉窗口已开放')));e.stop();
+    });
+}
+
+test('desert sun egg distinguishes missing weather from badge, incubator and XP cap',t=>{
+    const {s,e}=fixture(t,{mode:'dex',dexSpecies:[637],huntWeatherFallback:'xp'});
+    Object.assign(s.adv,{chapter:73,unlocked:83});s.travel.to=['unova'];
+    s.adv.badges=['Maître Unys'];
+    let now=Date.now();
+    for(let i=0;i<48&&H.unovaAcquisitionSources(s,636,now).some(src=>src.available);i++)now+=3600000;
+    assert.equal(e.weatherFarmStep(s,now),true);assert.match(e.status,/等级上限/);
+    s.adv.badges=[];assert.equal(e.weatherFarmStep(s,now+6000),false);
+    s.adv.badges=['Maître Unys'];s.pension={eggs:[{id:636}]};
+    assert.equal(e.weatherFarmStep(s,now+12000),false);e.stop();
+});
+
+for(const kind of ['money','xp']){
+    test('sun egg standby chooses a real '+kind+' route, preserves the party and yields to the desert window',async t=>{
+        const {s,e,save}=fixture(t,{mode:'dex',dexSpecies:[637],huntWeatherFallback:kind});
+        Object.assign(s.adv,{chapter:73,unlocked:83,badges:['Maître Unys']});
+        s.travel.to=['unova'];s.mons[0].level=85;save();
+        let now=Date.now();
+        for(let i=0;i<48&&H.unovaAcquisitionSources(s,636,now).some(src=>src.available);i++)now+=3600000;
+        assert.ok(H.unovaAcquisitionSources(s,636,now).some(src=>src.weatherBlocked));
+        const opening=H.nextWildWindow(s,e.settings,[636],now,168);
+        assert.ok(opening?.at>now);
+        const settings={...e.settings,mode:kind==='xp'?'train':'money',region:'current'};
+        const best=(kind==='xp'?H.xpRanking:H.moneyRanking)(s,settings,{}, {},now)[0];
+        assert.ok(best?.rate>0);
+        const visits=[];e.driver.map=row=>{visits.push(row.key);return true;};
+        e.automation.autoBuff=()=>false;
+        for(let i=0;i<100&&!visits.length;i++){
+            await e.step(now+i);if(!visits.length)await new Promise(resolve=>setTimeout(resolve,5));
+        }
+        assert.deepEqual(visits,[best.key]);assert.deepEqual(s.team,['a']);
+        Object.assign(s.adv,{chapter:best.id,loops:[best.loop]});save();
+        await e.step(opening.at);assert.equal(e.weatherFarm,null);
+        assert.equal(e.driver.pendingMap?.row.id,69);assert.deepEqual(visits,[best.key]);e.stop();
+    });
+}
+
+test('a time-of-day restriction or map backoff alone does not start weather standby',t=>{
+    const {s,e}=fixture(t,{shinyId:163,huntWeatherFallback:'money'}),now=Date.now();
+    Object.assign(s.adv,{chapter:14,unlocked:14});s.travel.to=['johto'];
+    assert.equal(e.weatherFarmStep(s,now),false);
+    e.settings.shinyId=16;s.adv.chapter=0;
+    for(const row of H.shinyRanking(s,e.settings,{},now))e.cooldowns[row.key]=now+60000;
+    assert.equal(e.weatherFarmStep(s,now),false);e.stop();
+});
+
 for(const mode of ['dex','shiny']){
     test(mode+' rotates an empty ice badge roll only after a run and keeps existing wild dust',async t=>{
         const {s,e,save}=fixture(t,{mode,[mode+'Species']:[529,530]});

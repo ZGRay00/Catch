@@ -80,6 +80,19 @@ async function main(){
         };
         await evaluate("fixtureState.pension.eggs.push({uid:'numbered',id:4,k:6,hatchAt:Date.now()+10000});commitNursery()");
         const exact=await nurseryText();assert.match(exact.eggs,/存档已记录/);assert.match(exact.eggs,/按蛋序号确定/);
+        const berryText=()=>evaluate(`(()=>{const r=${root},get=id=>r.querySelector('#nursery-'+id).textContent;return [get('feed'),get('berry-only'),get('eggs')]})()`);
+        const chosen=H.nurseryForecast(game,{limit:50000}).firstBerryOnly;
+        assert.ok(chosen&&chosen.position>1);
+        await evaluate(`fixtureState.pension.laid=${chosen.k-1};commitNursery()`);await nurseryText();
+        assert.match((await berryText())[1],new RegExp('等下一枚编号变成 #'+chosen.k+' 再喂'));
+        await evaluate(`fixtureState.pension.laid=${chosen.k};commitNursery()`);await nurseryText();
+        assert.match((await berryText())[0],/需要靛莓果才会闪.*现在可喂百变怪/);
+        await evaluate('fixtureState.pension.bx=1;commitNursery()');await nurseryText();
+        assert.match((await berryText())[0],/已记录待用靛莓果/);
+        assert.match((await berryText())[2],/此蛋未记录靛莓果/);
+        await evaluate("fixtureState.pension.eggs.find(x=>x.uid==='numbered').bx=1;fixtureState.pension.laid=30;fixtureState.pension.bx=0;commitNursery()");await nurseryText();
+        assert.match((await berryText())[2],/此蛋已带靛莓果/);
+        checks.push('future berry windows, feed-now advice, pending berries and individual incubating egg flags are distinct');
         assert.match(exact.next,/按当前条件预测/);assert.match(exact.basis,/规则已核对/);assert.match(exact.condition,/赠蛋占号后会重算/);
         await evaluate('fixtureState.pension.mons[0].candy=1024164;fixtureState.pension.egg=90*60000;commitNursery()');
         const counters=await nurseryText();
@@ -88,6 +101,7 @@ async function main(){
         checks.push('the saved laying timer is shown in minutes, independently of candy progress and the preserved observation date');
         await evaluate("window.BUILD='new-unverified';commitNursery()");
         const reference=await nurseryText();assert.match(reference.next,/旧规则参考 · 下一枚自然蛋 #\d+/);assert.match(reference.forecast,/预计.*第 \d+ 枚自然蛋.*旧规则单枚参考闪率/);assert.match(reference.basis,/尚未核对/);
+        assert.match((await berryText())[0],/请勿依据参考序列消耗/);
         assert.match(reference.eggs,/存档已记录/);assert.doesNotMatch(reference.eggs,/按蛋序号确定/);assert.match(reference.eggs,/旧规则参考闪率/);
         assert.ok(await evaluate(`!${root}.querySelector('#nursery-rules').open&&!${root}.querySelector('#nursery-berry-plan').hidden`));
         await click('#nursery-rules > summary');assert.match((await nurseryText()).scenarios,/参考 ·/);

@@ -96,6 +96,33 @@ const full=JSON.parse(R.run(`JSON.stringify((()=>{
 assert.equal(full.fed,true);assert.equal(full.fedAgain,false);assert.equal(full.remaining,1);assert.equal(full.giftBlocked,true);
 assert.deepEqual(full.before,{laid:0,bx:true,count:1,id:25});assert.equal(full.hatched,true);assert.equal(full.egg.k,0);
 assert.equal(full.egg.bx,1);assert.equal(full.laid,1);assert.equal(full.bx,false);comparisons+=10;
+// Same egg number, same parent. Change only when the native berry button is used.
+for(const shinyParent of [false,true]){
+    const input=structuredClone(states[0]);
+    input.pension.mons=[{mon:{id:132,uid:'ditto'},candy:0},{mon:{id:633,uid:'deino',shiny:shinyParent},candy:0}];
+    const base=shinyParent?1/16:1/512;
+    for(const [min,max] of [[0,base],[base,2*base],[2*base,1]]){
+        let k=0;while(k<50000){const roll=M.nurseryFixedRoll(input,k);if(roll>=min&&roll<max)break;k++;}
+        assert.ok(k<50000);input.pension.laid=k;
+        const next=M.nurseryForecast(input,{limit:1}).nextEgg;
+        for(const before of [false,true]){
+            const native=JSON.parse(R.run(`JSON.stringify((()=>{
+                const s={...structuredClone(BASE),...${JSON.stringify(input)},items:{'belue-berry':1}};
+                return G.sandbox(s,()=>{
+                    AUDIT_TIME=1000000000000;
+                    const pre=${before};let fed;
+                    if(pre)fed=G.feedDittoBerry();
+                    G.pensionTick(AUDIT_TIME);const egg=s.pension.eggs[0];
+                    if(!pre)fed=G.feedDittoBerry();
+                    AUDIT_TIME=egg.hatchAt+1;
+                    return {fed,k:egg.k,id:egg.id,bx:!!egg.bx,pending:!!s.pension.bx,shiny:G.hatchEgg(egg.uid).mon.shiny};
+                });
+            })())`));
+            assert.deepEqual(native,{fed:true,k,id:633,bx:before,pending:!before,shiny:before?next.withBerryShiny:next.withoutBerryShiny});
+            comparisons++;
+        }
+    }
+}
 // Castform's species is fixed when the egg is laid, but its form is resolved
 // by native hatchEgg with the nursery park's weather at collection time.
 const castform=JSON.parse(R.run(`JSON.stringify(['clear','sun','rain','storm','snow','blizzard'].map(sky=>{

@@ -859,11 +859,17 @@
             if(cfg.worldCapture&&enabled(capPage)){d.click(capPage,'打开世界首领捕获阶段');return;}
             const home=$('#raid-root [data-raid-page="home"]');
             if(enabled(home)&&!visible($('#raid-root .wb-view,#raid-root .wb-recap'))){d.click(home,'返回活动首页，查找世界首领');return;}
-            const cd=$$('[data-wb-cd]').map(el=>+el.dataset.wbCd).filter(n=>n>now);
-            if(daily&&visible($('#raid-root .wb-view'))){
-                e.returnFromDaily('首领暂无可执行机会',Math.min(nextParisReset(now),cd.length?Math.min(...cd):now+30*60000),now);return;
+            const closedBanner=$('#raid-root .rh-hb.wb[aria-disabled="true"]');
+            const worldView=$('#raid-root .map-region.wb-view');
+            const surface=visible(closedBanner)?closedBanner:visible(worldView)?worldView:null;
+            const timers=surface?[...surface.querySelectorAll('[data-wb-cd]')]:[];
+            const deadlines=timers.map(el=>Number(el.dataset.wbCd)).filter(at=>at>now);
+            const nextPhase=deadlines.length?Math.min(...deadlines):null;
+            if(daily&&surface){
+                const reason=surface===closedBanner?'世界首领尚未开放':'首领暂无可执行机会';
+                e.returnFromDaily(reason,Math.min(nextParisReset(now),nextPhase??now+30*60000),now);return;
             }
-            this.wait(delta>=cfg.worldActions?'本次攻击目标已完成，等待世界首领捕获阶段':'等待世界首领阶段、登录或可用攻击成员',cd.length?Math.min(...cd):now+60000);
+            this.wait(delta>=cfg.worldActions?'本次攻击目标已完成，等待世界首领捕获阶段':'等待世界首领阶段、登录或可用攻击成员',nextPhase??now+60000);
         }
         advanceTrainingRank(s,now,target=null){
             const e=this.e,d=e.driver,receipt=this.state.rankReceipt;

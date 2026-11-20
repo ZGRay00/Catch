@@ -91,25 +91,28 @@ async function main(){
         })()`);
         assert.deepEqual(legendOrder,[[true,'candy',null],'返回原章节',null,'candy','tower']);
         checks.push('adopted Mewtwo encounter settles before one native map return, then factory and tower run before raids or dex');
-        const raidMain=await evaluate(`(async()=>{
+        const legendMain=await evaluate(`(async()=>{
             const r=${root},e=__pcExecutionTest.engine,initial={...e.settings},marks={...e.dailyMarks};
             try{
                 e.dailyMarks={};e.settings={...initial,raids:false,dailyCandy:true,dailyWindow:false,dailyWorld:false,dailyTower:false,dailyElite:false};
                 r.querySelector('[data-mode="daily"]').click();
-                const menu=r.querySelector('[data-setting="dailyMain"]');menu.value='raid';menu.dispatchEvent(new Event('change',{bubbles:true}));
-                const box=r.querySelector('#daily-raid-targets');if(!box.getClientRects().length)throw Error('Invisible raid filters');
-                box.querySelector('[data-daily-raid="hoenn"]').click();box.querySelector('[data-daily-raid="kanto"]').click();
-                const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.dailyRaidRegions;
-                r.querySelector('#start').click();clearTimeout(e.timer);await e.step();
-                const chore=e.daily?.job?.kind;e.completeTask('模拟工厂结算');await e.step();
-                const active=[e.settings.mode,e.raidProbe,box.querySelector('input').disabled];
+                const menu=r.querySelector('[data-setting="dailyMain"]');if(menu.querySelector('[value="raid"]'))throw Error('Obsolete raid main');
+                menu.value='legend';menu.dispatchEvent(new Event('change',{bubbles:true}));
+                const target=r.querySelector('#daily-legend-fields [data-setting="legendId"]');if(!target.getClientRects().length)throw Error('Invisible legendary target');
+                target.value='385';target.dispatchEvent(new Event('change',{bubbles:true}));
+                const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.legendId;
                 fixtureState.raids={seen:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Paris'}),done:{}};
-                fixtureState.raids.done['kanto|'+fixtureState.raids.seen]=Date.now();commitExecution();await e.step();
-                return [saved,chore,active,e.running,e.raidProbe,e.status.includes('等待每日刷新')];
+                fixtureState.raids.done['kanto|'+fixtureState.raids.seen]=Date.now();commitExecution();
+                r.querySelector('#start').click();clearTimeout(e.timer);await e.step();
+                const chore=e.daily?.job?.kind;e.completeTask('模拟工厂结算');
+                const origTravel=e.travel,origServices=e.serviceBackground;e.serviceBackground=()=>false;
+                let zone=0;e.travel=row=>{zone=row.id;};
+                try{await e.step();return [saved,chore,e.settings.mode,e.raidProbe,zone];}
+                finally{e.travel=origTravel;e.serviceBackground=origServices;}
             }finally{if(e.running)e.stop();delete fixtureState.raids;e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();}
         })()`);
-        assert.deepEqual(raidMain,[['kanto','hoenn'],'candy',['raid',true,true],true,false,true]);
-        checks.push('daily raid regions persist in map order, the factory runs first, and completed draws wait for refresh');
+        assert.deepEqual(legendMain,[385,'candy','legend',false,385]);
+        checks.push('the daily legendary target persists and routes to Jirachi after factory settlement even with the daily shiny raid cleared');
         const dailyMain=await evaluate(`(async()=>{
             const r=${root},e=__pcExecutionTest.engine;
             const initial={...e.settings},marks={...e.dailyMarks},results=[];

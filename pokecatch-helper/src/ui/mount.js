@@ -45,8 +45,8 @@
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['daily','☀','通关日常','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
             <section class="target hidden" id="daily-routine" aria-label="通关日常设置">
-                <label class="field"><span>每日主线</span><select data-setting="dailyMain"><option value="current">沿用当前挂机任务</option><option value="dex">补图鉴</option><option value="money">刷钱</option><option value="shiny">野生刷闪</option><option value="train">目标练级 / 培育</option><option value="raid">团体战</option></select></label>
-                <fieldset id="daily-raid-targets" class="hidden"><legend>团体战地区</legend><div class="checks">${DATA.regions.map(r=>`<label><input type="checkbox" data-daily-raid="${r.key}">${r.name}</label>`).join('')}</div><div class="hint">留空表示全部开放地区。勾选可限定一处或多处，按地图顺序挑战。当天只抽到一处时，仅挑战符合选择的地区。</div></fieldset>
+                <label class="field"><span>每日主线</span><select data-setting="dailyMain"><option value="current">沿用当前挂机任务</option><option value="dex">补图鉴</option><option value="money">刷钱</option><option value="shiny">野生刷闪</option><option value="train">目标练级 / 培育</option><option value="legend">传说战</option></select></label>
+                <div id="daily-legend-fields"></div>
                 <div class="sub" id="daily-state"></div>
                 <button type="button" id="daily-edit-goal">打开主线目标设置</button>
                 <div class="checks">
@@ -56,7 +56,7 @@
                     <label><input type="checkbox" data-setting="dailyTower">每日至多两场对战塔</label>
                     <label><input type="checkbox" data-setting="dailyElite">每日挑战一阶精英联盟</label>
                 </div>
-                <p class="hint">捕获窗口沿用补图鉴筛选。选团体战为主线时，完成日常后直接检查团体战；其他主线可开启「每日团体战优先」。</p>
+                <p class="hint">捕获窗口沿用补图鉴筛选。选择传说战后，助手会在日常待办结束后前往目标地图。</p>
             </section><div class="target" id="ordinary-target">
                 <div class="field" id="scope-field"><span>规划范围</span><select data-setting="region" aria-label="规划地区"><option value="current">当前地区</option><option value="all">所有已解锁地区</option></select></div>
                 <div data-fields="legend" class="hidden"><div class="field"><span>传说目标</span><select data-setting="legendId" aria-label="传说战目标"></select></div><div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div><div class="field"><span>最长等待</span><input data-setting="legendMinutes" type="number" min="5" max="720" aria-label="传说战最长分钟数"></div><label class="setting"><span><input type="checkbox" data-setting="roamAllowMasterBall">允许游荡目标自动消耗库存大师球</span></label><div class="hint">游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div></div>
@@ -438,16 +438,15 @@
             }
             const card=selectedCard();
             const dailyBase=engine.daily?.base||engine.settings;
-            query('#daily-raid-targets').classList.toggle('hidden',dailyMainMode(dailyBase)!=='raid');
-            for(const input of root.querySelectorAll('[data-daily-raid]')){
-                input.checked=dailyBase.dailyRaidRegions?.includes(input.dataset.dailyRaid)||false;
-                input.disabled=engine.running||!!engine.suspended;
-            }
+            const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
+            const legendFields=query('[data-fields="legend"]');
+            const destination=query(dailyLegend?'#daily-legend-fields':'#ordinary-target');
+            if(legendFields.parentNode!==destination)destination.insertBefore(legendFields,dailyLegend?null:query('[data-fields="roam"]'));
             query('#daily-routine').classList.toggle('hidden',card!=='daily');
             query('#ordinary-target').classList.toggle('hidden',card==='daily');
             root.querySelectorAll('[data-mode]').forEach(button => { const on = button.dataset.mode === card; button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); });
             if(lastMode!==card){lastMode=card;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
-            root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode));
+            root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode&&!(el===legendFields&&dailyLegend)));
             query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
             query('#train-rank-settings').hidden=!engine.settings.trainGems;
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
@@ -588,10 +587,10 @@
             const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
             const dailyCard=selectedCard()==='daily';
             query('#start').disabled=locked||(dailyCard&&!canDaily);
-            query('#daily-edit-goal').hidden=locked||baseMode==='raid'||!DAILY_BASE_MODES.has(baseMode);
+            query('#daily-edit-goal').hidden=locked||baseMode==='legend'||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
             const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
-                baseMode==='raid'?(dailyBase.dailyRaidRegions?.length?DATA.regions.filter(r=>dailyBase.dailyRaidRegions.includes(r.key)).map(r=>r.name).join(' → '):'全部开放地区 · 按地图顺序'):
+                baseMode==='legend'?(DATA.zones.find(zone=>zone.id===dailyBase.legendId)?.monName||MONS.get(dailyBase.legendId)?.name||''):
                 baseMode==='train'?(dailyBase.trainUid==='selected'?dailyBase.trainUids.length+' 只指定队员':dailyBase.trainUid==='team'?'全队':'指定队员')+' · Lv.'+dailyBase.trainLevel:baseMode==='dex'?'缺失的基础形态':baseMode==='money'?dailyBase.moneyTarget?'目标 '+dailyBase.moneyTarget.toLocaleString()+' ₽':'持续刷钱':'';
             query('#daily-state').textContent=!s?.adv?.badges?.includes('Maître')?'取得关都冠军徽章后开放。':
                 !DAILY_BASE_MODES.has(baseMode)?'请选择每日主线，或先选择一个挂机任务。':
@@ -978,9 +977,6 @@
         query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings)&&current.progress){current.progress={budget:current.progress.budget};}Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
         query('#start-queue').onclick=()=>{dailySelected=false;engine.startQueue();syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start(false,selectedCard()==='daily');syncSettings();render();};
-        query('#daily-raid-targets').onchange=()=>{
-            changeSetting('dailyRaidRegions',[...root.querySelectorAll('[data-daily-raid]:checked')].map(input=>input.dataset.dailyRaid));
-        };
         query('#daily-edit-goal').onclick=()=>{
             const mode=dailyMainMode(engine.settings);
             if(!DAILY_BASE_MODES.has(mode)||!changeSetting('mode',mode))return;

@@ -1,4 +1,15 @@
-    const DAILY_BASE_MODES=new Set(['money','train','dex','shiny','item','raid']);
+    const DAILY_BASE_MODES=new Set(['money','train','dex','shiny','item','legend']);
+    function migrateDailyResume(resume){
+        if(resume?.daily?.base?.mode!=='raid')return resume;
+        const base={...normalizeSettings(resume.daily.base),mode:'legend',dailyMain:'legend'};
+        // Keep the original wallet and item limits, but discard the former raid's pending UI actions.
+        const {started,startMoney,walletScope,oldLoops}=resume.session||{};
+        const checkpoint={session:{started,startMoney,walletScope,oldLoops},budget:resume.budget};
+        const daily={...resume.daily,base,checkpoint,checking:true};
+        if(daily.job)return {...resume,daily};
+        return {...checkpoint,account:resume.account,build:resume.build,layout:resume.layout,
+            at:resume.at,wanted:resume.wanted,settings:base,daily};
+    }
     function dailyMainMode(settings){
         return !settings.dailyMain||settings.dailyMain==='current'?settings.mode:settings.dailyMain;
     }

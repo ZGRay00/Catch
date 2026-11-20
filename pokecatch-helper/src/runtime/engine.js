@@ -69,7 +69,7 @@
             this.refreshAutoPurchase();
             this.queue = normalizeJobs(saved.queue);
             this.queueIndex = Number.isInteger(saved.queueIndex) ? Math.max(0, Math.min(this.queue.length, saved.queueIndex)) : 0;
-            this.checkpoint = saved.resume?.wanted ? saved.resume : null;
+            this.checkpoint = saved.resume?.wanted ? migrateDailyResume(saved.resume) : null;
             this.services = normalizeServiceState(saved.services);
             this.telemetry = new Telemetry(this.metrics);
             this.nurseryMonitor.load(s);
@@ -429,7 +429,6 @@
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=daily?dailyMainMode(this.settings):this.settings.mode;
                 if(daily&&(!DAILY_BASE_MODES.has(mode)||!s.adv.badges?.includes('Maître')))throw new Error('取得关都冠军徽章后，请在通关日常中选择每日主线');
-                if(daily&&mode==='raid'&&s.adv.event?.raid&&this.settings.dailyRaidRegions.length&&!this.settings.dailyRaidRegions.includes(s.adv.event.reg||currentRegion(s)))throw new Error('当前团体战不在所选地区，请先结束当前团体战或调整地区');
                 if(mode==='train'&&this.settings.trainUid==='selected'&&!cp){
                     const plan=trainingStatus(s,this.settings);
                     if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');

@@ -69,3 +69,50 @@ test('attack-only accumulation continues across days and editions instead of usi
     s.wb.ed=6;s.wb.tryEd=6;s.wb.caught=6;s.wb.day=0;s.wb.n=1;e.automation.world(s,20000);assert.equal(e.automation.state.worldDone,2);assert.equal(completed.length,0);
     s.wb.n=2;e.automation.world(s,30000);assert.deepEqual(completed,['世界首领攻击次数目标已完成']);
 });
+
+const closedBoss='#raid-root .rh-hb.wb[aria-disabled="true"]';
+function closedLobby(show,deadline){
+    show(closedBoss).querySelectorAll=selector=>selector==='[data-wb-cd]'?[{dataset:{wbCd:String(deadline)}}]:[];
+    show('#raid-root [data-raid-page="chroma"]');
+}
+
+for(const caught of [false,true]){
+    test('closed world boss yields to the selected legendary map (shiny raid caught: '+caught+')',t=>{
+        const {s,e,show,clicks}=fixture(t);
+        const now=Date.UTC(2026,10,20,8,41),opens=now+499*60000,day=H.parisDay(now);
+        const base={...e.settings,mode:'legend',dailyMain:'legend',legendId:145,dailyWorld:true,dailyCandy:false,dailyTower:false,dailyElite:false};
+        s.wb.caught=0;s.adv.badges=['Maître'];s.raids={seen:day,done:caught?{['johto|'+day]:1}:{}};
+        e.read=()=>s;e.daily={base,checking:true,job:{kind:'world',started:now,until:H.nextParisReset(now)},checkpoint:e.progressSnapshot()};
+        closedLobby(show,opens);
+        e.automation.world(s,now);
+        assert.equal(e.daily.job,null);assert.equal(e.settings.mode,'legend');
+        assert.equal(e.dailyMarks.world,opens);assert.equal(e.nextWake,null);
+        assert.equal(H.dailyFacility(s,base,e.dailyMarks,opens-1),null);
+        assert.equal(H.dailyFacility(s,base,e.dailyMarks,opens).kind,'world');
+        assert.equal(e.priorityRaid(s,now+1),false);assert.deepEqual(clicks,[]);
+        let target;e.travel=row=>{target=row.id;};e.legend(s,now+2);assert.equal(target,145);
+    });
+}
+
+test('upgrading a legacy daily raid preserves its budget and chosen legendary, and drops pending shiny raid actions',t=>{
+    const {e,s}=fixture(t);
+    const settings={...e.settings,mode:'progress',dailyMain:'raid',legendId:385};
+    const resume={account:e.account,wanted:true,settings:{...settings,mode:'raid'},raidProbe:true,
+        daily:{base:{...settings,mode:'raid'},menuMode:'progress'},budget:{spent:400,used:2},session:{startMoney:1234}};
+    e.storage.setItem('pokecatch-helper:v1:'+e.account,JSON.stringify({settings,resume}));e.loadAccount(s);
+    assert.equal(e.settings.dailyMain,'legend');assert.equal(e.checkpoint.settings.mode,'legend');
+    assert.equal(e.checkpoint.daily.base.legendId,385);assert.equal(e.checkpoint.daily.menuMode,'progress');
+    assert.deepEqual(e.checkpoint.budget,resume.budget);assert.equal(e.checkpoint.session.startMoney,1234);
+    assert.ok(!e.checkpoint.raidProbe);
+});
+
+test('standalone world boss waits for its lobby countdown and leaves the shiny raid alone',t=>{
+    const {s,e,show,clicks}=fixture(t);closedLobby(show,1000000);
+    e.automation.world(s,10000);assert.equal(e.nextWake,1000000);assert.deepEqual(clicks,[]);
+});
+
+test('an open world boss still enters the native encounter during daily chores',t=>{
+    const {s,e,show,clicks}=fixture(t);e.daily={job:{kind:'world'}};
+    show('#raid-root .rh-hb.wb[data-wb-go]');show('#raid-root [data-raid-page="chroma"]');
+    e.automation.world(s,10000);assert.deepEqual(clicks,['进入世界首领']);
+});

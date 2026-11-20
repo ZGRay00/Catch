@@ -23,6 +23,30 @@ test('routine respects daily factory evidence, Paris reset and optional facility
     delete s.candy.run;s.wb={ed:'x',caught:'x'};assert.equal(H.dailyFacility(s,cfg,{},now),null);
     assert.equal(H.dailyCaptureWindow(s,cfg,now),null);
 });
+test('multiple legend goals respect map order, closed entrances and per-target completion',()=>{
+    const s=save(),e=engine(s);
+    e.settings=H.normalizeSettings({mode:'legend',legendIds:[385,144,145,145,999999]});
+    assert.deepEqual(e.settings.legendIds,[145,144,385]);
+    assert.deepEqual(H.normalizeSettings({legendId:385}).legendIds,[]);
+    e.cooldowns['legend:145']=now+60000;
+    assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,144);
+    s.dex[144]={caught:1};assert.equal(e.selectLegendTarget(s,now),false);
+    assert.ok(e.selectLegendTarget(s,now+60000));assert.equal(e.settings.legendId,145);
+    s.dex[145]={caught:1};s.travel.to.push('hoenn');
+    assert.ok(e.selectLegendTarget(s,now+60001));assert.equal(e.settings.legendId,385);
+    let finished=false;e.completeTask=()=>{finished=true;};
+    s.dex[385]={caught:1};assert.equal(e.selectLegendTarget(s,now+60002),false);assert.ok(finished);
+});
+test('multi-legend elite goals require ordinary capture and the selected tier individually',()=>{
+    const s=save(),e=engine(s);
+    e.settings=H.normalizeSettings({mode:'legend',legendIds:[145,144],legendTier:2});
+    s.dex[144]={caught:1};s.elite={144:{t:1}};
+    assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,144);
+    s.elite[144].t=2;
+    assert.equal(e.selectLegendTarget(s,now),false);
+    s.dex[145]={caught:1};
+    assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,145);
+});
 test('tower uses the weekly record, respects the configured limit and caps it at two',()=>{
     const s=save(),cfg=H.normalizeSettings({dailyCandy:false,dailyTower:true,towerFloor:20,towerRuns:5});
     assert.equal(H.dailyFacility(s,cfg,{},now).settings.towerRuns,2);
@@ -40,6 +64,17 @@ test('ordinary legend yields only to an available facility; elite and world capt
     delete s.candy.played;s.adv.battle={enemies:[{id:35,shiny:true}]};e.driver.nav=()=>true;
     assert.equal(e.yieldLegendToDaily(s,now+30001),true);
     assert.match(e.status,/糖果工厂已排队/);
+});
+test('a factory that finished during a protected encounter no longer triggers departure',()=>{
+    const s=save(),e=engine(s);
+    Object.assign(e.daily.base,{raids:false,dailyCandy:true,dailyTower:false,dailyWorld:false,dailyElite:false});
+    e.daily.checking=false;e.zoneId=150;s.adv.zone={id:150,back:8};
+    s.adv.battle={enemies:[{id:150}]};
+    e.driver.nav=()=>true;e.driver.map=()=>assert.fail('stale factory reservation left the map');
+    assert.ok(e.yieldLegendToDaily(s,now));assert.equal(e.dailyZoneExit.kind,'candy');
+    delete s.adv.battle;s.candy={played:H.parisDay(now)};
+    assert.equal(e.yieldLegendToDaily(s,now+1000),false);
+    assert.equal(e.dailyZoneExit,null);assert.equal(e.daily.checking,false);
 });
 test('a due daily shiny raid can leave an ordinary legend zone safely; cooldowns, cleared draws and protected battles are respected',()=>{
     const s=save(),e=engine(s);

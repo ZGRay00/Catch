@@ -363,7 +363,15 @@
             // A region can share numeric chapter controls only after its click refreshes the list.
             const wanted = options.zone ? `Z${row.id}` : row.league ? 'L' : String(row.id);
             const list = $(`#map-root .mp-row[data-ch="${wanted}"]`);
+            const multiZone=options.zone&&this.e.settings.mode==='legend'&&this.e.settings.legendIds?.length>1&&this.pendingMap?.row===row;
+            if(!list&&multiZone){
+                const start=DATA.regions.find(region=>region.key===row.reg)?.start;
+                if($(`#map-root .mp-row[data-ch="${start}"]`))this.pendingMap.waiting={reason:'本地区地图尚未显示该入口'};
+            }
             if (!list) return false;
+            if(multiZone&&!options.tier&&list.classList.contains('lz-closed')){
+                this.pendingMap.waiting={reason:row.condition||'入口未开放'};return false;
+            }
             if (list.classList.contains('locked') && !options.zone) return false;
             if (!list.classList.contains('sel')) { this.click(list, `选择${row.name}`); return false; }
             if (options.zone) {

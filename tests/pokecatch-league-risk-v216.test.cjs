@@ -16,6 +16,16 @@ test('the screenshot party can compare a slower but more rewarding opened league
     assert.ok(league.rate>road.rate,'slower battles may still yield more XP per minute');assert.equal(rows[0].key,'L:hoenn');
 });
 
+test('cached league assessments cannot hide a missing active party member',()=>{
+    const {s,settings,league}=fixture(),at=Date.UTC(2026,10,20,12);
+    s.team.pop();
+    const original=H.leagueTrainingModel(s,settings,league,undefined,at);
+    s.team.push('no-longer-owned');
+    const stale=H.leagueTrainingModel(s,settings,league,undefined,at);
+    assert.equal(stale.allowed,false);assert.match(stale.blockReason,/盒子/);
+    s.team.pop();
+    assert.deepEqual(H.leagueTrainingModel(s,settings,league,undefined,at),original);
+});
 test('unmeasured league XP accounts for its battle risk instead of treating a complete clear as certain',()=>{
     const {s,settings,league}=fixture(),ranked=H.xpRanking(s,settings).find(row=>row.key==='L:hoenn');assert.ok(ranked);
     const experience=league.members.reduce((sum,id)=>sum+H.DATA.chapters[id].xpEstimate,0)*s.team.length;

@@ -100,6 +100,10 @@
     summary { font-size:12px; color:#c2d3df }
     .field,.setting { min-height:28px }
     .list { max-height:min(38dvh,330px) }
+    #legend-checks { overflow:auto; overscroll-behavior:contain }
+    #legend-checks fieldset { min-width:0; margin:6px 0; padding:4px 8px; border:1px solid #34475c; border-radius:8px }
+    #legend-checks legend { padding:0 4px; color:#b9d6d2 }
+    #legend-checks label { min-height:32px; cursor:pointer }
     #dex-clear { flex:none; min-height:38px; padding:5px 8px; font-size:12px }
     .dex-list-title, .dex-heading { margin:0 0 8px; line-height:1.5 }
     .dex-list-title { font-size:13px; color:#cedeeb }

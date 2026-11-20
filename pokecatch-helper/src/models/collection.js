@@ -1,9 +1,21 @@
-    function legendProgress(s, settings) {
-        const zone = DATA.zones.find(z => z.id === settings.legendId);
+    function selectedLegendIds(settings){
+        return settings.legendIds?.length?settings.legendIds:[settings.legendId];
+    }
+    function legendProgress(s, settings, id=settings.legendId, ownedIds) {
+        const zone = DATA.zones.find(z => z.id === id);
         if (!zone) return { missing: true };
         const tier = Number(s.elite?.[zone.id]?.t) || 0;
-        const forms=zone.forms?.length?zone.forms:[zone.id],missingForms=forms.filter(id=>!captured(s,id)),got=!missingForms.length;
+        const forms=zone.forms?.length?zone.forms:[zone.id],missingForms=forms.filter(id=>!captured(s,id,ownedIds)&&!(zone.eliteOnly&&s.roam?.caught?.includes(id))),got=!missingForms.length;
         return { zone, tier, forms, missingForms, captured: got, done: settings.legendTier > 0 ? tier >= settings.legendTier : got, nextTier: Math.min(5,tier + 1), roaming:!!zone.eliteOnly };
+    }
+    function legendGoals(s,cfg){
+        const ids=selectedLegendIds(cfg),owned=ids.length>1?new Set(collectionMembers(s).map(m=>m.id)):undefined;
+        return ids.map(id=>legendProgress(s,cfg,id,owned));
+    }
+    function legendSelectionLabel(cfg){
+        const ids=selectedLegendIds(cfg);
+        const names=ids.slice(0,2).map(id=>DATA.zones.find(z=>z.id===id)?.monName||MONS.get(id)?.name||id);
+        return names.join('、')+(ids.length>2?' 等 '+ids.length+' 个目标':'');
     }
     // Public Roaming snapshot: positions are read from the native save; never predict
     // or write a random destination, and never count a visual encounter as a capture.

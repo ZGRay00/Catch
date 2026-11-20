@@ -250,16 +250,18 @@
             }
             const raidDue=()=>daily.base.raids&&now>=this.nextRaid&&!this.driver.raid&&!this.raidReturn&&
                 !this.raidDailyStatus(s,now)&&!this.raidEntryBlock(s);
-            if(this.dailyZoneExit?.kind==='raid'&&!this.dailyZoneExit.clicked&&!raidDue())this.dailyZoneExit=null;
-            if(!this.dailyZoneExit){
+            if(!this.dailyZoneExit?.clicked){
                 const flow=this.automation.state;
                 if(this.preparation||this.driver.ownedDialog||this.automation.owner||this.services.underground||
                     flow.eggService||flow.evolution||flow.hatch||this.automation.buddyTask||this.automation.buffUI||flow.autoBuffTx)return false;
-                if(now<this.dailyCheckAt)return false;
+                if(!this.dailyZoneExit&&now<this.dailyCheckAt)return false;
                 const plan=dailyFacility(s,daily.base,this.dailyMarks,now)||(raidDue()?{kind:'raid'}:null);
-                if(!plan){this.dailyCheckAt=Math.min(nextParisReset(now),now+30000);return false;}
-                this.dailyZoneExit={kind:plan.kind};
-                daily.checking=true;
+                if(!plan){
+                    this.dailyZoneExit=null;
+                    this.dailyCheckAt=Math.min(nextParisReset(now),now+30000);
+                    return false;
+                }
+                if(this.dailyZoneExit?.kind!==plan.kind)this.dailyZoneExit={kind:plan.kind};
             }
             const exit=this.dailyZoneExit,label=MODE_NAMES[exit.kind],battle=s.adv.battle;
             this.lastProgress=now;
@@ -273,7 +275,10 @@
                 this.stop('无法确认已退出传说地图，请在游戏地图返回普通章节后继续通关日常');return true;
             }
             this.status='返回'+back.name+'，准备'+label;
-            if(!exit.clicked)exit.clicked=this.driver.map(back,s,{leaveZone:true});
+            if(!exit.clicked){
+                exit.clicked=this.driver.map(back,s,{leaveZone:true});
+                if(exit.clicked)daily.checking=true;
+            }
             return true;
         }
         dailyStep(s,now,windowFirst){
@@ -442,7 +447,7 @@
                 const rememberedRaid=cp?.activity?.raid;
                 const resumingRaid=s.adv.event?.raid&&rememberedRaid&&rememberedRaid.reg===(s.adv.event.reg||currentRegion(s))&&rememberedRaid.boss===s.adv.event.id&&(!rememberedRaid.date||rememberedRaid.date===(s.adv.event.date||parisDay()));
                 if(FLOW_MODES.has(mode)&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&!ownedFlow&&!cp?.manual&&!resumingRaid)throw new Error('请先结束当前战斗，再启动所选独立流程');
-                if (mode === 'legend' && s.adv.zone && s.adv.zone.id !== this.settings.legendId) throw new Error('当前传说战与所选目标不同，请先结束当前战斗或调整目标');
+                if (mode === 'legend' && s.adv.zone && !selectedLegendIds(this.settings).includes(s.adv.zone.id)) throw new Error('当前传说战与所选目标不同，请先结束当前战斗或调整目标');
                 if (mode === 'legend' && s.adv.zone?.elite && !this.settings.legendTier) throw new Error('当前为精英传说战，请先选择目标精英阶级');
                 if (!(s.team || []).length && !s.adv.event?.raid && !s.adv.zone && !FLOW_MODES.has(mode) && !['legend','raid'].includes(mode) && (!this.settings.autoTeam || !(s.mons||[]).length)) {
                     const gift=this.driver.giftChoice?.(s);
@@ -462,6 +467,7 @@
                 if(daily)this.settings=this.taskSettings(this.daily.base);
                 this.dailyCheckAt=this.dailyWindowCheckAt=0;
                 this.beginTask(s,cp,this.started);
+                if(mode==='legend'&&s.adv.zone)this.settings={...this.settings,legendId:s.adv.zone.id};
                 if(!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
                 this.log(this.daily?'开始通关日常 · '+(this.daily.job?MODE_NAMES[this.settings.mode]:'检查待办'):`开始${MODE_NAMES[this.settings.mode]}`);
                 if (s.adv.event?.raid) {
@@ -998,10 +1004,18 @@
                         if(pending.options?.roamId){this.roamStarted??=now;if(pending.options.restart)this.roamRestartAt=now;}
                     }
                 }
-                else if(pending.waiting||wasWaiting){pending.started=now;this.lastProgress=now;}
+                else if(pending.waiting||wasWaiting){
+                    pending.started=now;this.lastProgress=now;
+                    if(pending.waiting&&pending.options?.zone&&mode==='legend'&&this.settings.legendIds?.length>1){
+                        this.cooldowns['legend:'+pending.row.id]=now+5*60000;
+                        this.log(pending.row.name+' 暂未开放，继续检查其他所选目标');
+                        this.driver.pendingMap=null;
+                    }
+                }
                 return;
             }
             const safeBoundary = !s.adv.battle && !s.adv.pending;
+            if(this.settings.mode==='legend'&&this.settings.legendIds?.length>1&&!this.selectLegendTarget(s,now))return;
             if(this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly)){
                 this.roaming(s,now);return;
             }
@@ -1217,6 +1231,32 @@
             if (goal.zone.eliteOnly && !tier) { this.roaming(s,now);return; }
             if (tier && !goal.captured) { this.stop('精英传说战需要先完成该传说的普通捕获'); return; }
             this.travel({ ...goal.zone, key: `Z${goal.zone.id}`, members: [], name: `${goal.zone.monName || MONS.get(goal.zone.id)?.name || goal.zone.name}${tier ? ` · 精英 ${tier} 阶` : ''}` }, now, { zone: true, tier, optimize: this.settings.optimizeRaid });
+        }
+        selectLegendTarget(s,now){
+            const cfg=this.settings,regions=new Set(['kanto',currentRegion(s),...(s.travel?.to||[])]);
+            const remaining=legendGoals(s,cfg).filter(goal=>!goal.done);
+            if(!remaining.length){this.completeTask('所选传说战目标已全部完成');return false;}
+            const eligible=remaining.filter(({zone,captured})=>regions.has(zone.reg)&&(!cfg.legendTier||captured)&&
+                !(this.cooldowns['legend:'+zone.id]>now));
+            const canAttempt=goal=>{
+                if(cfg.legendTier||!goal.roaming)return true;
+                const plan=roamingPlan(s,{...cfg,legendId:goal.zone.id},now);
+                return plan.unlocked&&(plan.marked||plan.location)&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall);
+            };
+            const encounter=s.adv.battle?.roam;
+            const goal=eligible.find(g=>g.roaming&&!cfg.legendTier&&g.zone.id===encounter)||eligible.find(canAttempt)||eligible.find(g=>g.roaming&&!cfg.legendTier&&
+                roamingProgress(s,{...cfg,legendId:g.zone.id},now).unlocked&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall));
+            if(!goal){
+                this.status='还有 '+remaining.length+' 个传说目标，等待地区、地图、普通捕获或游荡条件满足';
+                this.lastProgress=now;return false;
+            }
+            if(goal.zone.id!==cfg.legendId){
+                this.settings={...cfg,legendId:goal.zone.id};
+                this.roamStarted=this.roamRestartAt=this.roamProbeAt=null;
+                this.target=this.visit=null;
+                this.log('切换传说目标 · '+(goal.zone.monName||goal.zone.name));
+            }
+            return true;
         }
         roaming(s,now){
             const cfg=roamingSettings(this.settings),plan=roamingPlan(s,cfg,now),d=this.driver;

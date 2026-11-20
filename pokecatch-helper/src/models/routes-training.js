@@ -193,9 +193,9 @@
     function* xpRouteSearch(s,settings,row,m,now,sliced,projection){
         const {party,yieldMembers,xpMult}=projection;
         const measured=m?.xpSeconds>0,samples=m?.xpRuns||0;
-        const battleFit=yield* battleRouteFitSearch(s,row,s.team||[],now,sliced);
+        const battleFit=yield* battleRouteFitSearch(s,row,party,now,sliced);
         const experience=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0)*yieldMembers*xpMult;
-        const leagueTraining=row.league?yield* leagueTrainingSearch(s,settings,row,battleFit,now,sliced):null;
+        const leagueTraining=row.league?yield* leagueTrainingSearch(s,settings,row,battleFit,now,sliced,party):null;
         const model=leagueTraining?leagueTraining.xpPerMember*yieldMembers*xpMult/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
         const estimate=estimateWithHistory(model,m?.historicalRate);
         const actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
@@ -276,6 +276,7 @@
     }
     function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states){
         let rows=[];
+        const walletParties=new Map();
         let projection;
         if(kind!=='money'){
             const party=partyMons(s),growing=party.filter(mon=>mon.level<trainingCap(s,mon));
@@ -285,7 +286,9 @@
         for(const [i,row] of maps.entries()){
             if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,samples[i],now,sliced,projection));
             else{
-                const state=states[i],fit=yield* battleRouteFitSearch(state,row,state.team||[],now,sliced);
+                const state=states[i];
+                if(!walletParties.has(state))walletParties.set(state,partyMons(state));
+                const fit=yield* battleRouteFitSearch(state,row,walletParties.get(state),now,sliced);
                 rows.push(moneyRouteScore(state,row,samples[i],fit,now,settings.speed));
             }
             if(sliced)yield;
@@ -509,11 +512,10 @@
         return{needed,members,targets,uids,desired,selection,capLimited:!ready&&members.some(m=>m.goal<desired)};
     }
     function battleRouteFit(s,row,uids=s.team||[],now=Date.now()){
-        return battleRouteFitSearch(s,row,uids,now,false).next().value;
+        return battleRouteFitSearch(s,row,partyMons(s,uids),now,false).next().value;
     }
-    function* battleRouteFitSearch(s,row,uids,now,sliced){
-        const index=new Map((s.mons||[]).map(m=>[m.uid,m]));
-        const team=uids.map(uid=>index.get(uid)).filter(m=>m&&teamEligible(s,m,row.reg)).map(m=>({...m,status:null}));
+    function* battleRouteFitSearch(s,row,party,now,sliced){
+        const team=party.filter(m=>teamEligible(s,m,row.reg)).map(m=>({...m,status:null}));
         const foes=(row.members?.length?row.members.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter)):chapterCombatFoes(s,row)).filter(m=>MONS.has(m.id)&&m.weight>0);
         if(!team.length||!foes.length)return{factor:1,turns:null,coverage:null};
         // Aggregate encounters on the same chapter share their weather. Explicit
@@ -556,14 +558,14 @@
     function preparationReadiness(s,settings,context,uids=s.team||[]){
         return readinessSearch(s,settings,context,uids,false).next().value;
     }
-    function* readinessSearch(s,settings,context,uids,sliced){
+    function* readinessSearch(s,settings,context,uids,sliced,party){
         const reject=reason=>({ready:false,fit:null,reason});
         if(!['map','progress'].includes(context?.kind))return reject('独立活动保留原有等级补练要求');
         if(!settings.autoTeam)return reject('手动配队保留原定补练目标');
         if(context.forcePreparation)return reject('实际战败后先补练，再重新评估');
         if(!Array.isArray(uids)||!uids.length||uids.length>6||new Set(uids).size!==uids.length)return reject('目标队伍为空或成员重复');
-        const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon])),team=uids.map(uid=>index.get(uid));
-        if(team.some(mon=>!mon||!teamEligible(s,mon,context.reg)))return reject('目标成员不在PC或不符合地区限制');
+        const team=party??partyMons(s,uids);
+        if(team.length!==uids.length||team.some(mon=>!teamEligible(s,mon,context.reg)))return reject('目标成员不在PC或不符合地区限制');
         const identity=mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
         if(new Set(team.map(identity)).size!==team.length)return reject('目标成员不能同时出战');
         context=rebuildPreparationContext(s,context);
@@ -592,23 +594,26 @@
         const fit={coverage:coverage/weight,minCoverage,uncoveredId,turns:turns/weight,worstTurns,deaths:deaths/weight,worstDeaths,opponents:foes.length};
         const limits=context.kind==='progress'?STORY_FIT_LIMITS:MAP_FIT_LIMITS;
         const ready=clearsWithinLimits(fit,limits);
-        const label=MONS.get(hardest?.id)?.name||'目标对手';
+        const label=MONS.get(minCoverage<.999?uncoveredId:hardest?.id)?.name||'目标对手';
         const reason=ready?'实际战力已具备稳妥尝试条件，无需所有成员达到等级目标':minCoverage<.999?`${label}等对局仍难以稳定处理`:worstDeaths>limits.knockouts||fit.deaths>limits.deaths?'关键对局预计倒下成员较多，继续补练':`${label}等对局耗时偏高，继续补练`;
         return{ready,fit,reason};
     }
-    function leagueTrainingModel(s,settings,row,battleFit=battleRouteFit(s,row),now=Date.now()){
-        return leagueTrainingSearch(s,settings,row,battleFit,now,false).next().value;
+    function leagueTrainingModel(s,settings,row,battleFit,now=Date.now()){
+        const party=partyMons(s);
+        battleFit??=battleRouteFitSearch(s,row,party,now,false).next().value;
+        return leagueTrainingSearch(s,settings,row,battleFit,now,false,party).next().value;
     }
-    function* leagueTrainingSearch(s,settings,row,battleFit,now,sliced){
-        const party=partyMons(s),chapters=(row.members||[]).map(id=>CHAPTERS.get(id)).filter(Boolean);
+    function* leagueTrainingSearch(s,settings,row,battleFit,now,sliced,party){
+        const chapters=(row.members||[]).map(id=>CHAPTERS.get(id)).filter(Boolean);
         const profiles=party.map(mon=>[mon.uid,teamEligible(s,mon,row.reg),...combatProfile({...mon,status:null})]);
-        const key=JSON.stringify([row.reg,settings.speed,s.autoSwitch!==false,profiles,chapters.map(chapter=>[chapter.id,chapterFoes(s,chapter)]),battleFit.weatherKey]),cached=LEAGUE_TRAINING_ROWS.get(key);
+        const key=JSON.stringify([row.reg,settings.speed,s.autoSwitch!==false,s.team,profiles,chapters.map(chapter=>[chapter.id,chapterFoes(s,chapter)]),battleFit.weatherKey]),cached=LEAGUE_TRAINING_ROWS.get(key);
         if(cached)return{...cached,completedMembers:[...cached.completedMembers]};
         let blockReason='';
-        if(!party.length||party.length>6||!party.every(mon=>teamEligible(s,mon,row.reg))||new Set(party.map(mon=>mon.uid)).size!==party.length)blockReason='当前阵容不满足地区出战条件';
+        if(party.length!==(s.team||[]).length)blockReason='队伍含有已不在盒子中的成员';
+        else if(!party.length||party.length>6||!party.every(mon=>teamEligible(s,mon,row.reg))||new Set(party.map(mon=>mon.uid)).size!==party.length)blockReason='当前阵容不满足地区出战条件';
         let xpPerMember=0,seconds=0,clearSeconds=0,weightedDeaths=0,failedAt=null,stopReason='';const completedMembers=[];
         if(!blockReason)for(const chapter of chapters){
-            const assessment=yield* readinessSearch(s,{...settings,autoTeam:true},{kind:'progress',id:chapter.id,reg:row.reg,foes:chapterCombatFoes(s,chapter),now},s.team,sliced),fit=assessment.fit;
+            const assessment=yield* readinessSearch(s,{...settings,autoTeam:true},{kind:'progress',id:chapter.id,reg:row.reg,foes:chapterCombatFoes(s,chapter),now},s.team,sliced,party),fit=assessment.fit;
             const base=estimatedRouteSeconds(chapter,settings.speed),turns=fit?.turns??150;
             const roomSeconds=base*Math.max(1,turns/3);seconds+=roomSeconds;
             if(!fit)stopReason=assessment.reason;

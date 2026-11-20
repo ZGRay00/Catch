@@ -1,4 +1,13 @@
-    function partyMons(s) { return (s.team || []).map(uid => (s.mons || []).find(m => m.uid === uid)).filter(Boolean); }
+    function partyMons(s,uids=s.team||[]) {
+        if(!uids.length)return [];
+        const wanted=new Set(uids),found=new Map();
+        for(const mon of s.mons||[]){
+            const uid=mon.uid;
+            if(wanted.delete(uid))found.set(uid,mon);
+            if(!wanted.size)break;
+        }
+        return uids.map(uid=>found.get(uid)).filter(Boolean);
+    }
     function monRegion(mon) { const reg = mon.reg === 'kanto2' ? 'johto' : mon.reg; return DATA.regions.some(r => r.key === reg) ? reg : 'kanto'; }
     function tasteProfile(m){return m.taste?[m.taste.h||'',...['atk','def','spa','spd','spe'].map(key=>Number(m.taste.up?.[key])||0)].join(':'):'';}
     function tasteMultiplier(taste,key){

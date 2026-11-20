@@ -32,7 +32,7 @@
         manualResume: true, resumeSeconds: 15, dismissInfo:true,
         autoTeam: true, teamMinutes: 5,autoEvolve:true,activeSwitch:false,
         autoPrepare:true,prepareMargin:2,prepareGap:3,prepareIdleMinutes:5,progressCandy:true,
-        legendId: 145, legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
+        legendId: 145, legendIds: [], legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
         trainUid: 'team', trainUids: [], trainLevel: 100, trainGems: false, trainRank: 1,
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
@@ -96,6 +96,11 @@
         if(RESOURCE_IDS.has(raw.resourceItem))out.resourceItem=raw.resourceItem;
         if(typeof raw.useUid==='string'&&raw.useUid.length<120)out.useUid=raw.useUid;
         if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
+        const selectedZones=new Set(Array.isArray(raw.legendIds)?raw.legendIds.map(Number):[]);
+        if(selectedZones.size)out.legendIds=DATA.regions.flatMap(region=>
+            DATA.zones.filter(zone=>zone.reg===region.key&&selectedZones.has(zone.id)).map(zone=>zone.id));
+        if(out.legendIds.length&&!out.legendIds.includes(out.legendId))out.legendId=out.legendIds[0];
+        if(out.legendIds.length<2)out.legendIds=[];
         if([243,244,245,380,381,481,641,642].includes(+raw.roamId))out.roamId=+raw.roamId;
         if (ITEMS.has(raw.itemId)) out.itemId = raw.itemId;
         out.trainUids = [...new Set((Array.isArray(raw.trainUids) ? raw.trainUids : []).filter(uid => typeof uid === 'string' && uid.length > 0 && uid.length <= 120))].slice(0,6);

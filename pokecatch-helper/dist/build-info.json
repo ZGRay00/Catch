@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.8.5",
-  "scriptSha256": "27f2d77f889244dacf9f1f18277a4b5e08171fbb66aedfa2a852bec748b71749",
-  "metadataSha256": "616ef81ba71db92d0572b7af1c945eaf1ae4644ef0617c4bd869c4d1af7a8f1f",
+  "version": "5.8.7",
+  "scriptSha256": "49ecfe0fb7cfb997acf671063dd48f617a8ca88f9c5e095a5a8ef7472caaa818",
+  "metadataSha256": "61ddd74179af1ddf09fe89774af981ccfb67d5be3a43712809a070b1cd714443",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "d246b48743867f14305daea5d40c6e5e96380c9ec0fec4a6109489dba2e2a0c8"
+      "sha256": "7a92b6ec2552592448c87ae5b876848b99c2d62a34fcff98c34175852dc810e9"
     },
     {
       "file": "build.manifest.json",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "299f3c8f153898e9d54c029f05a623cd81bb909e30358107da37183de461d17d"
+      "sha256": "10bde49253b7a1343cb28f5a1c3f8dd2a2e6d52b557561f5549d55d26455ed20"
     },
     {
       "file": "src/models/facilities.js",
@@ -58,7 +58,7 @@
     },
     {
       "file": "src/models/task-goals.js",
-      "sha256": "4570a9942ff0b846d0af17a5a1109607684fcea470d567f71efdfb8b16b9bbae"
+      "sha256": "6e88dbada38fb222fd9d10b593237aaaf397abe0651f93cead373967ae4b1b2d"
     },
     {
       "file": "src/models/daily.js",
@@ -98,7 +98,7 @@
     },
     {
       "file": "src/models/roster.js",
-      "sha256": "7c84b90da6ba8b5f69a807b4763f09e127f8dd4e039dbd69156832bdfdafcfbf"
+      "sha256": "7f948bbe0fdc22f8346f7c067295fd87b3294bdbb34b3ed0fcf7780348c9754f"
     },
     {
       "file": "data/evolution.json",
@@ -118,11 +118,11 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "58835b9e4571c9a6a5a563e5639d916006ede81077307af86911578318cfd4a8"
+      "sha256": "037881d5880843e17830516f942a9313366cca33a06b650c3226fec2e9db187c"
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "e273a7afce9d54ef3c933803f56f6dd370625f8fb29b2b64272a8d28923d48d0"
+      "sha256": "3ae123522703741c681f6025dc8c6c6c260114c01a5f2f6c6895f8efd38ead5c"
     },
     {
       "file": "src/core/telemetry.js",
@@ -130,7 +130,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "20cc6be9b091cbd5c350ef60cfd8f6f0d85d8c404c0542526150fa7f27be180d"
+      "sha256": "f905d6a6b289cc5f704fd159bf0ac15e3e59703142e2d5dbba0e5a741de5d0ec"
     },
     {
       "file": "src/runtime/automation.js",
@@ -142,7 +142,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "d8373f445c463e1f285e0856b32aad9bc15cb97518765b2acd508c724a899854"
+      "sha256": "c283905e2aaec8a2340bed7ad079d236e23970aa377cb155ec13bcdd39020c55"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -150,7 +150,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "17fb58dcc6bd9a9957bcd3ee1b2dc986c212d75d30b57b9f614f766ed0c79d26"
+      "sha256": "b9397d992f45a3218de805950a2b5aa6df80cefc2e66e2de344ef3ffc68e540e"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -170,7 +170,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "60e301d157e2864a282303fa5b7d0283b8dcd1414c9cebe0a3ba1d121ec7e486"
+      "sha256": "bc6ba4d5cd8ed963b74f6878cea3522aa0f20d73511c501b7fef7eeb9c662f16"
     }
   ]
 }

@@ -101,6 +101,20 @@ async function main(){
                 const target=r.querySelector('#daily-legend-fields [data-setting="legendId"]');if(!target.getClientRects().length)throw Error('Invisible legendary target');
                 target.value='385';target.dispatchEvent(new Event('change',{bubbles:true}));
                 const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.legendId;
+                const checks=r.querySelector('#legend-checks'),multi=r.querySelector('#legend-multi');
+                multi.open=true;
+                checks.querySelector('[value="145"]').click();
+                if(e.settings.legendIds.join(',')!=='145,385')throw Error('Multiple legendary selection not saved');
+                r.querySelector('#legend-all').click();
+                if(e.settings.legendIds.length!==checks.querySelectorAll('input').length)throw Error('Select all missed a region');
+                const profile=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id));
+                if(profile.settings.legendIds.length!==e.settings.legendIds.length)throw Error('Legendary selection not persisted');
+                r.querySelector('#legend-single').click();multi.open=false;
+                if(e.settings.legendIds.length||e.settings.legendId!==385)throw Error('Single legendary target not restored');
+                // One selected goal is already registered, the other still needs a map visit.
+                const oldBird=fixtureState.dex[145];
+                fixtureState.dex[145]={caught:1};
+                checks.querySelector('[value="145"]').click();
                 const dailyRaid=r.querySelector('#daily-shiny-raid');
                 if(dailyRaid.checked||!dailyRaid.getClientRects().length)throw Error('Expected the visible saved daily raid preference');
                 dailyRaid.click();
@@ -113,10 +127,21 @@ async function main(){
                 let zone=0;e.travel=row=>{zone=row.id;};
                 try{
                     await e.step();if(!e.raidProbe||zone||!dailyRaid.disabled)throw Error('Expected daily shiny raid before legendary travel');
+                    e.onChange();
+                    if(!r.querySelector('#run-state').textContent.includes('检查每日异色团体战'))throw Error('Raid check mislabeled');
+                    fixtureState.adv.event={raid:true};commitExecution();
+                    for(const selector of ['#run-state','#mini-state','#daily-state']){
+                        if(!r.querySelector(selector).textContent.includes('每日异色团体战'))throw Error('Missing active raid in '+selector);
+                    }
+                    if(!r.querySelector('#daily-state').textContent.includes('基拉祈'))throw Error('Legendary destination missing');
+                    delete fixtureState.adv.event;
                     fixtureState.raids.done['kanto|'+fixtureState.raids.seen]=Date.now();commitExecution();
                     await e.step();return [saved,chore,e.settings.mode,e.raidProbe,zone];
                 }
-                finally{e.travel=origTravel;e.serviceBackground=origServices;}
+                finally{
+                    e.travel=origTravel;e.serviceBackground=origServices;
+                    if(oldBird===undefined)delete fixtureState.dex[145];else fixtureState.dex[145]=oldBird;
+                }
             }finally{if(e.running)e.stop();delete fixtureState.raids;e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();}
         })()`);
         assert.deepEqual(legendMain,[385,'candy','legend',false,385]);

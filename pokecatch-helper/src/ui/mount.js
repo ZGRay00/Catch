@@ -38,6 +38,7 @@
                 <button data-workspace="activity" aria-controls="pane-activity">运行实况</button>
                 <button data-workspace="settings" aria-controls="pane-settings">设置</button>
             </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
+            <div id="gate-guide" class="gate-guide" hidden><div><strong id="gate-title"></strong><div class="sub" id="gate-next"></div></div><button type="button" id="gate-details">查看条件</button></div>
             <button type="button" id="spirit-conditions" data-lookup="442" hidden>查看花岩怪获取条件</button>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric" title="合计当前钱包及跨地区暂存的钱包余额"><b id="money-value">0</b><span id="money-label">本次金币净增</span></div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <details id="season-calendar" class="season-calendar"><summary><span>游戏季节</span><strong></strong><span class="season-remaining"></span></summary><div class="season-period"></div><div class="season-next"></div></details>
@@ -68,14 +69,15 @@
                 <div data-fields="progress" class="hidden"><div class="field"><span>完成章节</span><select data-setting="progressUntil" aria-label="主线目标章节"></select></div><label class="setting"><span><input type="checkbox" data-setting="autoTravel">达到条件后自动跨地区开局</span></label></div>
                 <fieldset id="hunt-filters" style="min-width:0;margin:8px 0;padding:9px;border:1px solid #40516a;border-radius:8px">
                     <legend>搜寻条件</legend>
-                    <details id="hunt-region-controls"><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
-                    <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
-                    <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">当前队伍练级</option></select></label>
                     <details><summary id="hunt-species-summary"></summary>
                         <input id="hunt-search" type="search" aria-label="搜索目标物种" placeholder="中文名、英文名或编号">
                         <div class="field"><select id="hunt-picker" aria-label="可添加的物种"></select><button type="button" id="hunt-add">添加</button></div>
                         <div id="hunt-selected" class="missing" aria-label="已选物种"></div>
-                    </details><div id="hunt-help" class="hint"></div>
+                    </details>
+                    <details id="hunt-region-controls"><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
+                    <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
+                    <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">当前队伍练级</option></select></label>
+                    <div id="hunt-help" class="hint"></div>
                 </fieldset><button type="button" id="hunt-forecast">查看地区天气预报</button>
                 <div data-fields="breed" class="hidden"><div class="field"><span>孵化目标</span><select data-setting="breedId" aria-label="繁殖物种"></select></div><div class="field"><span>孵化数量</span><input data-setting="breedGoal" type="number" min="1" max="9999"></div><label class="setting"><span><input type="checkbox" data-setting="breedShiny">孵到目标异色为止</span></label><label class="setting"><span><input type="checkbox" data-setting="pensionExpand">预算内购买繁殖必需的寄养位</span></label></div>
                 <div data-fields="underground" class="hidden"><div class="field"><span>领取次数</span><input data-setting="underRuns" type="number" min="1" max="999"></div>${underStartControls}<label class="setting"><span><input type="checkbox" data-setting="underOpenGeodes">领取完后开启背包中的晶洞</span></label></div>
@@ -567,7 +569,7 @@
             if(engine.manual||engine.suspended||s.adv?.paused)return label+' · 恢复后评估候选 '+target;
             return label+(engine.automation.buddyTask?.uid===next?' · 正在切换为':' · 待切换为')+target;
         }
-        let lastLockState=null,lastPaint=0;
+        let lastLockState=null,lastPaint=0,guideState=null,guideId=null,guidePlan=null;
         function render() {
             lastPaint=performance.now();
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
@@ -606,6 +608,19 @@
             query('#status').textContent = engine.suspended?engine.status:wait?.status||(nativePaused?'游戏已暂停':engine.status);
             query('#spirit-conditions').hidden=!(ui.workspace==='tasks'&&engine.running&&engine.settings.mode==='dex'&&
                 engine.settings.dexSpecies.includes(spiritEvent.id)&&!s?.dex?.[spiritEvent.id]?.caught&&(engine.farmWait||engine.target?.prepNote));
+            const guide=query('#gate-guide'),cfg=engine.settings;
+            const gateIds=cfg.mode==='dex'?cfg.dexSpecies:cfg.mode==='legend'?[cfg.legendId]:[];
+            const id=!ui.folded&&ui.workspace==='tasks'&&s?.adv&&gateIds.find(id=>gateZones.get(id)?.gate&&!captured(s,id));
+            guide.hidden=!id;
+            if(id){
+                if(guideState!==s||guideId!==id){guideState=s;guideId=id;guidePlan=legendRequirements(s,[id]);}
+                const plan=guidePlan,line=plan.lines.find(entry=>entry.have<entry.need);
+                const title=MONS.get(id).name+' · 捕获条件';
+                const detail=line?MONS.get(line.id).name+' · '+line.label+' '+line.have+'/'+line.need:plan.notes[0]||'前置已满足，等待入口开放';
+                if(query('#gate-title').textContent!==title)query('#gate-title').textContent=title;
+                if(query('#gate-next').textContent!==detail)query('#gate-next').textContent=detail;
+                query('#gate-details').dataset.lookup=id;
+            }
             for(const indicator of [query('.status'),query('.mini')]){
                 indicator.classList.toggle('running',engine.running&&!paused);
                 indicator.classList.toggle('manual',paused);

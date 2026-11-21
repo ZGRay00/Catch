@@ -75,6 +75,17 @@ test('a missing native challenge control retains the ordinary 60 second map time
     await e.step(now+60001);assert.equal(e.running,false);assert.match(e.status,/地图操作超时/);
 });
 
+test('native prerequisite locks have no chapter button and launch the outer goal planner', async t=>{
+    const {e,dom,now,clicks}=fixture(t);dom.row=null;
+    const query=document.querySelector;
+    document.querySelector=sel=>sel==='#map-root .mp-row.lz-lock'?dom.condition:query(sel);
+    await e.step(now);
+    assert.equal(e.lockedLegend,145);assert.equal(e.driver.pendingMap,null);
+    e.legend(e.read(),now+1200);
+    assert.ok(e.driver.pendingMap?.row.gateRoute);
+    assert.equal(e.settings.legendId,145);assert.equal(clicks.length,0);
+});
+
 test('a missing legendary row is a UI failure rather than a permanent condition wait',async t=>{
     const {e,dom,now}=fixture(t);dom.row=null;await e.step(now);
     assert.equal(e.running,true);assert.equal(e.driver.pendingMap.waiting,undefined);

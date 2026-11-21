@@ -257,7 +257,9 @@
         const wanted=dexSearchIds(s,settings,status);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
         const prepareSpirit=settings.mode==='dex'&&settings.dexSpecies?.includes(spiritEvent.id)&&wanted.has(spiritEvent.id);
-        const inputs=[huntRankingInputs(s,settings,[...wanted],now),!!prepareSpirit,settings.speed,s.link?.to,s.buffs?.capture?.until>now?s.buffs.capture:null,settings.gifts,s.adv.gifts,s.adv.badges,s.items,
+        const gate=settings.mode==='dex'&&settings.dexSpecies?.length?legendRequirements(s,[...wanted]):null;
+        const gateKey=gate&&[gate.goals,gate.lines.map(line=>[line.id,line.kind,line.have,line.missing]),[...gate.wild],[...gate.items],settings.autoEvolve,settings.autoTeam,gate.wild.size&&settings.autoEvolve?rosterFingerprint(s):null,s.team,s.road,(s.pension?.eggs||[]).map(e=>e.id)];
+        const inputs=[huntRankingInputs(s,settings,[...wanted],now),gateKey,!!prepareSpirit,settings.speed,s.link?.to,s.buffs?.capture?.until>now?s.buffs.capture:null,settings.gifts,s.adv.gifts,s.adv.badges,s.items,
             staticItemSources.map(({chapter,item})=>chapterItemCount(s,chapter,item)),s.roam?.at,
             wanted.has(490)?[s.stats?.hatched,s.adv.questFrom?.['egg:490']]:null,
             settings.gifts&&Object.keys(FOSSIL_NAMES).map(item=>s.link?.stash?.items?.[item]||0),
@@ -265,7 +267,12 @@
             settings.gifts&&branchedGifts.map(gift=>giftChoices(s,gift))];
         return rankedRoutes('dex',inputs,()=>{
             const direct=rankDexTargets(s,settings,wanted,now);
-            if(direct.length||!prepareSpirit||
+            if(direct.length)return direct;
+            if(gate){
+                const rows=prerequisiteRoutes(s,settings,gate,now);
+                if(rows.length)return rows;
+            }
+            if(!prepareSpirit||
                 s.adv.gifts?.[spiritEvent.once]||!availableChapters(s,settings).some(c=>c.id===spiritChapter.id))return direct;
             const {missing,souls,note}=spiritProgress(s);
             if(missing.length){

@@ -187,6 +187,7 @@
             this.driver.giftReceipt=null;
             this.preparation=this.raidPreparation=this.coach.checked=this.coach.ready=this.coach.combat=null;
             this.zoneId=this.zoneStarted=this.legendProbe=this.farmWait=this.weatherWindow=null;
+            this.gateSignature=this.lockedLegend=null;
             this.dailyZoneExit=null;
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
@@ -442,13 +443,17 @@
                     if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');
                     if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
                 }
+                const resumeZone=cp?.activity?.zone?.id;
+                const resumeGates=resumeZone&&s.adv.zone?.id===resumeZone&&['dex','legend'].includes(mode)
+                    ?legendRequirements(s,mode==='dex'?this.settings.dexSpecies:selectedLegendIds(this.settings)):null;
+                const resumePrerequisite=resumeGates&&(s.adv.zone.elite?resumeGates.elites.has(resumeZone):resumeGates.zones.has(resumeZone)||resumeGates.doors.has(resumeZone));
                 const ownedFlow=mode==='tower'&&!!s.adv.tower&&s.adv.tower.kind!=='candy'||mode==='candy'&&s.adv.tower?.kind==='candy'||mode==='elite'&&!!s.adv.league||mode==='world'&&s.adv.zone?.id===493;
-                if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend')&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
+                if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend'&&!resumePrerequisite)&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
                 const rememberedRaid=cp?.activity?.raid;
                 const resumingRaid=s.adv.event?.raid&&rememberedRaid&&rememberedRaid.reg===(s.adv.event.reg||currentRegion(s))&&rememberedRaid.boss===s.adv.event.id&&(!rememberedRaid.date||rememberedRaid.date===(s.adv.event.date||parisDay()));
                 if(FLOW_MODES.has(mode)&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&!ownedFlow&&!cp?.manual&&!resumingRaid)throw new Error('请先结束当前战斗，再启动所选独立流程');
-                if (mode === 'legend' && s.adv.zone && !selectedLegendIds(this.settings).includes(s.adv.zone.id)) throw new Error('当前传说战与所选目标不同，请先结束当前战斗或调整目标');
-                if (mode === 'legend' && s.adv.zone?.elite && !this.settings.legendTier) throw new Error('当前为精英传说战，请先选择目标精英阶级');
+                if (mode === 'legend' && s.adv.zone && !resumePrerequisite && !selectedLegendIds(this.settings).includes(s.adv.zone.id)) throw new Error('当前传说战与所选目标不同，请先结束当前战斗或调整目标');
+                if (mode === 'legend' && s.adv.zone?.elite && !resumePrerequisite && !this.settings.legendTier) throw new Error('当前为精英传说战，请先选择目标精英阶级');
                 if (!(s.team || []).length && !s.adv.event?.raid && !s.adv.zone && !FLOW_MODES.has(mode) && !['legend','raid'].includes(mode) && (!this.settings.autoTeam || !(s.mons||[]).length)) {
                     const gift=this.driver.giftChoice?.(s);
                     if(!pendingRegionalStarter(s)&&!(gift?.reg&&gift.authorized))throw new Error('冒险队伍为空，请先配置队伍');
@@ -781,6 +786,24 @@
             }
             const signature = JSON.stringify([s.adv.chapter, s.adv.node, s.adv.runs, s.stats?.battles, s.stats?.wins, s.stats?.caught, s.adv.event?.loops, s.adv.zone?.loops, s.adv.battle?.steps, s.adv.battle?.enemies?.map(m => m.hp)]);
             if (signature !== this.progressSignature) { this.progressSignature = signature; this.lastProgress = now; }
+            if(s.adv.zone?.riddle&&s.adv.zone.id===this.zoneId&&['dex','legend'].includes(this.settings.mode)){
+                const zone=gateZones.get(this.zoneId),rule=zone?.gate;
+                if(rule?.kind==='door'&&rule.key===s.adv.zone.riddle&&(!this.settings.legendMinutes||now-this.zoneStarted<this.settings.legendMinutes*60000)){
+                    this.lastProgress=now;this.status=zone.name+' · 正在解开入口铭文';
+                    const pending=s.adv.pending;
+                    if(!pending||pending.type!=='riddle'||pending.waitAt){this.driver.nav('adventure');return;}
+                    const uids=riddleParty(s,rule,zone.reg,false);
+                    if(!uids){this.stop('铭文所需队员已改变，请调整队伍后继续');return;}
+                    const modal=$('#modal-root.open');
+                    if(modal){
+                        const answer=[...modal.querySelectorAll('.rd-dlg .rd-mon[data-uid]')].find(el=>el.dataset.uid===uids[0]);
+                        if(answer){this.driver.click(answer,'向铭文展示队员');return;}
+                    }else{
+                        if(this.driver.nav('adventure'))this.driver.click($(rule.wait?'#arena [data-rd="wait"]':'#arena [data-rd="show"]'),'回应入口铭文');
+                        return;
+                    }
+                }
+            }
             // Gift FX can cover a departure dialog while the regional save is still settling.
             const gift=this.driver.giftChoice?.(s);
             if(gift){
@@ -1006,7 +1029,11 @@
                 }
                 else if(pending.waiting||wasWaiting){
                     pending.started=now;this.lastProgress=now;
-                    if(pending.waiting&&pending.options?.zone&&mode==='legend'&&this.settings.legendIds?.length>1){
+                    if(pending.waiting&&pending.options?.gateElite){
+                        this.cooldowns['gateElite:'+pending.row.id]=now+5*60000;this.driver.pendingMap=null;
+                    }else if(pending.waiting?.prerequisite&&mode==='legend'&&pending.row.id===this.settings.legendId){
+                        this.lockedLegend=pending.row.id;this.driver.pendingMap=null;
+                    }else if(pending.waiting&&pending.options?.zone&&mode==='legend'&&this.settings.legendIds?.length>1){
                         this.cooldowns['legend:'+pending.row.id]=now+5*60000;
                         this.log(pending.row.name+' 暂未开放，继续检查其他所选目标');
                         this.driver.pendingMap=null;
@@ -1077,6 +1104,9 @@
                     this.status=this.settings.autoEggs?'补图鉴 · 剩余目标均已取得蛋，等待成熟并领取':'补图鉴 · 剩余目标均已取得蛋，成熟后请在培育屋领取';
                     this.driver.nav('adventure');return;
                 }
+                const gate=this.settings.dexSpecies.length&&(!rows.length||rows[0].gateRoute)
+                    ?legendRequirements(s,status.missing.map(m=>m.id)):null;
+                if(gate&&!s.adv.pending&&this.advanceRequirements(s,this.settings,gate,rows,now))return;
                 const alternate=this.huntAlternate(s,stillNeeded,rows,now);
                 if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
                     if(directedHunt&&this.settings.autoTeam&&this.fitTeam(s,now))return;
@@ -1092,7 +1122,7 @@
                     if(!directedHunt&&safeBoundary&&next.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     this.travelHunt(next,alternate,now); return;
                 }
-                if (this.settings.legends && !this.settings.dexWeather?.length && now >= this.nextLegend && this.findLegend(s, status, now)) return;
+                if (!gate && this.settings.legends && !this.settings.dexWeather?.length && now >= this.nextLegend && this.findLegend(s, status, now)) return;
                 if(this.settings.dexWeather?.length||this.settings.dexSpecies?.length){
                     this.target=null;this.visit=null;this.telemetry.sample=null;
                     if(this.settings.dexSpecies?.length){
@@ -1237,7 +1267,24 @@
             if (!goal.zone) { this.stop('无法识别所选传说战'); return; }
             if(goal.done){this.completeTask('指定传说战目标已完成');return;}
             const open = new Set(['kanto', ...(s.travel?.to || []), currentRegion(s)]);
-            if (!open.has(goal.zone.reg)) { this.stop('目标传说所在地区尚未解锁'); return; }
+            if (!open.has(goal.zone.reg)) {
+                if(goal.zone.gate&&this.settings.progress&&(this.canProgress(s)||this.settings.autoTravel)){this.progress(s,now);return;}
+                this.waitForFarm('等待目标地区开放 · '+goal.zone.name+'，可开启主线推进与跨地区开局',now);return;
+            }
+            if(this.lockedLegend===goal.zone.id&&!this.settings.legendTier){
+                const cfg={...this.settings,mode:'dex',region:'all',dexSpecies:[goal.zone.id],dexWeather:[],legends:true};
+                const plan=legendRequirements(s,cfg.dexSpecies);
+                if(plan&&!plan.zones.has(goal.zone.id)){
+                    const rows=dexRanking(s,cfg,this.cooldowns,now);
+                    if(!this.advanceRequirements(s,cfg,plan,rows,now)){
+                        const row=rows[0];
+                        if(this.target?.key===row.key&&row.members.includes(s.adv.chapter)){this.status=row.prepNote;this.driver.nav('adventure');}
+                        else this.travel(row,now);
+                    }
+                    return;
+                }
+                this.lockedLegend=null;
+            }
             const tier = this.settings.legendTier ? goal.nextTier : 0;
             if (goal.zone.eliteOnly && !tier) { this.roaming(s,now);return; }
             if (tier && !goal.captured) { this.stop('精英传说战需要先完成该传说的普通捕获'); return; }
@@ -1269,11 +1316,11 @@
             }
             return true;
         }
-        roaming(s,now){
-            const cfg=roamingSettings(this.settings),plan=roamingPlan(s,cfg,now),d=this.driver;
+        roaming(s,now,cfg=roamingSettings(this.settings),prerequisite=false){
+            const plan=roamingPlan(s,cfg,now),d=this.driver;
             this.telemetry.sample=null;
             if(!plan.target){this.failTask('无法识别所选游荡宝可梦');return;}
-            if(plan.done){this.completeTask('指定游荡宝可梦已确认捕获');return;}
+            if(plan.done){if(!prerequisite)this.completeTask('指定游荡宝可梦已确认捕获');return;}
             if(!plan.unlocked){this.lastProgress=now;this.status=`等待${MONS.get(plan.target.id)?.name}游荡开放 · 需要${DATA.regions.find(region=>region.key===plan.group.reg)?.name}冠军及地区解锁`;return;}
             if((Number(s.items?.['master-ball'])||0)>0&&!cfg.roamAllowMasterBall){this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球，再开始主动追踪';return;}
             if(cfg.roamMinutes>0&&this.roamStarted!=null&&now-this.roamStarted>=cfg.roamMinutes*60000){this.failTask('达到游荡目标在线搜寻时限，已停止助手规划');return;}
@@ -1548,9 +1595,11 @@
         }
         holdWildShiny(s,now=Date.now()) {
             const shiny=wildShinyEncounter(s),seasonal=shiny?null:seasonalDexEncounter(s,this.settings);
-            const encounter=shiny||seasonal||targetDexEncounter(s,this.settings);
+            const prerequisite=this.target?.gateRoute&&['dex','legend'].includes(this.settings.mode)&&
+                wildEncounter(s,mon=>this.target.targets?.some(hit=>hit.id===mon.id));
+            const encounter=shiny||seasonal||targetDexEncounter(s,this.settings)||prerequisite;
             if(!encounter){this.wildShinyProtected=null;return false;}
-            const label=shiny?'野生异色':seasonal?'季节图鉴目标':'图鉴目标',names=encounter.enemies.map(mon=>MONS.get(mon.id)?.name||mon.id).join('、');
+            const label=shiny?'野生异色':seasonal?'季节图鉴目标':prerequisite?'前置图鉴目标':'图鉴目标',names=encounter.enemies.map(mon=>MONS.get(mon.id)?.name||mon.id).join('、');
             if(this.wildShinyProtected!==encounter.key){this.wildShinyProtected=encounter.key;this.log('优先完成'+label+'捕获：'+names);}
             this.telemetry.sample=null;
             this.status='保护'+label+' · '+names+' · 捕获结算后继续原任务';
@@ -1720,9 +1769,77 @@
         waitForFarm(reason,now){
             this.farmWait={mode:this.settings.mode};this.lastProgress=now;this.status=reason;
         }
+        advanceRequirements(s,cfg,plan,rows,now){
+            const enabled=cfg.legends&&!cfg.dexWeather?.length,label=requirementLabel(plan)+'前置';
+            const signature=JSON.stringify([plan.goals,[...plan.zones],this.settings.mode]);
+            if(signature!==this.gateSignature){this.gateSignature=signature;this.legendProbe=null;this.nextLegend=0;}
+            const roam=[...plan.roam].find(id=>{
+                const state=roamingPlan(s,{...cfg,mode:'roam',roamId:id},now);
+                return !state.done&&(state.active||state.marked||state.location)&&
+                    (cfg.roamAllowMasterBall||!s.items?.['master-ball']);
+            });
+            if(enabled&&roam){this.roaming(s,now,{...cfg,mode:'roam',roamId:roam},true);return true;}
+            if(enabled&&plan.zones.size&&now>=this.nextLegend&&this.findLegend(s,{ids:plan.zones},now))return true;
+            if(rows.length)return false;
+            for(const [id,tier] of plan.elites){
+                if(!enabled||Number(s.elite?.[id]?.t||0)>=tier||!captured(s,id)||!ownsMon(s,id)||
+                    !s.adv.badges?.includes('Forêt')||(this.cooldowns['gateElite:'+id]||0)>now)continue;
+                const zone=gateZones.get(id);
+                if(!zone)continue;
+                this.travel({...zone,key:'Z'+id,members:[]},now,{zone:true,tier:(s.elite?.[id]?.t||0)+1,gateElite:true,optimize:cfg.optimizeRaid});
+                return true;
+            }
+            for(const [id,rule] of plan.doors){
+                if(!enabled)break;
+                const zone=gateZones.get(id),uids=riddleParty(s,rule,zone.reg,cfg.autoTeam);
+                if(!uids)continue;
+                if(uids.some(uid=>!s.team.includes(uid))){
+                    if(!s.adv.battle&&!s.adv.pending&&now>=this.teamRetryAt)this.driver.teamTask={
+                        uids:trainingParty(s,uids),members:[s.adv.chapter],chapter:s.adv.chapter,started:now,attempts:0
+                    };
+                    this.status=label+' · 准备'+zone.name+'的铭文队伍';return true;
+                }
+                this.travel({...zone,key:'Z'+id,members:[]},now,{zone:true,riddle:true,optimize:false});return true;
+            }
+            const trainee=gateTrainee(s,cfg,plan,now);
+            if(trainee){
+                const {mon,rule,gap}=trainee;
+                this.status=label+' · '+MONS.get(mon.id).name+' Lv.'+mon.level+' → '+MONS.get(rule.to).name+' Lv.'+rule.level;
+                if(gap&&!s.team.includes(mon.uid)&&cfg.autoTeam){
+                    if(!s.adv.battle&&!s.adv.pending&&now>=this.teamRetryAt)this.driver.teamTask={
+                        uids:trainingParty(s,[mon.uid]),members:[s.adv.chapter],chapter:s.adv.chapter,started:now,attempts:0
+                    };
+                }else if(gap&&!s.adv.battle&&!s.adv.pending){
+                    const ceiling=Math.max(mon.level,...partyMons(s).map(m=>m.level));
+                    const maps=candidates(s,{...cfg,region:'current'},true).filter(row=>!row.league&&row.reg===currentRegion(s)&&row.ace<=ceiling&&
+                        huntRouteMatches(s,cfg,row,now)&&(this.cooldowns[row.key]||0)<=now).sort((a,b)=>b.ace-a.ace);
+                    if(maps.length&&(this.target?.key!==maps[0].key||!maps[0].members.includes(s.adv.chapter))){
+                        this.travel(maps[0],now);return true;
+                    }
+                }
+                this.driver.nav('adventure');return true;
+            }
+            if(plan.progress&&cfg.progress&&(this.canProgress(s)||cfg.autoTravel)){this.progress(s,now);return true;}
+            const names=ids=>[...ids].slice(0,4).map(id=>MONS.get(id)?.name||id).join('、');
+            const details=[...plan.notes];
+            if(plan.roam.size)details.push('等待游荡 · '+names(plan.roam)+(s.items?.['master-ball']&&!cfg.roamAllowMasterBall?'（受大师球设置限制）':''));
+            if(plan.zones.size)details.push(enabled?'等待传说入口开放':'请检查传说战开关和天气筛选');
+            if(plan.items.size)details.push('待取得 '+[...plan.items].map(id=>ITEMS.get(id)?.name||id).join('、'));
+            if(plan.wild.size)details.push('待登记 '+names(plan.wild)+'，可在图鉴查看进化、赠送或交换条件');
+            if(plan.elites.size)details.push('需要开放地下通道与对应精英阶级');
+            if(plan.progress&&!cfg.progress)details.push('可开启无目标时推进主线');
+            if(enabled&&plan.roam.size&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall)){
+                for(const id of plan.roam){
+                    const sub={...cfg,mode:'roam',roamId:id},state=roamingProgress(s,sub,now);
+                    if(!state.done&&state.unlocked){this.roaming(s,now,sub,true);return true;}
+                }
+            }
+            this.waitForFarm(label+' · '+(details.join('；')||'等待游戏开放来源'),now);
+            return true;
+        }
         findLegend(s, status, now) {
             const open=new Set(['kanto',...(s.travel?.to||[]),currentRegion(s)]);
-            const zones=DATA.zones.filter(z=>!z.eliteOnly&&status.ids.has(z.id)&&open.has(z.reg)&&huntRegionMatches(s,this.settings,z.reg)&&(this.cooldowns[`Z${z.id}`]||0)<=now);
+            const zones=DATA.zones.filter(z=>!z.eliteOnly&&status.ids.has(z.id)&&open.has(z.reg)&&(this.settings.mode==='legend'&&this.lockedLegend||huntRegionMatches(s,this.settings,z.reg))&&(this.cooldowns[`Z${z.id}`]||0)<=now);
             const signature=zones.map(z=>`${z.reg}:${z.id}`).join('|');
             const finish=()=>{this.legendProbe=null;this.nextLegend=now+10*60000;return false;};
             if(!zones.length)return finish();
@@ -1735,7 +1852,7 @@
             const row=control&&$$('#map-root .mp-row.lz-open:not(.lz-closed)[data-ch]').find(el=>zones.some(z=>z.reg===reg&&z.id===Number(el.dataset.ch.slice(1))));
             if(row){
                 const id=Number(row.dataset.ch.slice(1)),zone=zones.find(z=>z.id===id);this.legendProbe=null;
-                this.travel({...zone,key:`Z${id}`,members:[],name:MONS.get(id)?.name||zone.name},now,{zone:true,optimize:true});return true;
+                this.travel({...zone,key:`Z${id}`,members:[],name:MONS.get(id)?.name||zone.name},now,{zone:true,optimize:this.settings.optimizeRaid});return true;
             }
             if(++probe.index>=probe.regions.length)return finish();
             return true;

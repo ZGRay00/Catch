@@ -88,6 +88,7 @@
       "kind": "source",
       "file": "src/models/routes-training.js"
     },
+    {"kind":"source","file":"src/models/legend-requirements.js"},
     {
       "kind": "source",
       "file": "src/models/collection.js"

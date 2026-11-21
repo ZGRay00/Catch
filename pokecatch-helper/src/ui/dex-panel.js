@@ -106,12 +106,42 @@
             const forms=seasonFormProgress(s,mon.id),currentSeason=forms&&weatherSeason(now);
             const sources=acquisitionSources(s,mon.id,now).sort((a,b)=>Number(!!b.marked)-Number(!!a.marked));
             const spirit=mon.id===spiritEvent.id?spiritProgress(s):null;
-            if(!changed(['detail',mon.id,caught,chainComplete,forms?.seen,currentSeason,spirit?.missing,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
+            const gates=legendRequirements(s,[mon.id]);
+            if(!changed(['detail',gates?.lines,gates?.notes,mon.id,caught,chainComplete,forms?.seen,currentSeason,spirit?.missing,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
             const heading=label('h3','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading');
             heading.tabIndex=-1;results.append(heading);
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
             if(base.id!==mon.id)family.append(' ',speciesButton(base,'查'+base.name+'来源'));
             results.append(family);
+            if(!caught&&gates){
+                const details=label('details','','gate-checks'),list=label('ul','');
+                const direct=gates.lines.filter(line=>line.id===mon.id);
+                details.open=true;
+                details.append(label('summary',direct.length?'捕获条件 · '+direct.filter(line=>line.have>=line.need).length+'/'+direct.length+' 项已满足':'捕获条件 · 地区待开放'));
+                for(const line of gates.lines){
+                    if(line.id!==mon.id&&line.have>=line.need)continue;
+                    const row=label('li',(line.id===mon.id?'':MONS.get(line.id).name+' · ')+line.label+' '+line.have+'/'+line.need);
+                    if(line.missing.length){
+                        const links=label('div','','missing');
+                        for(const id of line.missing.slice(0,6))links.append(speciesButton(MONS.get(id),MONS.get(id).name));
+                        if(line.missing.length>6){
+                            const more=label('details','','gate-more');
+                            more.append(label('summary','查看其余 '+(line.missing.length-6)+' 种'));
+                            more.addEventListener('toggle',()=>{
+                                if(!more.open||more.children.length>1)return;
+                                const rest=label('div','','missing');
+                                for(const id of line.missing.slice(6))rest.append(speciesButton(MONS.get(id),MONS.get(id).name));
+                                more.append(rest);
+                            });
+                            links.append(more);
+                        }
+                        row.append(links);
+                    }
+                    list.append(row);
+                }
+                for(const note of new Set(gates.notes))list.append(label('li',note));
+                details.append(list);results.append(details);
+            }
             if(!caught&&spirit?.missing.length){
                 results.append(label('h4','待登记的幽灵 · 点击查看来源','dex-section'));
                 const links=label('div','','missing');

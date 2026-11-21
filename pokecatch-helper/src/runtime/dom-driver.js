@@ -325,7 +325,9 @@
             }
             const settings=this.e.settings;
             const missing=settings.mode==='dex'?dexStatus(s,settings).ids:null;
-            const desired=choices.find(id=>missing?.has(id))??choices.find(id=>MONS.has(id)&&!captured(s,MONS.get(id).root))??choices[0];
+            const gateIds=missing?.size&&settings.dexSpecies?.length?[...missing]:settings.mode==='legend'&&this.e.lockedLegend?[this.e.lockedLegend]:[];
+            const gated=gateIds.length?legendRequirements(s,gateIds):null;
+            const desired=choices.find(id=>missing?.has(id))??choices.find(id=>gated?.wild.has(id))??choices.find(id=>MONS.has(id)&&!captured(s,MONS.get(id).root))??choices[0];
             const slot=slots[choices.indexOf(desired)],go=overlay.querySelector(kind==='balls'?'.gift-go':kind==='items'?'.ic-go':'.lk-go');
             const ready=kind==='balls'?slot.classList.contains('ready'):kind==='items'?overlay.classList.contains('ready'):slot.classList.contains('pick');
             if(!ready)return true;
@@ -364,12 +366,18 @@
             const wanted = options.zone ? `Z${row.id}` : row.league ? 'L' : String(row.id);
             const list = $(`#map-root .mp-row[data-ch="${wanted}"]`);
             const multiZone=options.zone&&this.e.settings.mode==='legend'&&this.e.settings.legendIds?.length>1&&this.pendingMap?.row===row;
+            // A locked prerequisite row has no data-ch. A timed closure still has a numbered button.
+            if(options.zone&&!options.riddle&&!options.tier&&this.e.settings.mode==='legend'&&row.gate&&this.pendingMap?.row===row&&
+                (list?.classList.contains('lz-seal')||!list&&$('#map-root .mp-row.lz-lock'))){
+                const plan=legendRequirements(s,[row.id]);
+                if(plan&&!plan.zones.has(row.id)){this.pendingMap.waiting={reason:row.condition,prerequisite:true};return false;}
+            }
             if(!list&&multiZone){
                 const start=DATA.regions.find(region=>region.key===row.reg)?.start;
                 if($(`#map-root .mp-row[data-ch="${start}"]`))this.pendingMap.waiting={reason:'本地区地图尚未显示该入口'};
             }
             if (!list) return false;
-            if(multiZone&&!options.tier&&list.classList.contains('lz-closed')){
+            if((multiZone||options.gateElite)&&list.classList.contains('lz-closed')&&(!options.tier||options.gateElite)){
                 this.pendingMap.waiting={reason:row.condition||'入口未开放'};return false;
             }
             if (list.classList.contains('locked') && !options.zone) return false;
@@ -387,6 +395,7 @@
                     }
                     return false;
                 }
+                if(options.riddle)return list.classList.contains('lz-seal')&&this.click(go,'阅读'+row.name+'的铭文');
                 if (options.optimize && !this.recent.has(key)) {
                     const edit = $(`#map-root [data-lz-team="${row.id}"]${tier ? `[data-lz-tier="${tier}"]` : ':not([data-lz-tier])'}`);
                     if (enabled(edit) && this.click(edit, '配置传说战队伍')) { this.ownedDialog = { type: 'team', key, optimized: false }; return false; }

@@ -147,6 +147,12 @@ async function main() {
             mock.save();e.onChange();
             if(!capturedUpdated)throw Error('An already open route retained a captured target');
             root.querySelector('#view [data-lookup="'+wanted+'"]').click();const fromRoute=input.value==='#'+wanted&&root.activeElement===results.querySelector('.dex-heading')&&root.querySelector('[data-workspace="dex"]').getAttribute('aria-pressed')==='true';
+            root.querySelector('[data-workspace="tasks"]').click();
+            e.settings={...before,mode:'dex',dexSpecies:[151]};e.onChange();
+            const guide=root.querySelector('#gate-guide');
+            if(guide.hidden||!guide.textContent.includes('梦幻')||!guide.textContent.includes('/150'))throw Error('Missing Mew requirement progress');
+            root.querySelector('#gate-details').click();
+            if(input.value!=='#151'||!results.querySelector('.gate-checks .gate-more'))throw Error('Could not navigate to the full capture checklist');
             e.settings=before;mock.state.adv=adv;mock.state.travel.to=to;
             delete mock.state.dex[636];mock.save();tab('maps');root.querySelector('[data-workspace="tasks"]').click();
             return {locked,lockedHeading,alias,base,id,retained,none,missing,available,readyHeading,projected,stable,fromRoute,rareSpecies,multi,inherited,independent,future};

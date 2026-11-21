@@ -171,6 +171,16 @@
                     const mon=byUid.get(uid),rule=mon&&levelEvolution(s,mon,{now});
                     if(rule){choice={mon,rule};break;}
                 }
+                const gateIds=cfg.mode==='dex'?cfg.dexSpecies.filter(id=>!captured(s,id)):cfg.mode==='legend'&&e.lockedLegend?[e.lockedLegend]:[];
+                const gate=gateIds.length?legendRequirements(s,gateIds):null;
+                if(gate?.wild.size){
+                    const parents=gateAncestors(gate.wild);
+                    const eligible=(cfg.mode==='legend'?cfg.optimizeRaid:cfg.autoTeam)?candidates:candidates.filter(m=>s.team.includes(m.uid));
+                    for(const mon of eligible){
+                        const rule=levelEvolution(s,mon,{now});
+                        if(rule&&parents.has(mon.id)){choice={mon,rule};break;}
+                    }
+                }
                 const specialSelection=FLOW_MODES.has(cfg.mode)||cfg.mode==='legend'||!['map','progress'].includes(context.kind);
                 const manualSelection=specialSelection?!cfg.optimizeRaid:!cfg.autoTeam;
                 if(!choice&&!manualSelection){

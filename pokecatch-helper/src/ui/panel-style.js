@@ -122,6 +122,14 @@
     #dex-results, .dex-routes { overflow-wrap:anywhere }
     .dex-heading { display:block; font-size:13px; color:#d8ede7 }
     .dex-section { font-size:11px; font-weight:650; color:#a9c2d8; margin:12px 0 2px }
+    .gate-guide:not([hidden]) {display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 12px;margin:7px 0;border-left:3px solid #6dcfb5;background:#192b38;border-radius:7px}
+    .gate-guide button {flex:none}
+    .gate-more{flex-basis:100%;margin:2px 0}.gate-more summary{cursor:pointer}.gate-more .missing{margin-top:6px}
+    .gate-guide>div{min-width:0}.gate-guide .sub{overflow-wrap:anywhere}
+    .gate-checks {margin:8px 0;padding:6px 10px;background:#182738;border-radius:8px}
+    .gate-checks summary {cursor:pointer;padding:4px 0}
+    .gate-checks li {margin:5px 0;overflow-wrap:anywhere}
+    .gate-checks ul {padding-left:18px;margin:5px 0}
     .dex-source { padding:7px 0; border-top:1px solid #304157; font-size:12px }
     .dex-source .hint { margin:2px 0 }
     .dex-routes details { padding:0; margin:0; border-top:0; border-bottom:1px solid #304157 }

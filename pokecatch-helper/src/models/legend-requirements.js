@@ -13,13 +13,37 @@
         const owned=new Set(gateMembers(s).filter(Boolean).map(mon=>mon.id)),visited=new Set();
         const open=new Set(['kanto',currentRegion(s),...(s.travel?.to||[])]);
         const plan={goals,lines:[],wild:new Set(),zones:new Set(),items:new Set(),roam:new Set(),roamOwned:new Set(),trainers:new Set(),doors:new Map(),elites:new Map(),progress:false,notes:[]};
+        function elite(id,tier){
+            plan.elites.set(id,Math.max(tier,plan.elites.get(id)||0));
+            if(!s.adv.badges?.includes('Forêt'))plan.progress=true;
+            if(!owned.has(id))species(id,true);
+        }
+        function item(id){
+            if(plan.items.has(id))return;
+            plan.items.add(id);
+            const sources=ITEMS.get(id)?.sources||[];
+            if(!sources.length){
+                if(id==='auroraticket')plan.notes.push('对战塔最高到达 40 层后，在塔商店用 1,000 BP 兑换极光船票');
+                return;
+            }
+            // Only a requirement common to every alternative is obligatory.
+            const members=src=>[...(src.owns||[]),...(src.team||[])];
+            for(const n of new Set(members(sources[0])))if(!owned.has(n)&&sources.every(src=>members(src).includes(n)))species(n,true);
+            if(sources.every(src=>src.day&&src.team?.length)){
+                plan.notes.push(ITEMS.get(id).name+'须白天携指定成员出战：'+sources.map(src=>src.team.map(n=>MONS.get(n).name).join('、')).join(' / '));
+            }
+            if(sources.every(src=>!open.has(CHAPTERS.get(src.ch)?.reg)||src.ch>s.adv.unlocked||src.badge&&!s.adv.badges?.includes(src.badge)))plan.progress=true;
+        }
         function species(id,requireOwned=false){
             const group=ROAMING_DATA.groups.find(group=>group.ids.includes(id));
             if(group&&requireOwned)plan.roamOwned.add(id);
             if(group&&open.has(group.reg)){
                 if(!s.adv.badges?.includes(group.badge))plan.progress=true;
                 if(s.roam?.caught?.includes(id)){
-                    if(requireOwned&&!owned.has(id)&&!visited.has(id))plan.notes.push(MONS.get(id).name+'已完成游荡，当前持有条件可通过交换补齐');
+                    if(requireOwned&&!owned.has(id)){
+                        const note=MONS.get(id).name+'已完成游荡，当前持有条件可通过交换补齐';
+                        if(!plan.notes.includes(note))plan.notes.push(note);
+                    }
                 }else if(requireOwned?!owned.has(id):!captured(s,id))plan.roam.add(id);
                 visited.add(id);return;
             }
@@ -28,7 +52,9 @@
             const zone=gateZones.get(id);
             if(!zone){plan.wild.add(id);return;}
             if(!open.has(zone.reg)){plan.progress=true;plan.notes.push('需要开放'+DATA.regions.find(r=>r.key===zone.reg).name);return;}
-            if(!goals.includes(id)&&captured(s,id)&&!owned.has(id)){
+            // Native ordinary zones reopen for a registered but no longer owned species.
+            // Rotating forms instead use their shared dex register to choose the next foe.
+            if(!goals.includes(id)&&zone.forms?.length&&captured(s,id)&&!owned.has(id)){
                 plan.notes.push(MONS.get(id).name+'有捕获记录，需重新持有；可检查地区寄存或交换');return;
             }
             const gate=zone.gate;
@@ -43,11 +69,13 @@
                     have=rule.ids.length-missing.length;need=rule.need||rule.ids.length;
                     label=owns?'持有指定宝可梦':'登记指定物种';
                 }else if(rule.kind==='item'){
-                    label='取得'+(ITEMS.get(rule.item)?.name||rule.item);have=Number(ownedItems(s,rule.item)>0);
+                    label='取得'+(ITEMS.get(rule.item)?.name||(rule.item==='auroraticket'?'极光船票':rule.item));have=Number(ownedItems(s,rule.item)>0);
                     if(!have){
                         const reward=ITEMS.get(rule.item)?.eliteReward;
-                        if(reward){plan.elites.set(reward.zone,reward.tier);if(!owned.has(reward.zone))species(reward.zone);}
-                        else if(!rules.some(other=>other.kind==='owns'&&other.ids.some(n=>!owned.has(n))))plan.items.add(rule.item);
+                        if(reward){
+                            if((s.elite?.[reward.zone]?.t||0)<reward.tier)elite(reward.zone,reward.tier);
+                            else plan.notes.push(label+' · 对应精英阶级的一次性奖励已达成，请检查奖励和背包');
+                        }else if(!rules.some(other=>other.kind==='owns'&&other.ids.some(n=>!owned.has(n))))item(rule.item);
                     }
                 }else if(rule.kind==='tally'){
                     have=s.stats?.byReg?.[zone.reg]?.[rule.field]||0;label='击败本地区训练家';
@@ -58,7 +86,7 @@
                     if(!have)plan.progress=true;
                 }else if(rule.kind==='elite'){
                     have=s.elite?.[rule.zone]?.t||0;need=rule.tier;label=MONS.get(rule.zone).name+'精英阶级';
-                    if(have<need){plan.elites.set(rule.zone,need);if(!owned.has(rule.zone))species(rule.zone);}
+                    if(have<need)elite(rule.zone,need);
                 }else if(rule.kind==='door'){
                     have=Number(!!s.zoneDoors?.[rule.key]);label='解开入口铭文';
                     if(!have){
@@ -110,7 +138,9 @@
     }
     function gateTrainee(s,cfg,plan,now){
         if(!cfg.autoEvolve||!plan.wild.size)return null;
-        const parents=gateAncestors(plan.wild);
+        const targets=plan.wild.has(spiritEvent.id)&&!s.adv.gifts?.[spiritEvent.once]?
+            [...plan.wild,...spiritEvent.caught.filter(id=>!s.dex?.[id])]:plan.wild;
+        const parents=gateAncestors(targets);
         let best=null;
         for(const mon of s.mons||[]){
             if(!parents.has(mon.id)||!teamEligible(s,mon)||!cfg.autoTeam&&!s.team?.includes(mon.uid))continue;
@@ -126,6 +156,8 @@
         const rows=wild.size?rankDexTargets(s,settings,wild,now):[];
         const note=requirementLabel(plan)+'前置';
         if(rows.length)return rows.map(row=>({...row,gateRoute:true,prepNote:note+' · 登记'+row.targets.slice(0,3).map(hit=>MONS.get(hit.id).name).join('、')}));
+        const fixed=fixedPrerequisiteRoutes(s,settings,wild,now);
+        if(fixed.length)return fixed.map(row=>({...row,gateRoute:true,prepNote:note+' · '+row.prepNote}));
         if(settings.autoEvolve&&wild.size){
             const parents=gateAncestors(wild);
             for(const mon of s.mons||[])parents.delete(mon.id);
@@ -142,7 +174,7 @@
                 if(!huntRouteMatches(s,settings,row,now))continue;
                 const previous=alternatives.get(row.key);
                 if(previous){previous.score+=row.rate;previous.prepNote+='、'+ITEMS.get(itemId).name;}
-                else alternatives.set(row.key,{...row,targets:[],priority:0,gateRoute:true,
+                else alternatives.set(row.key,{...row,targets:[],priority:0,gateRoute:true,requiredParty:row.sources[0]?.team,gateItem:itemId,
                     expected:undefined,score:row.rate,prepNote:note+' · 收集'+ITEMS.get(itemId).name});
             }
         }

@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.0.0",
-  "scriptSha256": "f64e8ea9ecc8a2fda57c349b9a8cd1486310853698f8339785d2fd2fda1475e9",
-  "metadataSha256": "74b0cce125d3b7cb20eb63410921d88a9001ddef37d66a006d8d76850e8603ad",
+  "version": "6.0.2",
+  "scriptSha256": "2900462fc0e83e631ff755e24ef93d4e17fa8b02b2c46c2d89a8666f7fb3f8b6",
+  "metadataSha256": "544c855c92307d002eb9350e40b4f9b3eeec054d00a842763b7070d7f04575a5",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "7bd5b1fbaed21b443405f64f2c5639375554e9886a2fe0a42230ee14471a1852"
+      "sha256": "8d20af2a9c9b0c47ee744d64861a02c917fb36ba1ab3ceac9db3d64f279d17d7"
     },
     {
       "file": "build.manifest.json",
@@ -26,7 +26,7 @@
     },
     {
       "file": "data/game.json",
-      "sha256": "008fa1c3839e60198aa47c9f4a45e3afaf8eba0e9114738168393b1d098603a9"
+      "sha256": "53a20ddb07f026c2c6b31841b347e32fc6f3416d8870134ed9870a0ac6bb8483"
     },
     {
       "file": "src/data/game-after.js",
@@ -118,15 +118,15 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "75059de5b5149f7334d2d872eeda2bc0133f98f1d8c8464a3f985acf1928104f"
+      "sha256": "e217f19954e55baf72928663ed6cc05d8161742412cf8e403bc2d7dd1e5f9f71"
     },
     {
       "file": "src/models/legend-requirements.js",
-      "sha256": "77f82398c963164fa534e65968573e6c0a5f1ab88b5b7f1f06c71a5e7bf89539"
+      "sha256": "10623524abfc8d8dfc8b0b5a8f0a9bee502c2c63b2dfb1898d4145e2de4c2453"
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "2e6800accf827ddcf3c5bbd47ed7997ca616e644df6d728baa65af4fa4324ca6"
+      "sha256": "07f668741de2ac50619139513797daa890e48309773b61048a4e93fbcc845046"
     },
     {
       "file": "src/core/telemetry.js",
@@ -146,7 +146,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "7f3be897a154b28057a1a19ebc6a3f1836adf943b9072591e6cf1b59e09677d6"
+      "sha256": "7138a06262179108e31f8e42143a7bde159a8174b375fd57b64aed5f844934b8"
     },
     {
       "file": "src/runtime/node-exports.js",

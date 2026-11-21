@@ -158,7 +158,10 @@
                             detail:[gate,'从第 75 层起随机获得，返程领取时直接取得宝可梦'].filter(Boolean).join(' · ')});
                     }
                 }
-                if(![].concat(special.id||[]).includes(id))continue;
+                if(special.reward?.ids.includes(id)){
+                    add('gift','击败固定对手后的赠送',specialBlockReason(s,special,now,c.id)||(s.adv.gifts?.[special.reward.key]?'已领取':''));
+                }
+                if(special.spirit||![].concat(special.id||[]).includes(id))continue;
                 const block=specialBlockReason(s,special,now,c.id);
                 if(special.kind==='static')add('static',special.once===spiritEvent.once?'御灵塔 · 幽灵图鉴登记齐后，在神奥击败普通野生幽灵收集灵魂。集齐后于 20:00–次日 08:00 生成路线。':'固定遭遇',block);
                 if(special.kind==='egg')add('egg',special.place?`${special.place}的道具事件赠蛋`:Array.isArray(special.id)?'一次性随机赠蛋':'章节赠蛋',block||(full?'孵化器已满':''));
@@ -270,10 +273,9 @@
     function dexRanking(s, settings, cooldowns = {}, now = Date.now(), status = dexStatus(s, settings)) {
         const wanted=dexSearchIds(s,settings,status);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
-        const prepareSpirit=settings.mode==='dex'&&settings.dexSpecies?.includes(spiritEvent.id)&&wanted.has(spiritEvent.id);
         const gate=settings.mode==='dex'&&settings.dexSpecies?.length?legendRequirements(s,[...wanted]):null;
         const gateKey=gate&&[gate.goals,gate.lines.map(line=>[line.id,line.kind,line.have,line.missing]),[...gate.wild],[...gate.items],settings.autoEvolve,settings.autoTeam,gate.wild.size&&settings.autoEvolve?rosterFingerprint(s):null,s.team,s.road,(s.pension?.eggs||[]).map(e=>e.id)];
-        const inputs=[huntRankingInputs(s,settings,[...wanted],now),gateKey,!!prepareSpirit,settings.speed,s.link?.to,s.buffs?.capture?.until>now?s.buffs.capture:null,settings.gifts,s.adv.gifts,s.adv.badges,s.items,
+        const inputs=[huntRankingInputs(s,settings,[...wanted],now),gateKey,settings.speed,s.link?.to,s.buffs?.capture?.until>now?s.buffs.capture:null,settings.gifts,s.adv.gifts,s.adv.badges,s.items,
             staticItemSources.map(({chapter,item})=>chapterItemCount(s,chapter,item)),s.roam?.at,
             wanted.has(490)?[s.stats?.hatched,s.adv.questFrom?.['egg:490']]:null,
             settings.gifts&&Object.keys(FOSSIL_NAMES).map(item=>s.link?.stash?.items?.[item]||0),
@@ -286,22 +288,39 @@
                 const rows=prerequisiteRoutes(s,settings,gate,now);
                 if(rows.length)return rows;
             }
-            if(!prepareSpirit||
-                s.adv.gifts?.[spiritEvent.once]||!availableChapters(s,settings).some(c=>c.id===spiritChapter.id))return direct;
-            const {missing,souls,note}=spiritProgress(s);
-            if(missing.length){
-                const targets=new Set(missing.filter(id=>!s.pension?.eggs?.some(egg=>egg.id===id)));
-                return rankDexTargets(s,settings,targets,now).map(row=>({...row,prepNote:'花岩怪前置 · '+note}));
-            }
-            if(souls>=spiritEvent.needN)return direct;
-            return candidates(s,settings).filter(row=>row.reg===spiritChapter.reg&&huntRouteMatches(s,settings,row,now)).flatMap(row=>{
-                let weight=0;const ghosts=new Set();
-                for(const ch of row.members)for(const [id,value] of currentWildPool(s,ch,now)){
-                    if(value>0&&MONS.get(id)?.types.includes('ghost')){weight+=value;ghosts.add(id);}
-                }
-                return weight>0?[{...row,targets:[...ghosts].map(id=>({id})),hasWild:true,priority:0,score:weight/Math.max(15,row.units),prepNote:'为花岩怪收集灵魂 · '+note}]:[];
-            }).sort((a,b)=>b.score-a.score||a.id-b.id);
+            return settings.mode==='dex'&&settings.dexSpecies?.length?fixedPrerequisiteRoutes(s,settings,wanted,now):direct;
         },cooldowns,now);
+    }
+    function fixedPrerequisiteRoutes(s,settings,wanted,now){
+        if(!wanted.size)return [];
+        const chapters=availableChapters(s,settings);
+        for(const chapter of chapters)for(const spec of chapter.special){
+            if(spec.kind!=='static'||spec.spirit||!wanted.has(spec.id)||spec.once===spiritEvent.once||s.adv.gifts?.[spec.once])continue;
+            const missing=(spec.caught||[]).filter(id=>!s.dex?.[id]&&!s.pension?.eggs?.some(egg=>egg.id===id));
+            if(missing.length){
+                const rows=rankDexTargets(s,settings,new Set(missing),now);
+                if(rows.length)return rows.map(row=>({...row,prepNote:MONS.get(spec.id).name+'前置 · 登记'+missing.map(id=>MONS.get(id).name).join('、')}));
+            }
+            if(spec.needs&&chapterItemCount(s,chapter.id,spec.needs)<(spec.needN||1)&&ITEMS.has(spec.needs)){
+                const rows=itemRanking(s,{...settings,mode:'item',region:'all',itemId:spec.needs},{},{},now)
+                    .filter(row=>row.reg===chapter.reg&&huntRouteMatches(s,settings,row,now));
+                if(rows.length)return rows.map(row=>({...row,targets:[],priority:0,score:row.rate,prepNote:MONS.get(spec.id).name+'前置 · 收集'+ITEMS.get(spec.needs).name+'（需要 '+(spec.needN||1)+' 个）'}));
+            }
+        }
+        if(!wanted.has(spiritEvent.id)||s.adv.gifts?.[spiritEvent.once]||!chapters.some(c=>c.id===spiritChapter.id))return [];
+        const {missing,souls,note}=spiritProgress(s);
+        if(missing.length){
+            const targets=new Set(missing.filter(id=>!s.pension?.eggs?.some(egg=>egg.id===id)));
+            return rankDexTargets(s,settings,targets,now).map(row=>({...row,prepNote:'花岩怪前置 · '+note}));
+        }
+        if(souls>=spiritEvent.needN)return [];
+        return candidates(s,settings).filter(row=>row.reg===spiritChapter.reg&&huntRouteMatches(s,settings,row,now)).flatMap(row=>{
+            let weight=0;const ghosts=new Set();
+            for(const ch of row.members)for(const [id,value] of currentWildPool(s,ch,now)){
+                if(value>0&&MONS.get(id)?.types.includes('ghost')){weight+=value;ghosts.add(id);}
+            }
+            return weight>0?[{...row,targets:[...ghosts].map(id=>({id})),hasWild:true,priority:0,score:weight/Math.max(15,row.units),prepNote:'为花岩怪收集灵魂 · '+note}]:[];
+        }).sort((a,b)=>b.score-a.score||a.id-b.id);
     }
     function dexWaitAdvice(s,cfg,missing,now){
         const messages=[],open=new Set(availableChapters(s,{region:'all'}).map(c=>c.id));
@@ -387,6 +406,11 @@
                         const options=[].concat(special.id),desired=options.filter(species=>wanted.has(species));
                         for(const species of desired)credit(species,1,1/options.length);
                         for(const species of desired)hits.set(species,{id:species,special:true,kind:'egg'});
+                    }else if(special.spirit){
+                        const reward=settings.gifts&&special.reward?.ids.find(n=>wanted.has(n));
+                        if(reward&&!s.adv.gifts?.[special.reward.key]&&specialAvailable(s,special,now,id)){
+                            credit(reward,1,1);hits.set(reward,{id:reward,gift:true});
+                        }
                     }else if(special.kind==='static'&&wanted.has(special.id)&&specialAvailable(s,special,now,id)){
                         credit(special.id,special.chance??1,dexCatchChance(special.id,special.catchRate,multiplier));
                         hits.set(special.id,{id:special.id,special:true});

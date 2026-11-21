@@ -82,6 +82,8 @@ for(const caught of [false,true]){
         const now=Date.UTC(2026,10,20,8,41),opens=now+499*60000,day=H.parisDay(now);
         const base={...e.settings,mode:'legend',dailyMain:'legend',legendId:145,dailyWorld:true,dailyCandy:false,dailyTower:false,dailyElite:false};
         s.wb.caught=0;s.adv.badges=['Maître'];s.raids={seen:day,done:caught?{['johto|'+day]:1}:{}};
+        // This case tests the handoff to an already-open Zapdos encounter.
+        for(const id of H.DATA.zones.find(zone=>zone.id===145).gate.ids)s.dex[id]={caught:1};
         e.read=()=>s;e.daily={base,checking:true,job:{kind:'world',started:now,until:H.nextParisReset(now)},checkpoint:e.progressSnapshot()};
         closedLobby(show,opens);
         e.automation.world(s,now);

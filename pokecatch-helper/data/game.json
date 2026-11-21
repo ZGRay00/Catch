@@ -53347,6 +53347,8 @@
           "kind": "static",
           "id": 105,
           "once": "marowak-ghost",
+          "spirit": true,
+          "reward": {"key": "cubone-fuji", "ids": [104]},
           "after": "silph-scope"
         },
         {
@@ -126147,7 +126149,7 @@
       "monName": "凯路迪欧",
       "level": 100,
       "eliteOnly": false,
-      "condition": "先捕获凯路迪欧，此入口用于精英战",
+      "condition": "成为合众冠军后，携带勾帕路翁、代拉基翁和毕力吉翁解开铭文",
       "at": 74,
       "gate": {
         "kind": "door",
@@ -126167,7 +126169,7 @@
       "monName": "土地云",
       "level": 100,
       "eliteOnly": false,
-      "condition": "先捕获土地云，此入口用于精英战",
+      "condition": "成为合众冠军后，携带龙卷云和雷电云解开铭文",
       "at": 83,
       "gate": {
         "kind": "door",

@@ -1130,7 +1130,7 @@
                 }
                 const alternate=this.huntAlternate(s,stillNeeded,rows,now);
                 if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
-                    if(directedHunt&&this.settings.autoTeam&&this.fitTeam(s,now))return;
+                    if(directedHunt&&this.settings.autoTeam&&!stillNeeded.requiredParty?.length&&this.fitTeam(s,now))return;
                     if(safeBoundary&&stillNeeded.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     const limit=stillNeeded.window;
                     const detail=limit?` · 优先 ${MONS.get(limit.id).name}（${limit.place}，至 ${new Date(limit.until).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}）`:stillNeeded.specialNodesOnly?' · 等待生成目标节点':'';
@@ -1233,6 +1233,7 @@
             return null;
         }
         fitTeam(s,now,trackedRoamer) {
+            if(this.target?.requiredParty?.length&&!ownedItems(s,this.target.gateItem)&&this.target.members.includes(s.adv.chapter))return false;
             if(s.adv.battle?.pick||this.driver.lastSwitchFoe&&s.adv.battle?.foes?.includes(this.driver.lastSwitchFoe))return false;
             const roam=trackedRoamer||this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
             const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam||now<this.teamRetryAt)return false;
@@ -1292,8 +1293,8 @@
                 if(goal.zone.gate&&this.settings.progress&&(this.canProgress(s)||this.settings.autoTravel)){this.progress(s,now);return;}
                 this.waitForFarm('等待目标地区开放 · '+goal.zone.name+'，可开启主线推进与跨地区开局',now);return;
             }
-            const ownsGate=goal.zone.gate?.kind==='owns'&&goal.zone.gate.ids.some(id=>!gateOwnsMon(s,id));
-            if((this.lockedLegend===goal.zone.id||ownsGate)&&!this.settings.legendTier){
+            const gate=goal.zone.gate;
+            if(gate&&!this.settings.legendTier){
                 this.lockedLegend=goal.zone.id;
                 const cfg={...this.settings,mode:'dex',region:'all',dexSpecies:[goal.zone.id],dexWeather:[],legends:true};
                 const plan=legendRequirements(s,cfg.dexSpecies);
@@ -1820,8 +1821,27 @@
             if(this.pursueGateRoamer(s,cfg,plan,now))return true;
             if(enabled&&plan.zones.size&&now>=this.nextLegend&&this.findLegend(s,{ids:plan.zones},now))return true;
             if(rows.length)return false;
+            // Some native loot rolls require a particular member in the active road party.
+            for(const itemId of plan.items){
+                for(const src of ITEMS.get(itemId)?.sources||[]){
+                    if(!src.team?.length||sourceAvailable(s,src,itemId,now)||!sourceAvailable(s,{...src,team:null},itemId,now))continue;
+                    const row=candidates(s,cfg).find(r=>r.members.includes(src.ch)&&huntRouteMatches(s,cfg,r,now));
+                    if(!row||(this.cooldowns[row.key]||0)>now)continue;
+                    const uids=riddleParty(s,{team:src.team},row.reg,cfg.autoTeam);
+                    if(!uids){
+                        plan.notes.push('请将'+src.team.map(id=>MONS.get(id).name).join('、')+'加入'+row.name+'的可出战队伍');
+                        continue;
+                    }
+                    if(!row.members.includes(s.adv.chapter)){
+                        this.travel({...row,requiredParty:src.team,gateItem:itemId,gateRoute:true,targets:[]},now);return true;
+                    }
+                    if(uids.some(uid=>!s.team.includes(uid))&&!s.adv.battle&&!s.adv.pending&&now>=this.teamRetryAt)
+                        this.driver.teamTask={uids:trainingParty(s,uids),members:row.members,chapter:s.adv.chapter,started:now,attempts:0};
+                    this.status=label+' · 等待指定队员上场收集'+ITEMS.get(itemId).name;return true;
+                }
+            }
             for(const [id,tier] of plan.elites){
-                if(!enabled||Number(s.elite?.[id]?.t||0)>=tier||!captured(s,id)||!ownsMon(s,id)||
+                if(!enabled||Number(s.elite?.[id]?.t||0)>=tier||!captured(s,id)||!gateOwnsMon(s,id)||
                     !s.adv.badges?.includes('Forêt')||(this.cooldowns['gateElite:'+id]||0)>now)continue;
                 const zone=gateZones.get(id);
                 if(!zone)continue;
@@ -1831,7 +1851,7 @@
             for(const [id,rule] of plan.doors){
                 if(!enabled)break;
                 const zone=gateZones.get(id),uids=riddleParty(s,rule,zone.reg,cfg.autoTeam);
-                if(!uids)continue;
+                if(!uids){plan.notes.push(cfg.autoTeam?'铭文成员须在当前可出战的盒子或队伍中':'手动配队已开启，请先备好铭文队伍');continue;}
                 if(uids.some(uid=>!s.team.includes(uid))){
                     if(!s.adv.battle&&!s.adv.pending&&now>=this.teamRetryAt)this.driver.teamTask={
                         uids:trainingParty(s,uids),members:[s.adv.chapter],chapter:s.adv.chapter,started:now,attempts:0
@@ -1863,7 +1883,7 @@
             const details=[...plan.notes];
             if(plan.roam.size)details.push('等待游荡 · '+names(plan.roam)+(s.items?.['master-ball']&&!cfg.roamAllowMasterBall?'（受大师球设置限制）':''));
             if(plan.zones.size)details.push(enabled?'等待传说入口开放':'请检查传说战开关和天气筛选');
-            if(plan.items.size)details.push('待取得 '+[...plan.items].map(id=>ITEMS.get(id)?.name||id).join('、'));
+            if(plan.items.size)details.push('待取得 '+[...plan.items].map(id=>ITEMS.get(id)?.name||(id==='auroraticket'?'极光船票':id)).join('、'));
             if(plan.wild.size)details.push('待登记 '+names(plan.wild)+'，可在图鉴查看进化、赠送或交换条件');
             if(plan.elites.size)details.push('需要开放地下通道与对应精英阶级');
             if(plan.progress&&!cfg.progress)details.push('可开启无目标时推进主线');

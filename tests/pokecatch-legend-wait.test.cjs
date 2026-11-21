@@ -28,6 +28,31 @@ function fixture(t,settings={}){
     return {e,s,dom,row,now,clicks,storage};
 }
 
+test('new and unlimited legend settings survive normalization while saved time limits retain their values',()=>{
+    for(const key of ['legendMinutes','roamMinutes']){
+        for(const value of [undefined,'0',0,5,90,720]){
+            const cfg=H.normalizeSettings({[key]:value});
+            assert.equal(cfg[key],Number(value)||0);
+            assert.equal(H.normalizeSettings(JSON.parse(JSON.stringify(cfg)))[key],cfg[key]);
+        }
+    }
+});
+test('an active legendary hunt can continue overnight beyond 150 attempts; explicit timers still stop it',async t=>{
+    const {e,s,now,storage}=fixture(t,{legendIds:[145,144]});
+    const hour=3600000;
+    e.driver.pendingMap=null;e.zoneId=145;e.zoneStarted=now;
+    s.adv.zone={id:145,foe:145,loops:0};storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    await e.step(now);
+    s.adv.zone.loops=300;s.stats.battles=600;
+    storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    await e.step(now+8*hour);assert.ok(e.running);assert.match(e.status,/捕获传说/);
+    e.settings={...e.settings,legendMinutes:90};
+    await e.step(now+8*hour+1);assert.equal(e.running,false);assert.match(e.status,/传说战达到时限/);
+});
+test('a global stop timer still takes precedence over an unlimited legendary hunt',async t=>{
+    const {e,now}=fixture(t,{legendMinutes:0,stopMinutes:60});
+    await e.step(now+3600000);assert.equal(e.running,false);assert.match(e.status,/定时运行上限/);
+});
 test('a visible disabled native legendary control waits past both UI and progress watchdogs',async t=>{
     const {e,now,clicks,storage}=fixture(t),save=storage.getItem('gachamon-save-v1');
     await e.step(now);assert.ok(e.driver.pendingMap.waiting);assert.match(e.status,/等待闪电鸟开放.*仅在夜间开放/);

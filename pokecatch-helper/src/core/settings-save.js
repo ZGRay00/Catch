@@ -32,7 +32,7 @@
         manualResume: true, resumeSeconds: 15, dismissInfo:true,
         autoTeam: true, teamMinutes: 5,autoEvolve:true,activeSwitch:false,
         autoPrepare:true,prepareMargin:2,prepareGap:3,prepareIdleMinutes:5,progressCandy:true,
-        legendId: 145, legendIds: [], legendTier: 0, legendMinutes: 90, roamId:243,roamMinutes:90,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
+        legendId: 145, legendIds: [], legendTier: 0, legendMinutes: 0, roamId:243,roamMinutes:0,roamAllowMasterBall:false,itemId: 'rare-candy', itemQuantity: 10,
         trainUid: 'team', trainUids: [], trainLevel: 100, trainGems: false, trainRank: 1,
         breedId:1,breedGoal:1,breedShiny:false,pensionExpand:false,autoEggs:true,autoUnderCollect:true,autoUnderDispatch:true,
         shinyId:25,autoBuff:false,trainBuddy:true,trainBuff:true,moneyBuff:true,
@@ -69,8 +69,13 @@
         const choices = { mode: Object.keys(MODE_NAMES), dailyMain:['current','dex','money','shiny','train','legend'], speed: [1, 4], region: ['current', 'all'], afterDex: ['money', 'stop'],eliteRegion:['current',...DATA.regions.map(r=>r.key)],resourceAction:['buy','use','buyUse'] };
         out.dailyRaidRegions=DATA.regions.map(r=>r.key).filter(key=>Array.isArray(raw.dailyRaidRegions)&&raw.dailyRaidRegions.includes(key));
         for (const [k, allowed] of Object.entries(choices)) if (allowed.includes(raw[k])) out[k] = raw[k];
-        for (const [k, lo, hi] of [['sampleMinutes', 1, 30], ['rotateMinutes', 2, 120], ['raidMinutes', 5, 720], ['lossLimit', 1, 20], ['stopMinutes', 0, 1440], ['moneyTarget', 0, 1e12], ['legendTier', 0, 5], ['legendMinutes', 5, 720], ['roamMinutes', 5, 720], ['itemQuantity', 1, 99999], ['trainLevel', 1, 100], ['resumeSeconds', 3, 300], ['teamMinutes', 1, 60]]) {
+        for (const [k, lo, hi] of [['sampleMinutes', 1, 30], ['rotateMinutes', 2, 120], ['raidMinutes', 5, 720], ['lossLimit', 1, 20], ['stopMinutes', 0, 1440], ['moneyTarget', 0, 1e12], ['legendTier', 0, 5], ['itemQuantity', 1, 99999], ['trainLevel', 1, 100], ['resumeSeconds', 3, 300], ['teamMinutes', 1, 60]]) {
             out[k] = clamp(raw[k], lo, hi, DEFAULTS[k]);
+        }
+        for(const key of ['legendMinutes','roamMinutes']){
+            const minutes=raw[key];
+            if(minutes!=null&&String(minutes).trim()!=='')
+                out[key]=Number(minutes)===0?0:clamp(minutes,5,720,DEFAULTS[key]);
         }
         for (const key of ['legendTier', 'itemQuantity', 'trainLevel']) out[key] = Math.floor(out[key]);
         for(const[k,lo,hi]of [['breedGoal',1,9999],['underRuns',1,999],['underFrom',1,300],['towerFloor',1,999],['towerRuns',1,100],['eliteTier',1,5],['worldActions',1,3],['resourceQuantity',1,99999],['progressUntil',0,DATA.chapters.at(-1).id]])out[k]=Math.floor(clamp(raw[k],lo,hi,DEFAULTS[k]));

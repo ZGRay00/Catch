@@ -66,7 +66,16 @@ const expectedFangs = (native.itemNodeChance + meanChance*native.itemFraction)*n
 assert.ok(Math.abs(source.expected - expectedFangs) < 1e-10);
 const extract = fs.readFileSync(path.join(__dirname,'fixtures','pokecatch-export-targets.js'),'utf8');
 const items = JSON.parse(vm.run(extract)).items;
-assert.equal(helper.ITEMS.size,items.length);
+const eliteDrops=JSON.parse(vm.run('JSON.stringify(__pcResearch.CONFIG.ELITE.ITEMS)'));
+assert.deepEqual([...helper.ITEMS.keys()].sort(),[...new Set([...items.map(item=>item.id),...Object.keys(eliteDrops)])].sort());
+for(const [id,[zone,tier]] of Object.entries(eliteDrops)){
+    const item=helper.ITEMS.get(id);
+    assert.deepEqual(item.eliteReward,{zone,tier},id);
+    if(!items.some(row=>row.id===id))assert.deepEqual(item.sources,[],id+' is no longer a route drop');
+}
 for (const item of items) assert.deepEqual(helper.ITEMS.get(item.id)?.sources,item.sources,'Item route and town pools for '+item.id);
+const questEggs=JSON.parse(vm.run(`JSON.stringify(__pcResearch.STORY.CHAPTERS.flatMap((chapter,id)=>chapter.steps
+    .filter(step=>step.loot?.['egg:490']).map(step=>[id,step.loot['egg:490'].badge,step.loot['egg:490'].eggs])))`));
+assert.deepEqual(helper.DATA.chapters.flatMap(ch=>ch.special.filter(q=>q.once==='egg:490').map(q=>[ch.id,q.badge,q.hatched])),questEggs);
 
 console.log('Passed native comparison for %d Unova routes, %d ripple habitats, Larvesta, Axew and all %d item source tables.', native.routes.length, ripples.length, items.length);

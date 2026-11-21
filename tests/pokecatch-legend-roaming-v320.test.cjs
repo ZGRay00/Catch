@@ -81,6 +81,11 @@ test('roaming capture is confirmed before completing a task and no route is reop
 test('the online roaming timer starts on pursuit and enforces its configured limit',t=>{
     const {s,e,calls}=fixture(t,{roamMinutes:5});e.roamStarted=now-300000;e.roaming(s,now);assert.equal(calls[0][0],'fail');assert.match(calls[0][1],/搜寻时限/);
 });
+test('a legend with roaming capture follows its unlimited legend timer even with a finite standalone roaming timer',t=>{
+    const {s,e,calls}=fixture(t,{mode:'legend',legendId:243,legendMinutes:0,roamMinutes:5});
+    e.roamStarted=now-8*3600000;e.roaming(s,now);
+    assert.ok(calls.some(([kind,row])=>kind==='travel'&&row.id===15));
+});
 test('failed roaming capture re-enters through native restart once and remains bounded',t=>{
     const {s,e,calls}=fixture(t);s.adv.chapter=15;s.adv.node=2;s.adv.nodes=[{type:'wild',roamer:243},{type:'heal'}];e.target={members:[15]};e.roaming(s,now);
     assert.equal(calls[0][0],'travel');assert.equal(calls[0][2].restart,true);calls.length=0;e.roaming(s,now+1200);assert.equal(calls.some(call=>call[0]==='travel'),false);

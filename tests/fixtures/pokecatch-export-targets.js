@@ -64,7 +64,7 @@
                     for (const [item, value] of Object.entries(route.loot || {})) {
                         const rule = typeof value === 'number' ? { p: value } : value;
                         const limit = rule.upTo ? { upTo: rule.upTo, until: rule.until, repeat: true } : { once: item, repeat: false };
-                        add(item, { ch: id, kind: 'loot', expected: itemNodes * rule.p, ...limit, badge: rule.badge, owns: rule.owns, tide: route.tide });
+                        add(item, { ch: id, kind: 'loot', expected: itemNodes * rule.p, ...limit, badge: rule.badge, owns: rule.owns, team: rule.team, day: rule.day, tide: route.tide });
                     }
                 }
                 if (route.candy) add('rare-candy', { ch: id, kind: 'find', expected: 1, once: route.candy, repeat: false });

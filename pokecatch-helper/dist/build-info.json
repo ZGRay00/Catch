@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "5.8.7",
-  "scriptSha256": "49ecfe0fb7cfb997acf671063dd48f617a8ca88f9c5e095a5a8ef7472caaa818",
-  "metadataSha256": "61ddd74179af1ddf09fe89774af981ccfb67d5be3a43712809a070b1cd714443",
+  "version": "5.8.9",
+  "scriptSha256": "c05a462898a8f3e057c5898c23f779ceb1dfa8d4a8b12c3a21767cb17e2a1c37",
+  "metadataSha256": "2a53fb0f6d876327699b1637daa1ddf72efa13a2f42eca9c74661315fd59c69c",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "7a92b6ec2552592448c87ae5b876848b99c2d62a34fcff98c34175852dc810e9"
+      "sha256": "88fa6800ea1f3aad1ac7c12abfae603b1a2f7066f8724bea65ab3f51c63391df"
     },
     {
       "file": "build.manifest.json",
@@ -26,7 +26,7 @@
     },
     {
       "file": "data/game.json",
-      "sha256": "e9bdb9f2760eeb1fc96ed6b602afa43c30decb99c1022e7506c4a26104623c62"
+      "sha256": "b2c59d0bc72bad753a3e447b8b248e82dff6b5bb6e033b915887b9475ba866be"
     },
     {
       "file": "src/data/game-after.js",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "10bde49253b7a1343cb28f5a1c3f8dd2a2e6d52b557561f5549d55d26455ed20"
+      "sha256": "a29a40f0a536d462d564bb2045eeab7959438f7a89707e3b7e8d250b2254b621"
     },
     {
       "file": "src/models/facilities.js",
@@ -74,7 +74,7 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "2761979fe05eb7792655f2d3cadcdd30fd8ec94b95ad34129f7592babdd0411c"
+      "sha256": "99ea15f691db77419e2f48a2b07b8ae51931864e93a2f2c3930c90cafc9a0e5c"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -118,11 +118,11 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "037881d5880843e17830516f942a9313366cca33a06b650c3226fec2e9db187c"
+      "sha256": "fffb705739648609331335cd4e90aa4358d4273534e567533aa54e29660bfc57"
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "3ae123522703741c681f6025dc8c6c6c260114c01a5f2f6c6895f8efd38ead5c"
+      "sha256": "bca478924f3a2f01f5ecb367774861ef7b90464610bc259ba4321d90cf177e07"
     },
     {
       "file": "src/core/telemetry.js",
@@ -142,7 +142,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "c283905e2aaec8a2340bed7ad079d236e23970aa377cb155ec13bcdd39020c55"
+      "sha256": "881f8918b0da78ccf7ee98050767a260d245520900edc608b35167820b79cf22"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -170,7 +170,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "bc6ba4d5cd8ed963b74f6878cea3522aa0f20d73511c501b7fef7eeb9c662f16"
+      "sha256": "0fc3146a854a726983bf40e4de1bf368558ea171abdc952d94779d80220395df"
     }
   ]
 }

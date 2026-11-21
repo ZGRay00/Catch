@@ -779,7 +779,7 @@
                 this.driver.click(sleepOverlay,'唤醒游戏省电界面',true);
                 return;
             }
-            const signature = JSON.stringify([s.adv.chapter, s.adv.node, s.adv.runs, s.stats?.battles, s.stats?.wins, s.stats?.caught, s.adv.event?.loops, s.adv.battle?.steps, s.adv.battle?.enemies?.map(m => m.hp)]);
+            const signature = JSON.stringify([s.adv.chapter, s.adv.node, s.adv.runs, s.stats?.battles, s.stats?.wins, s.stats?.caught, s.adv.event?.loops, s.adv.zone?.loops, s.adv.battle?.steps, s.adv.battle?.enemies?.map(m => m.hp)]);
             if (signature !== this.progressSignature) { this.progressSignature = signature; this.lastProgress = now; }
             // Gift FX can cover a departure dialog while the regional save is still settling.
             const gift=this.driver.giftChoice?.(s);
@@ -960,7 +960,7 @@
                 if (this.zoneId !== s.adv.zone.id) { this.stop('检测到手动传说战，已交还控制'); return; }
                 this.status = `${s.adv.zone.elite ? '精英传说战' : '捕获传说'} · ${MONS.get(s.adv.zone.foe || s.adv.zone.id)?.name || this.zoneId}`;
                 if (s.adv.pending?.type === 'riddle') { this.stop('遇到铭文谜题，请手动解谜后继续'); return; }
-                if (now - this.zoneStarted > this.settings.legendMinutes * 60000) { this.stop('传说战达到时限，请手动退出或继续'); return; }
+                if (this.settings.legendMinutes>0 && this.zoneStarted!=null && now-this.zoneStarted>=this.settings.legendMinutes*60000) { this.stop('传说战达到时限，请手动退出或继续'); return; }
                 if(!this.driver.activeTeam?.(s))this.driver.nav('adventure'); return;
             }
             if (s.adv.event || s.adv.tower || s.adv.league) { this.stop('检测到其他活动，已暂停助手'); return; }
@@ -1195,6 +1195,13 @@
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
             const pinned=this.settings.mode==='train'?trainingUids(s,this.settings,this.trainProtected):[];
+            if(this.settings.mode==='item'){
+                const required=ITEMS.get(this.settings.itemId)?.sources.find(source=>source.team)?.team||[];
+                for(const id of required){
+                    const member=partyMons(s).find(mon=>mon.id===id);
+                    if(member)pinned.push(member.uid);
+                }
+            }
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
             if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths)return false;
@@ -1265,7 +1272,7 @@
             if(plan.done){this.completeTask('指定游荡宝可梦已确认捕获');return;}
             if(!plan.unlocked){this.lastProgress=now;this.status=`等待${MONS.get(plan.target.id)?.name}游荡开放 · 需要${DATA.regions.find(region=>region.key===plan.group.reg)?.name}冠军及地区解锁`;return;}
             if((Number(s.items?.['master-ball'])||0)>0&&!cfg.roamAllowMasterBall){this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球，再开始主动追踪';return;}
-            if(this.roamStarted&&now-this.roamStarted>=cfg.roamMinutes*60000){this.failTask('达到游荡目标在线搜寻时限，已停止助手规划');return;}
+            if(cfg.roamMinutes>0&&this.roamStarted!=null&&now-this.roamStarted>=cfg.roamMinutes*60000){this.failTask('达到游荡目标在线搜寻时限，已停止助手规划');return;}
             if(s.adv.speed!==cfg.speed){if(d.nav('adventure'))d.click($(`#speed-btns [data-speed="${cfg.speed}"]`),'设置游荡捕获速度');return;}
             if(plan.active){this.roamStarted??=now;this.status=`游荡战斗 · ${plan.target.name} · 捕获后以存档确认完成`;d.nav('adventure');return;}
             if(!this.canStartRoute(s)){this.status=`追踪${plan.target.name} · 等待当前战斗或选择结束`;d.nav('adventure');return;}
@@ -1358,6 +1365,13 @@
                 const eligible=rank({});
                 if (eligible.length) { this.waitForFarm('目标地图暂时退避，等待后重试',now); return; }
                 if(mode==='item'){
+                    const item=ITEMS.get(this.settings.itemId);
+                    if(item?.eliteReward){this.stop(eliteItemHint(item));return;}
+                    const daylight=item?.id==='gracidea'&&item.sources.find(source=>source.day);
+                    if(daylight&&candidates(s,this.settings).some(row=>row.members.includes(daylight.ch))&&!s.adv.gifts?.[daylight.once]){
+                        if(sourceAvailable(s,{...daylight,day:false},item.id,now)){this.waitForFarm('等待白天前往花苑花田领取葛拉西蒂亚花',now);return;}
+                        this.stop('领取葛拉西蒂亚花需要陆上形态谢米在当前出战队伍中');return;
+                    }
                     const tide=DATA.tideMs||10800000,nextTide=(Math.floor(now/tide)+1)*tide+1;
                     if(itemRanking(s,this.settings,this.metrics,{},nextTide).length){this.waitForFarm('等待目标道具的潮汐条件开放',now);return;}
                 }

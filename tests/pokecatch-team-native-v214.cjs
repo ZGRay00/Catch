@@ -12,9 +12,17 @@ async function main(){
     const boundary=alias?source.indexOf(`,${alias}.Roaming=`,namespace.index):-1;
     assert.ok(boundary>0,'Public module boundary changed; inspect before running');
     source=source.slice(0,boundary);
-    const hook='function An(k){const v=[],Pe=qs(k).slice(0,Math.min(k.slots,3));';
-    assert.equal(source.split(hook).length,2,'Native deployment extractor must match exactly once');
-    source=source.replace(hook,`${alias}.__teamNative={sort:Ks,alive:Qt,slots:on,typeScore:vt,typeExtra:$s,move:Hs,attack:pn,damage:cn};`+hook);
+    function unique(pattern){
+        const matches=[...source.matchAll(pattern)];
+        assert.equal(matches.length,1,'Expected a single native rule for '+pattern);
+        return matches[0];
+    }
+    const placement=unique(/function [\w$]+\(([\w$]+)\)\{const [\w$]+=\[\],[\w$]+=[\w$]+\(\1\)\.slice\(0,Math\.min\(\1\.slots,3\)\);let [\w$]+=([\w$]+)\(([\w$]+)\(\),/g);
+    const effectiveness=unique(/\+([\w$]+)\(([\w$]+),([\w$]+)\)\+\.01\*([\w$]+)\(\2,\3\)/g);
+    const move=unique(/function ([\w$]+)\(([\w$]+),([\w$]+)\)\{Array\.isArray\(\3\)\|\|\(\3=\[\3\]\);/g);
+    const damage=unique(/function ([\w$]+)\(([\w$]+),([\w$]+),[\w$]+,[\w$]+,[\w$]+,[\w$]+\)\{const [\w$]+=[\w$]+\.statsOf\(\2\),[\w$]+=[\w$]+\.statsOf\(\3\)/g);
+    const expose=`${alias}.__teamNative={sort:${placement[2]},alive:${placement[3]},typeScore:${effectiveness[1]},typeExtra:${effectiveness[4]},move:${move[1]},damage:${damage[1]}};`;
+    source=source.slice(0,placement.index)+expose+source.slice(placement.index);
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pokecatch-team-native-v214-'));
     fs.writeFileSync(path.join(dir,'runtime.js'),'window.LANG_PICK={pref:"fr",lang:"fr",LANGS:["fr"]};window.BUILD="offline-team-test";'+source+`;window.__pcResearch=${alias};})();`);
     fs.writeFileSync(path.join(dir,'index.html'),'<meta charset="utf-8"><script src="runtime.js"></script>');
@@ -49,7 +57,12 @@ async function main(){
                     const mon={id,uid:'ally',level,shiny:j%2===0,rank:j%3,status:['burn','poison',null,null,null][j]},foe={id:foes[(i+j)%foes.length],uid:'foe',level:100-level+5,foe:true,status:['sleep','freeze',null,null,null][j]};
                     const copy=mon.id===132&&foe.id!==132?{...mon,id:foe.id}:mon,move=N.move(copy,foe);
                     const type=move.typeless?1:t.Game.DEX[foe.id].types.reduce((n,key)=>n*(t.TYPE_CHART[move.type]?.[key]??1),1);
-                    const hit=move.power>0&&type>0?N.damage(copy,foe,move,type,false,.925):0;
+                    const pattern=t.CONFIG.MULTI_HIT[move.key],meanCount=pattern==='2-5'?t.CONFIG.MULTI_HIT_ODDS.reduce((sum,p,i)=>sum+p*(i+2),0):Array.isArray(pattern)?1:pattern||1;
+                    const powers=Array.isArray(pattern)?pattern:[pattern?t.MOVES[move.key].power:move.power];
+                    let hit=0;
+                    if(type>0&&move.power>0)for(const power of powers){
+                        for(let k=0;k<4096;k++)hit+=N.damage(copy,foe,{...move,power},type,false,.85+.15*(k+.5)/4096)*meanCount/4096;
+                    }
                     results.push({mon,foe,move,hit,deployment:N.typeScore(mon,foe)+.01*N.typeExtra(mon,foe)});
                 }
                 return results;

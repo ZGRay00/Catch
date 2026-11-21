@@ -42,11 +42,18 @@
         const branch=gift.byStarter;
         return branch?(branch.choices?.[starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number))]||branch.default||gift.ids):gift.ids;
     }
+    function eliteItemHint(item){
+        if(!item?.eliteReward)return '';
+        const {zone,tier}=item.eliteReward;
+        return `在「传说战」击败${MONS.get(zone).name}精英 ${tier} 阶，可领取一次${item.name}。`;
+    }
     function sourceAvailable(s, source, itemId, now = Date.now()) {
         if (source.until && s.adv.gifts?.[source.until] || source.upTo && (s.items?.[itemId] || 0) >= source.upTo) return false;
         if (source.once && s.adv.gifts?.[source.once] || source.badge && !s.adv.badges?.includes(source.badge)) return false;
         if (source.tide && source.tide !== (Math.floor(now / (DATA.tideMs || 10800000)) % 2 === 0 ? 'low' : 'high')) return false;
         if (source.owns?.some(id => !ownsMon(s, id))) return false;
+        if (source.day && phaseAt(s,now,source.ch)==='night') return false;
+        if (source.team && !source.team.every(id=>partyMons(s,s.road?.length?s.road:s.team).some(mon=>mon.id===id))) return false;
         if (source.stone) {
             const reg = CHAPTERS.get(source.ch)?.reg;
             const found = s.stonesFound || {};

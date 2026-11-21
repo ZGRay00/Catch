@@ -69809,7 +69809,8 @@
         {
           "kind": "static",
           "id": 130,
-          "once": "red-gyarados"
+          "once": "red-gyarados",
+          "catchRate": 3
         }
       ],
       "wild": 13,
@@ -92265,13 +92266,15 @@
           "skies": [
             "storm"
           ],
-          "chance": 0.1
+          "chance": 0.25,
+          "catchRate": 13
         },
         {
           "kind": "static",
           "id": 479,
           "once": "rotom-tv",
-          "night": true
+          "night": true,
+          "catchRate": 13
         },
         {
           "kind": "egg",
@@ -95424,7 +95427,8 @@
             478,
             479
           ],
-          "night": true
+          "night": true,
+          "catchRate": 13
         }
       ],
       "wild": 15,
@@ -97507,7 +97511,8 @@
             "rain",
             "storm"
           ],
-          "chance": 0.1
+          "chance": 0.25,
+          "catchRate": 13
         },
         {
           "kind": "static",
@@ -97516,8 +97521,9 @@
           "caught": [
             479
           ],
-          "chance": 0.1,
-          "day": true
+          "chance": 0.25,
+          "day": true,
+          "catchRate": 13
         }
       ],
       "wild": 25,
@@ -103321,8 +103327,9 @@
           "skies": [
             "blizzard"
           ],
-          "chance": 0.1,
-          "night": true
+          "chance": 0.25,
+          "night": true,
+          "catchRate": 13
         }
       ],
       "wild": 16,
@@ -109191,7 +109198,8 @@
             "ash",
             "sun"
           ],
-          "chance": 0.1
+          "chance": 0.25,
+          "catchRate": 13
         },
         {
           "kind": "egg",

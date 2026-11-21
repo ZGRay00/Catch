@@ -20,11 +20,11 @@ test('Unova planning includes the expanded routes, the new gym member and the ac
     assert.deepEqual(league.foes,expected);
     assert.equal(league.xpEstimate,126517);
 });
-test('Unova dex completion uses basic forms and current-region map planning',()=>{
+test('Unova dex completion includes basic forms and routes from all visited regions',()=>{
     const s=state(),cfg={...H.DEFAULTS,region:'current'};let dex=H.dexStatus(s,cfg);
-    assert.ok(dex.roots.some(m=>m.id===495));assert.ok(!dex.roots.some(m=>m.id===497));assert.ok(dex.roots.every(m=>m.id>=494&&m.id<=649));
+    assert.ok(dex.roots.some(m=>m.id===495));assert.ok(!dex.roots.some(m=>m.id===497));assert.ok(dex.roots.some(m=>m.id===1));
     assert.ok(!dex.ids.has(495),'a captured basic completes the Snivy chain');assert.ok(dex.ids.has(498));
-    const rows=H.candidates(s,cfg);assert.ok(rows.length);assert.ok(rows.every(r=>r.reg==='unova'));assert.ok(H.dexRanking(s,cfg).length);
+    const rows=H.candidates(s,cfg);assert.ok(rows.length);assert.ok(rows.some(r=>r.reg==='unova')&&rows.some(r=>r.reg==='kanto'));assert.ok(rows.every(r=>r.id<=68));assert.ok(H.dexRanking(s,cfg).length);
     assert.equal(H.normalizeSettings({shinyId:495}).shinyId,495);assert.ok(H.shinyRanking(s,{...cfg,shinyId:504}).length);
 });
 test('the Unova monkey gift follows the chosen starter rather than advertising all branches',()=>{

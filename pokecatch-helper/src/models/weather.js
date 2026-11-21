@@ -33,7 +33,7 @@
     const WILD_HABITATS = new Map();
     const WILD_PHASES = ['morning','day','night'];
     for(const c of DATA.chapters){
-        const habitat=new Map(),weather=WEATHER_DATA.chapters[c.id];
+        const habitat=new Map(),weather=WEATHER_DATA.chapters[c.id],chapterTables=new Set();
         function record(id,phase,rotation,seasonMask){
             if(!habitat.has(id))habitat.set(id,{phases:new Set(),ordinary:false,rotations:new Set(),seasonMask:0});
             const hit=habitat.get(id);
@@ -56,7 +56,10 @@
                             for(const table of Object.values(phases[phase]||{}))tables.set(table,(tables.get(table)||0)|bit);
                         }
                     }
-                    for(const [table,mask] of tables)for(const [id] of WEATHER_DATA.tables[table])record(id,phase,rotation,mask);
+                    for(const [table,mask] of tables){
+                        chapterTables.add(table);
+                        for(const [id] of WEATHER_DATA.tables[table])record(id,phase,rotation,mask);
+                    }
                 }
             }
         }else{
@@ -64,12 +67,22 @@
                 for(const [id,weight] of pool)if(weight>0)record(id,phase,null,15);
             }
         }
+        // A species present only during rain can still occur in every season and phase.
+        // Count distinct native tables, including daily spot variants, to establish an all-weather source.
+        for(const table of chapterTables)for(const [id,weight] of WEATHER_DATA.tables[table]){
+            if(weight>0){
+                const hit=habitat.get(id);
+                hit.tableCount=(hit.tableCount||0)+1;
+            }
+        }
+        for(const hit of habitat.values())hit.always=chapterTables.size>0&&hit.tableCount===chapterTables.size;
         WILD_HABITATS.set(c.id,habitat);
     }
     function huntRegions(settings){
-        return ['dex','shiny'].includes(settings.mode)?settings[settings.mode+'Regions']||[]:[];
+        return settings.mode==='shiny'?settings.shinyRegions||[]:[];
     }
     function huntRegionMatches(s,settings,region){
+        if(settings.mode==='dex')return true;
         const selected=huntRegions(settings);
         return selected.length?selected.includes(region):settings.region==='all'||region===currentRegion(s);
     }
@@ -312,7 +325,7 @@
         const explicit=settings.mode==='dex'&&settings.dexSpecies?.length;
         const regions=huntRegions(settings);
         const roots = explicit?settings.dexSpecies.map(id=>MONS.get(id)).filter(Boolean):ROOTS.filter(m=>regions.length?regions.includes(regionOfMon(m.id)):
-            settings.region==='all'?open.has(regionOfMon(m.id)):regionOfMon(m.id)===current);
+            settings.mode==='dex'||settings.region==='all'?open.has(regionOfMon(m.id)):regionOfMon(m.id)===current);
         const ownedIds = new Set(collectionMembers(s).map(mon=>mon.id));
         const missing = roots.filter(m => !captured(s, m.id, ownedIds));
         return { roots, missing, complete: roots.length - missing.length, ids: new Set(missing.map(m => m.id)) };

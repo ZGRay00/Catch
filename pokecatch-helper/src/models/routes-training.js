@@ -67,7 +67,7 @@
         const metricKey=routeMetricKey(s,settings,now);
         const roamingOpen=ROAMING_DATA.groups.some(group=>s.adv.badges?.includes(group.badge));
         const sourceYield=source=>roamingOpen?source.expected:source.beforeRoaming??source.expected;
-        return candidates(s, settings).filter(row => (cooldowns[row.key] || 0) <= now).map(row => {
+        return candidates(s, {...settings,mode:'item'}).filter(row => (cooldowns[row.key] || 0) <= now).map(row => {
             const sources = item.sources.filter(source => row.members.includes(source.ch) && sourceYield(source)>0 && sourceAvailable(s, source, item.id, now));
             const seconds = estimatedRouteSeconds(row,settings.speed);
             const expected = sources.reduce((n, source) => n + sourceYield(source) * (source.kind === 'town' ? Math.min(1, seconds * 1000 / Math.max(1, DATA.townCooldown || 1)) : 1), 0);
@@ -221,6 +221,7 @@
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
     }
     function yieldRankingRequest(kind,s,settings,metrics,now){
+        if(settings.mode==='dex')settings={...settings,mode:kind==='xp'?'train':'money'};
         let maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
         let otherWallet=null;
         if(s.link){

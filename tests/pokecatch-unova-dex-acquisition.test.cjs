@@ -37,7 +37,7 @@ test('a new desert weather window interrupts an ordinary dex rotation, then rele
     const until=rows[0].window.until;
     if(new Date(until).getHours()!==0)assert.equal(H.dexRanking(s,cfg,{},until).some(r=>r.window?.id===636),false);
     s.pension.eggs=[{id:636}];assert.equal(H.dexRanking(s,cfg,{},opens)[0].window,undefined);
-    s.pension.eggs=[];assert.equal(H.dexRanking(s,{...cfg,dexRegions:['sinnoh']},{},opens).length,0);
+    s.pension.eggs=[];assert.equal(H.dexRanking(s,{...cfg,dexRegions:['sinnoh']},{},opens)[0].window.id,636);
     const daily=H.dailyCaptureWindow(s,cfg,opens);
     assert.equal(daily.settings.dexSpecies[0],636);assert.equal(daily.until,rows[0].window.until);
 });

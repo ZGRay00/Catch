@@ -14,9 +14,9 @@ test('all-region dex planning visits the missing legendary region through a nati
     assert.equal(e.driver.pendingMap,null);assert.equal(e.findLegend(s,status([377]),now+1200),true);
     assert.equal(e.driver.pendingMap.row.id,377);assert.equal(e.driver.pendingMap.options.zone,true);assert.equal(e.legendProbe,null);
 });
-test('a current-region scope does not switch away for another regions missing target',t=>{
-    const {e,s,now,status,switches}=fixture(t,'current');assert.equal(e.findLegend(s,status([377]),now),false);
-    assert.deepEqual(switches,[]);assert.equal(e.nextLegend,now+600000);assert.equal(e.driver.pendingMap,null);
+test('a legacy current-region preference still discovers an accessible legendary',t=>{
+    const {e,s,now,status,switches}=fixture(t,'current');assert.equal(e.findLegend(s,status([377]),now),true);
+    assert.deepEqual(switches,['hoenn']);assert.equal(e.nextLegend,0);assert.equal(e.driver.pendingMap,null);
 });
 test('the next probe is delayed only after every eligible missing region has been checked',t=>{
     const {e,s,now,status,visible,switches}=fixture(t);visible.hoenn=[];

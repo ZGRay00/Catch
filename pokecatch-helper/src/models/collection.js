@@ -49,6 +49,22 @@
         const row=valid?{...chapter,key:String(chapter.loop),members:[chapter.id],roamId:progress.target.id}:null;
         return{...progress,row,marked,index,active,restart:!!row&&row.id===s.adv.chapter&&!marked&&Number(s.adv.node)>0};
     }
+    function chapterItemCount(s,chapter,item){
+        const reg=CHAPTERS.get(chapter)?.reg,link=s.link;
+        const other=reg&&link?.to&&['to','from'].includes(link.side)&&(reg===link.to)!==(link.side==='to');
+        return Number((other?link.stash?.items:s.items)?.[item])||0;
+    }
+    const spiritChapter=DATA.chapters.find(c=>c.special.some(spec=>spec.once==='spiritomb'));
+    const spiritEvent=spiritChapter.special.find(spec=>spec.once==='spiritomb');
+    function spiritProgress(s){
+        const missing=spiritEvent.caught.filter(id=>!s.dex?.[id]);
+        const souls=chapterItemCount(s,spiritChapter.id,spiritEvent.needs);
+        const total=spiritEvent.caught.length;
+        const note=`幽灵图鉴 ${total-missing.length}/${total}`+
+            (missing.length?'（缺'+missing.slice(0,3).map(id=>MONS.get(id).name).join('、')+(missing.length>3?'等':'')+'）':'')+
+            ` · 神奥灵魂 ${souls}/${spiritEvent.needN}`;
+        return {missing,souls,note};
+    }
     function specialBlockReason(s,special,now,chapter){
         if(special.once&&s.adv.gifts?.[special.once])return '已领取一次性奖励';
         if(special.badge&&!s.adv.badges?.includes(special.badge))return special.badge==='Maître Sinnoh'?'需要成为神奥冠军':'需要前置徽章';
@@ -58,7 +74,11 @@
             if(count<special.hatched)return `任务孵蛋进度 ${count}/${special.hatched}`;
         }
         if(special.after&&!s.adv.gifts?.[special.after])return '需要先完成前置事件';
-        if(special.needs&&(Number(s.items?.[special.needs])||0)<(special.needN||1))return `需要 ${special.needN||1} 个${ITEMS.get(special.needs)?.name||special.needs}`;
+        if(special.once===spiritEvent.once){
+            const {missing,souls,note}=spiritProgress(s);
+            if(missing.length||souls<special.needN)return note;
+        }
+        if(special.needs&&chapterItemCount(s,chapter,special.needs)<(special.needN||1))return `需要 ${special.needN||1} 个${ITEMS.get(special.needs)?.name||special.needs}`;
         const phase=phaseAt(s,now,chapter);
         if(special.night&&phase!=='night')return '需在夜间前往';
         if(special.day&&phase==='night')return '需在白天前往';
@@ -126,7 +146,7 @@
                 }
                 if(![].concat(special.id||[]).includes(id))continue;
                 const block=specialBlockReason(s,special,now,c.id);
-                if(special.kind==='static')add('static','固定遭遇',block);
+                if(special.kind==='static')add('static',special.once===spiritEvent.once?'御灵塔 · 幽灵图鉴登记齐后，在神奥击败普通野生幽灵收集灵魂。集齐后于 20:00–次日 08:00 生成路线。':'固定遭遇',block);
                 if(special.kind==='egg')add('egg',special.place?`${special.place}的道具事件赠蛋`:Array.isArray(special.id)?'一次性随机赠蛋':'章节赠蛋',block||(full?'孵化器已满':''));
             }
         }
@@ -200,6 +220,7 @@
         return null;
     }
     const dexPrerequisites=[...new Set(DATA.chapters.flatMap(c=>c.special.flatMap(source=>source.caught||[])))];
+    const staticItemSources=DATA.chapters.flatMap(c=>c.special.filter(spec=>spec.needs).map(spec=>({chapter:c.id,item:spec.needs})));
     const branchedGifts=DATA.chapters.flatMap(c=>c.gifts.filter(gift=>gift.byStarter));
     const timedDexStatics=DATA.chapters.flatMap(c=>c.special.filter(spec=>spec.kind==='static'&&(spec.skies?.length||spec.night||spec.day)).map(spec=>({chapter:c.id,spec})));
     const timedUnovaIds=[...UNOVA_SOURCE_INDEX].filter(([id,routes])=>routes.some(r=>r.egg?.id===id||r.day||r.night||Object.values(r.weatherWeights||{}).some(weights=>weights[id]))).map(([id])=>id);
@@ -208,7 +229,7 @@
         const statics=timedDexStatics.filter(({spec})=>wanted.has(spec.id));
         const ids=timedUnovaIds.filter(id=>wanted.has(id));
         if(!ids.length&&!statics.length)return [];
-        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings.dexWeather,ids,statics.map(({spec})=>[spec.id,s.items?.[spec.needs],spec.caught?.map(id=>!!s.dex?.[id])]),
+        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings.dexWeather,ids,statics.map(({spec,chapter})=>[spec.id,chapterItemCount(s,chapter,spec.needs),spec.caught?.map(id=>!!s.dex?.[id])]),
             s.adv.badges,s.adv.gifts,s.pension?.eggs?.map(e=>e.id),s.pension?.open?.eggs,s.roam?.at,s.roam?.caught]);
         if(dexDayCache?.signature===signature&&now>=dexDayCache.from&&now<dexDayCache.until)return dexDayCache.windows;
         const chapters=new Set(availableChapters(s,settings).map(c=>c.id));
@@ -235,12 +256,62 @@
     function dexRanking(s, settings, cooldowns = {}, now = Date.now(), status = dexStatus(s, settings)) {
         const wanted=dexSearchIds(s,settings,status);
         for(const egg of s.pension?.eggs||[])wanted.delete(egg.id);
-        const inputs=[huntRankingInputs(s,settings,[...wanted],now),settings.gifts,s.adv.gifts,s.adv.badges,s.items,s.roam?.at,
+        const prepareSpirit=settings.mode==='dex'&&settings.dexSpecies?.includes(spiritEvent.id)&&wanted.has(spiritEvent.id);
+        const inputs=[huntRankingInputs(s,settings,[...wanted],now),!!prepareSpirit,settings.speed,s.link?.to,s.buffs?.capture?.until>now?s.buffs.capture:null,settings.gifts,s.adv.gifts,s.adv.badges,s.items,
+            staticItemSources.map(({chapter,item})=>chapterItemCount(s,chapter,item)),s.roam?.at,
             wanted.has(490)?[s.stats?.hatched,s.adv.questFrom?.['egg:490']]:null,
             settings.gifts&&Object.keys(FOSSIL_NAMES).map(item=>s.link?.stash?.items?.[item]||0),
             s.pension?.eggs?.length,s.pension?.open?.eggs,dexPrerequisites.map(id=>!!s.dex?.[id]),
             settings.gifts&&branchedGifts.map(gift=>giftChoices(s,gift))];
-        return rankedRoutes('dex',inputs,()=>rankDexTargets(s,settings,wanted,now),cooldowns,now);
+        return rankedRoutes('dex',inputs,()=>{
+            const direct=rankDexTargets(s,settings,wanted,now);
+            if(direct.length||!prepareSpirit||
+                s.adv.gifts?.[spiritEvent.once]||!availableChapters(s,settings).some(c=>c.id===spiritChapter.id))return direct;
+            const {missing,souls,note}=spiritProgress(s);
+            if(missing.length){
+                const targets=new Set(missing.filter(id=>!s.pension?.eggs?.some(egg=>egg.id===id)));
+                return rankDexTargets(s,settings,targets,now).map(row=>({...row,prepNote:'花岩怪前置 · '+note}));
+            }
+            if(souls>=spiritEvent.needN)return direct;
+            return candidates(s,settings).filter(row=>row.reg===spiritChapter.reg&&huntRouteMatches(s,settings,row,now)).flatMap(row=>{
+                let weight=0;const ghosts=new Set();
+                for(const ch of row.members)for(const [id,value] of currentWildPool(s,ch,now)){
+                    if(value>0&&MONS.get(id)?.types.includes('ghost')){weight+=value;ghosts.add(id);}
+                }
+                return weight>0?[{...row,targets:[...ghosts].map(id=>({id})),hasWild:true,priority:0,score:weight/Math.max(15,row.units),prepNote:'为花岩怪收集灵魂 · '+note}]:[];
+            }).sort((a,b)=>b.score-a.score||a.id-b.id);
+        },cooldowns,now);
+    }
+    function dexWaitAdvice(s,cfg,missing,now){
+        const messages=[],open=new Set(availableChapters(s,{region:'all'}).map(c=>c.id));
+        for(const mon of missing.slice(0,3)){
+            const sources=acquisitionSources(s,mon.id,now);
+            const maps=sources.filter(src=>Number.isInteger(src.chapter)&&open.has(src.chapter));
+            let reason;
+            if(s.pension?.eggs?.some(egg=>egg.id===mon.id))reason='已有蛋，等待孵化';
+            else if(mon.id===spiritEvent.id&&maps.length){
+                const progress=spiritProgress(s);
+                reason='神奥 · '+spiritChapter.name+' / 御灵塔 · '+(specialBlockReason(s,spiritEvent,now,spiritChapter.id)||'等待符合筛选的路线');
+                if(progress.missing.length)reason+='；无法野遇的前置可进化或交换登记';
+                else if(progress.souls>=spiritEvent.needN&&phaseAt(s,now,spiritChapter.id)!=='night')reason+='（20:00 开始）';
+            }else if(maps.some(src=>src.available)&&maps.filter(src=>src.available).every(src=>!huntWeatherMatches(s,cfg,src.chapter,now))){
+                reason='来源地图当前天气不符合所选条件';
+            }else{
+                const source=maps[0]||sources[0];
+                const chapter=CHAPTERS.get(source?.chapter);
+                const place=chapter?DATA.regions.find(r=>r.key===chapter.reg).name+' · '+chapter.name:source?.place;
+                reason=source?place+' · '+source.detail:'暂无已知直接来源';
+            }
+            messages.push(mon.name+'：'+reason);
+        }
+        if(missing.length>3)messages.push('另有 '+(missing.length-3)+' 个目标可在图鉴查看');
+        return messages.join('；');
+    }
+    // Native Us applies the wild multiplier to species rates, but uses a scripted rate directly.
+    function dexCatchChance(id, override, multiplier){
+        const mon=MONS.get(id);
+        const rate=override??(mon.legend?3:mon.rate*.6);
+        return Math.min(1,Math.min(.6,rate/255)*multiplier);
     }
     function rankDexTargets(s,settings,wanted,now){
         const specialByChapter=new Map();
@@ -253,8 +324,20 @@
                 specialByChapter.get(source.chapter).push(source);
             }
         }
-        return candidates(s, settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row => {
+        const permanent=new Set();
+        const routes=candidates(s, settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row => {
             const hits = new Map(); let score = 0,marked=false,hasWild=false,specialNodesOnly=true;
+            const remaining=new Map(),buff=s.buffs?.capture;
+            const multiplier=buff?.until>now&&!(buff.side==='from'&&row.reg===s.link?.to)
+                ? DATA.automation.buffs[buff.key]?.mult||1 : 1;
+            // Estimate first captures per loop. Repeated encounters can fill the same entry only once.
+            function credit(id, opportunities, chance){
+                const whole=Math.floor(opportunities);
+                const miss=(1-chance)**whole*(1-(opportunities-whole)*chance);
+                const previous=remaining.get(id)??1;
+                score+=previous*(1-miss);
+                remaining.set(id,previous*miss);
+            }
             for (const id of row.members) {
                 const beforeOrdinarySources=score;
                 const c = CHAPTERS.get(id);
@@ -262,7 +345,9 @@
                 for (const [mon,weight] of currentWildPool(s,id,now)) {
                     if (!wanted.has(mon)||weight<=0) continue;
                     hasWild=true;
-                    score += weight * Math.max(.08, MONS.get(mon).rate / 255);
+                    credit(mon,weight,dexCatchChance(mon,null,multiplier));
+                    const habitat=WILD_HABITATS.get(id)?.get(mon);
+                    if(habitat?.always&&!settings.dexWeather?.length)permanent.add(mon);
                     const old = hits.get(mon);
                     const data=phaseRows.find(entry=>entry[0]===mon),normal=(data?.[2]||0)>0||!!old?.normal;
                     hits.set(mon, { id: mon, weather: normal?[]:data?.[3]||[], normal });
@@ -270,19 +355,19 @@
                 for (const gift of c.gifts) {
                     if (!settings.gifts || s.adv.gifts?.[gift.key] || gift.badge && !s.adv.badges?.includes(gift.badge)) continue;
                     const id = giftChoices(s,gift).find(id => wanted.has(id));
-                    if (id) { score += 6; hits.set(id, { id, gift: true }); }
+                    if (id) { credit(id,1,1); hits.set(id, { id, gift: true }); }
                 }
                 for (const special of c.special) {
                     if(special.kind==='trade'&&settings.gifts){
                         const offers=special.offers.filter(([item,species])=>wanted.has(species)&&ownedItems(s,item)>0);
-                        if(offers.length)score+=6; // The native gift selector restores one fossil per visit.
+                        if(offers.length)credit(offers[0][1],1,1); // Only one fossil is restored per visit.
                         for(const [,species] of offers)hits.set(species,{id:species,gift:true,kind:'trade'});
                     }else if(special.kind==='egg'&&eggSpace&&specialAvailable(s,special,now,id)){
                         const options=[].concat(special.id),desired=options.filter(species=>wanted.has(species));
-                        score+=desired.length/options.length;
+                        for(const species of desired)credit(species,1,1/options.length);
                         for(const species of desired)hits.set(species,{id:species,special:true,kind:'egg'});
                     }else if(special.kind==='static'&&wanted.has(special.id)&&specialAvailable(s,special,now,id)){
-                        score+=special.skies?.length ? .05 : Math.max(.05,special.chance||.5);
+                        credit(special.id,special.chance??1,dexCatchChance(special.id,special.catchRate,multiplier));
                         hits.set(special.id,{id:special.id,special:true});
                     }
                 }
@@ -291,22 +376,24 @@
                     const egg=source.kind==='lootEgg';
                     if(source.kind==='questWild')specialNodesOnly=false;
                     hasWild ||= !egg;
-                    const catchFactor=egg?1:Math.max(.08,MONS.get(source.id).rate/255);
-                    score+=source.weight*catchFactor;
+                    credit(source.id,source.weight,egg?1:dexCatchChance(source.id,null,multiplier));
                     marked||=!!source.marked;
                     if(!hits.get(source.id)?.marked)hits.set(source.id,{id:source.id,special:true,kind:source.kind,place:source.nodeName,marked:!!source.marked});
                 }
             }
             const window=openWindows.filter(w=>row.members.includes(w.chapter)&&hits.has(w.id)).sort((a,b)=>a.until-b.until)[0];
             const targets=[...hits.values()];
-            const limitedWild=targets.some(hit=>hit.weather?.length||row.members.some(id=>{
+            return { ...row, targets, marked, hasWild, specialNodesOnly, window, expected:score, score:score/estimatedRouteSeconds(row,settings.speed) };
+        }).filter(row=>row.targets.length);
+        for(const row of routes){
+            const limitedWild=row.targets.some(hit=>!permanent.has(hit.id)&&(hit.weather?.length||row.members.some(id=>{
                 const h=WILD_HABITATS.get(id)?.get(hit.id);
                 return h&&(!h.ordinary||h.phases.size<3||h.seasonMask!==15);
-            }));
-            const phenomenonOnly=targets.some(hit=>hit.kind==='phenomenon'&&!WILD_HABITATS.get(row.id)?.has(hit.id));
-            const priority=window?3:limitedWild?2:phenomenonOnly?1:0;
-            return { ...row, targets, marked, hasWild, specialNodesOnly, window, priority, score: score / Math.max(15, row.units) };
-        }).filter(row=>row.targets.length).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.priority-a.priority||
+            })));
+            const phenomenonOnly=row.targets.some(hit=>!permanent.has(hit.id)&&hit.kind==='phenomenon'&&!WILD_HABITATS.get(row.id)?.has(hit.id));
+            row.priority=row.window?3:limitedWild?2:phenomenonOnly?1:0;
+        }
+        return routes.sort((a,b)=>Number(b.marked)-Number(a.marked)||b.priority-a.priority||
             (a.window?.until||0)-(b.window?.until||0)||b.score-a.score||a.id-b.id);
     }
     const PARIS_CALENDAR=new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Paris',year:'numeric',month:'2-digit',day:'2-digit'});

@@ -8,10 +8,10 @@ test('custom dex species use exact capture history independently of search geogr
     s.dex[25]={caught:1};
     assert.deepEqual(H.dexStatus(s,cfg).missing.map(m=>m.id),[26]);
     assert.deepEqual(H.dexStatus(s,cfg).roots.map(m=>m.id),[25,26]);
-    assert.deepEqual(new Set(H.candidates(s,cfg).map(r=>r.reg)),new Set(['hoenn','sinnoh']));
+    assert.deepEqual(new Set(H.candidates(s,cfg).map(r=>r.reg)),new Set(['kanto','johto','hoenn','sinnoh','unova']));
     const locked=H.normalizeSettings({...cfg,dexSpecies:[],dexRegions:['unova']});
     s.travel.to=[];s.adv.chapter=0;s.adv.unlocked=8;
-    assert.ok(H.dexStatus(s,locked).missing.length);assert.deepEqual(H.candidates(s,locked),[]);
+    assert.ok(H.dexStatus(s,locked).missing.length);assert.deepEqual([...new Set(H.candidates(s,locked).map(r=>r.reg))],['kanto']);
 });
 
 test('multi-shiny yield sums remaining targets only, then applies region and weather together',()=>{

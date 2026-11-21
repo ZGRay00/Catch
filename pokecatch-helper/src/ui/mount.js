@@ -38,6 +38,7 @@
                 <button data-workspace="activity" aria-controls="pane-activity">运行实况</button>
                 <button data-workspace="settings" aria-controls="pane-settings">设置</button>
             </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
+            <button type="button" id="spirit-conditions" data-lookup="442" hidden>查看花岩怪获取条件</button>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric" title="合计当前钱包及跨地区暂存的钱包余额"><b id="money-value">0</b><span id="money-label">本次金币净增</span></div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <details id="season-calendar" class="season-calendar"><summary><span>游戏季节</span><strong></strong><span class="season-remaining"></span></summary><div class="season-period"></div><div class="season-next"></div></details>
             <div class="target hidden" id="prepare-info"><b id="prepare-title"></b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-buddy"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
@@ -67,7 +68,7 @@
                 <div data-fields="progress" class="hidden"><div class="field"><span>完成章节</span><select data-setting="progressUntil" aria-label="主线目标章节"></select></div><label class="setting"><span><input type="checkbox" data-setting="autoTravel">达到条件后自动跨地区开局</span></label></div>
                 <fieldset id="hunt-filters" style="min-width:0;margin:8px 0;padding:9px;border:1px solid #40516a;border-radius:8px">
                     <legend>搜寻条件</legend>
-                    <details><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
+                    <details id="hunt-region-controls"><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
                     <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
                     <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">当前队伍练级</option></select></label>
                     <details><summary id="hunt-species-summary"></summary>
@@ -346,10 +347,11 @@
             const cfg=engine.settings,mode=cfg.mode,field=query('#hunt-filters');
             field.hidden=!['dex','shiny'].includes(mode);query('#hunt-forecast').hidden=field.hidden;if(field.hidden)return;
             const regions=cfg[mode+'Regions'],weather=cfg[mode+'Weather'],species=selectedSpecies(cfg);
+            query('#hunt-region-controls').hidden=mode==='dex';
             query('#hunt-region-summary').textContent='搜寻地区 · '+(regions.map(id=>DATA.regions.find(r=>r.key===id).name).join('、')||'沿用规划范围');
             query('#hunt-weather-summary').textContent='地图天气 · '+(weather.map(key=>WEATHER_LABELS[key]).join('、')||'不限');
             query('#hunt-species-summary').textContent='目标物种 · '+(species.length===1?MONS.get(species[0]).name:species.length?species.length+' 种':'全部缺失进化链');
-            query('#hunt-help').textContent=mode==='dex'?'指定物种按该形态的捕获记录完成；留空按基础形态补齐进化链。':'每捕获一种目标异色，助手就继续寻找剩余目标。';
+            query('#hunt-help').textContent=mode==='dex'?'自动比较所有已解锁地区的出现率、捕获率与路线长度。指定物种按形态登记；留空补基础形态。':'每捕获一种目标异色，助手就继续寻找剩余目标。';
             for(const box of field.querySelectorAll('[data-hunt]'))box.checked=cfg[mode+box.dataset.hunt].includes(box.value);
             const wrap=query('#hunt-selected');wrap.replaceChildren();
             for(const id of species){
@@ -478,7 +480,7 @@
             root.querySelectorAll('[data-mode]').forEach(button => { const on = button.dataset.mode === card; button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); });
             if(lastMode!==card){lastMode=card;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
             root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode&&!(el===legendFields&&dailyLegend)));
-            query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
+            query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['dex','legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
             query('#train-rank-settings').hidden=!engine.settings.trainGems;
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
             query('#task-purchase').hidden=!['progress','breed','resource'].includes(mode);
@@ -602,6 +604,8 @@
             }
             const paused=resumable||nativePaused;
             query('#status').textContent = engine.suspended?engine.status:wait?.status||(nativePaused?'游戏已暂停':engine.status);
+            query('#spirit-conditions').hidden=!(ui.workspace==='tasks'&&engine.running&&engine.settings.mode==='dex'&&
+                engine.settings.dexSpecies.includes(spiritEvent.id)&&!s?.dex?.[spiritEvent.id]?.caught&&(engine.farmWait||engine.target?.prepNote));
             for(const indicator of [query('.status'),query('.mini')]){
                 indicator.classList.toggle('running',engine.running&&!paused);
                 indicator.classList.toggle('manual',paused);

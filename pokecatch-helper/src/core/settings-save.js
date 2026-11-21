@@ -94,7 +94,7 @@
         if(MONS.has(+raw.shinyId)&&!MONS.get(+raw.shinyId).legend)out.shinyId=+raw.shinyId;
         for(const mode of ['dex','shiny']){
             const clean=(suffix,convert,allow)=>[...new Set((Array.isArray(raw[mode+suffix])?raw[mode+suffix]:[]).map(convert).filter(allow))];
-            out[mode+'Regions']=clean('Regions',String,id=>DATA.regions.some(region=>region.key===id)).sort();
+            out[mode+'Regions']=mode==='dex'?[]:clean('Regions',String,id=>DATA.regions.some(region=>region.key===id)).sort();
             out[mode+'Weather']=clean('Weather',String,id=>id==='clear'||Object.hasOwn(WEATHER_DATA.types,id)).sort();
             out[mode+'Species']=clean('Species',Number,id=>MONS.has(id)&&(mode==='dex'||WILD_SHINY_IDS.has(id)&&!MONS.get(id).legend)).sort((a,b)=>a-b);
         }

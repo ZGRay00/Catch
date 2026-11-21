@@ -1083,7 +1083,8 @@
                     if(safeBoundary&&stillNeeded.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     const limit=stillNeeded.window;
                     const detail=limit?` · 优先 ${MONS.get(limit.id).name}（${limit.place}，至 ${new Date(limit.until).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'})}）`:stillNeeded.specialNodesOnly?' · 等待生成目标节点':'';
-                    this.status = `补图鉴 · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}${detail}`; this.driver.nav('adventure'); return;
+                    this.status = stillNeeded.prepNote ? `${this.target.name} · ${stillNeeded.prepNote}` :
+                        `补图鉴 · ${DATA.regions.find(r=>r.key===stillNeeded.reg)?.name||stillNeeded.reg} · ${this.target.name} · 目标 ${stillNeeded.targets.map(m => MONS.get(m.id)?.name).slice(0, 5).join('、')}${detail}`; this.driver.nav('adventure'); return;
                 }
                 if (!safeBoundary&&!startingBattle&&!(directedHunt&&this.ordinaryBattleKey(s))) {this.waitForHuntBoundary(rows[0]);return;}
                 const next=alternate||rows[0];
@@ -1092,9 +1093,10 @@
                     this.travelHunt(next,alternate,now); return;
                 }
                 if (this.settings.legends && !this.settings.dexWeather?.length && now >= this.nextLegend && this.findLegend(s, status, now)) return;
-                if(this.settings.dexWeather?.length||this.settings.dexSpecies?.length||this.settings.dexRegions?.length){
+                if(this.settings.dexWeather?.length||this.settings.dexSpecies?.length){
                     this.target=null;this.visit=null;this.telemetry.sample=null;
-                    if(this.settings.dexSpecies?.length&&!dexRanking(s,this.settings,{},now).length){
+                    if(this.settings.dexSpecies?.length){
+                        if(dexRanking(s,this.settings,{},now).length){this.waitForFarm('目标地图暂时退避，到期后自动重试',now);return;}
                         const hatchedLater=new Set((s.pension?.eggs||[]).map(egg=>egg.id));
                         if(this.waitForWildWindow(s,[...dexSearchIds(s,this.settings,status)].filter(id=>!hatchedLater.has(id)),now))return;
                         // A selected parent and its evolution share the same pending gift egg.
@@ -1110,6 +1112,8 @@
                                 this.waitForFarm(`${MONS.get(id).name} · 由${MONS.get(from).name} Lv.${rule.level} 进化；${hatchedLater.has(from)?'已有蛋，等待孵化':captured(s,from)?'请确认前置形态并安排培养进化':reason||'等待符合筛选的赠蛋地点'}`,now);return;
                             }
                         }
+                        const advice=dexWaitAdvice(s,this.settings,status.missing,now);
+                        this.waitForFarm(advice,now);return;
                     }
                     this.waitForFarm('所选范围暂无可刷目标，等待天气、退避结束或开放来源；可在图鉴查看获取条件',now);return;
                 }
@@ -1428,6 +1432,12 @@
                     if(peer&&s.adv.runs>this.visit.runs&&now-this.visit.started>=share)return peer;
                     return null;
                 }
+                if(!current.specialNodesOnly&&Number.isFinite(current.score)&&Number.isFinite(best.score)){
+                    if(best.key===current.key)return null;
+                    const completed=s.adv.runs>this.visit.runs;
+                    const due=now-this.visit.started>=this.settings.rotateMinutes*60000;
+                    return (completed||due)&&best.score>current.score*(due?1:1.08)?best:null;
+                }
             }
             const newRoll=current.specialNodesOnly&&s.adv.nodes?.length>0&&s.adv.runs>this.visit.runs;
             if(!newRoll&&now-this.visit.started<this.settings.rotateMinutes*60000)return null;
@@ -1658,7 +1668,7 @@
             const c = CHAPTERS.get(s.adv.unlocked);
             if(this.ensurePrepared(s,battleContext(s,'progress',{row:{...c,members:c.league?DATA.chapters.filter(row=>row.loop===c.loop).map(row=>row.id):[c.id]}}),{},now))return;
             if ((this.cooldowns[String(c.loop)] || 0) > now) { this.money(s, now); return; }
-            const row = candidates(s, { ...this.settings, region: 'current' }).find(r => r.members.includes(c.id)) || { ...c, key: String(c.loop), members: c.league?DATA.chapters.filter(member=>member.loop===c.loop).map(member=>member.id):[c.id] };
+            const row = candidates(s, { ...this.settings, mode:'progress', region: 'current' }).find(r => r.members.includes(c.id)) || { ...c, key: String(c.loop), members: c.league?DATA.chapters.filter(member=>member.loop===c.loop).map(member=>member.id):[c.id] };
             if (this.target?.key !== row.key) {
                 this.target = row; this.visit = { started: now, deaths: totalDeaths(s, row) };
                 this.telemetry.sample = null;

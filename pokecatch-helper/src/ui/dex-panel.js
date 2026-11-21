@@ -105,12 +105,19 @@
             const caught=captured(s,mon.id),chainComplete=captured(s,base.id);
             const forms=seasonFormProgress(s,mon.id),currentSeason=forms&&weatherSeason(now);
             const sources=acquisitionSources(s,mon.id,now).sort((a,b)=>Number(!!b.marked)-Number(!!a.marked));
-            if(!changed(['detail',mon.id,caught,chainComplete,forms?.seen,currentSeason,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
+            const spirit=mon.id===spiritEvent.id?spiritProgress(s):null;
+            if(!changed(['detail',mon.id,caught,chainComplete,forms?.seen,currentSeason,spirit?.missing,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
             const heading=label('h3','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading');
             heading.tabIndex=-1;results.append(heading);
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
             if(base.id!==mon.id)family.append(' ',speciesButton(base,'查'+base.name+'来源'));
             results.append(family);
+            if(!caught&&spirit?.missing.length){
+                results.append(label('h4','待登记的幽灵 · 点击查看来源','dex-section'));
+                const links=label('div','','missing');
+                for(const id of spirit.missing){const ghost=MONS.get(id);links.append(speciesButton(ghost,ghost.name));}
+                results.append(links);
+            }
             if(forms){
                 results.append(label('h4','季节外观 · 已遇见 '+forms.seen.length+'/4','dex-section'));
                 const list=label('ul','','season-forms');
@@ -154,7 +161,7 @@
             entry.section.append(targets);entry.targets=targets;
         }
         function createRoute(row,open){
-            const section=document.createElement('details'),summary=label('summary',row.name);
+            const section=document.createElement('details'),summary=label('summary',row.league?row.name:DATA.regions.find(r=>r.key===row.reg).name+' · '+row.name);
             const count=label('span','','dex-route-count');
             section.dataset.dexRoute=row.key;section.open=open;summary.append(count);section.append(summary);
             const entry={section,count,hits:row.targets,targets:null};
@@ -183,7 +190,7 @@
                 let entry=routeEntries.get(row.key);
                 if(!entry){entry=createRoute(row,firstLoad&&index===0);routeEntries.set(row.key,entry);}
                 const state=row.marked?'已生成目标节点':row.key===engine.target?.key?'任务目标':'';
-                const count=[state,row.targets.length+' 种'].filter(Boolean).join(' · ');
+                const count=[state,row.prepNote||row.targets.length+' 种',Number.isFinite(row.expected)?'估算 '+row.expected.toFixed(2)+' 种/轮':''].filter(Boolean).join(' · ');
                 if(entry.count.textContent!==count)entry.count.textContent=count;
                 if(entry.hits!==row.targets){
                     if(entry.targets&&(entry.hits.length!==row.targets.length||row.targets.some((hit,i)=>hit.id!==entry.hits[i].id))){

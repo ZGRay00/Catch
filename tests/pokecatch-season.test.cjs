@@ -56,7 +56,7 @@ test('dex and shiny rankings activate at the forecast season and weather interse
         assert.ok(rank(s,settings,{},next.at).some(row=>row.id===67));
         assert.equal(H.nextWildWindow(s,settings,[522],at+1000),next);
         assert.equal(H.nextWildWindow(s,hunt(mode,['blizzard']),[522],at),null);
-        assert.equal(H.nextWildWindow(s,{...settings,[mode+'Regions']:['kanto']},[522],at),null);
+        assert.equal(H.nextWildWindow(s,{...settings,[mode+'Regions']:['kanto']},[522],at)?.at,mode==='dex'?next.at:undefined);
     }
 });
 

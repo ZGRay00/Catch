@@ -85,6 +85,11 @@ async function main() {
             workspace('dex');
             const input=root.querySelector('#dex-search'),results=root.querySelector('#dex-results');
             const search=value=>{input.value=value;input.dispatchEvent(new Event('input',{bubbles:true}));return results.textContent;};
+            search('#442');
+            const ghost=results.querySelector('[data-species="92"]');
+            if(!ghost)throw Error('Missing Spiritomb prerequisite link');
+            ghost.click();
+            if(input.value!=='#92'||!results.textContent.includes('鬼斯'))throw Error('Spiritomb prerequisite lookup failed');
             const locked=search('ALOMOMOLA'),lockedHeading=results.querySelector('.dex-section')?.textContent;
             mock.state.dex[636]={caught:1};mock.save();
             const alias=search('火神虫');
@@ -125,6 +130,7 @@ async function main() {
             tab('maps');
             root.querySelector('#hunt-search').value='';root.querySelector('#hunt-search').dispatchEvent(new Event('input'));
             e.settings={...before,mode:'dex',region:'current'};e.onChange();
+            if(!root.querySelector('#hunt-region-controls').hidden||!root.querySelector('#scope-field').classList.contains('hidden'))throw Error('Dex still asks for a region');
             const routes=[...root.querySelectorAll('#view details[data-dex-route]')];
             const folded=routes.find(route=>!route.open);
             if(!folded||folded.querySelector('[data-lookup]'))throw Error('Closed route prematurely populated its target list');

@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.8.9**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.9.0**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.8.9.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.9.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+5.9.0 的「补齐图鉴」自动比较所有已解锁地区，可直接指定物种和天气。路线综合出现频率、捕获率和耗时，优先处理限时机会。图鉴页可查看地区与每轮预计新增数。花岩怪会按神奥的幽灵登记、灵魂数及夜间条件安排路线。
 
 5.8.9 适配游戏 0.5.10，更新地图掉落、精英奖励、玛纳霏赠蛋和谢米花朵的条件，校准团体战同伴评分、核对孵蛋预测。传说战支持不限时挂机。
 

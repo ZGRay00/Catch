@@ -3,25 +3,31 @@
     const gateZones=new Map(DATA.zones.map(zone=>[zone.id,zone]));
     for(const zone of DATA.zones)for(const form of zone.forms||[])if(!gateZones.has(form))gateZones.set(form,zone);
     const gateLeagueEnds=new Map(DATA.chapters.filter(ch=>ch.league).map(ch=>[ch.reg,ch]));
+    function gateMembers(s){
+        return [...(s.mons||[]),...(s.pension?.mons||[]).map(slot=>slot.mon),...(s.under?.slots||[]).flatMap(slot=>slot.mons||[])];
+    }
+    function gateOwnsMon(s,id){return gateMembers(s).some(mon=>mon?.id===id);}
     function legendRequirements(s,ids){
-        const goals=[...new Set(ids||[])].filter(id=>gateZones.get(id)?.gate);
+        const goals=[...new Set(ids||[])].filter(id=>gateZones.get(id)?.gate||ROAMING_DATA.groups.some(group=>group.ids.includes(id)));
         if(!goals.length)return null;
-        const owned=new Set([...(s.mons||[]),...(s.pension?.mons||[]).map(slot=>slot.mon),...(s.under?.slots||[]).flatMap(slot=>slot.mons||[])].filter(Boolean).map(mon=>mon.id)),visited=new Set();
+        const owned=new Set(gateMembers(s).filter(Boolean).map(mon=>mon.id)),visited=new Set();
         const open=new Set(['kanto',currentRegion(s),...(s.travel?.to||[])]);
-        const plan={goals,lines:[],wild:new Set(),zones:new Set(),items:new Set(),roam:new Set(),trainers:new Set(),doors:new Map(),elites:new Map(),progress:false,notes:[]};
-        function species(id){
+        const plan={goals,lines:[],wild:new Set(),zones:new Set(),items:new Set(),roam:new Set(),roamOwned:new Set(),trainers:new Set(),doors:new Map(),elites:new Map(),progress:false,notes:[]};
+        function species(id,requireOwned=false){
+            const group=ROAMING_DATA.groups.find(group=>group.ids.includes(id));
+            if(group&&requireOwned)plan.roamOwned.add(id);
+            if(group&&open.has(group.reg)){
+                if(!s.adv.badges?.includes(group.badge))plan.progress=true;
+                if(s.roam?.caught?.includes(id)){
+                    if(requireOwned&&!owned.has(id)&&!visited.has(id))plan.notes.push(MONS.get(id).name+'已完成游荡，当前持有条件可通过交换补齐');
+                }else if(requireOwned?!owned.has(id):!captured(s,id))plan.roam.add(id);
+                visited.add(id);return;
+            }
             if(visited.has(id))return;
             visited.add(id);
             const zone=gateZones.get(id);
             if(!zone){plan.wild.add(id);return;}
             if(!open.has(zone.reg)){plan.progress=true;plan.notes.push('需要开放'+DATA.regions.find(r=>r.key===zone.reg).name);return;}
-            if(zone.eliteOnly&&ROAMING_DATA.groups.some(g=>g.ids.includes(id))){
-                const group=ROAMING_DATA.groups.find(group=>group.ids.includes(id));
-                if(!s.adv.badges?.includes(group.badge))plan.progress=true;
-                if(s.roam?.caught?.includes(id)||captured(s,id))plan.notes.push(MONS.get(id).name+'已完成游荡，当前持有条件可通过交换补齐');
-                else plan.roam.add(id);
-                return;
-            }
             if(!goals.includes(id)&&captured(s,id)&&!owned.has(id)){
                 plan.notes.push(MONS.get(id).name+'有捕获记录，需重新持有；可检查地区寄存或交换');return;
             }
@@ -70,7 +76,7 @@
                     }
                 }else{ready=false;plan.notes.push(zone.condition);continue;}
                 plan.lines.push({id,kind:rule.kind,label,have:Math.min(have,need),need,missing});
-                if(have<need){ready=false;for(const n of missing)species(n);}
+                if(have<need){ready=false;for(const n of missing)species(n,rule.kind==='owns'||rule.kind==='door');}
             }
             if(ready)plan.zones.add(zone.id);
         }

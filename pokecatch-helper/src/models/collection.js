@@ -33,7 +33,7 @@
         settings=roamingSettings(settings);
         const target=MONS.get(Number(settings.roamId)),group=ROAMING_DATA.groups.find(group=>group.ids.includes(target?.id));
         if(!group)return{missing:true,target:null,group:null,captured:false,unlocked:false,location:null,done:false};
-        const got=captured(s,target.id)||(s.roam?.caught||[]).includes(target.id),open=new Set(['kanto',...(s.travel?.to||[]),currentRegion(s)]);
+        const got=(settings.roamRequireOwned?gateOwnsMon(s,target.id):captured(s,target.id))||(s.roam?.caught||[]).includes(target.id),open=new Set(['kanto',...(s.travel?.to||[]),currentRegion(s)]);
         const unlocked=!!s.adv?.badges?.includes(group.badge)&&open.has(group.reg),raw=s.roam?.at?.[target.id],chapter=CHAPTERS.get(Number(raw?.ch));
         const location=unlocked&&chapter?.reg===group.reg&&!chapter.league&&chapter.id<=s.adv.unlocked&&Number(raw.until)>now?{ch:chapter.id,until:Number(raw.until)}:null;
         return{target,group,captured:got,unlocked,location,done:got};
@@ -41,13 +41,27 @@
     function roamingPlan(s,settings,now=Date.now()){
         settings=roamingSettings(settings);const progress=roamingProgress(s,settings,now);
         if(!progress.target||progress.done||!progress.unlocked)return{...progress,row:null,marked:false,restart:false};
-        const index=(s.adv.nodes||[]).findIndex(node=>Number(node.roamer)===progress.target.id),active=s.adv.battle?.roam===progress.target.id;
-        const marked=active||index>=Number(s.adv.node||0)&&index>=0;
+        const nodes=s.adv.nodes||[],cursor=Number(s.adv.node)||0;
+        const index=nodes.findIndex((node,i)=>i>=cursor&&Number(node.roamer)===progress.target.id),active=s.adv.battle?.roam===progress.target.id;
+        const marked=active||index>=0;
+        const passed=!marked&&nodes.some((node,i)=>i<cursor&&Number(node.roamer)===progress.target.id);
         // A previously generated native roaming node stays a valid encounter even
         // after its map marker moves. Finish that node before chasing the new marker.
         const chapter=marked?CHAPTERS.get(s.adv.chapter):CHAPTERS.get(progress.location?.ch),valid=chapter?.reg===progress.group.reg&&!chapter.league&&chapter.id<=s.adv.unlocked;
         const row=valid?{...chapter,key:String(chapter.loop),members:[chapter.id],roamId:progress.target.id}:null;
-        return{...progress,row,marked,index,active,restart:!!row&&row.id===s.adv.chapter&&!marked&&Number(s.adv.node)>0};
+        return{...progress,row,marked,index,active,passed,restart:!!row&&row.id===s.adv.chapter&&!marked&&cursor>0};
+    }
+    function bestRoamingPlan(s,cfg,ids,now,preferred,owned=[]){
+        let best=null,bestPriority=0;
+        for(const id of ids){
+            const plan=roamingPlan(s,{...cfg,mode:'roam',roamId:id,roamRequireOwned:owned.includes(id)},now);
+            if(!plan.row)continue;
+            const priority=plan.active?5:plan.marked?4:plan.row.id===s.adv.chapter?3:id===preferred?2:1;
+            if(priority>bestPriority||priority===4&&bestPriority===4&&plan.index<best.index){
+                best=plan;bestPriority=priority;
+            }
+        }
+        return best;
     }
     function chapterItemCount(s,chapter,item){
         const reg=CHAPTERS.get(chapter)?.reg,link=s.link;

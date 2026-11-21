@@ -123,7 +123,7 @@
                 const b=task.fitBasis,e=this.e,pins=e.settings.mode==='train'?trainingUids(s,e.settings,e.trainProtected):[];
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
                 if(!e.settings.autoTeam||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
-                    e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==roamingSettings(e.settings).roamId||
+                    e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(e.settings).roamId)||
                     !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==rosterFingerprint(s)||
                     b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)){
                     this.teamTask=null;e.teamCheck=null;return false;
@@ -356,7 +356,7 @@
             // Missing or hidden controls must use the normal UI timeout rather than wait forever.
             if(this.pendingMap?.row===row)delete this.pendingMap.waiting;
             if (!this.nav('map')) return false;
-            if (!options.zone && !options.leaveZone && !this.clearLoops(s, row.key)) return false;
+            if (!options.zone && !options.leaveZone && !options.restart && !this.clearLoops(s, row.key)) return false;
             const reg = $(`#map-root .rg.open[data-rg="${row.reg}"]`);
             if (!reg) throw new Error(`地图地区未解锁：${row.reg}`);
             if (!reg.classList.contains('active')) {
@@ -409,16 +409,17 @@
                 const go=$(`#map-root .mp-go[data-go="${row.league?'L':row.id}"]`);
                 return this.click(go,'返回原章节，先处理通关日常');
             }
+            if(options.restart){
+                if(s.adv.chapter!==row.id||!Number(s.adv.node))return false;
+                const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
+                return enabled(restart)?this.click(restart,`重新进入${row.name}，生成当前游荡遭遇`):false;
+            }
             // Give the helper exclusive native looping; remember the previous set for restoration.
             const unwanted = $$('#map-root [data-loop][aria-checked="true"]').find(el => String(el.dataset.loop) !== row.key);
             if (unwanted) { this.click(unwanted, '关闭其他章节循环'); return false; }
             const loop = $$('#map-root [data-loop]').find(el => String(el.dataset.loop) === row.key);
             if (!loop) return false;
             if (loop.getAttribute('aria-checked') !== 'true') { this.click(loop, '启用目标地图循环'); return false; }
-            if(options.restart&&s.adv.chapter===row.id&&Number(s.adv.node)>0){
-                const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
-                return enabled(restart)?this.click(restart,`重新进入${row.name}，生成当前游荡遭遇`):false;
-            }
             const go = $(`#map-root .mp-go[data-go="${row.league ? 'L' : row.id}"]`);
             return this.click(go, `前往${row.name}`);
         }

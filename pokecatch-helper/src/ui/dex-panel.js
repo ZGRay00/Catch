@@ -113,7 +113,7 @@
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
             if(base.id!==mon.id)family.append(' ',speciesButton(base,'查'+base.name+'来源'));
             results.append(family);
-            if(!caught&&gates){
+            if(!caught&&gates&&gateZones.get(mon.id)?.gate){
                 const details=label('details','','gate-checks'),list=label('ul','');
                 const direct=gates.lines.filter(line=>line.id===mon.id);
                 details.open=true;

@@ -71,6 +71,22 @@ test('origin form tracks the elite reward and returns to the requested form when
     assert.deepEqual([...H.legendRequirements(s, [48701]).zones], [48701]);
 });
 
+test('the selected Giratina task advances through Mesprit, each orb and each live parent independently', () => {
+    const s=save(),e=new H.Engine({}, {mode:'legend',legendId:487,legendTier:0,legends:true});
+    s.roam={caught:[],at:{481:{ch:50,until:now+60000}}};
+    let action;
+    e.roaming=(state,at,cfg,sub)=>action=['roam',cfg.roamId,sub];
+    e.findLegend=(state,status)=>{action=['zones',...status.ids];return true;};
+    e.travel=(row,at,opt)=>action=[opt?.zone?'zone':'route',row.id];
+    e.legend(s,now);assert.deepEqual(action,['roam',481,true]);
+    s.mons.push(mon(480),mon(481),mon(482));s.roam.caught.push(481);
+    s.items['lustrous-orb']=1;e.legend(s,now);assert.deepEqual(action,['zones',484]);
+    s.mons.push(mon(484));e.legend(s,now);assert.equal(action[0],'route');
+    assert.ok([50,57].includes(action[1]));assert.equal(e.settings.legendId,487);
+    s.items['adamant-orb']=1;e.legend(s,now);assert.deepEqual(action,['zones',483]);
+    s.mons.push(mon(483));e.legend(s,now);assert.deepEqual(action,['zone',487]);
+});
+
 test('subgoals obey the master-ball permission and return to the outer task', () => {
     const s = save(), cfg = settings(487); s.items['master-ball'] = 1;
     s.roam = { at: { 481: { ch: 50, until: now + 10000 } } };

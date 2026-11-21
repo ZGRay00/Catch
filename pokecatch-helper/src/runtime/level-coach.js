@@ -136,6 +136,8 @@
                 row=e.driver.pendingMap&&!e.driver.pendingMap.options?.zone?e.driver.pendingMap.row:e.target;
                 if(!row)return null;
             }
+            // The tracker checks the live marker before preparing and skips preparation after a successful KO.
+            if(e.driver.pendingMap?.options?.roamId||row.roamId)return null;
             return{context:battleContext(s,mode==='progress'?'progress':'map',{row,roamId:mode==='roam'?e.settings.roamId:undefined}),resume:mode==='progress'?{}:{row:routeDescriptor(row),...mode==='roam'?{options:{roamId:e.settings.roamId}}:{}}};
         }
         activity(s){

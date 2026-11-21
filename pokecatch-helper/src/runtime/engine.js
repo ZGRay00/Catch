@@ -192,6 +192,7 @@
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
             this.roamProbeAt=this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
+            this.lastRoamAttempt=null;
             this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
             this.raidReturn=this.nextWake=this.modalWaitSince=this.modalWaitNode=null;
             this.nextRaid=this.nextLegend=0;
@@ -1014,6 +1015,19 @@
                 if(pending.options?.roamId&&!this.settings.roamAllowMasterBall&&(Number(s.items?.['master-ball'])||0)>0){
                     pending.started=now;this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球';return;
                 }
+                if(pending.options?.roamId){
+                    const opt=pending.options;
+                    const gates=opt.roamGoals?legendRequirements(s,opt.roamGoals.filter(id=>!captured(s,id))):null;
+                    const ids=opt.roamGoals?(gates?.roam||[]):opt.roamIds||[opt.roamId];
+                    const best=bestRoamingPlan(s,this.settings,ids,now,opt.roamId,gates?[...gates.roamOwned]:[]);
+                    if(!best||best.target.id!==opt.roamId||best.row.id!==pending.row.id||best.active||
+                        best.marked&&best.row.id===s.adv.chapter||!!opt.restart!==best.restart){
+                        this.driver.pendingMap=null;this.status='游荡位置或遭遇已变化，重新确认路线';return;
+                    }
+                    if(s.adv.pending||s.adv.battle&&!this.ordinaryBattleKey(s)){
+                        pending.started=now;this.lastProgress=now;return;
+                    }
+                }
                 const wasWaiting=!!pending.waiting;
                 if (!wasWaiting&&now - pending.started > 60000) { this.stop('地图操作超时，请检查地区解锁和页面控件'); return; }
                 if (this.driver.map(pending.row, s, pending.options)) {
@@ -1048,6 +1062,10 @@
             }
             if (this.settings.mode === 'legend') {
                 if (s.adv.speed !== this.settings.speed) { if (this.driver.nav('adventure')) this.driver.click($(`#speed-btns [data-speed="${this.settings.speed}"]`), '设置游戏内速度'); return; }
+                if(!safeBoundary&&!startingBattle&&this.lockedLegend===this.settings.legendId&&!this.settings.legendTier&&!s.adv.pending){
+                    const gate=legendRequirements(s,[this.lockedLegend]);
+                    if(gate&&this.pursueGateRoamer(s,{...this.settings,legends:true,dexWeather:[]},gate,now))return;
+                }
                 if (safeBoundary || startingBattle) this.legend(s, now); return;
             }
             const speed = $(`#speed-btns [data-speed="${this.settings.speed}"]`);
@@ -1104,9 +1122,12 @@
                     this.status=this.settings.autoEggs?'补图鉴 · 剩余目标均已取得蛋，等待成熟并领取':'补图鉴 · 剩余目标均已取得蛋，成熟后请在培育屋领取';
                     this.driver.nav('adventure');return;
                 }
-                const gate=this.settings.dexSpecies.length&&(!rows.length||rows[0].gateRoute)
+                const gate=this.settings.dexSpecies.length
                     ?legendRequirements(s,status.missing.map(m=>m.id)):null;
-                if(gate&&!s.adv.pending&&this.advanceRequirements(s,this.settings,gate,rows,now))return;
+                if(gate&&!s.adv.pending){
+                    if(!rows.length||rows[0].gateRoute){if(this.advanceRequirements(s,this.settings,gate,rows,now))return;}
+                    else if(this.pursueGateRoamer(s,this.settings,gate,now))return;
+                }
                 const alternate=this.huntAlternate(s,stillNeeded,rows,now);
                 if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
                     if(directedHunt&&this.settings.autoTeam&&this.fitTeam(s,now))return;
@@ -1211,9 +1232,9 @@
             job.timer=setTimeout(advance,0);
             return null;
         }
-        fitTeam(s,now) {
+        fitTeam(s,now,trackedRoamer) {
             if(s.adv.battle?.pick||this.driver.lastSwitchFoe&&s.adv.battle?.foes?.includes(this.driver.lastSwitchFoe))return false;
-            const roam=this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
+            const roam=trackedRoamer||this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
             const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam||now<this.teamRetryAt)return false;
             const frontier=this.settings.mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
             if(frontier&&c.id!==frontier.id&&!(c.league&&frontier.league&&c.loop===frontier.loop))return false;
@@ -1224,7 +1245,7 @@
             const current={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(member=>member.loop===c.loop).map(member=>member.id):[c.id]};
             const row=frontier?current:pending?.row||this.target||current;
             const objective=this.settings.mode==='train'?'train':['money','item','shiny'].includes(this.settings.mode)||this.settings.mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':'progress';
-            const roamId=roam?roamingSettings(this.settings).roamId:undefined;
+            const roamId=trackedRoamer||(roam?roamingSettings(this.settings).roamId:undefined);
             const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
@@ -1271,7 +1292,9 @@
                 if(goal.zone.gate&&this.settings.progress&&(this.canProgress(s)||this.settings.autoTravel)){this.progress(s,now);return;}
                 this.waitForFarm('等待目标地区开放 · '+goal.zone.name+'，可开启主线推进与跨地区开局',now);return;
             }
-            if(this.lockedLegend===goal.zone.id&&!this.settings.legendTier){
+            const ownsGate=goal.zone.gate?.kind==='owns'&&goal.zone.gate.ids.some(id=>!gateOwnsMon(s,id));
+            if((this.lockedLegend===goal.zone.id||ownsGate)&&!this.settings.legendTier){
+                this.lockedLegend=goal.zone.id;
                 const cfg={...this.settings,mode:'dex',region:'all',dexSpecies:[goal.zone.id],dexWeather:[],legends:true};
                 const plan=legendRequirements(s,cfg.dexSpecies);
                 if(plan&&!plan.zones.has(goal.zone.id)){
@@ -1301,8 +1324,10 @@
                 const plan=roamingPlan(s,{...cfg,legendId:goal.zone.id},now);
                 return plan.unlocked&&(plan.marked||plan.location)&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall);
             };
-            const encounter=s.adv.battle?.roam;
-            const goal=eligible.find(g=>g.roaming&&!cfg.legendTier&&g.zone.id===encounter)||eligible.find(canAttempt)||eligible.find(g=>g.roaming&&!cfg.legendTier&&
+            const tracked=!cfg.legendTier&&bestRoamingPlan(s,cfg,eligible.filter(g=>g.roaming).map(g=>g.zone.id),now,this.target?.roamId);
+            const first=eligible.find(canAttempt);
+            const prefer=tracked&&(tracked.active||(cfg.roamAllowMasterBall||!s.items?.['master-ball'])&&(tracked.marked||first?.roaming));
+            const goal=(prefer&&eligible.find(g=>g.zone.id===tracked.target.id))||first||eligible.find(g=>g.roaming&&!cfg.legendTier&&
                 roamingProgress(s,{...cfg,legendId:g.zone.id},now).unlocked&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall));
             if(!goal){
                 this.status='还有 '+remaining.length+' 个传说目标，等待地区、地图、普通捕获或游荡条件满足';
@@ -1316,7 +1341,7 @@
             }
             return true;
         }
-        roaming(s,now,cfg=roamingSettings(this.settings),prerequisite=false){
+        roaming(s,now,cfg=roamingSettings(this.settings),prerequisite=false,groupOptions={}){
             const plan=roamingPlan(s,cfg,now),d=this.driver;
             this.telemetry.sample=null;
             if(!plan.target){this.failTask('无法识别所选游荡宝可梦');return;}
@@ -1326,7 +1351,17 @@
             if(cfg.roamMinutes>0&&this.roamStarted!=null&&now-this.roamStarted>=cfg.roamMinutes*60000){this.failTask('达到游荡目标在线搜寻时限，已停止助手规划');return;}
             if(s.adv.speed!==cfg.speed){if(d.nav('adventure'))d.click($(`#speed-btns [data-speed="${cfg.speed}"]`),'设置游荡捕获速度');return;}
             if(plan.active){this.roamStarted??=now;this.status=`游荡战斗 · ${plan.target.name} · 捕获后以存档确认完成`;d.nav('adventure');return;}
-            if(!this.canStartRoute(s)){this.status=`追踪${plan.target.name} · 等待当前战斗或选择结束`;d.nav('adventure');return;}
+            if(!this.canStartRoute(s)&&!this.ordinaryBattleKey(s)){this.status=`追踪${plan.target.name} · 等待当前战斗或选择结束`;d.nav('adventure');return;}
+            const options={roamId:plan.target.id,restart:plan.restart,...groupOptions};
+            if(!prerequisite&&cfg.mode==='legend'&&cfg.legendIds?.length>1)options.roamIds=cfg.legendIds;
+            if(plan.passed&&plan.row){
+                const attempt=[plan.target.id,s.adv.chapter,s.adv.runs||0,s.legTries?.[plan.target.id]||0,plan.row.id].join('/');
+                if(attempt!==this.lastRoamAttempt){
+                    this.lastRoamAttempt=attempt;this.roamRestartAt=now;
+                    this.travel(plan.row,now,{...options,roamSettled:true});return;
+                }
+                if(now-this.roamRestartAt<7000){d.nav('adventure');return;}
+            }
             if(!plan.row){
                 this.lastProgress=now;this.status=`等待${plan.target.name}的新游荡位置 · 仅在线生成遭遇`;
                 if(!d.nav('map'))return;
@@ -1339,13 +1374,14 @@
             if(buffFamily==='capture'){if(this.automation.autoBuff(s,now,'roamCapture'))return;}
             else if(this.automation.autoBuff(s,now,'roam')||this.automation.autoBuff(s,now,'roamCapture'))return;
             const context=battleContext(s,'map',{row:plan.row,roamId:plan.target.id});
-            if(this.ensurePrepared(s,context,{row:routeDescriptor(plan.row),options:{roamId:plan.target.id}},now))return;
-            if(s.adv.chapter!==plan.row.id||!this.target?.members?.includes(plan.row.id)){
-                this.travel(plan.row,now,{roamId:plan.target.id,restart:plan.restart});return;
+            if(this.ensurePrepared(s,context,{row:routeDescriptor(plan.row),options},now))return;
+            if(s.adv.chapter!==plan.row.id||!plan.marked&&!this.target?.members?.includes(plan.row.id)){
+                this.travel(plan.row,now,options);return;
             }
+            if(plan.marked&&this.target?.roamId!==plan.target.id)this.target=plan.row;
             this.roamStarted??=now;
-            if(cfg.autoTeam&&this.fitTeam(s,now))return;
-            if(plan.restart&&now-(this.roamRestartAt||0)>=7000){this.roamRestartAt=now;this.travel(plan.row,now,{roamId:plan.target.id,restart:true});return;}
+            if(cfg.autoTeam&&this.fitTeam(s,now,plan.target.id))return;
+            if(plan.restart&&now-(this.roamRestartAt||0)>=7000){this.roamRestartAt=now;this.travel(plan.row,now,options);return;}
             const remaining=plan.location?` · 驻留约 ${Math.max(1,Math.ceil((plan.location.until-now)/60000))} 分钟`:'';
             this.status=`追踪${plan.target.name} · ${plan.row.name}${plan.marked?' · 当前路线已生成目标遭遇':remaining}`;d.nav('adventure');
         }
@@ -1567,7 +1603,7 @@
         }
         ordinaryBattleKey(s) {
             const a=s.adv, b=a.battle, node=a.nodes?.[a.node];
-            if (!b || a.pending || a.event || a.zone || a.tower || a.league || b.raid || node?.static || node?.phenom || node?.roamer) return null;
+            if (!b || a.pending || a.event || a.zone || a.tower || a.league || b.raid || b.roam || node?.static || node?.phenom || node?.roamer) return null;
             if (!['wild','trainer'].includes(b.kind) || node && !['wild','trainer'].includes(node.type)) return null;
             if (b.kind==='wild' && (!b.enemies?.length || b.enemies.some(m=>!MONS.has(m.id)||m.shiny||MONS.get(m.id).legend))) return null;
             return JSON.stringify([a.chapter,a.node,a.runs||0,b.kind]);
@@ -1611,7 +1647,7 @@
             const s=this.read();if(this.holdWildShiny(s,now))return;
             if(this.settings.mode==='dex'&&row.window)options={...options,dexWindow:true};
             if(!options.huntSeason&&(this.settings.mode==='dex'&&row.hasWild||this.settings.mode==='shiny'&&row.expected>0))options={...options,huntSeason:weatherSeason(now)};
-            if(!options.zone&&this.ensurePrepared(s,battleContext(s,'map',{row,roamId:options.roamId}),{row:routeDescriptor(row),options},now))return;
+            if(!options.zone&&!options.roamSettled&&this.ensurePrepared(s,battleContext(s,'map',{row,roamId:options.roamId}),{row:routeDescriptor(row),options},now))return;
             this.driver.pendingMap = { row, options, started: now };
             if(this.settings.mode==='train')this.driver.pendingMap.trainingProfile=trainingRouteFingerprint(s);
             this.telemetry.sample = null; this.status = `规划前往：${row.name}`;
@@ -1769,16 +1805,19 @@
         waitForFarm(reason,now){
             this.farmWait={mode:this.settings.mode};this.lastProgress=now;this.status=reason;
         }
+        pursueGateRoamer(s,cfg,plan,now){
+            if(!cfg.legends||cfg.dexWeather?.length||!plan.roam.size||s.items?.['master-ball']&&!cfg.roamAllowMasterBall)return false;
+            const best=bestRoamingPlan(s,cfg,plan.roam,now,this.target?.roamId,[...plan.roamOwned]);
+            if(!best)return false;
+            const id=best.target.id;
+            this.roaming(s,now,{...cfg,mode:'roam',roamId:id,roamRequireOwned:plan.roamOwned.has(id)},true,{roamGoals:plan.goals});
+            return true;
+        }
         advanceRequirements(s,cfg,plan,rows,now){
             const enabled=cfg.legends&&!cfg.dexWeather?.length,label=requirementLabel(plan)+'前置';
             const signature=JSON.stringify([plan.goals,[...plan.zones],this.settings.mode]);
             if(signature!==this.gateSignature){this.gateSignature=signature;this.legendProbe=null;this.nextLegend=0;}
-            const roam=[...plan.roam].find(id=>{
-                const state=roamingPlan(s,{...cfg,mode:'roam',roamId:id},now);
-                return !state.done&&(state.active||state.marked||state.location)&&
-                    (cfg.roamAllowMasterBall||!s.items?.['master-ball']);
-            });
-            if(enabled&&roam){this.roaming(s,now,{...cfg,mode:'roam',roamId:roam},true);return true;}
+            if(this.pursueGateRoamer(s,cfg,plan,now))return true;
             if(enabled&&plan.zones.size&&now>=this.nextLegend&&this.findLegend(s,{ids:plan.zones},now))return true;
             if(rows.length)return false;
             for(const [id,tier] of plan.elites){
@@ -1830,8 +1869,8 @@
             if(plan.progress&&!cfg.progress)details.push('可开启无目标时推进主线');
             if(enabled&&plan.roam.size&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall)){
                 for(const id of plan.roam){
-                    const sub={...cfg,mode:'roam',roamId:id},state=roamingProgress(s,sub,now);
-                    if(!state.done&&state.unlocked){this.roaming(s,now,sub,true);return true;}
+                    const sub={...cfg,mode:'roam',roamId:id,roamRequireOwned:plan.roamOwned.has(id)},state=roamingProgress(s,sub,now);
+                    if(!state.done&&state.unlocked){this.roaming(s,now,sub,true,{roamGoals:plan.goals});return true;}
                 }
             }
             this.waitForFarm(label+' · '+(details.join('；')||'等待游戏开放来源'),now);

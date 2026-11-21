@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **5.10.0**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **6.0.0**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v5.10.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v6.0.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+6.0.0 · 游荡捕获失败后按最新位置重开本图或换图，多选目标优先当前战斗及已生成的遭遇。指定凤王或骑拉帝纳会检查多层前置，确认持有和宝珠后回到原目标。
 
 5.10.0 · 指定梦幻、骑拉帝纳等目标时，助手会按游戏条件安排登记物种、持有成员、收集宝珠和挑战前置首领。任务页显示条件进度，点「查看条件」可展开缺失物种并查看来源。免费等级进化、游荡大师球及跨地区开局沿用各自的开关。
 

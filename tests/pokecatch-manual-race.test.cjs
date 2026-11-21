@@ -33,7 +33,7 @@ test('manual handoff snapshots a helper raid saved after the last engine tick',a
     state.adv.event={raid:true,reg:'kanto',id:35,date:H.parisDay(),loops:23};save();
     assert.equal(e.state.adv.event,undefined,'cached state still predates the raid launch');
     e.manualInput(now);assert.ok(e.manual.raid,'fresh save identity is captured before yielding');
-    await e.step(now+16000);assert.equal(e.manual,null);assert.equal(e.running,true);assert.match(e.status,/23\/150/);assert.deepEqual(actions,['adventure']);assert.equal(gameWrites(),0);e.stop();
+    await e.step(now+16000);assert.equal(e.manual,null);assert.equal(e.running,true);assert.match(e.status,/当前第 24 轮/);assert.deepEqual(actions,['adventure']);assert.equal(gameWrites(),0);e.stop();
 });
 
 test('the first input before a user launches a new raid still leaves that activity under manual control',async t=>{

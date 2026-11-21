@@ -5,7 +5,11 @@
         const scripts=[...(document.querySelectorAll?.('script[src]')||[])];
         const hashes=new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
-        if(!hashes.size)return{build:declared||'unverified:missing'};
+        if(!hashes.size){
+            // A reused launcher ID alone cannot identify which application supplied the rules.
+            if(declared&&Object.values(NURSERY_BUILDS).filter(build=>build===declared).length>1)return{build:'unverified:missing-bundle'};
+            return{build:declared||'unverified:missing'};
+        }
         const [bundle]=hashes;
         // A launcher-only deployment can still serve exactly the same reviewed application.
         if(NURSERY_BUILDS[bundle]&&/^[a-f0-9]{10}$/.test(declared)&&!NURSERY_RULES.compatibleBuilds.includes(declared)){

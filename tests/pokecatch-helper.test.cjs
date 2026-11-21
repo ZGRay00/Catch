@@ -395,7 +395,7 @@ test('prepared raids return even with daily priority disabled, survive manual in
     e.manualInput(now+1000);assert.equal(e.raidProbe,false);e.manual.until=now;e.manualStep(s,now+2000);assert.equal(e.raidProbe,true);
     await e.step(now+3000);assert.equal(actions.filter(a=>a==='raid').length,1,'explicit return runs before the ordinary legend workflow');
     s.adv.event={raid:true,id:35,reg:'kanto',loops:23};e.driver.raid={boss:35,reg:'kanto',started:now};e.storage.setItem('gachamon-save-v1',JSON.stringify(s));await e.step(now+4000);
-    assert.equal(actions.filter(a=>a==='raid').length,1,'active raid is observed rather than re-entered');assert.equal(e.raidReturn,null);assert.match(e.status,/23\/150/);e.stop();
+    assert.equal(actions.filter(a=>a==='raid').length,1,'active raid is observed rather than re-entered');assert.equal(e.raidReturn,null);assert.match(e.status,/当前第 24 轮/);e.stop();
 });
 
 test('automation metadata covers shop, eggs and wild shiny targets without legendary encounters',()=>{
@@ -644,7 +644,22 @@ test('manual interruption resumes an already owned raid without resetting its at
     const s=state();s.adv.event={raid:true,reg:'kanto',id:35,date:'2026-11-13',loops:23};
     const {e,actions}=runtime(t,s,{mode:'money',raids:false}),now=Date.now();e.read();
     const raid={reg:'kanto',boss:35,started:now};e.driver.raid=raid;e.manualInput(now);await e.step(now+16000);
-    assert.equal(e.manual,null);assert.equal(e.driver.raid,raid);assert.match(e.status,/23\/150/);assert.equal(s.adv.event.loops,23);assert.deepEqual(actions,['nav']);
+    assert.equal(e.manual,null);assert.equal(e.driver.raid,raid);assert.match(e.status,/当前第 24 轮/);assert.equal(s.adv.event.loops,23);assert.deepEqual(actions,['nav']);
+});
+
+test('active raid reports the native capture gauge independently of challenge loops, region and rollover',async t=>{
+    const s=state(),date='2026-11-13';
+    s.adv.event={raid:true,reg:'kanto',id:35,date,loops:0};
+    s.raids={pity:{kanto:{date,n:78},johto:{date,n:149}}};
+    const {e}=runtime(t,s,{mode:'money',raids:false}),now=Date.now();
+    e.driver.raid={reg:'kanto',boss:35,started:now};
+    await e.step(now);
+    assert.match(e.status,/当前第 1 轮 · 大师球进度 78\/150/);
+    for(const [record,expected] of [[{date,n:149},'下一次投球必定捕获'],[{date:'2026-11-12',n:149},'大师球进度 0/150']]){
+        s.raids.pity.kanto=record;s.adv.event.loops++;
+        e.storage.setItem('gachamon-save-v1',JSON.stringify(s));
+        await e.step(now+s.adv.event.loops*1200);assert.ok(e.status.includes(expected),e.status);
+    }
 });
 
 test('explicit Resume adopts a raid opened during manual control and returns to the original money goal',async t=>{
@@ -655,7 +670,7 @@ test('explicit Resume adopts a raid opened during manual control and returns to 
     const original=e.storage.getItem('gachamon-save-v1'),began=e.started;
     e.resumeManual(now+17000);await e.step(now+18000);
     assert.equal(e.manual,null);assert.equal(e.driver.raid.boss,14);assert.equal(e.driver.raid.started,now+17000);
-    assert.match(e.status,/团体战进行中.*23\/150/);assert.deepEqual(actions,['nav']);
+    assert.match(e.status,/团体战进行中.*当前第 24 轮/);assert.deepEqual(actions,['nav']);
     assert.equal(e.storage.getItem('gachamon-save-v1'),original);assert.equal(e.budget.spent,75);assert.equal(e.budget.used,2);assert.equal(e.started,began);
     s.adv.event=null;e.storage.setItem('gachamon-save-v1',JSON.stringify(s));await e.step(now+19000);
     assert.equal(e.running,true);assert.equal(e.settings.mode,'money');assert.equal(e.driver.raid,null);assert.ok(e.driver.pendingMap);e.stop();
@@ -666,7 +681,7 @@ test('explicit raid resume clears stale held input and preserves the owned raid 
     const {e}=runtime(t,s,{raids:false}),now=Date.now();e.read();e.schedule=()=>{};
     e.driver.raid={reg:'kanto',boss:35,date:H.parisDay(),started:now-60000};e.manualInput(now);e.inputHeld=true;
     e.resumeManual(now+1000);assert.equal(e.manual,null);assert.equal(e.inputHeld,false);assert.equal(e.driver.raid.started,now-60000);
-    await e.step(now+2000);assert.equal(e.manual,null);assert.match(e.status,/团体战进行中.*23\/150/);
+    await e.step(now+2000);assert.equal(e.manual,null);assert.match(e.status,/团体战进行中.*当前第 24 轮/);
     assert.equal(e.driver.raid.started,now-60000);e.stop();
 });
 
@@ -674,7 +689,7 @@ test('manual raid identity tolerates legacy missing date or region while detecti
     const s=state();s.adv.event={raid:true,id:35,loops:23};const {e}=runtime(t,s,{raids:false}),now=Date.now();
     e.read();e.driver.raid={reg:'kanto',boss:35,started:now};e.manualInput(now);
     e.manual.raid=JSON.stringify([null,35,null]);s.adv.event.date=H.parisDay();s.adv.event.reg='kanto';e.storage.setItem('gachamon-save-v1',JSON.stringify(s));
-    await e.step(now+16000);assert.equal(e.manual,null);assert.match(e.status,/23\/150/);
+    await e.step(now+16000);assert.equal(e.manual,null);assert.match(e.status,/当前第 24 轮/);
     e.manualInput(now+17000);s.adv.event.id=14;e.storage.setItem('gachamon-save-v1',JSON.stringify(s));await e.step(now+33000);
     assert.ok(e.manual);assert.match(e.status,/手动活动/);e.stop();
 });
@@ -1033,7 +1048,7 @@ test('Start adopts an ongoing raid without editing the game save or replacing it
     assert.equal(e.raidProbe, false);
     await e.step();
     assert.equal(e.running, true);
-    assert.match(e.status, /团体战进行中.*23\/150/);
+    assert.match(e.status, /团体战进行中.*当前第 24 轮/);
     assert.equal(e.storage.getItem('gachamon-save-v1'), original);
     e.stop(); e.start();
     assert.equal(e.running, true, 'stopping and restarting during the raid should resume it');

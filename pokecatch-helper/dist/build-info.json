@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.0.2",
-  "scriptSha256": "2900462fc0e83e631ff755e24ef93d4e17fa8b02b2c46c2d89a8666f7fb3f8b6",
-  "metadataSha256": "544c855c92307d002eb9350e40b4f9b3eeec054d00a842763b7070d7f04575a5",
+  "version": "6.1.0",
+  "scriptSha256": "e4a65ebfb73bba22312acccbf4dc60655f8bf0322e5d5bf5face68a2c9139cc3",
+  "metadataSha256": "5a3ba67be602509499f4e975e1c7044870c9adfefa48f80c682144e49d44eaa5",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "8d20af2a9c9b0c47ee744d64861a02c917fb36ba1ab3ceac9db3d64f279d17d7"
+      "sha256": "745ba28ba40183f9b837771e33b8221860e683a8f02c9f3cb32d84e8bc31ecfc"
     },
     {
       "file": "build.manifest.json",
@@ -54,7 +54,7 @@
     },
     {
       "file": "src/models/facilities.js",
-      "sha256": "16d3e59dd25d415580d25373e114292ea711c79a8e842db37d006fa52561438a"
+      "sha256": "a7a4fe4e262dc3a931d67b8ed5001651a28ef36605dd97860a65377dd7c72d71"
     },
     {
       "file": "src/models/task-goals.js",
@@ -74,7 +74,7 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "99ea15f691db77419e2f48a2b07b8ae51931864e93a2f2c3930c90cafc9a0e5c"
+      "sha256": "aa0ef66b9c8922c3af1bddb823eb1120f591f2c0685da86f64135434745c0639"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -82,7 +82,7 @@
     },
     {
       "file": "src/services/nursery-monitor.js",
-      "sha256": "251397f32ff948169db08f572d10b31da88f150ec6aad6041a98ac204c6a882d"
+      "sha256": "77c6922c94e56f829cdf4ae04d9e8ab1757f8f21db9e3109aadcc4ca7ca01adb"
     },
     {
       "file": "data/weather.json",
@@ -134,7 +134,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "f00bb56e621128a57f302c5694e836e2ecb35c716fcbf2fee57bd5de6e198fb2"
+      "sha256": "da12caad3596873dc78433aa6e66776323a814cea2038687665b05238a802f9d"
     },
     {
       "file": "src/runtime/automation.js",
@@ -146,7 +146,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "7138a06262179108e31f8e42143a7bde159a8174b375fd57b64aed5f844934b8"
+      "sha256": "b708bcb89caa9dbe8d82f8c4f1a42be7fb09c64deea1f179feb882f14cf5a0f5"
     },
     {
       "file": "src/runtime/node-exports.js",

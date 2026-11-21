@@ -15,6 +15,14 @@
     }
     // The native raid list opens a region when its last league chapter is cleared.
     const RAID_CHAMPIONS=DATA.regions.map(region=>DATA.chapters.filter(c=>c.reg===region.key&&c.league).at(-1)).filter(Boolean);
+    function raidProgressText(s,event,now=Date.now()){
+        const attempt=Math.max(0,Math.trunc(Number(event.loops)||0))+1;
+        const record=s.raids?.pity?.[event.reg||currentRegion(s)];
+        const date=event.date||parisDay(now);
+        const limit=150; // CONFIG.RAID.PITY. Only a failed capture advances the native gauge.
+        const misses=record?.date===date&&Number.isInteger(record.n)?Math.max(0,Math.min(record.n,limit-1)):0;
+        return `当前第 ${attempt} 轮 · `+(misses===limit-1?'下一次投球必定捕获':`大师球进度 ${misses}/${limit}`);
+    }
     function raidRetryAt(now,day,wait=600000){
         if(day&&day!==parisDay(now))return now;
         return Math.min(now+wait,nextParisReset(now));
@@ -40,7 +48,9 @@
         // Draw mode awards one region per day. Older multi-region schedules must finish every unlocked region.
         const reg=observed?.reg||reroll;
         if(reg&&regions?.length&&!regions.includes(reg))return {reason:'今日抽取的团体战不在所选地区',until:nextParisReset(now)};
-        const done=drawn?(reg?eligible.includes(reg)&&completed(reg):eligible.some(completed)):selected.every(completed);
+        // A day stamp says that a draw took place, but does not identify its region.
+        // If the draw is unknown, another region's capture cannot settle today's card.
+        const done=reg?eligible.includes(reg)&&completed(reg):selected.every(completed);
         if(done)return {reason:'今日可挑战的团体战已完成',until:nextParisReset(now)};
         if(skipOwned&&observed&&s.dex?.[observed.boss]?.shiny){
             return {reason:'已按设置跳过今日已拥有的异色目标',until:nextParisReset(now)};

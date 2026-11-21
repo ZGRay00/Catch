@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.0.2
+// @version      6.1.0
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.0.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -588,6 +588,14 @@
     }
     // The native raid list opens a region when its last league chapter is cleared.
     const RAID_CHAMPIONS=DATA.regions.map(region=>DATA.chapters.filter(c=>c.reg===region.key&&c.league).at(-1)).filter(Boolean);
+    function raidProgressText(s,event,now=Date.now()){
+        const attempt=Math.max(0,Math.trunc(Number(event.loops)||0))+1;
+        const record=s.raids?.pity?.[event.reg||currentRegion(s)];
+        const date=event.date||parisDay(now);
+        const limit=150; // CONFIG.RAID.PITY. Only a failed capture advances the native gauge.
+        const misses=record?.date===date&&Number.isInteger(record.n)?Math.max(0,Math.min(record.n,limit-1)):0;
+        return `当前第 ${attempt} 轮 · `+(misses===limit-1?'下一次投球必定捕获':`大师球进度 ${misses}/${limit}`);
+    }
     function raidRetryAt(now,day,wait=600000){
         if(day&&day!==parisDay(now))return now;
         return Math.min(now+wait,nextParisReset(now));
@@ -613,7 +621,9 @@
         // Draw mode awards one region per day. Older multi-region schedules must finish every unlocked region.
         const reg=observed?.reg||reroll;
         if(reg&&regions?.length&&!regions.includes(reg))return {reason:'今日抽取的团体战不在所选地区',until:nextParisReset(now)};
-        const done=drawn?(reg?eligible.includes(reg)&&completed(reg):eligible.some(completed)):selected.every(completed);
+        // A day stamp says that a draw took place, but does not identify its region.
+        // If the draw is unknown, another region's capture cannot settle today's card.
+        const done=reg?eligible.includes(reg)&&completed(reg):selected.every(completed);
         if(done)return {reason:'今日可挑战的团体战已完成',until:nextParisReset(now)};
         if(skipOwned&&observed&&s.dex?.[observed.boss]?.shiny){
             return {reason:'已按设置跳过今日已拥有的异色目标',until:nextParisReset(now)};
@@ -1433,9 +1443,10 @@
     // These functions read decoded saves. They never consume a roll, save or game action.
     const NURSERY_BUILDS=Object.freeze({
         '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
-        'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89'
+        'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89',
+        '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510'
     });
-    const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze(Object.values(NURSERY_BUILDS)),
+    const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
         berryMultiplier:2,berry:'belue-berry',ditto:132,eggMs:14400000,hatchMs:14400000,maxEggs:4,
         noEgg:[137,442,479,47901,47902,47903,47904,47905,556],lays:{489:489,490:489}});
@@ -1848,7 +1859,11 @@
         const scripts=[...(document.querySelectorAll?.('script[src]')||[])];
         const hashes=new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
-        if(!hashes.size)return{build:declared||'unverified:missing'};
+        if(!hashes.size){
+            // A reused launcher ID alone cannot identify which application supplied the rules.
+            if(declared&&Object.values(NURSERY_BUILDS).filter(build=>build===declared).length>1)return{build:'unverified:missing-bundle'};
+            return{build:declared||'unverified:missing'};
+        }
         const [bundle]=hashes;
         // A launcher-only deployment can still serve exactly the same reviewed application.
         if(NURSERY_BUILDS[bundle]&&/^[a-f0-9]{10}$/.test(declared)&&!NURSERY_RULES.compatibleBuilds.includes(declared)){
@@ -5379,7 +5394,7 @@
             const card = cards.find(card => {
                 const reg=card.dataset.rc,boss=bossOf(card);
                 const key=reg+'|'+day,finishedBoss=s.raids?.doneBoss?.[key];
-                if(this.e.settings.mode==='raid'&&s.raids?.done?.[key]>0&&(finishedBoss==null||finishedBoss===boss))return false;
+                if(s.raids?.done?.[key]>0&&(finishedBoss==null||finishedBoss===boss))return false;
                 if(this.e.raidReturn&&(this.e.raidReturn.date!==day||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
                 if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > now){skippedCooldown=true;return false;}
                 if(this.e.settings.skipOwnedShiny&&(card.querySelector('.chip-own')||s.dex?.[boss]?.shiny)){skippedOwned=true;return false;}
@@ -5390,6 +5405,10 @@
                 if(rest)this.e.deferRaid(rest.reason,now,0);
                 else{
                     const displayedDone=entries.length>0&&entries.every(entry=>entry.classList.contains('done'));
+                    if(this.e.daily&&this.e.raidProbe&&!this.e.raidReturn&&!skippedOwned&&!skippedCooldown&&now-this.e.raidProbeStarted<10000){
+                        this.e.status=displayedDone?'等待异色团体战捕获记录同步':'等待异色团体战挑战按钮就绪';
+                        return false;
+                    }
                     const reason=skippedCooldown?'团体战目标仍在重试冷却中':skippedOwned?'已按设置跳过拥有的异色目标':this.e.raidReturn?'补练前的团体战目标已不可用':displayedDone?'团体战页面显示已捕获，等待存档确认':'当前没有开放且可挑战的团体战';
                     this.e.deferRaid(reason,now);
                 }
@@ -7698,7 +7717,7 @@
                     const remembered=cp?.activity?.raid,same=remembered?.reg===(raid.reg||currentRegion(s))&&remembered?.boss===raid.id&&(!remembered.date||remembered.date===(raid.date||parisDay()));
                     this.driver.raid = { reg: raid.reg || currentRegion(s), boss: raid.id, date: raid.date || parisDay(), started: same?clamp(remembered.started,1,Date.now(),Date.now()):Date.now(), adopted: true };
                     if(!this.manual&&this.preparation&&this.preparation.context.kind!=='raid'){this.raidPreparation=this.preparation;this.preparation=null;}
-                    this.status = `已接管当前团体战 · ${MONS.get(raid.id)?.name || raid.reg} · 尝试 ${raid.loops || 0}/150`;
+                    this.status = `已接管当前团体战 · ${MONS.get(raid.id)?.name || raid.reg} · ${raidProgressText(s,raid)}`;
                     this.log(this.status);
                 } else if (s.adv.zone) {
                     this.zoneId = s.adv.zone.id;this.zoneStarted=cp?.activity?.zone?.id===this.zoneId?clamp(cp.activity.zone.started,1,Date.now(),Date.now()):Date.now();
@@ -7877,7 +7896,7 @@
                 this.driver.raid={reg,boss:raid.id,date,started:same?old.started:now,adopted:true};
                 if(this.preparation&&this.preparation.context.kind!=='raid'){this.raidPreparation=this.preparation;this.preparation=null;}
                 this.manual.raid=raidIdentity(s);this.raidProbe=false;this.raidReturn=null;
-                this.log(`明确接管当前团体战 · ${MONS.get(raid.id)?.name||reg} · 保留尝试 ${raid.loops||0}/150`);
+                this.log(`明确接管当前团体战 · ${MONS.get(raid.id)?.name||reg} · ${raidProgressText(s,raid,now)}`);
             }
             this.manual.until = now;
             const ally=$('#modal-root.open .raid-dlg');
@@ -8061,6 +8080,9 @@
             if(this.holdWildShiny(s,now))return;
             if(this.yieldLegendToDaily(s,now))return;
             const inActivity=s.adv.event||s.adv.zone||s.adv.tower||s.adv.league;
+            if(this.daily&&!inActivity&&this.driver.raid&&!this.raidProbe&&!this.raidReturn&&!this.preparation){
+                this.finishRaidReturn(now,s);
+            }
             const reserved=this.daily?.job;
             if(reserved?.waitingForBattle&&!inActivity){
                 if(now>=reserved.until){this.returnFromDaily('日常时段已结束',now,now);return;}
@@ -8081,10 +8103,8 @@
             // A finite main goal can already be satisfied at login or by a facility reward.
             // Give remaining daily work a turn before honoring the main task's stop condition.
             const finishDaily=outcome&&!outcome.failed&&this.daily&&!this.daily.job&&!this.preparation;
-            if(finishDaily&&this.driver.raid&&!this.raidProbe&&!this.raidReturn)this.finishRaidReturn(now);
             const opening=this.daily?.checking&&!this.daily.job&&!inActivity;
             const scheduleDaily=opening||!outcome||finishDaily;
-            if(opening&&this.driver.raid&&!this.raidProbe&&!this.raidReturn)this.finishRaidReturn(now);
             if(opening&&s.adv.pending&&!settling){
                 this.status='检查日常前等待当前游戏选择结算';this.lastProgress=now;this.driver.nav('adventure');return;
             }
@@ -8097,7 +8117,8 @@
                     this.status='每日团体战已排队，等待当前遭遇结算';this.lastProgress=now;this.driver.nav('adventure');return;
                 }
                 this.daily.checking=false;
-                this.log('当前可执行日常已检查，开始挂机 · '+MODE_NAMES[this.settings.mode]);this.persist();
+                const raidNote=this.daily.base.raids&&(this.raidDailyStatus(s,now)?.reason||this.raidCheckNote);
+                this.log('当前可执行日常已检查，开始挂机 · '+MODE_NAMES[this.settings.mode]+(raidNote?' · '+raidNote:''));this.persist();
             }
             if(!inActivity&&!outcome&&!this.preparation&&!this.raidProbe&&!this.raidReturn&&!settling&&!this.driver.teamTask&&this.followMarkedHunt(s,now))return;
             if(this.settings.mode!=='raid'&&!this.daily&&!foregroundFirst&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
@@ -8171,9 +8192,9 @@
                 const raid = this.driver.raid;
                 if (!raid) { this.stop('团体战尚未接管，请点击开始助手'); return; }
                 if (raid.reg !== (s.adv.event.reg||currentRegion(s)) || raid.boss !== s.adv.event.id) { this.stop('团体战目标已变化，请重新开始接管'); return; }
-                const attempts = s.adv.event.loops || 0;
-                this.status = `团体战进行中 · ${MONS.get(s.adv.event.id)?.name || s.adv.event.reg} · 尝试 ${attempts}/150`;
-                this.raidCheckNote='团体战进行中 · '+(MONS.get(s.adv.event.id)?.name||s.adv.event.reg);
+                const event=s.adv.event;
+                this.status = `团体战进行中 · ${MONS.get(event.id)?.name || event.reg} · ${raidProgressText(s,event,now)}`;
+                this.raidCheckNote=this.status;
                 if (now - raid.started > this.settings.raidMinutes * 60000) {
                     if (this.driver.leaveRaid()) {
                         const day=raid.date||s.adv.event.date||parisDay(now);
@@ -8184,7 +8205,7 @@
                 } else if(!this.driver.activeTeam?.(s))this.driver.nav('adventure');
                 return;
             }
-            if (this.driver.raid && !this.raidProbe)this.finishRaidReturn(now);
+            if (this.driver.raid && !this.raidProbe)this.finishRaidReturn(now,s);
             if(this.settings.mode==='raid'&&!inActivity){
                 this.lastProgress=now;
                 const rest=this.raidDailyStatus(s,now);
@@ -8891,7 +8912,15 @@
             this.raidDraw={day,reg,boss,reroll};
             this.persist();
         }
-        finishRaidReturn(now){
+        finishRaidReturn(now,s){
+            if(this.daily&&!this.daily.job&&this.daily.base.raids){
+                const rest=this.raidDailyStatus(s,now);
+                this.driver.raid=null;this.target=null;this.nextRaid=now;
+                if(['adventure','raid'].includes(this.driver.navigation?.screen))this.driver.navigation=null;
+                this.raidCheckNote=rest?.reason||'每日异色团体战尚未确认完成，重新检查今日可挑战目标';
+                if(!rest)this.daily.checking=true;
+                this.log(this.raidCheckNote);return;
+            }
             if(this.settings.mode==='raid'){
                 this.nextRaid=now;this.driver.raid=null;this.target=null;this.raidCheckNote='团体战已结束，检查下一地区';this.log(this.raidCheckNote);return;
             }

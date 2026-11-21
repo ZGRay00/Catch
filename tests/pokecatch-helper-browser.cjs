@@ -255,7 +255,7 @@ async function main() {
         // Reproduce the screenshot: already fighting Clefairy at attempt 23, then Start.
         const adopted = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('fixture-refresh');mock.state.adv.event={raid:true,reg:'kanto',id:35,loops:23,date:'2026-11-12',back:0};mock.save();e.settings.raids=false;e.onChange();const label=document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#start').textContent;const party=JSON.stringify(mock.state.eventTeams);e.driver.raid=null;e.start();const save=localStorage.getItem('gachamon-save-v1'),before=mock.actions;await e.step();e.onChange();return{label,running:e.running,status:e.status,boss:e.driver.raid?.boss,adopted:e.driver.raid?.adopted,clicks:mock.actions-before,partyUnchanged:party===JSON.stringify(mock.state.eventTeams),saveUnchanged:save===localStorage.getItem('gachamon-save-v1')}})()`);
         assert.equal(adopted.label, '接管当前团体战'); assert.equal(adopted.running, true);
-        assert.match(adopted.status, /团体战进行中.*23\/150/);
+        assert.match(adopted.status, /团体战进行中.*当前第 24 轮/);
         assert.equal(adopted.boss, 35); assert.equal(adopted.adopted, true); assert.equal(adopted.clicks, 0);
         assert.equal(adopted.partyUnchanged, true); assert.equal(adopted.saveUnchanged, true);
         const returned=await evaluate(`(()=>{nav('raid');const e=__pcTest.engine,tab=document.querySelector('#tabs [data-screen="adventure"]'),before=localStorage.getItem('gachamon-save-v1');e.driver.lastClick=0;const first=e.driver.nav('adventure'),second=e.driver.nav('adventure');return{hidden:getComputedStyle(tab).display==='none',first,second,screen:document.querySelector('.screen.active').id,saveUnchanged:before===localStorage.getItem('gachamon-save-v1')}})()`);
@@ -295,6 +295,8 @@ async function main() {
             return evaluate('!!__pcTest.engine.driver.pendingMap');
         };
         const begin = async () => evaluate(`document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#start').click()`);
+        const registered=H.DATA.zones.filter(zone=>[144,145].includes(zone.id)).flatMap(zone=>zone.gate.ids);
+        await evaluate(`for(const id of ${JSON.stringify(registered)})mock.state.dex[id]={caught:1};mock.save()`);
         await setUI({ mode:'legend',legendId:145,legendTier:0,optimizeRaid:false,raids:true });
         await begin();
         for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();

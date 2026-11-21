@@ -16,16 +16,19 @@ function league(){
 test('the downloaded native ordinary-league defeat branch returns to its first room with or without looping',t=>{
     const bundle=process.env.POKECATCH_NATIVE_APP||path.join(os.tmpdir(),'pokecatch-capture-audit-20261117','app.js');
     if(!fs.existsSync(bundle)){t.skip('Optional public native bundle is not available');return;}
-    const source=fs.readFileSync(bundle,'utf8'),loopStart=source.indexOf('it=k=>{const v=y.CHAPTERS[k];'),loopEnd=source.indexOf('function le(){',loopStart);
-    const defeatStart=source.indexOf('return v.event?gt():v.league?',loopEnd),defeatEnd=source.indexOf(',m.healTeam()',defeatStart);
-    assert.ok(loopStart>0&&loopEnd>loopStart&&defeatStart>loopEnd&&defeatEnd>defeatStart,'Native control flow changed; inspect the new public build');
-    const nativeLoops=source.slice(loopStart,loopEnd),nativeDefeat=source.slice(defeatStart+'return '.length,defeatEnd);
-    // Execute only the actual downloaded routing expressions, with no game account,
-    // persistence, network or battle runtime. This does not infer routing from helper code.
-    const routeDefeat=new Function('j','y',`const ${nativeLoops} const v=j(),Qe=v.chapter;const Ue=(chapter)=>chapter;const gt=()=>{throw Error('unexpected event')},jt=gt,Ma=gt;return ${nativeDefeat};`);
-    const story={CHAPTERS:H.DATA.chapters,leagueOf:chapter=>H.DATA.chapters.filter(c=>c.loop===H.DATA.chapters[chapter].loop).map(c=>c.id)};
+    const native=require('../tools/pokecatch-native-vm.cjs')(bundle);
+    native.run('const G=__pcResearch.Game,A=__pcResearch.Adventure;G.load();G.stopSaving();A.ensure();const base=structuredClone(G.S)');
     for(const chapter of [43,46,47])for(const loops of [[],['L:hoenn']]){
-        const s={chapter,unlocked:46,loops};assert.equal(routeDefeat(()=>s,story),43,JSON.stringify({chapter,loops}));
+        // Start the actual gym battle, then force its native round-limit defeat on a synthetic save.
+        const next=native.run(`G.sandbox(structuredClone(base),()=>{
+            const s=G.S,mon=G.makeMon(129,1),adv=s.adv;
+            s.mons=[mon];s.team=[mon.uid];s.road=[mon.uid];adv.unlocked=47;adv.loops=${JSON.stringify(loops)};
+            A.setChapter(${chapter});adv.node=adv.nodes.findLastIndex(node=>node.type==='gym');A.step();
+            mon.hp=1;adv.battle.turn=10000;adv.battle.queue=[];
+            for(let i=0;i<8;i++)if(A.step().some(event=>event.type==='defeat'))return adv.chapter;
+            throw Error('Expected an ordinary league defeat');
+        })`);
+        assert.equal(next,43,JSON.stringify({chapter,loops}));
     }
 });
 

@@ -117,5 +117,13 @@ test('browser prediction requires a recognized game build while saved legacy fla
         srcs=['/bundle/app.0a7dcb2280.js'];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
         srcs.push('/bundle/app.84beed0145.js');assert.equal(H.nurseryRuntimeOptions().build,'unverified:mixed-bundles');
         srcs=[];assert.equal(H.nurseryRuntimeOptions().build,H.NURSERY_RULES.build);
+        global.window.BUILD='7d13a92510';
+        assert.equal(H.nurseryRuntimeOptions().build,'unverified:missing-bundle');
+        for(const bundle of ['023c732f7b','c8584bf7ba']){
+            srcs=['/bundle/app.'+bundle+'.js'];
+            assert.equal(H.nurseryRuntimeOptions().build,'7d13a92510');
+        }
+        srcs=['/bundle/app.fffffffffe.js'];
+        assert.equal(H.nurseryRuntimeOptions().build,'unverified:fffffffffe');
     }finally{if(previousDocument===undefined)delete global.document;else global.document=previousDocument;if(previousWindow===undefined)delete global.window;else global.window=previousWindow;}
 });

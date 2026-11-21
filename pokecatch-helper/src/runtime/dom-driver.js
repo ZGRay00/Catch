@@ -617,7 +617,7 @@
             const card = cards.find(card => {
                 const reg=card.dataset.rc,boss=bossOf(card);
                 const key=reg+'|'+day,finishedBoss=s.raids?.doneBoss?.[key];
-                if(this.e.settings.mode==='raid'&&s.raids?.done?.[key]>0&&(finishedBoss==null||finishedBoss===boss))return false;
+                if(s.raids?.done?.[key]>0&&(finishedBoss==null||finishedBoss===boss))return false;
                 if(this.e.raidReturn&&(this.e.raidReturn.date!==day||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
                 if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > now){skippedCooldown=true;return false;}
                 if(this.e.settings.skipOwnedShiny&&(card.querySelector('.chip-own')||s.dex?.[boss]?.shiny)){skippedOwned=true;return false;}
@@ -628,6 +628,10 @@
                 if(rest)this.e.deferRaid(rest.reason,now,0);
                 else{
                     const displayedDone=entries.length>0&&entries.every(entry=>entry.classList.contains('done'));
+                    if(this.e.daily&&this.e.raidProbe&&!this.e.raidReturn&&!skippedOwned&&!skippedCooldown&&now-this.e.raidProbeStarted<10000){
+                        this.e.status=displayedDone?'等待异色团体战捕获记录同步':'等待异色团体战挑战按钮就绪';
+                        return false;
+                    }
                     const reason=skippedCooldown?'团体战目标仍在重试冷却中':skippedOwned?'已按设置跳过拥有的异色目标':this.e.raidReturn?'补练前的团体战目标已不可用':displayedDone?'团体战页面显示已捕获，等待存档确认':'当前没有开放且可挑战的团体战';
                     this.e.deferRaid(reason,now);
                 }

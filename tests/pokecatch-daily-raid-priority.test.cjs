@@ -53,6 +53,22 @@ test('the login state with a Back button yields to the main task and records why
     assert.equal(e.raidProbe,false);assert.match(e.raidCheckNote,/登录/);assert.ok(e.nextRaid>Date.now());
 });
 
+test('daily Giratina cannot start a prerequisite zone between a raid exit and its settlement check',async t=>{
+    const {s,e,save}=fixture(t),now=e.started,day=H.parisDay(now);
+    Object.assign(e.settings,{mode:'legend',legendId:487,legendTier:0,dailyWindow:false,dailyCandy:false,dailyWorld:false,dailyTower:false,dailyElite:false});
+    e.daily={base:{...e.settings},checking:false};
+    e.driver.raid={reg:'kanto',boss:35,date:day,started:now-6000};
+    e.driver.navigation={screen:'adventure',started:now-1000};
+    s.raids={seen:day,done:{},doneBoss:{}};e.rememberDraw(s,'kanto',35,now);save();
+    let visits=0,probes=0;e.legend=()=>visits++;
+    e.driver.raidStep=()=>{probes++;};
+    await e.step(now);assert.ok(e.raidProbe);assert.equal(visits,0);
+    await e.step(now+1000);assert.equal(probes,1);assert.equal(visits,0);
+    s.raids.done['kanto|'+day]=1;s.raids.doneBoss['kanto|'+day]=35;save();
+    await e.step(now+2000);assert.equal(e.raidProbe,false);assert.equal(visits,1);
+    assert.equal(e.settings.legendId,487);assert.equal(e.daily.checking,false);
+});
+
 test('continuous ordinary fights on a cleared training map can yield after 15 seconds, while rare, new and frontier encounters stay protected',t=>{
     const {s,e,p}=fixture(t),now=e.started;
     s.adv.nodes=[{},{},{type:'wild'}];s.adv.battle={kind:'wild',enemies:[{id:25}]};s.dex[25]={caught:1};e.preparation=p;

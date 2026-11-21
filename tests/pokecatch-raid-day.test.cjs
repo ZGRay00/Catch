@@ -57,6 +57,7 @@ test('an unselected draw waits for refresh, then handles a changed draw or newly
 test('a drawn raid completed today never takes the adventure page or interrupts training, even after reload',t=>{
     const {s,e,now,day,caught,load}=fixture(t);
     s.adv.unlocked=64;s.raids.seen=day;caught('kanto',35);
+    e.rememberDraw(s,'kanto',35,now);
     e.preparation={phase:'train',context:{kind:'progress'}};
     const prep=e.preparation;
     global.document.querySelector=()=>{throw Error('completed raid inspected a game control');};
@@ -69,6 +70,39 @@ test('a drawn raid completed today never takes the adventure page or interrupts 
     reloaded.raidProbe=true;reloaded.driver.navigation={screen:'raid'};
     assert.equal(reloaded.priorityRaid(s,now+1),false);assert.equal(reloaded.raidProbe,false);
     assert.equal(reloaded.driver.navigation,null);
+});
+
+test('unknown drawn region is rechecked even with a capture in another eligible region',t=>{
+    const {s,e,now,day,caught}=fixture(t);
+    s.adv.unlocked=64;s.raids.seen=day;caught('kanto',35);
+    assert.equal(e.raidDailyStatus(s,now),null);
+    e.rememberDraw(s,'johto',183,now);
+    assert.equal(e.raidDailyStatus(s,now),null);
+    caught('johto',183);assert.match(e.raidDailyStatus(s,now).reason,/已完成/);
+});
+
+test('a briefly disabled daily card keeps the page until its launch button is ready',t=>{
+    const {s,e,now,entries}=fixture(t);e.daily={base:e.settings};e.raidProbe=true;e.raidProbeStarted=now;
+    e.driver.nav=()=>true;e.settings.optimizeRaid=false;e.ensurePrepared=()=>false;e.driver.click=()=>true;
+    entries.push(card('kanto',35,{disabled:true}));
+    e.driver.raidStep(s,now+1000);assert.ok(e.raidProbe);assert.match(e.status,/按钮就绪/);
+    entries[0]=card('kanto',35);e.driver.raidStep(s,now+2000);
+    assert.equal(e.driver.raid.boss,35);
+});
+
+test('a daily legend main checks the next unlocked card even if a completed card still shows a launch button',t=>{
+    const {s,e,now,caught,entries}=fixture(t);
+    Object.assign(e.settings,{mode:'legend',legendId:487,optimizeRaid:false});
+    e.daily={base:{...e.settings},checking:false};s.adv.unlocked=31;
+    e.driver.raid={reg:'kanto',boss:35,date:parisDay(now),started:now-10000};
+    caught('kanto',35);
+    e.finishRaidReturn(now,s);
+    assert.equal(e.nextRaid,now);assert.ok(e.daily.checking);
+    entries.push(card('kanto',35),card('johto',183));
+    e.driver.nav=()=>true;e.driver.click=()=>true;e.ensurePrepared=()=>false;
+    assert.ok(e.priorityRaid(s,now));e.probeRaid(s,now+1);
+    assert.equal(e.driver.raid.reg,'johto');
+    assert.equal(e.settings.legendId,487);
 });
 
 test('legacy multi-region completion reopens after a newly cleared league and ignores locked regions',t=>{

@@ -481,7 +481,7 @@
                     const remembered=cp?.activity?.raid,same=remembered?.reg===(raid.reg||currentRegion(s))&&remembered?.boss===raid.id&&(!remembered.date||remembered.date===(raid.date||parisDay()));
                     this.driver.raid = { reg: raid.reg || currentRegion(s), boss: raid.id, date: raid.date || parisDay(), started: same?clamp(remembered.started,1,Date.now(),Date.now()):Date.now(), adopted: true };
                     if(!this.manual&&this.preparation&&this.preparation.context.kind!=='raid'){this.raidPreparation=this.preparation;this.preparation=null;}
-                    this.status = `已接管当前团体战 · ${MONS.get(raid.id)?.name || raid.reg} · 尝试 ${raid.loops || 0}/150`;
+                    this.status = `已接管当前团体战 · ${MONS.get(raid.id)?.name || raid.reg} · ${raidProgressText(s,raid)}`;
                     this.log(this.status);
                 } else if (s.adv.zone) {
                     this.zoneId = s.adv.zone.id;this.zoneStarted=cp?.activity?.zone?.id===this.zoneId?clamp(cp.activity.zone.started,1,Date.now(),Date.now()):Date.now();
@@ -660,7 +660,7 @@
                 this.driver.raid={reg,boss:raid.id,date,started:same?old.started:now,adopted:true};
                 if(this.preparation&&this.preparation.context.kind!=='raid'){this.raidPreparation=this.preparation;this.preparation=null;}
                 this.manual.raid=raidIdentity(s);this.raidProbe=false;this.raidReturn=null;
-                this.log(`明确接管当前团体战 · ${MONS.get(raid.id)?.name||reg} · 保留尝试 ${raid.loops||0}/150`);
+                this.log(`明确接管当前团体战 · ${MONS.get(raid.id)?.name||reg} · ${raidProgressText(s,raid,now)}`);
             }
             this.manual.until = now;
             const ally=$('#modal-root.open .raid-dlg');
@@ -844,6 +844,9 @@
             if(this.holdWildShiny(s,now))return;
             if(this.yieldLegendToDaily(s,now))return;
             const inActivity=s.adv.event||s.adv.zone||s.adv.tower||s.adv.league;
+            if(this.daily&&!inActivity&&this.driver.raid&&!this.raidProbe&&!this.raidReturn&&!this.preparation){
+                this.finishRaidReturn(now,s);
+            }
             const reserved=this.daily?.job;
             if(reserved?.waitingForBattle&&!inActivity){
                 if(now>=reserved.until){this.returnFromDaily('日常时段已结束',now,now);return;}
@@ -864,10 +867,8 @@
             // A finite main goal can already be satisfied at login or by a facility reward.
             // Give remaining daily work a turn before honoring the main task's stop condition.
             const finishDaily=outcome&&!outcome.failed&&this.daily&&!this.daily.job&&!this.preparation;
-            if(finishDaily&&this.driver.raid&&!this.raidProbe&&!this.raidReturn)this.finishRaidReturn(now);
             const opening=this.daily?.checking&&!this.daily.job&&!inActivity;
             const scheduleDaily=opening||!outcome||finishDaily;
-            if(opening&&this.driver.raid&&!this.raidProbe&&!this.raidReturn)this.finishRaidReturn(now);
             if(opening&&s.adv.pending&&!settling){
                 this.status='检查日常前等待当前游戏选择结算';this.lastProgress=now;this.driver.nav('adventure');return;
             }
@@ -880,7 +881,8 @@
                     this.status='每日团体战已排队，等待当前遭遇结算';this.lastProgress=now;this.driver.nav('adventure');return;
                 }
                 this.daily.checking=false;
-                this.log('当前可执行日常已检查，开始挂机 · '+MODE_NAMES[this.settings.mode]);this.persist();
+                const raidNote=this.daily.base.raids&&(this.raidDailyStatus(s,now)?.reason||this.raidCheckNote);
+                this.log('当前可执行日常已检查，开始挂机 · '+MODE_NAMES[this.settings.mode]+(raidNote?' · '+raidNote:''));this.persist();
             }
             if(!inActivity&&!outcome&&!this.preparation&&!this.raidProbe&&!this.raidReturn&&!settling&&!this.driver.teamTask&&this.followMarkedHunt(s,now))return;
             if(this.settings.mode!=='raid'&&!this.daily&&!foregroundFirst&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
@@ -954,9 +956,9 @@
                 const raid = this.driver.raid;
                 if (!raid) { this.stop('团体战尚未接管，请点击开始助手'); return; }
                 if (raid.reg !== (s.adv.event.reg||currentRegion(s)) || raid.boss !== s.adv.event.id) { this.stop('团体战目标已变化，请重新开始接管'); return; }
-                const attempts = s.adv.event.loops || 0;
-                this.status = `团体战进行中 · ${MONS.get(s.adv.event.id)?.name || s.adv.event.reg} · 尝试 ${attempts}/150`;
-                this.raidCheckNote='团体战进行中 · '+(MONS.get(s.adv.event.id)?.name||s.adv.event.reg);
+                const event=s.adv.event;
+                this.status = `团体战进行中 · ${MONS.get(event.id)?.name || event.reg} · ${raidProgressText(s,event,now)}`;
+                this.raidCheckNote=this.status;
                 if (now - raid.started > this.settings.raidMinutes * 60000) {
                     if (this.driver.leaveRaid()) {
                         const day=raid.date||s.adv.event.date||parisDay(now);
@@ -967,7 +969,7 @@
                 } else if(!this.driver.activeTeam?.(s))this.driver.nav('adventure');
                 return;
             }
-            if (this.driver.raid && !this.raidProbe)this.finishRaidReturn(now);
+            if (this.driver.raid && !this.raidProbe)this.finishRaidReturn(now,s);
             if(this.settings.mode==='raid'&&!inActivity){
                 this.lastProgress=now;
                 const rest=this.raidDailyStatus(s,now);
@@ -1674,7 +1676,15 @@
             this.raidDraw={day,reg,boss,reroll};
             this.persist();
         }
-        finishRaidReturn(now){
+        finishRaidReturn(now,s){
+            if(this.daily&&!this.daily.job&&this.daily.base.raids){
+                const rest=this.raidDailyStatus(s,now);
+                this.driver.raid=null;this.target=null;this.nextRaid=now;
+                if(['adventure','raid'].includes(this.driver.navigation?.screen))this.driver.navigation=null;
+                this.raidCheckNote=rest?.reason||'每日异色团体战尚未确认完成，重新检查今日可挑战目标';
+                if(!rest)this.daily.checking=true;
+                this.log(this.raidCheckNote);return;
+            }
             if(this.settings.mode==='raid'){
                 this.nextRaid=now;this.driver.raid=null;this.target=null;this.raidCheckNote='团体战已结束，检查下一地区';this.log(this.raidCheckNote);return;
             }

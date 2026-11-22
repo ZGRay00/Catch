@@ -252,9 +252,17 @@
         return {key,name:SEASON_NAMES[key],nextKey,nextName:SEASON_NAMES[nextKey],startsAt:midnight(block),endsAt:midnight(block+1)};
     }
     function seasonFormProgress(s,id) {
-        if(id!==585&&id!==586)return null;
-        const seen=SEASON_KEYS.filter(key=>Array.isArray(s?.seasons?.[id])&&s.seasons[id].includes(key));
-        return {seen,missing:SEASON_KEYS.filter(key=>!seen.includes(key))};
+        const species=MONS.get(id)?.num??id;
+        if(species!==585&&species!==586)return null;
+        const owned=new Set(collectionMembers(s).map(mon=>mon.id));
+        const legacySightings=Array.isArray(s.seasons?.[species])?s.seasons[species]:[];
+        const forms=SEASON_KEYS.map((season,index)=>{
+            const formId=index===0?species:species*100+index,registered=captured(s,formId,owned);
+            return {id:formId,season,caught:registered,seen:registered||Number(s.dex?.[formId]?.seen)>0||
+                legacySightings.includes(season)};
+        });
+        return {forms,seen:forms.filter(form=>form.seen).map(form=>form.season),
+            missing:forms.filter(form=>!form.caught).map(form=>form.season)};
     }
     const WEATHER_SPOT_CACHE = new WeakMap();
     function weatherDailySpot(spot,now=Date.now()) {

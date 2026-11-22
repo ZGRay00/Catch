@@ -316,7 +316,7 @@
         return Number(s.dex?.[id]?.caught) > 0 || (ownedIds ? ownedIds.has(id) : collectionMembers(s).some(m=>m.id===id));
     }
     function regionOfMon(id) {
-        const base=MONS.get(id)?.root||id;
+        const mon=MONS.get(id),base=mon?.num??mon?.root??id;
         return DATA.regions.find(r=>r.dexRange&&base>=r.dexRange[0]&&base<=r.dexRange[1])?.key||
             (base<=151?'kanto':base<=251?'johto':base<=386?'hoenn':base<=493?'sinnoh':null);
     }

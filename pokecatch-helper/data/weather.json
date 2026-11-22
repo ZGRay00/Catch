@@ -1,6 +1,6 @@
 {
   "schema": 2,
-  "build": "1125894b9a",
+  "build": "4b690e533c",
   "slotMs": 3600000,
   "chance": 0.54,
   "types": {
@@ -36960,125 +36960,125 @@
         },
         "summer": {
           "morning": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 601,
-            "sun": 600,
-            "sand": 600,
-            "snow": 601,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 601,
-            "breeze": 600,
-            "gale": 600
+            "clear": 602,
+            "rain": 603,
+            "storm": 603,
+            "sun": 602,
+            "sand": 602,
+            "snow": 603,
+            "ash": 602,
+            "fog": 602,
+            "blizzard": 603,
+            "breeze": 602,
+            "gale": 602
           },
           "day": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 601,
-            "sun": 600,
-            "sand": 600,
-            "snow": 601,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 601,
-            "breeze": 600,
-            "gale": 600
+            "clear": 602,
+            "rain": 603,
+            "storm": 603,
+            "sun": 602,
+            "sand": 602,
+            "snow": 603,
+            "ash": 602,
+            "fog": 602,
+            "blizzard": 603,
+            "breeze": 602,
+            "gale": 602
           },
           "night": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 601,
-            "sun": 600,
-            "sand": 600,
-            "snow": 601,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 601,
-            "breeze": 600,
-            "gale": 600
+            "clear": 602,
+            "rain": 603,
+            "storm": 603,
+            "sun": 602,
+            "sand": 602,
+            "snow": 603,
+            "ash": 602,
+            "fog": 602,
+            "blizzard": 603,
+            "breeze": 602,
+            "gale": 602
           }
         },
         "autumn": {
           "morning": {
-            "clear": 602,
-            "rain": 603,
-            "storm": 603,
-            "sun": 602,
-            "sand": 602,
-            "snow": 603,
-            "ash": 602,
-            "fog": 602,
-            "blizzard": 603,
-            "breeze": 602,
-            "gale": 602
+            "clear": 604,
+            "rain": 605,
+            "storm": 605,
+            "sun": 604,
+            "sand": 604,
+            "snow": 605,
+            "ash": 604,
+            "fog": 604,
+            "blizzard": 605,
+            "breeze": 604,
+            "gale": 604
           },
           "day": {
-            "clear": 602,
-            "rain": 603,
-            "storm": 603,
-            "sun": 602,
-            "sand": 602,
-            "snow": 603,
-            "ash": 602,
-            "fog": 602,
-            "blizzard": 603,
-            "breeze": 602,
-            "gale": 602
+            "clear": 604,
+            "rain": 605,
+            "storm": 605,
+            "sun": 604,
+            "sand": 604,
+            "snow": 605,
+            "ash": 604,
+            "fog": 604,
+            "blizzard": 605,
+            "breeze": 604,
+            "gale": 604
           },
           "night": {
-            "clear": 602,
-            "rain": 603,
-            "storm": 603,
-            "sun": 602,
-            "sand": 602,
-            "snow": 603,
-            "ash": 602,
-            "fog": 602,
-            "blizzard": 603,
-            "breeze": 602,
-            "gale": 602
+            "clear": 604,
+            "rain": 605,
+            "storm": 605,
+            "sun": 604,
+            "sand": 604,
+            "snow": 605,
+            "ash": 604,
+            "fog": 604,
+            "blizzard": 605,
+            "breeze": 604,
+            "gale": 604
           }
         },
         "winter": {
           "morning": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 601,
-            "sun": 600,
-            "sand": 600,
-            "snow": 601,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 601,
-            "breeze": 600,
-            "gale": 600
+            "clear": 606,
+            "rain": 607,
+            "storm": 607,
+            "sun": 606,
+            "sand": 606,
+            "snow": 607,
+            "ash": 606,
+            "fog": 606,
+            "blizzard": 607,
+            "breeze": 606,
+            "gale": 606
           },
           "day": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 601,
-            "sun": 600,
-            "sand": 600,
-            "snow": 601,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 601,
-            "breeze": 600,
-            "gale": 600
+            "clear": 606,
+            "rain": 607,
+            "storm": 607,
+            "sun": 606,
+            "sand": 606,
+            "snow": 607,
+            "ash": 606,
+            "fog": 606,
+            "blizzard": 607,
+            "breeze": 606,
+            "gale": 606
           },
           "night": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 601,
-            "sun": 600,
-            "sand": 600,
-            "snow": 601,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 601,
-            "breeze": 600,
-            "gale": 600
+            "clear": 606,
+            "rain": 607,
+            "storm": 607,
+            "sun": 606,
+            "sand": 606,
+            "snow": 607,
+            "ash": 606,
+            "fog": 606,
+            "blizzard": 607,
+            "breeze": 606,
+            "gale": 606
           }
         }
       },
@@ -37126,125 +37126,125 @@
         },
         "summer": {
           "morning": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 600,
-            "sun": 600,
-            "sand": 600,
-            "snow": 600,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 600,
-            "breeze": 600,
-            "gale": 600
+            "clear": 602,
+            "rain": 603,
+            "storm": 602,
+            "sun": 602,
+            "sand": 602,
+            "snow": 602,
+            "ash": 602,
+            "fog": 602,
+            "blizzard": 602,
+            "breeze": 602,
+            "gale": 602
           },
           "day": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 600,
-            "sun": 600,
-            "sand": 600,
-            "snow": 600,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 600,
-            "breeze": 600,
-            "gale": 600
+            "clear": 602,
+            "rain": 603,
+            "storm": 602,
+            "sun": 602,
+            "sand": 602,
+            "snow": 602,
+            "ash": 602,
+            "fog": 602,
+            "blizzard": 602,
+            "breeze": 602,
+            "gale": 602
           },
           "night": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 600,
-            "sun": 600,
-            "sand": 600,
-            "snow": 600,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 600,
-            "breeze": 600,
-            "gale": 600
+            "clear": 602,
+            "rain": 603,
+            "storm": 602,
+            "sun": 602,
+            "sand": 602,
+            "snow": 602,
+            "ash": 602,
+            "fog": 602,
+            "blizzard": 602,
+            "breeze": 602,
+            "gale": 602
           }
         },
         "autumn": {
           "morning": {
-            "clear": 602,
-            "rain": 603,
-            "storm": 602,
-            "sun": 602,
-            "sand": 602,
-            "snow": 602,
-            "ash": 602,
-            "fog": 602,
-            "blizzard": 602,
-            "breeze": 602,
-            "gale": 602
+            "clear": 604,
+            "rain": 605,
+            "storm": 604,
+            "sun": 604,
+            "sand": 604,
+            "snow": 604,
+            "ash": 604,
+            "fog": 604,
+            "blizzard": 604,
+            "breeze": 604,
+            "gale": 604
           },
           "day": {
-            "clear": 602,
-            "rain": 603,
-            "storm": 602,
-            "sun": 602,
-            "sand": 602,
-            "snow": 602,
-            "ash": 602,
-            "fog": 602,
-            "blizzard": 602,
-            "breeze": 602,
-            "gale": 602
+            "clear": 604,
+            "rain": 605,
+            "storm": 604,
+            "sun": 604,
+            "sand": 604,
+            "snow": 604,
+            "ash": 604,
+            "fog": 604,
+            "blizzard": 604,
+            "breeze": 604,
+            "gale": 604
           },
           "night": {
-            "clear": 602,
-            "rain": 603,
-            "storm": 602,
-            "sun": 602,
-            "sand": 602,
-            "snow": 602,
-            "ash": 602,
-            "fog": 602,
-            "blizzard": 602,
-            "breeze": 602,
-            "gale": 602
+            "clear": 604,
+            "rain": 605,
+            "storm": 604,
+            "sun": 604,
+            "sand": 604,
+            "snow": 604,
+            "ash": 604,
+            "fog": 604,
+            "blizzard": 604,
+            "breeze": 604,
+            "gale": 604
           }
         },
         "winter": {
           "morning": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 600,
-            "sun": 600,
-            "sand": 600,
-            "snow": 600,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 600,
-            "breeze": 600,
-            "gale": 600
+            "clear": 606,
+            "rain": 607,
+            "storm": 606,
+            "sun": 606,
+            "sand": 606,
+            "snow": 606,
+            "ash": 606,
+            "fog": 606,
+            "blizzard": 606,
+            "breeze": 606,
+            "gale": 606
           },
           "day": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 600,
-            "sun": 600,
-            "sand": 600,
-            "snow": 600,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 600,
-            "breeze": 600,
-            "gale": 600
+            "clear": 606,
+            "rain": 607,
+            "storm": 606,
+            "sun": 606,
+            "sand": 606,
+            "snow": 606,
+            "ash": 606,
+            "fog": 606,
+            "blizzard": 606,
+            "breeze": 606,
+            "gale": 606
           },
           "night": {
-            "clear": 600,
-            "rain": 601,
-            "storm": 600,
-            "sun": 600,
-            "sand": 600,
-            "snow": 600,
-            "ash": 600,
-            "fog": 600,
-            "blizzard": 600,
-            "breeze": 600,
-            "gale": 600
+            "clear": 606,
+            "rain": 607,
+            "storm": 606,
+            "sun": 606,
+            "sand": 606,
+            "snow": 606,
+            "ash": 606,
+            "fog": 606,
+            "blizzard": 606,
+            "breeze": 606,
+            "gale": 606
           }
         }
       },
@@ -37340,332 +37340,332 @@
       "pools": {
         "spring": {
           "morning": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "day": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "night": {
-            "clear": 605,
-            "rain": 605,
-            "storm": 605,
-            "sun": 605,
-            "sand": 605,
-            "snow": 605,
-            "ash": 605,
-            "fog": 605,
-            "blizzard": 605,
-            "breeze": 605,
-            "gale": 605
+            "clear": 609,
+            "rain": 609,
+            "storm": 609,
+            "sun": 609,
+            "sand": 609,
+            "snow": 609,
+            "ash": 609,
+            "fog": 609,
+            "blizzard": 609,
+            "breeze": 609,
+            "gale": 609
           }
         },
         "summer": {
           "morning": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "day": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "night": {
-            "clear": 605,
-            "rain": 605,
-            "storm": 605,
-            "sun": 605,
-            "sand": 605,
-            "snow": 605,
-            "ash": 605,
-            "fog": 605,
-            "blizzard": 605,
-            "breeze": 605,
-            "gale": 605
+            "clear": 609,
+            "rain": 609,
+            "storm": 609,
+            "sun": 609,
+            "sand": 609,
+            "snow": 609,
+            "ash": 609,
+            "fog": 609,
+            "blizzard": 609,
+            "breeze": 609,
+            "gale": 609
           }
         },
         "autumn": {
           "morning": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "day": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "night": {
-            "clear": 605,
-            "rain": 605,
-            "storm": 605,
-            "sun": 605,
-            "sand": 605,
-            "snow": 605,
-            "ash": 605,
-            "fog": 605,
-            "blizzard": 605,
-            "breeze": 605,
-            "gale": 605
+            "clear": 609,
+            "rain": 609,
+            "storm": 609,
+            "sun": 609,
+            "sand": 609,
+            "snow": 609,
+            "ash": 609,
+            "fog": 609,
+            "blizzard": 609,
+            "breeze": 609,
+            "gale": 609
           }
         },
         "winter": {
           "morning": {
-            "clear": 606,
-            "rain": 606,
-            "storm": 606,
-            "sun": 606,
-            "sand": 606,
-            "snow": 606,
-            "ash": 606,
-            "fog": 606,
-            "blizzard": 606,
-            "breeze": 606,
-            "gale": 606
+            "clear": 610,
+            "rain": 610,
+            "storm": 610,
+            "sun": 610,
+            "sand": 610,
+            "snow": 610,
+            "ash": 610,
+            "fog": 610,
+            "blizzard": 610,
+            "breeze": 610,
+            "gale": 610
           },
           "day": {
-            "clear": 606,
-            "rain": 606,
-            "storm": 606,
-            "sun": 606,
-            "sand": 606,
-            "snow": 606,
-            "ash": 606,
-            "fog": 606,
-            "blizzard": 606,
-            "breeze": 606,
-            "gale": 606
+            "clear": 610,
+            "rain": 610,
+            "storm": 610,
+            "sun": 610,
+            "sand": 610,
+            "snow": 610,
+            "ash": 610,
+            "fog": 610,
+            "blizzard": 610,
+            "breeze": 610,
+            "gale": 610
           },
           "night": {
-            "clear": 607,
-            "rain": 607,
-            "storm": 607,
-            "sun": 607,
-            "sand": 607,
-            "snow": 607,
-            "ash": 607,
-            "fog": 607,
-            "blizzard": 607,
-            "breeze": 607,
-            "gale": 607
+            "clear": 611,
+            "rain": 611,
+            "storm": 611,
+            "sun": 611,
+            "sand": 611,
+            "snow": 611,
+            "ash": 611,
+            "fog": 611,
+            "blizzard": 611,
+            "breeze": 611,
+            "gale": 611
           }
         }
       },
       "direct": {
         "spring": {
           "morning": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "day": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "night": {
-            "clear": 605,
-            "rain": 605,
-            "storm": 605,
-            "sun": 605,
-            "sand": 605,
-            "snow": 605,
-            "ash": 605,
-            "fog": 605,
-            "blizzard": 605,
-            "breeze": 605,
-            "gale": 605
+            "clear": 609,
+            "rain": 609,
+            "storm": 609,
+            "sun": 609,
+            "sand": 609,
+            "snow": 609,
+            "ash": 609,
+            "fog": 609,
+            "blizzard": 609,
+            "breeze": 609,
+            "gale": 609
           }
         },
         "summer": {
           "morning": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "day": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "night": {
-            "clear": 605,
-            "rain": 605,
-            "storm": 605,
-            "sun": 605,
-            "sand": 605,
-            "snow": 605,
-            "ash": 605,
-            "fog": 605,
-            "blizzard": 605,
-            "breeze": 605,
-            "gale": 605
+            "clear": 609,
+            "rain": 609,
+            "storm": 609,
+            "sun": 609,
+            "sand": 609,
+            "snow": 609,
+            "ash": 609,
+            "fog": 609,
+            "blizzard": 609,
+            "breeze": 609,
+            "gale": 609
           }
         },
         "autumn": {
           "morning": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "day": {
-            "clear": 604,
-            "rain": 604,
-            "storm": 604,
-            "sun": 604,
-            "sand": 604,
-            "snow": 604,
-            "ash": 604,
-            "fog": 604,
-            "blizzard": 604,
-            "breeze": 604,
-            "gale": 604
+            "clear": 608,
+            "rain": 608,
+            "storm": 608,
+            "sun": 608,
+            "sand": 608,
+            "snow": 608,
+            "ash": 608,
+            "fog": 608,
+            "blizzard": 608,
+            "breeze": 608,
+            "gale": 608
           },
           "night": {
-            "clear": 605,
-            "rain": 605,
-            "storm": 605,
-            "sun": 605,
-            "sand": 605,
-            "snow": 605,
-            "ash": 605,
-            "fog": 605,
-            "blizzard": 605,
-            "breeze": 605,
-            "gale": 605
+            "clear": 609,
+            "rain": 609,
+            "storm": 609,
+            "sun": 609,
+            "sand": 609,
+            "snow": 609,
+            "ash": 609,
+            "fog": 609,
+            "blizzard": 609,
+            "breeze": 609,
+            "gale": 609
           }
         },
         "winter": {
           "morning": {
-            "clear": 606,
-            "rain": 606,
-            "storm": 606,
-            "sun": 606,
-            "sand": 606,
-            "snow": 606,
-            "ash": 606,
-            "fog": 606,
-            "blizzard": 606,
-            "breeze": 606,
-            "gale": 606
+            "clear": 610,
+            "rain": 610,
+            "storm": 610,
+            "sun": 610,
+            "sand": 610,
+            "snow": 610,
+            "ash": 610,
+            "fog": 610,
+            "blizzard": 610,
+            "breeze": 610,
+            "gale": 610
           },
           "day": {
-            "clear": 606,
-            "rain": 606,
-            "storm": 606,
-            "sun": 606,
-            "sand": 606,
-            "snow": 606,
-            "ash": 606,
-            "fog": 606,
-            "blizzard": 606,
-            "breeze": 606,
-            "gale": 606
+            "clear": 610,
+            "rain": 610,
+            "storm": 610,
+            "sun": 610,
+            "sand": 610,
+            "snow": 610,
+            "ash": 610,
+            "fog": 610,
+            "blizzard": 610,
+            "breeze": 610,
+            "gale": 610
           },
           "night": {
-            "clear": 607,
-            "rain": 607,
-            "storm": 607,
-            "sun": 607,
-            "sand": 607,
-            "snow": 607,
-            "ash": 607,
-            "fog": 607,
-            "blizzard": 607,
-            "breeze": 607,
-            "gale": 607
+            "clear": 611,
+            "rain": 611,
+            "storm": 611,
+            "sun": 611,
+            "sand": 611,
+            "snow": 611,
+            "ash": 611,
+            "fog": 611,
+            "blizzard": 611,
+            "breeze": 611,
+            "gale": 611
           }
         }
       },
@@ -37755,332 +37755,332 @@
       "pools": {
         "spring": {
           "morning": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "day": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "night": {
-            "clear": 609,
-            "rain": 609,
-            "storm": 609,
-            "sun": 609,
-            "sand": 609,
-            "snow": 609,
-            "ash": 609,
-            "fog": 609,
-            "blizzard": 609,
-            "breeze": 609,
-            "gale": 609
+            "clear": 613,
+            "rain": 613,
+            "storm": 613,
+            "sun": 613,
+            "sand": 613,
+            "snow": 613,
+            "ash": 613,
+            "fog": 613,
+            "blizzard": 613,
+            "breeze": 613,
+            "gale": 613
           }
         },
         "summer": {
           "morning": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "day": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "night": {
-            "clear": 609,
-            "rain": 609,
-            "storm": 609,
-            "sun": 609,
-            "sand": 609,
-            "snow": 609,
-            "ash": 609,
-            "fog": 609,
-            "blizzard": 609,
-            "breeze": 609,
-            "gale": 609
+            "clear": 613,
+            "rain": 613,
+            "storm": 613,
+            "sun": 613,
+            "sand": 613,
+            "snow": 613,
+            "ash": 613,
+            "fog": 613,
+            "blizzard": 613,
+            "breeze": 613,
+            "gale": 613
           }
         },
         "autumn": {
           "morning": {
-            "clear": 610,
-            "rain": 610,
-            "storm": 610,
-            "sun": 610,
-            "sand": 610,
-            "snow": 610,
-            "ash": 610,
-            "fog": 610,
-            "blizzard": 610,
-            "breeze": 610,
-            "gale": 610
+            "clear": 614,
+            "rain": 614,
+            "storm": 614,
+            "sun": 614,
+            "sand": 614,
+            "snow": 614,
+            "ash": 614,
+            "fog": 614,
+            "blizzard": 614,
+            "breeze": 614,
+            "gale": 614
           },
           "day": {
-            "clear": 610,
-            "rain": 610,
-            "storm": 610,
-            "sun": 610,
-            "sand": 610,
-            "snow": 610,
-            "ash": 610,
-            "fog": 610,
-            "blizzard": 610,
-            "breeze": 610,
-            "gale": 610
+            "clear": 614,
+            "rain": 614,
+            "storm": 614,
+            "sun": 614,
+            "sand": 614,
+            "snow": 614,
+            "ash": 614,
+            "fog": 614,
+            "blizzard": 614,
+            "breeze": 614,
+            "gale": 614
           },
           "night": {
-            "clear": 611,
-            "rain": 611,
-            "storm": 611,
-            "sun": 611,
-            "sand": 611,
-            "snow": 611,
-            "ash": 611,
-            "fog": 611,
-            "blizzard": 611,
-            "breeze": 611,
-            "gale": 611
+            "clear": 615,
+            "rain": 615,
+            "storm": 615,
+            "sun": 615,
+            "sand": 615,
+            "snow": 615,
+            "ash": 615,
+            "fog": 615,
+            "blizzard": 615,
+            "breeze": 615,
+            "gale": 615
           }
         },
         "winter": {
           "morning": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "day": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "night": {
-            "clear": 609,
-            "rain": 609,
-            "storm": 609,
-            "sun": 609,
-            "sand": 609,
-            "snow": 609,
-            "ash": 609,
-            "fog": 609,
-            "blizzard": 609,
-            "breeze": 609,
-            "gale": 609
+            "clear": 613,
+            "rain": 613,
+            "storm": 613,
+            "sun": 613,
+            "sand": 613,
+            "snow": 613,
+            "ash": 613,
+            "fog": 613,
+            "blizzard": 613,
+            "breeze": 613,
+            "gale": 613
           }
         }
       },
       "direct": {
         "spring": {
           "morning": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "day": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "night": {
-            "clear": 609,
-            "rain": 609,
-            "storm": 609,
-            "sun": 609,
-            "sand": 609,
-            "snow": 609,
-            "ash": 609,
-            "fog": 609,
-            "blizzard": 609,
-            "breeze": 609,
-            "gale": 609
+            "clear": 613,
+            "rain": 613,
+            "storm": 613,
+            "sun": 613,
+            "sand": 613,
+            "snow": 613,
+            "ash": 613,
+            "fog": 613,
+            "blizzard": 613,
+            "breeze": 613,
+            "gale": 613
           }
         },
         "summer": {
           "morning": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "day": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "night": {
-            "clear": 609,
-            "rain": 609,
-            "storm": 609,
-            "sun": 609,
-            "sand": 609,
-            "snow": 609,
-            "ash": 609,
-            "fog": 609,
-            "blizzard": 609,
-            "breeze": 609,
-            "gale": 609
+            "clear": 613,
+            "rain": 613,
+            "storm": 613,
+            "sun": 613,
+            "sand": 613,
+            "snow": 613,
+            "ash": 613,
+            "fog": 613,
+            "blizzard": 613,
+            "breeze": 613,
+            "gale": 613
           }
         },
         "autumn": {
           "morning": {
-            "clear": 610,
-            "rain": 610,
-            "storm": 610,
-            "sun": 610,
-            "sand": 610,
-            "snow": 610,
-            "ash": 610,
-            "fog": 610,
-            "blizzard": 610,
-            "breeze": 610,
-            "gale": 610
+            "clear": 614,
+            "rain": 614,
+            "storm": 614,
+            "sun": 614,
+            "sand": 614,
+            "snow": 614,
+            "ash": 614,
+            "fog": 614,
+            "blizzard": 614,
+            "breeze": 614,
+            "gale": 614
           },
           "day": {
-            "clear": 610,
-            "rain": 610,
-            "storm": 610,
-            "sun": 610,
-            "sand": 610,
-            "snow": 610,
-            "ash": 610,
-            "fog": 610,
-            "blizzard": 610,
-            "breeze": 610,
-            "gale": 610
+            "clear": 614,
+            "rain": 614,
+            "storm": 614,
+            "sun": 614,
+            "sand": 614,
+            "snow": 614,
+            "ash": 614,
+            "fog": 614,
+            "blizzard": 614,
+            "breeze": 614,
+            "gale": 614
           },
           "night": {
-            "clear": 611,
-            "rain": 611,
-            "storm": 611,
-            "sun": 611,
-            "sand": 611,
-            "snow": 611,
-            "ash": 611,
-            "fog": 611,
-            "blizzard": 611,
-            "breeze": 611,
-            "gale": 611
+            "clear": 615,
+            "rain": 615,
+            "storm": 615,
+            "sun": 615,
+            "sand": 615,
+            "snow": 615,
+            "ash": 615,
+            "fog": 615,
+            "blizzard": 615,
+            "breeze": 615,
+            "gale": 615
           }
         },
         "winter": {
           "morning": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "day": {
-            "clear": 608,
-            "rain": 608,
-            "storm": 608,
-            "sun": 608,
-            "sand": 608,
-            "snow": 608,
-            "ash": 608,
-            "fog": 608,
-            "blizzard": 608,
-            "breeze": 608,
-            "gale": 608
+            "clear": 612,
+            "rain": 612,
+            "storm": 612,
+            "sun": 612,
+            "sand": 612,
+            "snow": 612,
+            "ash": 612,
+            "fog": 612,
+            "blizzard": 612,
+            "breeze": 612,
+            "gale": 612
           },
           "night": {
-            "clear": 609,
-            "rain": 609,
-            "storm": 609,
-            "sun": 609,
-            "sand": 609,
-            "snow": 609,
-            "ash": 609,
-            "fog": 609,
-            "blizzard": 609,
-            "breeze": 609,
-            "gale": 609
+            "clear": 613,
+            "rain": 613,
+            "storm": 613,
+            "sun": 613,
+            "sand": 613,
+            "snow": 613,
+            "ash": 613,
+            "fog": 613,
+            "blizzard": 613,
+            "breeze": 613,
+            "gale": 613
           }
         }
       },
@@ -40347,332 +40347,332 @@
       "pools": {
         "spring": {
           "morning": {
-            "clear": 612,
-            "rain": 613,
-            "storm": 614,
-            "sun": 615,
-            "sand": 612,
-            "snow": 613,
-            "ash": 612,
-            "fog": 612,
-            "blizzard": 613,
-            "breeze": 612,
-            "gale": 612
+            "clear": 616,
+            "rain": 617,
+            "storm": 618,
+            "sun": 619,
+            "sand": 616,
+            "snow": 617,
+            "ash": 616,
+            "fog": 616,
+            "blizzard": 617,
+            "breeze": 616,
+            "gale": 616
           },
           "day": {
-            "clear": 623,
-            "rain": 624,
-            "storm": 625,
-            "sun": 626,
-            "sand": 623,
-            "snow": 624,
-            "ash": 623,
-            "fog": 623,
-            "blizzard": 624,
-            "breeze": 623,
-            "gale": 623
+            "clear": 627,
+            "rain": 628,
+            "storm": 629,
+            "sun": 630,
+            "sand": 627,
+            "snow": 628,
+            "ash": 627,
+            "fog": 627,
+            "blizzard": 628,
+            "breeze": 627,
+            "gale": 627
           },
           "night": {
-            "clear": 634,
-            "rain": 635,
-            "storm": 636,
-            "sun": 634,
-            "sand": 634,
-            "snow": 635,
-            "ash": 634,
-            "fog": 634,
-            "blizzard": 635,
-            "breeze": 634,
-            "gale": 634
+            "clear": 638,
+            "rain": 639,
+            "storm": 640,
+            "sun": 638,
+            "sand": 638,
+            "snow": 639,
+            "ash": 638,
+            "fog": 638,
+            "blizzard": 639,
+            "breeze": 638,
+            "gale": 638
           }
         },
         "summer": {
           "morning": {
-            "clear": 645,
-            "rain": 646,
-            "storm": 647,
-            "sun": 648,
-            "sand": 645,
-            "snow": 646,
-            "ash": 645,
-            "fog": 645,
-            "blizzard": 646,
-            "breeze": 645,
-            "gale": 645
+            "clear": 649,
+            "rain": 650,
+            "storm": 651,
+            "sun": 652,
+            "sand": 649,
+            "snow": 650,
+            "ash": 649,
+            "fog": 649,
+            "blizzard": 650,
+            "breeze": 649,
+            "gale": 649
           },
           "day": {
-            "clear": 656,
-            "rain": 657,
-            "storm": 658,
-            "sun": 659,
-            "sand": 656,
-            "snow": 657,
-            "ash": 656,
-            "fog": 656,
-            "blizzard": 657,
-            "breeze": 656,
-            "gale": 656
+            "clear": 660,
+            "rain": 661,
+            "storm": 662,
+            "sun": 663,
+            "sand": 660,
+            "snow": 661,
+            "ash": 660,
+            "fog": 660,
+            "blizzard": 661,
+            "breeze": 660,
+            "gale": 660
           },
           "night": {
-            "clear": 667,
-            "rain": 668,
-            "storm": 669,
-            "sun": 667,
-            "sand": 667,
-            "snow": 668,
-            "ash": 667,
-            "fog": 667,
-            "blizzard": 668,
-            "breeze": 667,
-            "gale": 667
+            "clear": 671,
+            "rain": 672,
+            "storm": 673,
+            "sun": 671,
+            "sand": 671,
+            "snow": 672,
+            "ash": 671,
+            "fog": 671,
+            "blizzard": 672,
+            "breeze": 671,
+            "gale": 671
           }
         },
         "autumn": {
           "morning": {
-            "clear": 678,
-            "rain": 679,
-            "storm": 680,
-            "sun": 681,
-            "sand": 678,
-            "snow": 679,
-            "ash": 678,
-            "fog": 678,
-            "blizzard": 679,
-            "breeze": 678,
-            "gale": 678
+            "clear": 682,
+            "rain": 683,
+            "storm": 684,
+            "sun": 685,
+            "sand": 682,
+            "snow": 683,
+            "ash": 682,
+            "fog": 682,
+            "blizzard": 683,
+            "breeze": 682,
+            "gale": 682
           },
           "day": {
-            "clear": 689,
-            "rain": 690,
-            "storm": 691,
-            "sun": 692,
-            "sand": 689,
-            "snow": 690,
-            "ash": 689,
-            "fog": 689,
-            "blizzard": 690,
-            "breeze": 689,
-            "gale": 689
+            "clear": 693,
+            "rain": 694,
+            "storm": 695,
+            "sun": 696,
+            "sand": 693,
+            "snow": 694,
+            "ash": 693,
+            "fog": 693,
+            "blizzard": 694,
+            "breeze": 693,
+            "gale": 693
           },
           "night": {
-            "clear": 700,
-            "rain": 701,
-            "storm": 702,
-            "sun": 700,
-            "sand": 700,
-            "snow": 701,
-            "ash": 700,
-            "fog": 700,
-            "blizzard": 701,
-            "breeze": 700,
-            "gale": 700
+            "clear": 704,
+            "rain": 705,
+            "storm": 706,
+            "sun": 704,
+            "sand": 704,
+            "snow": 705,
+            "ash": 704,
+            "fog": 704,
+            "blizzard": 705,
+            "breeze": 704,
+            "gale": 704
           }
         },
         "winter": {
           "morning": {
-            "clear": 711,
-            "rain": 712,
-            "storm": 713,
-            "sun": 714,
-            "sand": 711,
-            "snow": 712,
-            "ash": 711,
-            "fog": 711,
-            "blizzard": 712,
-            "breeze": 711,
-            "gale": 711
+            "clear": 715,
+            "rain": 716,
+            "storm": 717,
+            "sun": 718,
+            "sand": 715,
+            "snow": 716,
+            "ash": 715,
+            "fog": 715,
+            "blizzard": 716,
+            "breeze": 715,
+            "gale": 715
           },
           "day": {
-            "clear": 722,
-            "rain": 723,
-            "storm": 724,
-            "sun": 725,
-            "sand": 722,
-            "snow": 723,
-            "ash": 722,
-            "fog": 722,
-            "blizzard": 723,
-            "breeze": 722,
-            "gale": 722
+            "clear": 726,
+            "rain": 727,
+            "storm": 728,
+            "sun": 729,
+            "sand": 726,
+            "snow": 727,
+            "ash": 726,
+            "fog": 726,
+            "blizzard": 727,
+            "breeze": 726,
+            "gale": 726
           },
           "night": {
-            "clear": 733,
-            "rain": 734,
-            "storm": 735,
-            "sun": 733,
-            "sand": 733,
-            "snow": 734,
-            "ash": 733,
-            "fog": 733,
-            "blizzard": 734,
-            "breeze": 733,
-            "gale": 733
+            "clear": 737,
+            "rain": 738,
+            "storm": 739,
+            "sun": 737,
+            "sand": 737,
+            "snow": 738,
+            "ash": 737,
+            "fog": 737,
+            "blizzard": 738,
+            "breeze": 737,
+            "gale": 737
           }
         }
       },
       "direct": {
         "spring": {
           "morning": {
-            "clear": 612,
-            "rain": 613,
-            "storm": 614,
-            "sun": 615,
-            "sand": 616,
-            "snow": 617,
-            "ash": 618,
-            "fog": 619,
-            "blizzard": 620,
-            "breeze": 621,
-            "gale": 622
+            "clear": 616,
+            "rain": 617,
+            "storm": 618,
+            "sun": 619,
+            "sand": 620,
+            "snow": 621,
+            "ash": 622,
+            "fog": 623,
+            "blizzard": 624,
+            "breeze": 625,
+            "gale": 626
           },
           "day": {
-            "clear": 623,
-            "rain": 624,
-            "storm": 625,
-            "sun": 626,
-            "sand": 627,
-            "snow": 628,
-            "ash": 629,
-            "fog": 630,
-            "blizzard": 631,
-            "breeze": 632,
-            "gale": 633
+            "clear": 627,
+            "rain": 628,
+            "storm": 629,
+            "sun": 630,
+            "sand": 631,
+            "snow": 632,
+            "ash": 633,
+            "fog": 634,
+            "blizzard": 635,
+            "breeze": 636,
+            "gale": 637
           },
           "night": {
-            "clear": 634,
-            "rain": 635,
-            "storm": 636,
-            "sun": 637,
-            "sand": 638,
-            "snow": 639,
-            "ash": 640,
-            "fog": 641,
-            "blizzard": 642,
-            "breeze": 643,
-            "gale": 644
+            "clear": 638,
+            "rain": 639,
+            "storm": 640,
+            "sun": 641,
+            "sand": 642,
+            "snow": 643,
+            "ash": 644,
+            "fog": 645,
+            "blizzard": 646,
+            "breeze": 647,
+            "gale": 648
           }
         },
         "summer": {
           "morning": {
-            "clear": 645,
-            "rain": 646,
-            "storm": 647,
-            "sun": 648,
-            "sand": 649,
-            "snow": 650,
-            "ash": 651,
-            "fog": 652,
-            "blizzard": 653,
-            "breeze": 654,
-            "gale": 655
+            "clear": 649,
+            "rain": 650,
+            "storm": 651,
+            "sun": 652,
+            "sand": 653,
+            "snow": 654,
+            "ash": 655,
+            "fog": 656,
+            "blizzard": 657,
+            "breeze": 658,
+            "gale": 659
           },
           "day": {
-            "clear": 656,
-            "rain": 657,
-            "storm": 658,
-            "sun": 659,
-            "sand": 660,
-            "snow": 661,
-            "ash": 662,
-            "fog": 663,
-            "blizzard": 664,
-            "breeze": 665,
-            "gale": 666
+            "clear": 660,
+            "rain": 661,
+            "storm": 662,
+            "sun": 663,
+            "sand": 664,
+            "snow": 665,
+            "ash": 666,
+            "fog": 667,
+            "blizzard": 668,
+            "breeze": 669,
+            "gale": 670
           },
           "night": {
-            "clear": 667,
-            "rain": 668,
-            "storm": 669,
-            "sun": 670,
-            "sand": 671,
-            "snow": 672,
-            "ash": 673,
-            "fog": 674,
-            "blizzard": 675,
-            "breeze": 676,
-            "gale": 677
+            "clear": 671,
+            "rain": 672,
+            "storm": 673,
+            "sun": 674,
+            "sand": 675,
+            "snow": 676,
+            "ash": 677,
+            "fog": 678,
+            "blizzard": 679,
+            "breeze": 680,
+            "gale": 681
           }
         },
         "autumn": {
           "morning": {
-            "clear": 678,
-            "rain": 679,
-            "storm": 680,
-            "sun": 681,
-            "sand": 682,
-            "snow": 683,
-            "ash": 684,
-            "fog": 685,
-            "blizzard": 686,
-            "breeze": 687,
-            "gale": 688
+            "clear": 682,
+            "rain": 683,
+            "storm": 684,
+            "sun": 685,
+            "sand": 686,
+            "snow": 687,
+            "ash": 688,
+            "fog": 689,
+            "blizzard": 690,
+            "breeze": 691,
+            "gale": 692
           },
           "day": {
-            "clear": 689,
-            "rain": 690,
-            "storm": 691,
-            "sun": 692,
-            "sand": 693,
-            "snow": 694,
-            "ash": 695,
-            "fog": 696,
-            "blizzard": 697,
-            "breeze": 698,
-            "gale": 699
+            "clear": 693,
+            "rain": 694,
+            "storm": 695,
+            "sun": 696,
+            "sand": 697,
+            "snow": 698,
+            "ash": 699,
+            "fog": 700,
+            "blizzard": 701,
+            "breeze": 702,
+            "gale": 703
           },
           "night": {
-            "clear": 700,
-            "rain": 701,
-            "storm": 702,
-            "sun": 703,
-            "sand": 704,
-            "snow": 705,
-            "ash": 706,
-            "fog": 707,
-            "blizzard": 708,
-            "breeze": 709,
-            "gale": 710
+            "clear": 704,
+            "rain": 705,
+            "storm": 706,
+            "sun": 707,
+            "sand": 708,
+            "snow": 709,
+            "ash": 710,
+            "fog": 711,
+            "blizzard": 712,
+            "breeze": 713,
+            "gale": 714
           }
         },
         "winter": {
           "morning": {
-            "clear": 711,
-            "rain": 712,
-            "storm": 713,
-            "sun": 714,
-            "sand": 715,
-            "snow": 716,
-            "ash": 717,
-            "fog": 718,
-            "blizzard": 719,
-            "breeze": 720,
-            "gale": 721
+            "clear": 715,
+            "rain": 716,
+            "storm": 717,
+            "sun": 718,
+            "sand": 719,
+            "snow": 720,
+            "ash": 721,
+            "fog": 722,
+            "blizzard": 723,
+            "breeze": 724,
+            "gale": 725
           },
           "day": {
-            "clear": 722,
-            "rain": 723,
-            "storm": 724,
-            "sun": 725,
-            "sand": 726,
-            "snow": 727,
-            "ash": 728,
-            "fog": 729,
-            "blizzard": 730,
-            "breeze": 731,
-            "gale": 732
+            "clear": 726,
+            "rain": 727,
+            "storm": 728,
+            "sun": 729,
+            "sand": 730,
+            "snow": 731,
+            "ash": 732,
+            "fog": 733,
+            "blizzard": 734,
+            "breeze": 735,
+            "gale": 736
           },
           "night": {
-            "clear": 733,
-            "rain": 734,
-            "storm": 735,
-            "sun": 736,
-            "sand": 737,
-            "snow": 738,
-            "ash": 739,
-            "fog": 740,
-            "blizzard": 741,
-            "breeze": 742,
-            "gale": 743
+            "clear": 737,
+            "rain": 738,
+            "storm": 739,
+            "sun": 740,
+            "sand": 741,
+            "snow": 742,
+            "ash": 743,
+            "fog": 744,
+            "blizzard": 745,
+            "breeze": 746,
+            "gale": 747
           }
         }
       },
@@ -120033,14 +120033,6 @@
         2.666667
       ],
       [
-        585,
-        1.632145
-      ],
-      [
-        586,
-        0.582909
-      ],
-      [
         595,
         0.921605
       ],
@@ -120071,6 +120063,14 @@
       [
         603,
         0.06625
+      ],
+      [
+        58501,
+        1.632145
+      ],
+      [
+        58601,
+        0.582909
       ]
     ],
     [
@@ -120107,14 +120107,6 @@
         2.19469
       ],
       [
-        585,
-        1.34327
-      ],
-      [
-        586,
-        0.479739
-      ],
-      [
         595,
         0.921605
       ],
@@ -120145,6 +120137,14 @@
       [
         603,
         0.06625
+      ],
+      [
+        58501,
+        1.34327
+      ],
+      [
+        58601,
+        0.479739
       ]
     ],
     [
@@ -120167,14 +120167,6 @@
       [
         550,
         2.332288
-      ],
-      [
-        585,
-        1.427487
-      ],
-      [
-        586,
-        0.509817
       ],
       [
         595,
@@ -120207,6 +120199,14 @@
       [
         603,
         0.264237
+      ],
+      [
+        58501,
+        1.427487
+      ],
+      [
+        58601,
+        0.509817
       ]
     ],
     [
@@ -120229,14 +120229,6 @@
       [
         550,
         0.616404
-      ],
-      [
-        585,
-        0.377273
-      ],
-      [
-        586,
-        0.13474
       ],
       [
         588,
@@ -120285,6 +120277,14 @@
       [
         603,
         0.06625
+      ],
+      [
+        58502,
+        0.377273
+      ],
+      [
+        58602,
+        0.13474
       ]
     ],
     [
@@ -120319,14 +120319,6 @@
       [
         550,
         0.587214
-      ],
-      [
-        585,
-        0.359407
-      ],
-      [
-        586,
-        0.12836
       ],
       [
         588,
@@ -120375,6 +120367,14 @@
       [
         603,
         0.06625
+      ],
+      [
+        58502,
+        0.359407
+      ],
+      [
+        58602,
+        0.12836
       ]
     ],
     [
@@ -120397,14 +120397,6 @@
       [
         550,
         0.596632
-      ],
-      [
-        585,
-        0.365171
-      ],
-      [
-        586,
-        0.130418
       ],
       [
         588,
@@ -120453,6 +120445,14 @@
       [
         603,
         0.116897
+      ],
+      [
+        58502,
+        0.365171
+      ],
+      [
+        58602,
+        0.130418
       ]
     ],
     [
@@ -120485,14 +120485,6 @@
         0.34498
       ],
       [
-        585,
-        1.275542
-      ],
-      [
-        586,
-        0.455551
-      ],
-      [
         595,
         0.921605
       ],
@@ -120523,6 +120515,14 @@
       [
         603,
         0.06625
+      ],
+      [
+        58503,
+        1.275542
+      ],
+      [
+        58603,
+        0.455551
       ]
     ],
     [
@@ -120567,14 +120567,6 @@
         0.295343
       ],
       [
-        585,
-        1.092011
-      ],
-      [
-        586,
-        0.390004
-      ],
-      [
         595,
         0.921605
       ],
@@ -120605,6 +120597,14 @@
       [
         603,
         0.06625
+      ],
+      [
+        58503,
+        1.092011
+      ],
+      [
+        58603,
+        0.390004
       ]
     ],
     [
@@ -120637,14 +120637,6 @@
         0.310221
       ],
       [
-        585,
-        1.147024
-      ],
-      [
-        586,
-        0.409651
-      ],
-      [
         595,
         0.921605
       ],
@@ -120675,6 +120667,14 @@
       [
         603,
         0.225337
+      ],
+      [
+        58503,
+        1.147024
+      ],
+      [
+        58603,
+        0.409651
       ]
     ],
     [
@@ -120769,14 +120769,6 @@
         1.334981
       ],
       [
-        585,
-        1.358101
-      ],
-      [
-        586,
-        0.485036
-      ],
-      [
         605,
         1.381579
       ],
@@ -120803,6 +120795,14 @@
       [
         615,
         0.266996
+      ],
+      [
+        58501,
+        1.358101
+      ],
+      [
+        58601,
+        0.485036
       ]
     ],
     [
@@ -120829,14 +120829,6 @@
       [
         533,
         1.334981
-      ],
-      [
-        585,
-        1.534634
-      ],
-      [
-        586,
-        0.548084
       ],
       [
         590,
@@ -120873,6 +120865,14 @@
       [
         615,
         0.266996
+      ],
+      [
+        58502,
+        1.534634
+      ],
+      [
+        58602,
+        0.548084
       ]
     ],
     [
@@ -120913,14 +120913,6 @@
         0.041247
       ],
       [
-        585,
-        0.952289
-      ],
-      [
-        586,
-        0.340103
-      ],
-      [
         605,
         1.381579
       ],
@@ -120947,6 +120939,14 @@
       [
         615,
         0.266996
+      ],
+      [
+        58503,
+        0.952289
+      ],
+      [
+        58603,
+        0.340103
       ]
     ],
     [
@@ -120987,14 +120987,6 @@
         0.049006
       ],
       [
-        585,
-        1.131436
-      ],
-      [
-        586,
-        0.404084
-      ],
-      [
         605,
         1.381579
       ],
@@ -121021,6 +121013,14 @@
       [
         615,
         0.266996
+      ],
+      [
+        58503,
+        1.131436
+      ],
+      [
+        58603,
+        0.404084
       ]
     ],
     [
@@ -121182,6 +121182,154 @@
       ],
       [
         536,
+        1.105263
+      ],
+      [
+        537,
+        0.394737
+      ],
+      [
+        550,
+        0.495504
+      ],
+      [
+        582,
+        0.288112
+      ],
+      [
+        583,
+        0.379095
+      ],
+      [
+        584,
+        0.15597
+      ],
+      [
+        613,
+        0.15311
+      ],
+      [
+        614,
+        0.262474
+      ],
+      [
+        618,
+        4.5
+      ],
+      [
+        619,
+        0.303276
+      ],
+      [
+        620,
+        0.108313
+      ],
+      [
+        621,
+        0.207792
+      ],
+      [
+        622,
+        0.303276
+      ],
+      [
+        623,
+        0.108313
+      ],
+      [
+        58501,
+        0.303276
+      ],
+      [
+        58601,
+        0.519901
+      ]
+    ],
+    [
+      [
+        520,
+        0.303276
+      ],
+      [
+        521,
+        0.108313
+      ],
+      [
+        536,
+        1.697368
+      ],
+      [
+        537,
+        0.606203
+      ],
+      [
+        550,
+        0.495504
+      ],
+      [
+        582,
+        0.288112
+      ],
+      [
+        583,
+        0.379095
+      ],
+      [
+        584,
+        0.15597
+      ],
+      [
+        613,
+        0.15311
+      ],
+      [
+        614,
+        0.262474
+      ],
+      [
+        618,
+        3.696429
+      ],
+      [
+        619,
+        0.303276
+      ],
+      [
+        620,
+        0.108313
+      ],
+      [
+        621,
+        0.207792
+      ],
+      [
+        622,
+        0.303276
+      ],
+      [
+        623,
+        0.108313
+      ],
+      [
+        58501,
+        0.303276
+      ],
+      [
+        58601,
+        0.519901
+      ]
+    ],
+    [
+      [
+        520,
+        0.303276
+      ],
+      [
+        521,
+        0.108313
+      ],
+      [
+        536,
         0.803828
       ],
       [
@@ -121203,14 +121351,6 @@
       [
         584,
         0.15597
-      ],
-      [
-        585,
-        0.303276
-      ],
-      [
-        586,
-        0.519901
       ],
       [
         613,
@@ -121251,6 +121391,14 @@
       [
         623,
         0.108313
+      ],
+      [
+        58502,
+        0.303276
+      ],
+      [
+        58602,
+        0.519901
       ]
     ],
     [
@@ -121285,14 +121433,6 @@
       [
         584,
         0.15597
-      ],
-      [
-        585,
-        0.303276
-      ],
-      [
-        586,
-        0.519901
       ],
       [
         613,
@@ -121333,6 +121473,162 @@
       [
         623,
         0.108313
+      ],
+      [
+        58502,
+        0.303276
+      ],
+      [
+        58602,
+        0.519901
+      ]
+    ],
+    [
+      [
+        520,
+        0.303276
+      ],
+      [
+        521,
+        0.108313
+      ],
+      [
+        536,
+        1.105263
+      ],
+      [
+        537,
+        0.394737
+      ],
+      [
+        550,
+        0.495504
+      ],
+      [
+        582,
+        0.288112
+      ],
+      [
+        583,
+        0.379095
+      ],
+      [
+        584,
+        0.15597
+      ],
+      [
+        613,
+        0.15311
+      ],
+      [
+        614,
+        0.262474
+      ],
+      [
+        618,
+        4.5
+      ],
+      [
+        619,
+        0.303276
+      ],
+      [
+        620,
+        0.108313
+      ],
+      [
+        621,
+        0.207792
+      ],
+      [
+        622,
+        0.303276
+      ],
+      [
+        623,
+        0.108313
+      ],
+      [
+        58503,
+        0.303276
+      ],
+      [
+        58603,
+        0.519901
+      ]
+    ],
+    [
+      [
+        520,
+        0.303276
+      ],
+      [
+        521,
+        0.108313
+      ],
+      [
+        536,
+        1.697368
+      ],
+      [
+        537,
+        0.606203
+      ],
+      [
+        550,
+        0.495504
+      ],
+      [
+        582,
+        0.288112
+      ],
+      [
+        583,
+        0.379095
+      ],
+      [
+        584,
+        0.15597
+      ],
+      [
+        613,
+        0.15311
+      ],
+      [
+        614,
+        0.262474
+      ],
+      [
+        618,
+        3.696429
+      ],
+      [
+        619,
+        0.303276
+      ],
+      [
+        620,
+        0.108313
+      ],
+      [
+        621,
+        0.207792
+      ],
+      [
+        622,
+        0.303276
+      ],
+      [
+        623,
+        0.108313
+      ],
+      [
+        58503,
+        0.303276
+      ],
+      [
+        58603,
+        0.519901
       ]
     ],
     [

@@ -68,6 +68,8 @@
                     }
                 }
                 if (route.candy) add('rare-candy', { ch: id, kind: 'find', expected: 1, once: route.candy, repeat: false });
+                const quest=route.questFind;
+                if (quest) add(quest.item, { ch: id, kind: 'quest', expected: quest.p, upTo: quest.upTo, until: quest.until, repeat: true });
             });
             // The offline VM ends before Roaming loads. Ask native townOdds for both unlock states.
             const townOdds = unlocked => {

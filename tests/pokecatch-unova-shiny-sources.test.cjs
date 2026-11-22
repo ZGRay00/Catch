@@ -73,7 +73,8 @@ test('White Forest day restriction applies to map generation; already generated 
 
 test('Axew fang collection stops when the bag contains ten or the nest has been visited', () => {
     const s = state(72), source = H.ITEMS.get('axew-fang').sources.find(row => row.ch === 72);
-    assert.ok(Math.abs(source.expected - 0.03575) < 1e-10);
+    assert.equal(source.kind,'quest');
+    assert.equal(source.expected,.10);
     s.items['axew-fang'] = 9;
     assert.equal(H.sourceAvailable(s,source,'axew-fang'),true);
     s.items['axew-fang'] = 10;

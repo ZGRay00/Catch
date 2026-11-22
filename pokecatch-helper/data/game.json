@@ -40182,7 +40182,7 @@
     },
     {
       "id": 585,
-      "name": "四季鹿",
+      "name": "四季鹿（春季）",
       "key": "deerling",
       "types": [
         "normal",
@@ -40249,11 +40249,13 @@
           85,
           "leaf-storm"
         ]
-      ]
+      ],
+      "num": 585,
+      "season": "spring"
     },
     {
       "id": 586,
-      "name": "萌芽鹿",
+      "name": "萌芽鹿（春季）",
       "key": "sawsbuck",
       "types": [
         "normal",
@@ -40328,7 +40330,9 @@
           85,
           "double-edge"
         ]
-      ]
+      ],
+      "num": 586,
+      "season": "spring"
     },
     {
       "id": 587,
@@ -45438,68 +45442,6 @@
       ]
     },
     {
-      "id": 90025,
-      "name": "皮卡丘",
-      "key": "pikachu",
-      "types": [
-        "electric"
-      ],
-      "stats": {
-        "hp": 35,
-        "atk": 55,
-        "def": 40,
-        "spa": 50,
-        "spd": 50,
-        "spe": 90
-      },
-      "rate": 190,
-      "baby": false,
-      "legend": false,
-      "root": 90025,
-      "learn": [
-        [
-          8,
-          "quick-attack"
-        ],
-        [
-          12,
-          "double-kick"
-        ],
-        [
-          17,
-          "electro-ball"
-        ],
-        [
-          22,
-          "spark"
-        ],
-        [
-          26,
-          "swift"
-        ],
-        [
-          30,
-          "slam"
-        ],
-        [
-          35,
-          "discharge"
-        ],
-        [
-          40,
-          "thunderbolt"
-        ],
-        [
-          56,
-          "iron-tail"
-        ],
-        [
-          65,
-          "thunder"
-        ]
-      ]
-    },
-    {
       "id": 35101,
       "name": "飘浮泡泡 (太阳的样子)",
       "key": "castform",
@@ -47704,138 +47646,466 @@
       ]
     },
     {
-      "id": 64601,
-      "name": "暗黑酋雷姆",
-      "key": "kyurem-black",
+      "id": 58501,
+      "name": "四季鹿（夏季）",
+      "key": "deerling-summer",
       "types": [
-        "dragon",
-        "ice"
+        "normal",
+        "grass"
       ],
       "stats": {
-        "hp": 125,
-        "atk": 170,
-        "def": 100,
-        "spa": 120,
-        "spd": 90,
-        "spe": 95
+        "hp": 60,
+        "atk": 60,
+        "def": 50,
+        "spa": 40,
+        "spd": 50,
+        "spe": 75
       },
-      "rate": 3,
+      "rate": 190,
       "baby": false,
-      "legend": true,
-      "root": 646,
+      "legend": false,
+      "root": 58501,
       "learn": [
         [
           1,
-          "dragon-breath"
-        ],
-        [
-          5,
-          "ancient-power"
+          "tackle"
         ],
         [
           10,
-          "freeze-dry"
+          "double-kick"
         ],
         [
           15,
-          "slash"
+          "trailblaze"
         ],
         [
-          24,
-          "dragon-pulse"
+          20,
+          "grassy-glide"
         ],
         [
-          30,
-          "icicle-spear"
+          25,
+          "feint-attack"
+        ],
+        [
+          29,
+          "bullet-seed"
+        ],
+        [
+          33,
+          "take-down"
+        ],
+        [
+          38,
+          "zen-headbutt"
+        ],
+        [
+          43,
+          "seed-bomb"
         ],
         [
           50,
-          "fusion-bolt"
+          "jump-kick"
         ],
         [
-          65,
-          "blizzard"
+          70,
+          "double-edge"
         ],
         [
           85,
-          "draco-meteor"
-        ],
-        [
-          90,
-          "outrage"
-        ],
-        [
-          95,
-          "freeze-shock"
+          "leaf-storm"
         ]
-      ]
+      ],
+      "num": 585,
+      "season": "summer"
     },
     {
-      "id": 64602,
-      "name": "焰白酋雷姆",
-      "key": "kyurem-white",
+      "id": 58502,
+      "name": "四季鹿（秋季）",
+      "key": "deerling-autumn",
       "types": [
-        "dragon",
-        "ice"
+        "normal",
+        "grass"
       ],
       "stats": {
-        "hp": 125,
-        "atk": 120,
-        "def": 90,
-        "spa": 170,
-        "spd": 100,
-        "spe": 95
+        "hp": 60,
+        "atk": 60,
+        "def": 50,
+        "spa": 40,
+        "spd": 50,
+        "spe": 75
       },
-      "rate": 3,
+      "rate": 190,
       "baby": false,
-      "legend": true,
-      "root": 646,
+      "legend": false,
+      "root": 58502,
       "learn": [
         [
           1,
-          "dragon-breath"
+          "tackle"
         ],
         [
-          5,
-          "ancient-power"
+          10,
+          "double-kick"
         ],
         [
-          9,
-          "freeze-dry"
+          15,
+          "trailblaze"
         ],
         [
-          14,
-          "slash"
+          19,
+          "grassy-glide"
         ],
         [
           24,
-          "dragon-pulse"
+          "feint-attack"
         ],
         [
-          32,
-          "ice-beam"
+          29,
+          "bullet-seed"
         ],
         [
-          40,
-          "hyper-voice"
+          33,
+          "take-down"
         ],
         [
-          60,
-          "fusion-flare"
+          38,
+          "zen-headbutt"
         ],
         [
-          65,
-          "blizzard"
+          43,
+          "seed-bomb"
+        ],
+        [
+          50,
+          "jump-kick"
+        ],
+        [
+          70,
+          "double-edge"
         ],
         [
           85,
-          "draco-meteor"
+          "leaf-storm"
+        ]
+      ],
+      "num": 585,
+      "season": "autumn"
+    },
+    {
+      "id": 58503,
+      "name": "四季鹿（冬季）",
+      "key": "deerling-winter",
+      "types": [
+        "normal",
+        "grass"
+      ],
+      "stats": {
+        "hp": 60,
+        "atk": 60,
+        "def": 50,
+        "spa": 40,
+        "spd": 50,
+        "spe": 75
+      },
+      "rate": 190,
+      "baby": false,
+      "legend": false,
+      "root": 58503,
+      "learn": [
+        [
+          1,
+          "tackle"
         ],
         [
-          90,
-          "ice-burn"
+          10,
+          "double-kick"
+        ],
+        [
+          15,
+          "trailblaze"
+        ],
+        [
+          19,
+          "grassy-glide"
+        ],
+        [
+          24,
+          "feint-attack"
+        ],
+        [
+          29,
+          "bullet-seed"
+        ],
+        [
+          33,
+          "take-down"
+        ],
+        [
+          37,
+          "zen-headbutt"
+        ],
+        [
+          42,
+          "seed-bomb"
+        ],
+        [
+          50,
+          "jump-kick"
+        ],
+        [
+          70,
+          "double-edge"
+        ],
+        [
+          85,
+          "leaf-storm"
         ]
-      ]
+      ],
+      "num": 585,
+      "season": "winter"
+    },
+    {
+      "id": 58601,
+      "name": "萌芽鹿（夏季）",
+      "key": "sawsbuck-summer",
+      "types": [
+        "normal",
+        "grass"
+      ],
+      "stats": {
+        "hp": 80,
+        "atk": 100,
+        "def": 70,
+        "spa": 60,
+        "spd": 70,
+        "spe": 95
+      },
+      "rate": 75,
+      "baby": false,
+      "legend": false,
+      "root": 58501,
+      "learn": [
+        [
+          1,
+          "tackle"
+        ],
+        [
+          10,
+          "double-kick"
+        ],
+        [
+          15,
+          "cut"
+        ],
+        [
+          20,
+          "trailblaze"
+        ],
+        [
+          25,
+          "grassy-glide"
+        ],
+        [
+          29,
+          "feint-attack"
+        ],
+        [
+          33,
+          "horn-leech"
+        ],
+        [
+          38,
+          "bullet-seed"
+        ],
+        [
+          43,
+          "take-down"
+        ],
+        [
+          47,
+          "zen-headbutt"
+        ],
+        [
+          51,
+          "seed-bomb"
+        ],
+        [
+          56,
+          "petal-blizzard"
+        ],
+        [
+          65,
+          "jump-kick"
+        ],
+        [
+          85,
+          "double-edge"
+        ]
+      ],
+      "num": 586,
+      "season": "summer"
+    },
+    {
+      "id": 58602,
+      "name": "萌芽鹿（秋季）",
+      "key": "sawsbuck-autumn",
+      "types": [
+        "normal",
+        "grass"
+      ],
+      "stats": {
+        "hp": 80,
+        "atk": 100,
+        "def": 70,
+        "spa": 60,
+        "spd": 70,
+        "spe": 95
+      },
+      "rate": 75,
+      "baby": false,
+      "legend": false,
+      "root": 58502,
+      "learn": [
+        [
+          1,
+          "tackle"
+        ],
+        [
+          10,
+          "double-kick"
+        ],
+        [
+          15,
+          "cut"
+        ],
+        [
+          19,
+          "trailblaze"
+        ],
+        [
+          24,
+          "grassy-glide"
+        ],
+        [
+          29,
+          "feint-attack"
+        ],
+        [
+          33,
+          "horn-leech"
+        ],
+        [
+          37,
+          "bullet-seed"
+        ],
+        [
+          42,
+          "take-down"
+        ],
+        [
+          47,
+          "zen-headbutt"
+        ],
+        [
+          51,
+          "seed-bomb"
+        ],
+        [
+          55,
+          "petal-blizzard"
+        ],
+        [
+          65,
+          "jump-kick"
+        ],
+        [
+          85,
+          "double-edge"
+        ]
+      ],
+      "num": 586,
+      "season": "autumn"
+    },
+    {
+      "id": 58603,
+      "name": "萌芽鹿（冬季）",
+      "key": "sawsbuck-winter",
+      "types": [
+        "normal",
+        "grass"
+      ],
+      "stats": {
+        "hp": 80,
+        "atk": 100,
+        "def": 70,
+        "spa": 60,
+        "spd": 70,
+        "spe": 95
+      },
+      "rate": 75,
+      "baby": false,
+      "legend": false,
+      "root": 58503,
+      "learn": [
+        [
+          1,
+          "tackle"
+        ],
+        [
+          10,
+          "double-kick"
+        ],
+        [
+          15,
+          "cut"
+        ],
+        [
+          19,
+          "trailblaze"
+        ],
+        [
+          23,
+          "grassy-glide"
+        ],
+        [
+          28,
+          "feint-attack"
+        ],
+        [
+          33,
+          "horn-leech"
+        ],
+        [
+          37,
+          "bullet-seed"
+        ],
+        [
+          41,
+          "take-down"
+        ],
+        [
+          46,
+          "zen-headbutt"
+        ],
+        [
+          51,
+          "seed-bomb"
+        ],
+        [
+          55,
+          "petal-blizzard"
+        ],
+        [
+          65,
+          "jump-kick"
+        ],
+        [
+          85,
+          "double-edge"
+        ]
+      ],
+      "num": 586,
+      "season": "winter"
     },
     {
       "id": 64101,
@@ -48098,6 +48368,140 @@
         [
           85,
           "outrage"
+        ]
+      ]
+    },
+    {
+      "id": 64601,
+      "name": "暗黑酋雷姆",
+      "key": "kyurem-black",
+      "types": [
+        "dragon",
+        "ice"
+      ],
+      "stats": {
+        "hp": 125,
+        "atk": 170,
+        "def": 100,
+        "spa": 120,
+        "spd": 90,
+        "spe": 95
+      },
+      "rate": 3,
+      "baby": false,
+      "legend": true,
+      "root": 646,
+      "learn": [
+        [
+          1,
+          "dragon-breath"
+        ],
+        [
+          5,
+          "ancient-power"
+        ],
+        [
+          10,
+          "freeze-dry"
+        ],
+        [
+          15,
+          "slash"
+        ],
+        [
+          24,
+          "dragon-pulse"
+        ],
+        [
+          30,
+          "icicle-spear"
+        ],
+        [
+          50,
+          "fusion-bolt"
+        ],
+        [
+          65,
+          "blizzard"
+        ],
+        [
+          85,
+          "draco-meteor"
+        ],
+        [
+          90,
+          "outrage"
+        ],
+        [
+          95,
+          "freeze-shock"
+        ]
+      ]
+    },
+    {
+      "id": 64602,
+      "name": "焰白酋雷姆",
+      "key": "kyurem-white",
+      "types": [
+        "dragon",
+        "ice"
+      ],
+      "stats": {
+        "hp": 125,
+        "atk": 120,
+        "def": 90,
+        "spa": 170,
+        "spd": 100,
+        "spe": 95
+      },
+      "rate": 3,
+      "baby": false,
+      "legend": true,
+      "root": 646,
+      "learn": [
+        [
+          1,
+          "dragon-breath"
+        ],
+        [
+          5,
+          "ancient-power"
+        ],
+        [
+          9,
+          "freeze-dry"
+        ],
+        [
+          14,
+          "slash"
+        ],
+        [
+          24,
+          "dragon-pulse"
+        ],
+        [
+          32,
+          "ice-beam"
+        ],
+        [
+          40,
+          "hyper-voice"
+        ],
+        [
+          60,
+          "fusion-flare"
+        ],
+        [
+          65,
+          "blizzard"
+        ],
+        [
+          85,
+          "draco-meteor"
+        ],
+        [
+          90,
+          "ice-burn"
         ]
       ]
     },
@@ -48497,6 +48901,68 @@
         [
           90,
           "techno-blast-ice"
+        ]
+      ]
+    },
+    {
+      "id": 90025,
+      "name": "皮卡丘",
+      "key": "pikachu",
+      "types": [
+        "electric"
+      ],
+      "stats": {
+        "hp": 35,
+        "atk": 55,
+        "def": 40,
+        "spa": 50,
+        "spd": 50,
+        "spe": 90
+      },
+      "rate": 190,
+      "baby": false,
+      "legend": false,
+      "root": 90025,
+      "learn": [
+        [
+          8,
+          "quick-attack"
+        ],
+        [
+          12,
+          "double-kick"
+        ],
+        [
+          17,
+          "electro-ball"
+        ],
+        [
+          22,
+          "spark"
+        ],
+        [
+          26,
+          "swift"
+        ],
+        [
+          30,
+          "slam"
+        ],
+        [
+          35,
+          "discharge"
+        ],
+        [
+          40,
+          "thunderbolt"
+        ],
+        [
+          56,
+          "iron-tail"
+        ],
+        [
+          65,
+          "thunder"
         ]
       ]
     }
@@ -149621,8 +150087,8 @@
       "sources": [
         {
           "ch": 72,
-          "kind": "loot",
-          "expected": 0.03575,
+          "kind": "quest",
+          "expected": 0.1,
           "upTo": 10,
           "until": "axew-nest",
           "repeat": true
@@ -161076,8 +161542,8 @@
       "unova": 1.35
     },
     "xpThresholdSchema": 2,
-    "build": "1125894b9a",
-    "checked": "2026-11-19"
+    "build": "4b690e533c",
+    "checked": "2026-11-22"
   },
   "townCooldown": 120000,
   "tideMs": 10800000,
@@ -163628,8 +164094,8 @@
       "LIN": 0.4,
       "DIS0": 0.2
     },
-    "build": "1125894b9a",
-    "checked": "2026-11-19",
+    "build": "4b690e533c",
+    "checked": "2026-11-22",
     "source": "https://pokecatch-online.pages.dev/bundle/app.0a7dcb2280.js"
   },
   "automation": {
@@ -166477,6 +166943,30 @@
       "49316": {
         "can": false,
         "egg": 493
+      },
+      "58501": {
+        "can": true,
+        "egg": 58501
+      },
+      "58502": {
+        "can": true,
+        "egg": 58502
+      },
+      "58503": {
+        "can": true,
+        "egg": 58503
+      },
+      "58601": {
+        "can": true,
+        "egg": 58501
+      },
+      "58602": {
+        "can": true,
+        "egg": 58502
+      },
+      "58603": {
+        "can": true,
+        "egg": 58503
       },
       "64101": {
         "can": false,

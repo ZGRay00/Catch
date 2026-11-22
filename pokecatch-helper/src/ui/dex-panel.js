@@ -107,7 +107,7 @@
             const sources=acquisitionSources(s,mon.id,now).sort((a,b)=>Number(!!b.marked)-Number(!!a.marked));
             const spirit=mon.id===spiritEvent.id?spiritProgress(s):null;
             const gates=legendRequirements(s,[mon.id]);
-            if(!changed(['detail',gates?.lines,gates?.notes,mon.id,caught,chainComplete,forms?.seen,currentSeason,spirit?.missing,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
+            if(!changed(['detail',gates?.lines,gates?.notes,mon.id,caught,chainComplete,forms?.forms,currentSeason,spirit?.missing,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
             const heading=label('h3','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading');
             heading.tabIndex=-1;results.append(heading);
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
@@ -149,12 +149,13 @@
                 results.append(links);
             }
             if(forms){
-                results.append(label('h4','季节外观 · 已遇见 '+forms.seen.length+'/4','dex-section'));
+                results.append(label('h4','季节形态 · 已捕获 '+(forms.forms.length-forms.missing.length)+'/4','dex-section'));
                 const list=label('ul','','season-forms');
-                for(const [key,name] of Object.entries(SEASON_NAMES)){
-                    const seen=forms.seen.includes(key);
-                    const entry=label('li',name+' · '+(seen?'已遇见':'未记录')+(currentSeason===key?'（本季）':''));
-                    entry.dataset.seen=String(seen);list.append(entry);
+                for(const form of forms.forms){
+                    const entry=label('li','');
+                    const name=SEASON_NAMES[form.season],state=form.caught?'已捕获':form.seen?'已遇见':'未记录';
+                    entry.append(speciesButton(MONS.get(form.id),name+' · '+state+(currentSeason===form.season?'（本季）':'')));
+                    entry.dataset.seen=String(form.seen);list.append(entry);
                 }
                 results.append(list);
             }

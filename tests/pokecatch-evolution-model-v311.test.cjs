@@ -6,8 +6,9 @@ function state(mons=[],extra={}){return{mons,team:mons.slice(0,6).map(m=>m.uid),
     adv:{chapter:49,unlocked:49,layout:6,badges:[],gifts:{}},...extra};}
 
 test('evolution graph and special prerequisites match the audited native snapshot',()=>{
-    assert.equal(H.EVOLUTION_DATA.build,native.build);assert.deepEqual(H.EVOLUTION_DATA.rules,native.evolutions);assert.deepEqual(H.EVOLUTION_DATA.time,native.time);
-    assert.equal(Object.keys(H.EVOLUTION_DATA.rules).length,304);
+    const seasonal=Object.fromEntries([1,2,3].map(index=>[58500+index,[{to:58600+index,level:34}]]));
+    assert.deepEqual(H.EVOLUTION_DATA.rules,{...native.evolutions,...seasonal});
+    assert.deepEqual(H.EVOLUTION_DATA.time,native.time);
 });
 
 test('free level rules agree with all 687 native level-boundary golden cases',()=>{

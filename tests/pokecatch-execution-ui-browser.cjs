@@ -112,8 +112,10 @@ async function main(){
                 r.querySelector('#legend-single').click();multi.open=false;
                 if(e.settings.legendIds.length||e.settings.legendId!==385)throw Error('Single legendary target not restored');
                 // One selected goal is already registered, the other still needs a map visit.
-                const oldBird=fixtureState.dex[145];
+                const oldDex=structuredClone(fixtureState.dex);
                 fixtureState.dex[145]={caught:1};
+                // Jirachi's zone requires the Hoenn dex before it can be the next route.
+                for(let id=252;id<=386;id++)if(id!==385)fixtureState.dex[id]={caught:1};
                 checks.querySelector('[value="145"]').click();
                 const dailyRaid=r.querySelector('#daily-shiny-raid');
                 if(dailyRaid.checked||!dailyRaid.getClientRects().length)throw Error('Expected the visible saved daily raid preference');
@@ -129,6 +131,8 @@ async function main(){
                     await e.step();if(!e.raidProbe||zone||!dailyRaid.disabled)throw Error('Expected daily shiny raid before legendary travel');
                     e.onChange();
                     if(!r.querySelector('#run-state').textContent.includes('检查每日异色团体战'))throw Error('Raid check mislabeled');
+                    // A draw day alone carries no regional identity. Record the native card before settling it.
+                    e.rememberDraw(fixtureState,'kanto',35,Date.now());
                     fixtureState.adv.event={raid:true};commitExecution();
                     for(const selector of ['#run-state','#mini-state','#daily-state']){
                         if(!r.querySelector(selector).textContent.includes('每日异色团体战'))throw Error('Missing active raid in '+selector);
@@ -140,7 +144,7 @@ async function main(){
                 }
                 finally{
                     e.travel=origTravel;e.serviceBackground=origServices;
-                    if(oldBird===undefined)delete fixtureState.dex[145];else fixtureState.dex[145]=oldBird;
+                    fixtureState.dex=oldDex;
                 }
             }finally{if(e.running)e.stop();delete fixtureState.raids;e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();}
         })()`);
@@ -217,13 +221,16 @@ async function main(){
             try{
                 fixtureState.seasons={585:['spring','winter']};commitExecution();r.querySelector('[data-workspace="dex"]').click();
                 lookup('#585');const forms=[...results.querySelectorAll('.season-forms li')].map(el=>[el.dataset.seen,el.textContent]);
-                lookup('#522');return {forms,summer:results.textContent,otherForms:!!results.querySelector('.season-forms')};
+                results.querySelector('.season-forms button[data-species="58501"]').click();
+                const selected=[input.value,results.querySelector('.dex-heading')?.textContent];
+                lookup('#522');return {forms,selected,summer:results.textContent,otherForms:!!results.querySelector('.season-forms')};
             }finally{
                 fixtureState.seasons=originalSeasons;lookup('');r.querySelector('[data-workspace="activity"]').click();r.querySelector('[data-tab="maps"]').click();commitExecution();
             }
         })()`);
         assert.equal(seasonalDex.forms.length,4);assert.equal(seasonalDex.forms.filter(([seen])=>seen==='true').length,2);
         assert.equal(seasonalDex.forms.filter(([,label])=>label.includes('本季')).length,1);
+        assert.equal(seasonalDex.selected[0],'#58501');assert.match(seasonalDex.selected[1],/四季鹿（夏季）/);
         assert.equal(seasonalDex.otherForms,false);assert.match(seasonalDex.summer,/夏季限定/);
         checks.push('the dex distinguishes a summer-only encounter source from four separately tracked seasonal sightings');
         const expedition=await evaluate(`(()=>{

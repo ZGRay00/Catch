@@ -19,6 +19,7 @@ const native = JSON.parse(vm.run(`JSON.stringify((() => {
                 axew = {chapter, once: step.once, needs: step.needs, count: step.needN};
             }
             if (step.loot?.['axew-fang']) fang = {chapter, ...step.loot['axew-fang']};
+            if (step.questFind?.item === 'axew-fang') fang = {chapter, ...step.questFind, perPass:true};
             if (step.kind !== 'route' || !step.wild) continue;
             const effect = Object.entries(config.KINDS).find(([,rule]) => rule.bg.includes(step.bg));
             if (!effect) continue;
@@ -62,7 +63,7 @@ assert.equal(encounter.once,native.axew.once);
 const source = helper.ITEMS.get(native.axew.needs).sources.find(row => row.ch === native.fang.chapter);
 assert.equal(source.upTo,native.fang.upTo);
 assert.equal(source.until,native.fang.until);
-const expectedFangs = (native.itemNodeChance + meanChance*native.itemFraction)*native.fang.p;
+const expectedFangs = native.fang.perPass ? native.fang.p : (native.itemNodeChance + meanChance*native.itemFraction)*native.fang.p;
 assert.ok(Math.abs(source.expected - expectedFangs) < 1e-10);
 const extract = fs.readFileSync(path.join(__dirname,'fixtures','pokecatch-export-targets.js'),'utf8');
 const items = JSON.parse(vm.run(extract)).items;

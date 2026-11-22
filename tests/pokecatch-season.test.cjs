@@ -36,11 +36,30 @@ test('seasonal restrictions belong to each chapter; native deer appearance sight
     const minccino=wild(572);
     assert.ok(minccino.some(row=>row.chapter===71&&row.seasons.length===4));
     assert.ok(minccino.some(row=>row.chapter===70&&row.seasons.join()==='winter'));
-    assert.ok(wild(585).every(row=>row.seasons.length===4));
+    assert.ok(wild(585).length&&wild(585).every(row=>row.seasons.join()==='spring'&&!row.available));
     s.seasons={585:['summer','summer','invalid']};s.dex[586]={caught:1};
-    assert.deepEqual(H.seasonFormProgress(s,585),{seen:['summer'],missing:['spring','autumn','winter']});
-    assert.equal(H.captured(s,585),false);assert.deepEqual(H.seasonFormProgress(s,586).seen,[]);
+    assert.deepEqual(H.seasonFormProgress(s,585).seen,['summer']);
+    assert.deepEqual(H.seasonFormProgress(s,585).missing,['spring','summer','autumn','winter']);
+    assert.equal(H.captured(s,585),false);assert.deepEqual(H.seasonFormProgress(s,586).seen,['spring']);
     assert.equal(H.seasonFormProgress(s,522),null);
+});
+
+test('seasonal forms have independent caught records, Unova routes and same-form evolution',()=>{
+    const s=state(),at=autumn(),id=58501,settings={...H.DEFAULTS,mode:'dex',dexSpecies:[id]};
+    s.dex[585]={caught:1};s.seasons={585:['spring','summer']};
+    assert.deepEqual(H.dexStatus(s,settings).missing.map(mon=>mon.id),[id]);
+    assert.ok(H.dexStatus(s,{...settings,dexSpecies:[]}).ids.has(id));
+    assert.equal(H.dexRanking(s,settings,{},at).some(row=>row.targets.some(target=>target.id===id)),false);
+    const next=H.nextWildWindow(s,settings,[id],at);
+    assert.equal(next.season,'summer');
+    assert.ok(H.dexRanking(s,settings,{},next.at).some(row=>row.targets.some(target=>target.id===id)));
+    assert.deepEqual(H.EVOLUTION_DATA.rules[id],[{to:58601,level:34}]);
+    assert.equal(H.nurseryOffspringId(s,58601),id);
+    assert.equal(H.nurseryOffspringId({travel:{to:[]},adv:{chapter:0}},58601),58501);
+    assert.equal(H.nurseryOffspringId({travel:{to:[]},adv:{chapter:0}},586),586);
+    s.dex[id]={caught:1};
+    assert.equal(H.dexStatus(s,settings).missing.length,0);
+    assert.deepEqual(H.seasonFormProgress(s,id).missing,['autumn','winter']);
 });
 
 test('dex and shiny rankings activate at the forecast season and weather intersection, even more than 48 hours away',()=>{

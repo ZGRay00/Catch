@@ -3,7 +3,7 @@
     const NURSERY_BUILDS=Object.freeze({
         '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
         'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89',
-        '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510'
+        '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -41,6 +41,9 @@
         let id=typeof parent==='object'?parent?.id:parent;
         if(!Number.isInteger(id)||!MONS.has(id))return null;
         if(NURSERY_RULES.lays[id]!=null)return NURSERY_RULES.lays[id];
+        const form=MONS.get(id);
+        // The native form table supplies a fixed egg for the non-spring forms.
+        if(form?.season&&form.num!==id)return form.root;
         if(NURSERY_LINEAGE.formEgg[id]!=null)return NURSERY_LINEAGE.formEgg[id];
         id=NURSERY_LINEAGE.formBase[id]??id;
         const current=DATA.chapters.find(chapter=>chapter.id===s?.adv?.chapter)?.reg;

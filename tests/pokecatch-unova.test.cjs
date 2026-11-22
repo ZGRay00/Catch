@@ -3,7 +3,7 @@ const state=()=>({mons:[{uid:'a',id:495,reg:'unova',level:10}],team:['a'],dex:{}
     adv:{chapter:66,unlocked:68,badges:[],gifts:{'starter-unova':495},loops:[]}});
 
 test('the current snapshot covers Unova and keeps all structural references usable',()=>{
-    assert.equal(H.DATA.build,'b05c8cc201');assert.equal(H.DATA.dexMax,649);assert.equal(H.DATA.mons.length,722);assert.equal(H.DATA.chapters.length,84);
+    assert.equal(H.DATA.build,'b05c8cc201');assert.equal(H.DATA.dexMax,649);assert.equal(H.DATA.mons.length,728);assert.equal(H.DATA.chapters.length,84);
     const unova=H.DATA.regions.find(r=>r.key==='unova');assert.deepEqual(unova.dexRange,[494,649]);assert.equal(unova.start,66);assert.equal(unova.end,83);
     assert.deepEqual(H.encounterDataErrors(),[]);assert.ok(H.DATA.mons.every(m=>H.MONS.has(m.root)));
     assert.ok(H.DATA.chapters.every(c=>c.units>0&&Number.isFinite(c.reward)&&c.foes.length>0));

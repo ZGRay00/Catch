@@ -100,8 +100,14 @@
     function renderWorld(){const root=q('#raid-root');root.innerHTML=s.wb.capture?'<div class="wb-capv"><button data-wbz-team>Team</button><button data-wbz-go>Capture</button></div>':'<button data-wb-atk>Attack</button>';
         const attack=q('[data-wb-atk]');if(attack)attack.onclick=()=>{s.wb.n++;save();renderWorld();};const edit=q('[data-wbz-team]');if(edit)edit.onclick=mock.team;
         const go=q('[data-wbz-go]');if(go)go.onclick=()=>{s.wb.tryEd=s.wb.ed;s.adv.zone={id:493};save();window.nav('adventure');};}
-    function elite(){q('#map-root').innerHTML='<button class="rg open active" data-rg="kanto">Kanto</button><button class="mp-row sel" data-ch="L">League</button><button class="on" data-lg-view="elite">Elite</button><button data-lg-team="kanto">Team</button><button data-league="kanto" data-tier="'+((s.eliteLeague.kanto?.t||0)+1)+'">Go</button>';
-        q('[data-lg-team]').onclick=mock.team;q('[data-league]').onclick=()=>{s.adv.league={reg:'kanto',tier:(s.eliteLeague.kanto?.t||0)+1};save();window.nav('adventure');};}
+    function elite(reg='kanto'){
+        const key='league:'+reg,tier=(s.eliteLeague[reg]?.t||0)+1;
+        q('#map-root').innerHTML=['kanto','johto'].map(r=>`<button class="rg open ${r===reg?'active':''}" data-rg="${r}">${r}</button>`).join('')+
+            `<button class="mp-row sel" data-ch="L">League</button><button class="on" data-lg-view="elite">Elite</button><button data-lg-team="${reg}">Team</button><button data-league="${reg}" data-tier="${tier}">Go</button>`;
+        for(const r of document.querySelectorAll('#map-root [data-rg]'))r.onclick=()=>elite(r.dataset.rg);
+        q('[data-lg-team]').onclick=()=>factoryPicker(key,6,()=>elite(reg));
+        q('[data-league]').onclick=()=>{s.adv.league={reg,tier,team:[...(s.eventTeams?.[key]||s.team)]};save();window.nav('adventure');};
+    }
     let unovaDeparture=null;
     function departure(){
         if(unovaDeparture){
@@ -183,7 +189,7 @@
         const leave=q('#raid-root [data-raid-leave]');if(leave){const native=leave.onclick;leave.onclick=()=>{s.fixtureRaidTries=s.adv.event?.loops||0;native();};}
         const go=q('#raid-root [data-raid-go]');if(go){const native=go.onclick;go.onclick=()=>{native();if(s.adv.event?.raid&&s.fixtureRaidTries){s.adv.event.loops=s.fixtureRaidTries;save();}};}
     };
-    window.map=()=>e()?.settings.mode==='elite'?elite():e()?.settings.mode==='progress'&&e().settings.autoTravel?departure():originalMap();
+    window.map=()=>e()?.settings.mode==='elite'&&!s.adv.league?elite():e()?.settings.mode==='progress'&&e().settings.autoTravel?departure():originalMap();
     window.nav=function(name){
         if(name==='team'){const search=q('#pc-search');if(search&&!q('#screen-team').contains(search))q('#screen-team').prepend(search);}
         if(pages.includes(name)){document.querySelectorAll('.screen').forEach(el=>el.classList.toggle('active',el.id==='screen-'+name));({pension,shop,underground})[name]();return;}
@@ -454,7 +460,18 @@
         resetFactory({candyFloor:10,optimizeRaid:false});s.candy.played=parisDay();s.candy.run={day:parisDay(),type:factoryTheme,from:1,floor:6,ms:1000,at:Date.now()-1000,mons:s.mons.slice(0,2).map(mon=>snapshot(mon,'c:')),got:{'exp-candy-xl':1},skipPaid:0};const pausedFactoryAt=s.candy.run.at;save();factory();await until(()=>s.adv.tower?.kind==='candy',25);
         assert(s.candy.run.at===pausedFactoryAt&&s.candy.run.floor===6&&factoryStarts===1,'factory resumes its existing daily run without resetting its floor or identity');s.candy.run.floor=11;save();await until(()=>!engine.running,30);
         resetFactory({optimizeRaid:false});s.candy.played=parisDay();save();factory();for(let i=0;i<5;i++)await tick();assert(engine.running&&factoryStarts===0&&engine.nextWake>Date.now()&&/今日/.test(engine.status),'a used factory daily entry waits for reset without retrying a disabled native button');engine.stop();
-        reset('elite',{eliteTier:1,eliteRegion:'kanto'});await until(()=>!!s.adv.league);assert(s.adv.league?.tier===1,'elite league selects next tier and dedicated team');s.eliteLeague.kanto={t:1};s.adv.league=null;save();modal('lgp-modal','<div class="rk-gems"><button class="pl-opt" data-k="fire">Fire</button></div>');q('.pl-opt').onclick=()=>q('.pl-opt').classList.add('on');await until(()=>!engine.running);assert(!q('#modal-root.open')&&s.eliteLeague.kanto.t===1,'elite gem picker acknowledged before completion');
+        reset('elite',{eliteTier:1,eliteRegion:'kanto'});await until(()=>!!s.adv.league,100);assert(s.eventTeams?.['league:kanto']?.length===3&&s.adv.league?.tier===1,'elite league selects next tier and dedicated team');s.eliteLeague.kanto={t:1};s.adv.league=null;save();modal('lgp-modal','<div class="rk-gems"><button class="pl-opt" data-k="fire">Fire</button></div>');q('.pl-opt').onclick=()=>q('.pl-opt').classList.add('on');await until(()=>!engine.running);assert(!q('#modal-root.open')&&s.eliteLeague.kanto.t===1,'elite gem picker acknowledged before completion');
+        reset('elite',{eliteTier:1,eliteRegion:'johto',autoPrepare:false,optimizeRaid:false});
+        const firstRegionParty=[...s.eventTeams['league:kanto']];
+        s.eventTeams['league:johto']=['p'];save();await until(()=>!!s.adv.league,30);
+        assert(s.adv.league?.reg==='johto'&&s.adv.league.team.join()==='p'&&s.eventTeams['league:kanto'].join()===firstRegionParty.join(),'manual elite party enters the selected region and preserves both saved regional teams');
+        reset('elite',{eliteTier:1,eliteRegion:'johto',autoPrepare:false,optimizeRaid:true});
+        await until(()=>!!s.adv.league,100);
+        assert(s.adv.league?.reg==='johto'&&s.adv.league.team.length===3&&s.eventTeams['league:kanto'].join()===firstRegionParty.join(),'automatic elite selection updates only Johto before launch');
+        reset('elite',{eliteTier:2,eliteRegion:'kanto',autoPrepare:false});
+        await until(()=>!!s.adv.league,100);s.adv.league.tries=2;s.adv.league.back=s.adv.chapter;save();
+        await until(()=>!engine.running);
+        assert(!s.adv.league&&!engine.running&&/挑战失败，已跳过/.test(engine.status),'elite defeat exits through ordinary map controls before ending the task');
         const rememberEliteView=()=>{const root=q('#map-root'),go=root.querySelector('.mp-go[data-go="L"]');go.remove();const tab=document.createElement('button');tab.dataset.lgView='league';tab.textContent='League';root.appendChild(tab);tab.onclick=()=>{tab.remove();root.appendChild(go);};};
         reset('money',{autoPrepare:false});s.adv.unlocked=13;save();window.nav('map');q('#map-root .rg[data-rg="kanto"]').click();q('#map-root .mp-row[data-ch="L"]').click();rememberEliteView();engine.travel(__pcTest.candidates(s,engine.settings).find(row=>row.key==='L'),Date.now());await until(()=>s.adv.chapter===9,12);assert(s.adv.chapter===9&&!q('#map-root [data-lg-view="league"]'),'ordinary league farming leaves the remembered elite detail before replay');
         reset('progress',{progressUntil:13,autoPrepare:false});s.adv.unlocked=9;s.adv.chapter=8;save();window.nav('map');q('#map-root .rg[data-rg="kanto"]').click();q('#map-root .mp-row[data-ch="L"]').click();rememberEliteView();await until(()=>s.adv.chapter===9,12);assert(s.adv.chapter===9&&!s.adv.league&&!q('#map-root [data-lg-view="league"]'),'mainline leaves the remembered elite detail before ordinary league entry');

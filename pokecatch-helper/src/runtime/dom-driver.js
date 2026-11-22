@@ -407,7 +407,7 @@
             if(row.league){const ordinary=$('#map-root [data-lg-view="league"]:not(.on)');if(enabled(ordinary)){this.click(ordinary,'切回普通联盟');return false;}}
             if(options.leaveZone){
                 const go=$(`#map-root .mp-go[data-go="${row.league?'L':row.id}"]`);
-                return this.click(go,'返回原章节，先处理通关日常');
+                return this.click(go,s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常');
             }
             if(options.restart){
                 if(s.adv.chapter!==row.id||!Number(s.adv.node))return false;
@@ -431,8 +431,8 @@
                 if(!visible($('#evt-pick'))){const task=this.e.services.underground;if(task)task.editorOpen=false;this.ownedDialog=null;return false;}
                 own.started??=Date.now();return this.factoryTeam(s,own);
             }
-            if(['team','factoryTeam','underTeam'].includes(own.type)&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
-            const ownedRoot=['team','factoryTeam','underTeam'].includes(own.type)?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
+            if(['team','factoryTeam','eliteTeam','underTeam'].includes(own.type)&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
+            const ownedRoot=['team','factoryTeam','eliteTeam','underTeam'].includes(own.type)?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
             if(!visible(ownedRoot)){
                 // The native modal queue can mount the picker after the launch click.
                 if(own.openingUntil>Date.now()&&!s.adv?.event?.raid&&!visible($('#modal-root.open .modal'))&&!visible($('#evt-pick')))return true;
@@ -450,7 +450,7 @@
                 }
                 return true;
             }
-            if(own.type==='factoryTeam'||own.type==='underTeam')return this.factoryTeam(s,own);
+            if(['factoryTeam','eliteTeam','underTeam'].includes(own.type))return this.factoryTeam(s,own);
             if (own.type === 'team') {
                 if (!visible($('#evt-pick'))) { this.ownedDialog = null; return false; }
                 if (!own.optimized) {
@@ -520,7 +520,12 @@
             return true;
         }
         factoryTeam(s,own){
-            const now=Date.now(),background=own.type==='backgroundUnderTeam',under=background||own.type==='underTeam',desired=own.uids||[],teamKey=under?own.teamKey:'candy',current=s.eventTeams?.[teamKey]||[],search=$('#evt-search'),grid=$('#evt-pc'),sort=$('#evt-sort'),eff=$('#evt-eff');
+            const now=Date.now(),background=own.type==='backgroundUnderTeam',under=background||own.type==='underTeam',desired=own.uids||[],teamKey=own.teamKey||'candy',current=s.eventTeams?.[teamKey]||[],search=$('#evt-search'),grid=$('#evt-pc'),sort=$('#evt-sort'),eff=$('#evt-eff');
+            const elite=own.type==='eliteTeam',facility=under?'地下探险':elite?'精英联盟':'糖果工厂';
+            if(elite&&!this.e.automation.eliteEditorCurrent(s,own,now)){
+                if(this.click($('#evt-pick [data-evt-close]'),'重新核对地区联盟队伍'))this.ownedDialog=null;
+                return true;
+            }
             const fail=reason=>{
                 if(!background){this.e.failTask(reason);return true;}
                 const task=this.e.services.underground;
@@ -541,18 +546,19 @@
                 if(this.click($('#evt-pick [data-evt-close]'),'成员或主题已变更，重新规划地下队伍'))this.ownedDialog=null;
                 return true;
             }
-            if(!desired.length||desired.some(uid=>!(s.mons||[]).some(m=>m.uid===uid)))return fail(under?'地下配队目标已离开PC，请重新规划':'工厂配队目标已离开PC，请重新规划');
+            if(!desired.length||desired.some(uid=>!(s.mons||[]).some(m=>m.uid===uid)))return fail(facility+'配队目标已离开PC，请重新规划');
             own.searchBefore??=search?.value||'';own.sortBefore??=sort?.value||'best';own.effBefore??=eff?.classList.contains('on')||false;
             const signature=current.join('|');
-            if(own.pending){if(signature===own.pending.before){if(now-own.pending.at>10000)return fail(under?'后台地下拖放未获存档确认':'工厂拖放配队未获存档确认，请检查游戏窗口');return true;}delete own.pending;if(!background)own.started=now;own.lookup=null;}
+            if(own.pending){if(signature===own.pending.before){if(now-own.pending.at>10000)return fail(facility+'拖放配队未获存档确认，请检查游戏窗口');return true;}delete own.pending;if(!background)own.started=now;own.lookup=null;}
             const same=current.length===desired.length&&current.every((uid,i)=>uid===desired[i]);
             if(same){
-                if(search&&search.value!==own.searchBefore){this.input(search,own.searchBefore,under?'恢复地下配队搜索':'恢复工厂配队搜索');return true;}
+                if(search&&search.value!==own.searchBefore){this.input(search,own.searchBefore,'恢复'+facility+'配队搜索');return true;}
                 if(sort&&sort.value!==own.sortBefore){sort.value=own.sortBefore;sort.dispatchEvent(new Event('change',{bubbles:true}));return true;}
-                if(eff&&eff.classList.contains('on')!==own.effBefore){this.click(eff,under?'恢复地下配队筛选':'恢复工厂配队筛选');return true;}
-                if(this.click($('#evt-pick [data-evt-close]'),under?'保存地下探险队伍':'保存糖果工厂专属队伍')){
+                if(eff&&eff.classList.contains('on')!==own.effBefore){this.click(eff,'恢复'+facility+'配队筛选');return true;}
+                if(this.click($('#evt-pick [data-evt-close]'),'保存'+facility+'专属队伍')){
                     this.ownedDialog=null;
                     if(background){const task=this.e.services.underground;task.teamReady=true;task.editorOpen=false;this.e.log('后台地下安全队伍已配置，派遣前再次核对占用');this.e.persist();}
+                    else if(elite)this.e.log('已确认'+this.e.automation.elitePlan.label+'专属队伍');
                     else if(under)this.e.log('地下探险队伍已配置，将在出发前再次核对');
                     else{
                         this.recent.set(own.key,[...desired]);
@@ -567,17 +573,17 @@
             if(source&&target){
                 const rect=source.getBoundingClientRect();if(rect.top<0||rect.bottom>innerHeight){source.scrollIntoView({block:'nearest'});return true;}
                 own.pending={before:signature,at:now};
-                if(!this.drag(source,target,under?'配置地下探险成员':'配置糖果工厂出战成员'))delete own.pending;return true;
+                if(!this.drag(source,target,'配置'+facility+'出战成员'))delete own.pending;return true;
             }
             // EventTeam search only accepts the current display language. Scan its native
             // virtualised PC with filters cleared, so French/English/Chinese all work.
-            if(search?.value){this.input(search,'',under?'清除地下配队搜索':'清除工厂配队搜索');return true;}
-            if(eff?.classList.contains('on')){this.click(eff,under?'显示所有地下候选成员':'显示所有工厂候选成员');return true;}
+            if(search?.value){this.input(search,'','清除'+facility+'配队搜索');return true;}
+            if(eff?.classList.contains('on')){this.click(eff,'显示所有'+facility+'候选成员');return true;}
             if(sort&&sort.value!=='level'){sort.value='level';sort.dispatchEvent(new Event('change',{bubbles:true}));return true;}
-            if(!grid)return fail(under?'找不到后台地下选队PC':'找不到工厂专属PC，请重新打开配队窗口');
+            if(!grid)return fail('找不到'+facility+'选队PC，请重新打开配队窗口');
             if(own.lookup?.uid!==uid){own.lookup={uid,scanned:0};grid.scrollTop=0;grid.dispatchEvent(new Event('scroll',{bubbles:true}));return true;}
             const next=Math.min(grid.scrollHeight-grid.clientHeight,grid.scrollTop+Math.max(100,grid.clientHeight*.8));
-            if(next<=grid.scrollTop+1)return fail(under?'安全空闲成员未出现在原生地下候选列表':'工厂候选成员未出现在可用PC中，请检查地区和收藏');
+            if(next<=grid.scrollTop+1)return fail(facility+'候选成员未出现在可用PC中，请检查地区和收藏');
             grid.scrollTop=next;grid.dispatchEvent(new Event('scroll',{bubbles:true}));own.lookup.scanned++;return true;
         }
         raidStep(s,now=Date.now()) {

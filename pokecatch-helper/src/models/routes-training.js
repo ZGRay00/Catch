@@ -365,11 +365,31 @@
         return best&&Number.isSafeInteger(best.cost)&&best.cost>0?{...best,xp:types[best.id].xp[reg],need,owned:false}:null;
     }
     function routeDescriptor(row){return Object.fromEntries(['id','key','reg','name','loop','league','members','reward','units','ace'].map(key=>[key,row[key]]));}
+    // Native elite rooms reuse the story gym's roster and power, without its route trainers.
+    const ELITE_GYM_POWER={9:.36,10:.48,11:.73,12:.57,13:1.72,25:.4,26:.57,27:.75,28:.82,29:1.2,
+        43:.42,44:.47,45:.63,46:.52,47:1.11,60:.48,61:.72,62:.8,63:.85,64:1.15,77:.89,78:1,79:.86,80:.86,81:.78,82:.83};
+    function eliteBattleContext(s,reg,tier,now){
+        const rooms=DATA.chapters.filter(c=>c.reg===reg&&c.league);
+        const night=reg==='unova'&&phaseAt(s,now)==='night';
+        // An active run has already rolled its lineup. A clock change cannot reroll it.
+        const live=s.adv.league?.reg===reg&&s.adv.league.tier===tier?s.adv.nodes||[]:[];
+        const foes=rooms.flatMap(c=>{
+            const node=live.find(n=>n.ch===c.id&&n.type==='gym');
+            const ids=node?.team?.map(([id])=>id)||c.gymFoes.map(([id])=>night&&c.id===81&&id===643?644:id);
+            const power=node?.gym?.power||ELITE_GYM_POWER[c.id]||1;
+            const damageMult=1.3*power,hpMult=damageMult*Math.max(1,6/ids.length)**.7;
+            return ids.map(id=>({id,chapter:c.id,level:100,rank:tier,weight:1,gymCount:1,hpMult,damageMult}));
+        });
+        const label=(DATA.regions.find(r=>r.key===reg)?.name||reg)+' · 精英联盟第 '+tier+' 阶';
+        return{kind:'elite',reg,tier,id:rooms[0]?.id,size:6,level:100,speciesUnique:true,foes,label,
+            key:`elite:${reg}:${tier}:${foes.some(f=>f.chapter===81&&f.id===644)?'night':'default'}`};
+    }
     function battleContext(s,kind,options={}){
         const row=options.row,c=CHAPTERS.get(row?.id??options.id??s.adv.chapter),zone=kind==='zone'?DATA.zones.find(z=>z.id===options.id):null;
         let reg=options.reg||row?.reg||zone?.reg||(['worldAttack','worldCapture','under'].includes(kind)?'sinnoh':c?.reg||currentRegion(s));
         if(kind==='tower'&&s.link&&reg===s.link.to)reg=DATA.regions.find(region=>region.key===s.link.from)?.key||DATA.regions.filter(region=>region.key!==s.link.to&&region.start<=s.adv.unlocked).at(-1)?.key||'kanto';
         let id=options.id??row?.id??c?.id,level=options.level,foes=[],size=6,label=options.label||row?.name||c?.name||kind;
+        if(kind==='elite')return eliteBattleContext(s,reg,options.tier||1,options.now??Date.now());
         if(kind==='under'){
             const slot=Number(options.slot)||0,floor=Math.max(1,Number(options.floor)||1),theme=s.under?.next?.[slot]||'';
             const encounter=undergroundFoes(s,theme,floor);
@@ -384,7 +404,7 @@
             id=kind==='worldCapture'?493:id;level=level||zone?.level||DATA.automation.levels.raid;foes=[{id,level,weight:1}];size=kind==='raid'?2:6;
             label=options.label||({zone:'传说战',raid:'每日团体战',worldCapture:'世界首领捕获'}[kind]+' · '+(MONS.get(id)?.name||id));
         }else{
-            const chapter=kind==='elite'?DATA.chapters.find(c=>c.reg===reg&&c.league):c?.reg===reg?c:DATA.chapters.filter(c=>c.reg===reg&&c.id<=s.adv.unlocked).at(-1);
+            const chapter=c?.reg===reg?c:DATA.chapters.filter(c=>c.reg===reg&&c.id<=s.adv.unlocked).at(-1);
             const all=chapter?chapterThreats({...s,adv:{...s.adv,battle:null}},chapter.id):[];
             level=level||(kind==='tower'?Math.min(DATA.automation.levels.towerMax,Math.floor(DATA.automation.levels.towerStart+(options.floor-1)*DATA.automation.levels.towerStep)+(options.floor%10===0?3:0)):100);
             foes=all.map(m=>({...m,level,gymCount:0}));

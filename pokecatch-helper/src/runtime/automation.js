@@ -35,7 +35,7 @@
         get buffRetry(){return this.state.buffRetry||={};}
         set buffRetry(value){this.state.buffRetry=value||{};}
         constructor(engine){this.e=engine;this.state={};this.owner=null;this.lastService=0;}
-        begin(s){this.rankUI=null;this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
+        begin(s){this.elitePlan=null;this.rankUI=null;this.resourcePreview=null;this.state={started:Date.now(),hatched:0,underDone:0,towerAttempts:0,resourcePurchased:0,resourceUsed:0,worldBase:Number(s.wb?.n)||0,worldCaught:s.wb?.caught||0,resourceIn:itemCounter(s,this.e.settings.resourceItem),resourceOut:Number(s.stats?.itemOut?.[this.e.settings.resourceItem])||0};this.owner=null;this.lastService=0;this.eggFX=null;this.evolutionFX=null;this.evolutionChoiceCache=null;this.buddyTask=null;this.buddyRetryAt=0;this.buffUI=null;this.buffRetry={};}
         wait(text,at){this.e.status=text;this.e.lastProgress=Date.now();this.e.nextWake=at||null;}
         fail(text){this.e.failTask(text);}
         done(text){this.e.completeTask(text);}
@@ -793,9 +793,52 @@
             this.state.candyLaunch={at:now,day:parisDay(now),previousLast:identity(last)};e.persist();
             if(!d.click(go,'开始今日糖果工厂'))delete this.state.candyLaunch;e.persist();
         }
+        exitDefeatedLeague(s,now){
+            const e=this.e,league=s.adv.league;
+            let exit=this.state.eliteDefeat;
+            // The native league starts at tries=1. A wipe increments it and immediately rebuilds the same tier.
+            if(!exit){
+                if(!(league?.tries>1)||league.reg!==(e.settings.eliteRegion==='current'?currentRegion(s):e.settings.eliteRegion))return false;
+                exit=this.state.eliteDefeat={reg:league.reg,tier:league.tier,at:now};
+                e.persist();
+            }
+            const reason=`精英联盟第 ${exit.tier} 阶挑战失败，已跳过`;
+            if(!league){
+                e.completeTask(reason,'skipped');return true;
+            }
+            if(league.reg!==exit.reg||league.tier!==exit.tier){
+                this.fail('精英联盟场次已变更，请确认当前活动后继续');return true;
+            }
+            if(now-exit.at>60000){
+                this.fail('精英联盟落败后未能确认退出，请返回普通章节后继续');return true;
+            }
+            // The map's native Go control only switches out of an elite league if the chapter changes.
+            // Its ordinary-league row may resolve to the current room, so pick a distinct ordinary chapter.
+            const back=CHAPTERS.get(league.back??s.adv.chapter);
+            const usable=c=>c&&!c.league&&c.id!==s.adv.chapter&&c.id<=s.adv.unlocked;
+            const row=usable(back)?back:DATA.chapters.find(c=>c.reg===(back?.reg||exit.reg)&&usable(c));
+            if(!row){this.fail('精英联盟落败后找不到可返回的普通章节');return true;}
+            this.wait('精英联盟挑战失败，正在退出');
+            if(!exit.clicked&&e.driver.map(row,s,{leaveZone:true}))exit.clicked=true;
+            return true;
+        }
+        elitePartyKey(s,context,now){
+            const rooms=[...new Set(context.foes.map(f=>f.chapter))];
+            const weather=rooms.map(chapter=>{
+                const gym=WEATHER_DATA.chapters[chapter]?.nodes?.find(n=>n.kind==='gym');
+                return combatWeather(s,{chapter,weatherNode:gym},context,now).weather;
+            });
+            return JSON.stringify([context.key,rosterFingerprint(s),s.autoSwitch!==false,weather]);
+        }
+        eliteEditorCurrent(s,own,now){
+            const reg=this.e.settings.eliteRegion==='current'?currentRegion(s):this.e.settings.eliteRegion;
+            if(own.teamKey!=='league:'+reg||!this.elitePlan||s.adv.league)return false;
+            const tier=(Number(s.eliteLeague?.[reg]?.t)||0)+1;
+            return this.elitePlan.key===this.elitePartyKey(s,battleContext(s,'elite',{reg,tier,now}),now);
+        }
         elite(s,now){
             const e=this.e,cfg=e.settings,d=e.driver,reg=cfg.eliteRegion==='current'?currentRegion(s):cfg.eliteRegion,best=Number(s.eliteLeague?.[reg]?.t)||0;
-            if(s.adv.league){if(s.adv.league.reg!==reg){this.fail('当前精英联盟与所选地区不同');return;}this.wait(`精英联盟 · ${reg} · ${s.adv.league.tier||best+1} 阶`);d.nav('adventure');this.own('gem','.lgp-modal');return;}
+            if(s.adv.league){if(s.adv.league.reg!==reg){this.fail('当前精英联盟与所选地区不同');return;}this.wait(`精英联盟 · ${DATA.regions.find(r=>r.key===reg)?.name||reg} · ${s.adv.league.tier||best+1} 阶`);d.nav('adventure');this.own('gem','.lgp-modal');return;}
             if(best>=cfg.eliteTier){this.done('精英联盟目标阶级已完成');return;}
             if(e.daily?.job?.launched){
                 if(now-e.daily.job.launched<15000)this.wait('等待精英联盟场次确认');
@@ -815,9 +858,26 @@
             if(!row.classList.contains('sel')){d.click(row,'选择联盟');return;}
             const tab=$('#map-root [data-lg-view="elite"]:not(.on)');if(enabled(tab)){d.click(tab,'切换精英联盟');return;}
             const go=$(`#map-root [data-league="${reg}"][data-tier="${best+1}"]`);
-            const key=`elite:${reg}:${best+1}|${rosterFingerprint(s)}`,edit=$(`#map-root [data-lg-team="${reg}"]`);
-            if(cfg.optimizeRaid&&!d.recent.has(key)&&enabled(edit)){if(d.click(edit,'按整座精英联盟配置队伍'))d.ownedDialog={type:'team',key,optimized:false};return;}
-            if(enabled(go)&&e.ensurePrepared(s,battleContext(s,'elite',{reg,tier:best+1}),{},now))return;
+            const context=battleContext(s,'elite',{reg,tier:best+1,now}),edit=$(`#map-root [data-lg-team="${reg}"]`);
+            if(cfg.optimizeRaid&&(enabled(edit)||enabled(go))){
+                const teamKey='league:'+reg,party=s.eventTeams?.[teamKey]||[];
+                const key=this.elitePartyKey(s,context,now);
+                let desired=this.elitePlan?.key===key?this.elitePlan.uids:null;
+                if(!desired){
+                    const state={...s,team:party,road:party},search=adventureTeamSearch(state,{...cfg,activeSwitch:false},[],
+                        {...context,now,objective:'progress'},true);
+                    const plan=e.evaluateTeamSearch(JSON.stringify([key,party]),search);
+                    if(!plan){this.wait('正在按地区首领评估队伍 · '+context.label);return;}
+                    if(!plan.uids.length){this.wait('当前地区没有可出战的精英联盟队员');return;}
+                    desired=plan.uids;this.elitePlan={key,uids:desired,label:context.label};
+                }
+                if(desired.length!==party.length||desired.some((uid,i)=>uid!==party[i])){
+                    if(!enabled(edit)){this.wait('等待地区专属队伍入口 · '+context.label);return;}
+                    if(d.click(edit,'配置队伍 · '+context.label))d.ownedDialog={type:'eliteTeam',teamKey,uids:desired,started:now,openingUntil:now+5000};
+                    return;
+                }
+            }
+            if(enabled(go)&&e.ensurePrepared(s,context,{},now))return;
             if(enabled(go)){
                 if(d.click(go,'挑战下一阶精英联盟')&&e.daily?.job?.kind==='elite'){
                     e.daily.job.launched=now;e.dailyMarks.elite=nextParisReset(now);e.persist();

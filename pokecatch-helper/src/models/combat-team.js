@@ -117,7 +117,7 @@
         let hit=0,minHit=0,maxHit=0,singleRollMax=0;
         if(type>0){
             for(const power of Array.isArray(count)?count:[move.power/repeats]){
-                const full=baseDamage(power,attack,weakened,resistance,stab,type,weather)*gap;
+                const full=baseDamage(power,attack,weakened,resistance,stab,type,weather)*gap*(mon.damageMult||1);
                 if(!count)singleRollMax=full;
                 hit+=damageRollMean(full);minHit+=Math.max(1,Math.floor(full*.85));maxHit+=Math.max(1,Math.ceil(full)-1);
             }
@@ -278,7 +278,7 @@
         return list.filter(foe=>MONS.has(foe.id)&&foe.weight>0);
     }
     const TEAM_ROWS=new Map(),ROUTE_FITS=new Map(),LEAGUE_TRAINING_ROWS=new Map(),TEAM_CACHE={hits:0,misses:0};
-    function combatProfile(m){return [m.id,m.level,m.rank||0,+!!m.shiny,m.statMult||1,m.hpMult||1,m.status||'',m.rageMax!=null,tasteProfile(m)];}
+    function combatProfile(m){return [m.id,m.level,m.rank||0,+!!m.shiny,m.statMult||1,m.hpMult||1,m.status||'',m.rageMax!=null,tasteProfile(m),m.damageMult||1];}
     function teamCacheStats(){return{...TEAM_CACHE,contexts:TEAM_ROWS.size,rows:[...TEAM_ROWS.values()].reduce((n,rows)=>n+rows.size,0)};}
     function clearTeamCache(){TEAM_ROWS.clear();ROUTE_FITS.clear();LEAGUE_TRAINING_ROWS.clear();TEAM_CACHE.hits=0;TEAM_CACHE.misses=0;}
     function planAdventureTeam(s, settings, pinned = [], context = {}) {
@@ -365,6 +365,12 @@
         const values=mon=>cache.get(mon.uid)||computeValues(mon,false).next().value;
         const totalWeight=weights.reduce((n,m)=>n+m.weight,0),discount=[1,.35,.15,.075,.04,.02];
         const work=[];
+        // Each elite trainer battle starts after a heal. Give the hardest trainer a
+        // separate vote so a team cannot hide a bad room behind several easy ones.
+        const eliteRooms=context.kind==='elite'?[...new Set(weights.map(foe=>foe.chapter))]:[];
+        const roomOf=eliteRooms.length?weights.map(foe=>eliteRooms.indexOf(foe.chapter)):[];
+        const roomWeights=eliteRooms.map(ch=>weights.reduce((n,foe)=>n+(foe.chapter===ch?foe.weight:0),0));
+        const roomScores=new Float64Array(eliteRooms.length);
         const utility = (team,summary) => {
             const rows=team.map(values);
             if(underground){
@@ -418,6 +424,7 @@
                 return primary*(1+.04*reserveCredit/totalWeight);
             }
             let gymSum=0,gymWorst=1,worstEfficiency=Infinity;
+            if(eliteRooms.length)roomScores.fill(0);
             const routeScore=weights.reduce((sum,foe,i)=>{
                 let count=0;
                 for(const row of rows){const value=row[i];let at=count++;while(at>0&&work[at-1]<value){work[at]=work[at-1];at--;}work[at]=value;}
@@ -451,6 +458,7 @@
                 // deployed lead for wear between heals without taxing an unused bench.
                 const wear=enduranceRoute&&!(gymTotal&&foe.gymCount) ? .85+.15*(lead?.endurance[i]??0) : 1;
                 const efficiency=Math.log1p(3/battle.turns)*battle.coverage*wear/(1+.2*battle.deaths);
+                if(eliteRooms.length)roomScores[roomOf[i]]+=foe.weight*efficiency;
                 worstEfficiency=Math.min(worstEfficiency,efficiency);
                 const weight=objective==='progress'?.35:.7;
                 return sum+foe.weight*((1-weight)*coverage+weight*efficiency);
@@ -459,7 +467,12 @@
             if(summary)summary.gym=gymScore;
             const worstWeight=enduranceRoute ? (gymTotal ? .025 : .07) : 0;
             const robust=worstWeight ? (1-worstWeight)*routeScore+worstWeight*worstEfficiency : routeScore;
-            const score=gymTotal ? .55*robust+.45*gymScore : robust;
+            let score=gymTotal ? .55*robust+.45*gymScore : robust;
+            if(eliteRooms.length){
+                let weakest=Infinity;
+                for(let i=0;i<roomScores.length;i++)weakest=Math.min(weakest,roomScores[i]/roomWeights[i]);
+                score=.85*score+.15*weakest;
+            }
             if(!context.trainingCosts)return score;
             const costs=team.map(mon=>clamp(context.trainingCosts[mon.uid],0,100,0)),burden=Math.max(0,...costs)+.25*costs.reduce((n,cost)=>n+cost,0);
             return score/(1+clamp(context.trainingPenalty,0,2,0)*burden);

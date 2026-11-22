@@ -137,6 +137,37 @@ function runtime(t, s, settings = {}) {
     return { e, actions };
 }
 
+test('elite defeat exits through a different ordinary chapter and advances the queue only after save confirmation',async t=>{
+    const s=state();s.adv.unlocked=13;s.adv.league={reg:'kanto',tier:1,back:0,tries:1};
+    const {e}=runtime(t,s,{mode:'elite',eliteRegion:'kanto',raids:false});
+    e.queue=H.normalizeJobs([{settings:e.settings,status:'running'},{settings:{mode:'money'}}]);e.queueRunning=true;
+    const now=Date.now(),clicks=[];
+    e.driver.map=(row,save,options)=>{clicks.push(row.id);assert.equal(options.leaveZone,true);assert.notEqual(row.id,save.adv.chapter);assert.equal(row.league,false);return true;};
+    const save=()=>e.storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    await e.step(now);assert.deepEqual(clicks,[]);
+    s.adv.league.tries=2;save();
+    await e.step(now+1000);await e.step(now+2000);
+    assert.equal(clicks.length,1);assert.equal(e.queueIndex,0);assert.equal(e.queue[0].status,'running');
+    s.adv.league=null;save();await e.step(now+3000);
+    assert.equal(e.queueIndex,1);assert.equal(e.settings.mode,'money');assert.equal(e.queue[0].status,'skipped');
+    assert.equal(H.normalizeJobs(e.queue)[0].status,'skipped');assert.match(e.queue[0].result,/失败/);
+    e.stop();e.start=()=>{};e.startQueue();assert.equal(e.queueIndex,1);
+});
+
+test('daily elite defeat proceeds to remaining chores and a standalone defeat ends that task',async t=>{
+    const s=state();s.adv.league={reg:'kanto',tier:1,tries:3,back:2};
+    const {e}=runtime(t,s,{mode:'elite',eliteRegion:'kanto',raids:false});
+    const now=Date.now(),until=H.nextParisReset(now);
+    e.daily={base:{...e.settings,mode:'money'},job:{kind:'elite',until,launched:now},checkpoint:{}};
+    await e.step(now);assert.ok(e.progressSnapshot().flow.eliteDefeat);
+    s.adv.league=null;e.storage.setItem('gachamon-save-v1',JSON.stringify(s));await e.step(now+1000);
+    assert.equal(e.daily.job,null);assert.equal(e.daily.checking,true);assert.equal(e.dailyMarks.elite,until);assert.ok(e.running);
+    e.daily=null;e.settings.mode='elite';s.adv.league={reg:'kanto',tier:2,back:0,tries:2};
+    e.storage.setItem('gachamon-save-v1',JSON.stringify(s));await e.step(now+2000);
+    s.adv.league=null;e.storage.setItem('gachamon-save-v1',JSON.stringify(s));await e.step(now+3000);
+    assert.equal(e.running,false);assert.match(e.status,/第 2 阶挑战失败/);
+});
+
 test('preparation settings clamp margins and preserve the opt-out',()=>{
     assert.equal(H.DEFAULTS.autoPrepare,true);const cfg=H.normalizeSettings({autoPrepare:false,prepareMargin:99,prepareGap:-3,prepareIdleMinutes:0});
     assert.equal(cfg.autoPrepare,false);assert.equal(cfg.prepareMargin,15);assert.equal(cfg.prepareGap,0);assert.equal(cfg.prepareIdleMinutes,2);

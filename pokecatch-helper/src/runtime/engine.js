@@ -134,12 +134,12 @@
             const raid=this.driver.raid;
             const special=this.driver.ownedDialog;
             const flowOwner=this.services.underground&&this.automation.owner?.kind==='receipt'&&this.automation.owner.selector==='.ug-back'?null:this.automation.snapshotOwner();
-            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...['factoryTeam','underTeam'].includes(special.type)?{bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
+            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...['factoryTeam','eliteTeam','underTeam'].includes(special.type)?{bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
                 activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null},
                 budget:{spent:this.budget.spent,used:this.budget.used}};
         }
         saveJobProgress(snapshot=this.progressSnapshot()){
-            const job=this.queueRunning&&this.queue[this.queueIndex];if(!this.restoring&&job&&job.status!=='done'&&this.started)job.progress=snapshot;
+            const job=this.queueRunning&&this.queue[this.queueIndex];if(!this.restoring&&job&&queueJobPending(job)&&this.started)job.progress=snapshot;
         }
         mayPersist(now=Date.now()){
             if(!this.account)return false;
@@ -165,7 +165,7 @@
             for(const key of Object.keys(this.metrics))if(!retained.has(key))delete this.metrics[key];
             return true;
         }
-        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(job=>job.status!=='done');if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=this.taskSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
+        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(queueJobPending);if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=this.taskSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
         beginTask(s,cp,now,continuingQueue=false){
             this.cancelTeamSearch();
             this.cancelRouteRankings();
@@ -225,12 +225,13 @@
             this.automation.state=cp.flow||this.automation.state;
             // Time spent on a closed page cannot tell us whether the native travel animation stalled.
             if(this.automation.state.departure)this.automation.state.departure.at=now;
+            if(this.automation.state.eliteDefeat){this.automation.state.eliteDefeat.at=now;this.automation.state.eliteDefeat.clicked=false;}
             if(cfg.autoPrepare&&cp.preparation?.mode===cfg.mode&&Array.isArray(cp.preparation.targets)&&Array.isArray(cp.preparation.uids))this.preparation=cp.preparation;
             if(Array.isArray(cp.preparationReady?.targets))this.coach.ready=cp.preparationReady;
             this.raidReturn=cp.raidReturn||null;
             if(this.manual)return;
             this.automation.restoreOwner(cp.flowOwner);
-            if(['team','ally','factoryTeam','underTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
+            if(['team','ally','factoryTeam','eliteTeam','underTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
             if((cp.raidProbe||this.raidReturn)&&!s.adv.event?.raid){
                 this.raidProbe=true;
                 this.raidProbeStarted=now;
@@ -336,13 +337,13 @@
             this.dailyCheckAt=0;
             this.status=reason+' · 检查剩余日常';this.log(this.status);this.persist();
         }
-        completeTask(reason){
+        completeTask(reason,status='done'){
             if(this.daily?.job){this.returnFromDaily(reason);return;}
             const state=this.read();if(this.queueRunning&&(state?.adv?.event||state?.adv?.zone||state?.adv?.tower||state?.adv?.league)){this.status='目标已达成，等待当前独立战斗结束后切换队列';this.lastProgress=Date.now();return;}
             if(!this.queueRunning){this.stop(reason);return;}this.log(reason);
-            const job=this.queue[this.queueIndex];if(job){job.status='done';job.result=reason;delete job.progress;}
-            const index=this.queue.findIndex((job,i)=>i>this.queueIndex&&job.status!=='done');
-            if(index<0){this.queueRunning=false;this.stop('任务队列已全部完成');return;}
+            const job=this.queue[this.queueIndex];if(job){job.status=status;job.result=reason;delete job.progress;}
+            const index=this.queue.findIndex((job,i)=>i>this.queueIndex&&queueJobPending(job));
+            if(index<0){this.queueRunning=false;this.stop(this.queue.some(job=>job.status==='skipped')?'任务队列已结束，含已跳过任务':'任务队列已全部完成');return;}
             this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
             const s=state,now=Date.now();
             this.beginTask(s,next.progress,now,true);
@@ -540,7 +541,7 @@
                 const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
                 this.interruptedPicker=null;
                 if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
-                else if(['team','factoryTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
+                else if(['team','factoryTeam','eliteTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
                     const close=$('#evt-pick [data-evt-close]');
                     if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
                 }
@@ -626,7 +627,7 @@
             const raid = s.adv.event, zone = s.adv.zone;
             // Reconcile the saved order on resuming. Time in manual control gave the helper no opportunity to check it.
             const flow=this.automation.state;
-            for(const tx of [flow.resourceTx,flow.resourceBuffTx,flow.pensionPurchase,this.preparation?.candyTx]){
+            for(const tx of [flow.resourceTx,flow.resourceBuffTx,flow.pensionPurchase,flow.eliteDefeat,this.preparation?.candyTx]){
                 if(tx)tx.at=now;
             }
             this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
@@ -734,7 +735,7 @@
             if(this.automation.state.resourceBuffTx?.at!=null)this.automation.state.resourceBuffTx.at+=duration;
             if(this.automation.state.resourceTx?.at!=null)this.automation.state.resourceTx.at+=duration;
             if(this.automation.state.pensionPurchase?.at!=null)this.automation.state.pensionPurchase.at+=duration;
-            for(const tx of [this.automation.rankUI,this.automation.state.rankReceipt,this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure])if(tx?.at!=null)tx.at+=duration;
+            for(const tx of [this.automation.rankUI,this.automation.state.rankReceipt,this.automation.state.towerLaunch,this.automation.state.candyLaunch,this.automation.state.underLaunch,this.automation.state.underCollect,this.automation.state.departure,this.automation.state.eliteDefeat])if(tx?.at!=null)tx.at+=duration;
             if(this.automation.state.candyEndedAt!=null)this.automation.state.candyEndedAt+=duration;
             const eggs=this.automation.state;
             if(eggs.eggService){eggs.eggService.started+=duration;if(eggs.eggService.tx)eggs.eggService.tx.at+=duration;}
@@ -837,6 +838,7 @@
                 if (now - this.modalWaitSince > 120000) this.failTask('弹窗等待超时，请处理后重新开始'); return;
             }
             this.modalWaitSince=null;this.modalWaitNode=null;
+            if(this.settings.mode==='elite'&&this.automation.exitDefeatedLeague(s,now))return;
             if(!s.team?.length&&pendingRegionalStarter(s)){
                 this.lastProgress=now;this.telemetry.sample=null;
                 this.status='等待游戏显示初始伙伴选择';this.driver.nav('adventure');return;

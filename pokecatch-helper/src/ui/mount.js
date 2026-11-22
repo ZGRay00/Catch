@@ -37,6 +37,7 @@
             <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
             <nav class="workspace-nav" aria-label="助手面板">
                 <button data-workspace="tasks" aria-controls="pane-tasks">任务</button>
+                <button data-workspace="queue" aria-controls="pane-queue">任务队列</button>
                 <button data-workspace="dex" aria-controls="pane-dex">图鉴</button>
                 <button data-workspace="weather" aria-controls="pane-weather">天气</button>
                 <button data-workspace="eggs" aria-controls="pane-eggs">孵蛋</button>
@@ -48,7 +49,7 @@
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric" title="合计当前钱包及跨地区暂存的钱包余额"><b id="money-value">0</b><span id="money-label">本次金币净增</span></div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <details id="season-calendar" class="season-calendar"><summary><span>游戏季节</span><strong></strong><span class="season-remaining"></span></summary><div class="season-period"></div><div class="season-next"></div></details>
             <div class="target hidden" id="prepare-info"><b id="prepare-title"></b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-buddy"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
-            <section id="pane-tasks" aria-label="任务"><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
+            <section id="pane-tasks" aria-label="任务"><div id="queue-edit-note" class="queue-notice" hidden></div><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['daily','☀','通关日常','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
             <section class="target hidden" id="daily-routine" aria-label="通关日常设置">
@@ -101,11 +102,16 @@
                 <div class="hint" id="target-hint"></div><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
             </section>
+            <section id="pane-queue" aria-label="任务队列" hidden>
+                <div class="queue-heading"><div><h2>任务队列</h2><p id="queue-summary" aria-live="polite"></p></div><button id="queue-add">配置新任务</button></div>
+                <p class="queue-notice" id="queue-notice" role="status" hidden></p>
+                <ol id="queue-list" class="queue-list"></ol>
+            </section>
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
-            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="logs" aria-controls="view">日志</button></div>
+            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="logs" aria-controls="view">日志</button></div>
             <div id="yield-metric" role="group" aria-label="地图收益显示方式" hidden>
                 <button type="button" data-yield-view="task" aria-controls="view">跟随任务</button>
                 <button type="button" data-yield-view="money" aria-controls="view">金币</button>
@@ -152,8 +158,8 @@
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
             <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">培养规划考虑可达免费进化形态；实际进化并确认存档后再按新形态配队。道具与分支进化留待手动。</div>
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
-            <div class="row"><button id="start" class="primary">开始当前任务</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
-            <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="start-queue" title="按顺序执行一个主任务；后台计时独立">串行队列 <span id="queue-count">0</span></button></div>
+            <div class="row"><button id="start" class="primary">开始当前任务</button><button id="start-queue" class="primary">运行任务队列</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
+            <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="open-queue" aria-controls="pane-queue">任务队列 <span id="queue-count">0</span></button><button id="cancel-job" class="hidden">取消编辑</button></div>
             <details><summary>运行设置与自动停止</summary>
                 <label class="setting">游戏速度<select data-setting="speed"><option value="1">×1</option><option value="4">×3（最高档）</option></select></label>
                 <label class="setting">单图最短采样（分钟）<input data-setting="sampleMinutes" type="number" min="1" max="30"></label>
@@ -181,7 +187,7 @@
             </details>
             <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
-        const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null;
+        const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const roamingStock=[...root.querySelectorAll('[data-roam-ball-stock]')];
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
         const lookupTask=document.createElement('span');lookupTask.className='lookup-task';commandbar.querySelector('.row').prepend(lookupTask);
@@ -224,9 +230,11 @@
             }
             ui.workspace = active.dataset.workspace;
             query('.panel').classList.toggle('lookup-page', ['dex','weather','eggs'].includes(ui.workspace));
+            query('.panel').classList.toggle('queue-page', ui.workspace==='queue');
             if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
         }
         for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
+        query('#open-queue').onclick=()=>selectWorkspace('queue');
         query('#purchase-edit-budget').onclick = () => {
             query('#budget-details').open = true;
             selectWorkspace('settings');
@@ -235,6 +243,7 @@
             summary.scrollIntoView({block:'nearest'});
         };
         selectWorkspace(ui.workspace, false);
+        const drawQueue=mountQueuePanel(root,engine);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
         query('#nursery-plan').onclick=()=>{
             if(engine.running||engine.suspended||!changeSetting('mode','breed'))return;
@@ -590,7 +599,7 @@
             lastPaint=performance.now();
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
             let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
-                engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; memberKeys.clear(); viewSignature = null;
+                engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
@@ -685,7 +694,7 @@
                     if(el.textContent!==value)el.textContent=value;
                 }
             }
-            query('#start').disabled=locked||(dailyCard&&!canDaily);
+            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily);
             query('#daily-edit-goal').hidden=locked||baseMode==='legend'||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
             const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
@@ -697,11 +706,20 @@
             if(engine.daily&&!wait&&!nativePaused)query('#run-state').textContent='通关日常 · '+(dailyPhase||(s?.adv?.zone?'传说战进行中':engine.daily.checking?'检查待办':'挂机 · '+activeLabel));
             const leaving=s?.adv&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&engine.activityToLeave(s,engine.settings);
             query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
-            query('#queue-count').textContent=engine.queue.filter(queueJobPending).length;
-            query('#add-job').disabled=locked||dailyCard;query('#start-queue').disabled=locked||!engine.queue.some(queueJobPending);
+            const pending=engine.queue.filter(queueJobPending),nextJob=pending[0];
+            query('#queue-count').textContent=pending.length;
+            query('#add-job').disabled=locked||dailyCard||!s?.adv;
+            query('#start-queue').disabled=locked||!!editingJob||!nextJob||!s?.adv;
+            query('#start-queue').classList.toggle('hidden',locked);
+            query('#start-queue').textContent=engine.running&&engine.queueRunning?'任务队列运行中':nextJob?.progress?'继续任务队列':'运行任务队列';
+            query('#add-job').textContent=editingJob?'保存并返回队列':'＋ 加入队列';
+            query('#cancel-job').classList.toggle('hidden',!editingJob);
+            const editNote=query('#queue-edit-note');
+            editNote.hidden=!editingJob;
+            if(editingJob)editNote.textContent=queueError||`正在编辑队列中的「${engine.queue.find(job=>job.id===editingJob)?.title||'任务'}」`;
             renderPurchases(s);
             query('#reset').disabled = locked; query('#restore').disabled = locked || !engine.oldLoops;
-            query('#import-profile').disabled=locked||!engine.account;
+            query('#import-profile').disabled=locked||!!editingJob||!engine.account;
             if(locked!==lastLockState){
                 editableControls.forEach(input=>input.disabled=locked);
                 query('#hunt-filters').disabled=locked;
@@ -710,6 +728,7 @@
             const lookup = ['dex','weather','eggs'].includes(ui.workspace);
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
             metricGroup.hidden = !s?.adv || tab!=='maps';
+            if(ui.workspace==='queue'){drawQueue(s,locked,pending,editingJob,queueError);return;}
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;query('#weather-panel').hidden=true;
                 const view=query('#view');view.hidden=false;viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';return;
@@ -861,8 +880,7 @@
             }
             let rows,signature=null,leagueNotes=[];
             if(FLOW_MODES.has(mode)||['legend','roam','shiny','item'].includes(mode))engine.releaseRankingView();
-            if(tab==='queue')signature=JSON.stringify([tab,engine.running,!!engine.suspended,!!engine.manual,engine.queueRunning,engine.queueIndex,engine.queue.map(job=>[job.id,job.title,job.status,job.result])]);
-            else if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
+            if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
             else if(FLOW_MODES.has(mode))signature='flow:'+mode;
             else if(mode==='shiny')signature=JSON.stringify([mode,shinyRoutes.map(row=>[row.key,row.name,row.expected])]);
             else if(!['legend','roam'].includes(mode)){
@@ -929,16 +947,6 @@
                     }
                     view.appendChild(table); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '当前范围没有可规划地图，请检查解锁、来源条件或目标。'; view.appendChild(empty); }
                 }
-            } else if(tab==='queue'){
-                const note=document.createElement('div');note.className='queue-note';note.textContent='主任务按顺序执行；已配置的寄养、孵蛋和地下计时可并行，后台领取不占队列项。';view.appendChild(note);
-                for(const [index,job]of engine.queue.entries()){
-                    const active=engine.running&&engine.queueRunning&&index===engine.queueIndex;
-                    const el=document.createElement('div');el.className='job'+(active?' active':'');
-                    const head=document.createElement('div');head.className='job-head';const title=document.createElement('span');title.textContent=`${index+1}. ${job.title}`;const state=document.createElement('span');state.className='job-state';state.textContent=({pending:'等待',running:active?engine.manual?'手动暂停':'运行中':'已暂停',done:'已完成',skipped:'已跳过',failed:'需处理'})[job.status];head.append(title,state);el.appendChild(head);
-                    if(job.result){const result=document.createElement('div');result.className='sub';result.textContent=job.result;el.appendChild(result);}
-                    const actions=document.createElement('div');actions.className='job-actions';for(const[action,label]of [['up','↑'],['down','↓'],['edit','编辑'],['retry','重置'],['remove','移除']]){const button=document.createElement('button');button.dataset.job=job.id;button.dataset.jobAction=action;button.textContent=label;button.disabled=engine.running||!!engine.suspended;actions.appendChild(button);}el.appendChild(actions);view.appendChild(el);
-                }
-                if(!engine.queue.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='设置一个任务后点击“加入队列”。任务按顺序执行。精英联盟落败时跳过，其他任务异常时保留进度并暂停；持续刷钱项需设置目标金币，后续任务才能开始。';view.appendChild(empty);}
             } else {
                 for (const item of engine.logs) { const el = document.createElement('div'); el.className = 'log'; const time = document.createElement('time'); time.textContent = item.time; el.append(time,item.text); view.appendChild(el); }
                 if (!engine.logs.length) view.append('开始运行后将在这里记录切图、收益与停止原因。');
@@ -961,7 +969,7 @@
             if(key==='legendId')patch.legendIds=[];
             engine.settings=normalizeSettings({...previous,...patch});
             try {
-                if(engine.account&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
+                if(engine.account&&!editingJob&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
                 if (key === 'mode') { dailySelected=false; engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
             } catch(error) {
                 engine.settings=previous;
@@ -1036,7 +1044,7 @@
             const button=event.target.closest('button');if(!button)return;
             if(button.dataset.category)showCategory(button.dataset.category);
             if(button.dataset.mode==='daily'&&!engine.running&&!engine.suspended){
-                dailySelected=true;editingJob=null;query('#add-job').textContent='＋ 加入队列';
+                finishQueueEdit();dailySelected=true;
                 engine.status='已选择通关日常';engine.action='';syncSettings();render();place();
             }else if(button.dataset.mode)changeSetting('mode',button.dataset.mode);
             if(button.dataset.tab){selectActivityTab(button.dataset.tab);render();}
@@ -1047,14 +1055,7 @@
             if(button.dataset.lookup){
                 dexPanel.search('#'+button.dataset.lookup, () => selectWorkspace('dex'));
             }
-            if(button.dataset.jobAction&&!engine.running&&!engine.suspended){const i=engine.queue.findIndex(job=>job.id===button.dataset.job);if(i<0)return;const job=engine.queue[i],action=button.dataset.jobAction;
-                if(action==='remove'){engine.queue.splice(i,1);if(editingJob===job.id){editingJob=null;query('#add-job').textContent='＋ 加入队列';}}
-                if(action==='retry'){job.status='pending';job.result='';delete job.progress;}
-                if(action==='up'&&i>0)[engine.queue[i-1],engine.queue[i]]=[job,engine.queue[i-1]];
-                if(action==='down'&&i<engine.queue.length-1)[engine.queue[i+1],engine.queue[i]]=[job,engine.queue[i+1]];
-                if(action==='edit'){dailySelected=false;resetBudgetDrafts();selectWorkspace('tasks');editingJob=job.id;engine.settings=engine.taskSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
-                engine.persist(false);render();
-            }
+            if(button.dataset.jobAction)manageQueueJob(button.dataset.job,button.dataset.jobAction);
         });
         query('#item-search').addEventListener('input',itemOptions);
         function beginDrag(event) {
@@ -1083,10 +1084,69 @@
         document.addEventListener('visibilitychange',()=>{if(document.hidden){commitBudgetDrafts();engine.releaseRankingView();}else{render();place();}});
         query('#fold').onclick=()=>fold(true);
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
+        function finishQueueEdit(){
+            if(!editingJob)return;
+            engine.settings=engine.taskSettings(engine.queueDraftBase);
+            engine.queueDraftBase=null;editingJob=null;queueError='';
+            resetBudgetDrafts();itemOptions();syncSettings();
+        }
+        function saveQueue(jobs){
+            try{engine.updateQueue(jobs);queueError='';return true;}
+            catch(error){queueError='任务队列未保存 · '+error.message;engine.status=queueError;render();return false;}
+        }
+        function focusQueueJob(id,action='edit'){
+            const card=[...root.querySelectorAll('[data-queue-job]')].find(el=>el.dataset.queueJob===id);
+            (card?.querySelector(`[data-job-action="${action}"]:not(:disabled)`)||card?.querySelector('[data-job-action="edit"]:not(:disabled)')||query('#queue-add')).focus({preventScroll:true});
+            card?.scrollIntoView({block:'nearest'});
+        }
+        function manageQueueJob(id,action){
+            if(engine.running||engine.suspended||editingJob)return;
+            const jobs=engine.queue.slice(),i=jobs.findIndex(job=>job.id===id),job=jobs[i];
+            if(!job)return;
+            queueError='';
+            if(action==='edit'){
+                dailySelected=false;resetBudgetDrafts();
+                engine.queueDraftBase=engine.settings;editingJob=id;
+                engine.settings=engine.taskSettings(job.settings);itemOptions();syncSettings();selectWorkspace('tasks');return;
+            }
+            if(action==='up'||action==='down'){
+                const next=i+(action==='up'?-1:1);
+                if(!jobs[next])return;
+                [jobs[i],jobs[next]]=[jobs[next],job];
+            }else if(action==='skip')jobs[i]={...job,status:'skipped',result:'已手动跳过'};
+            else if(action==='retry')jobs[i]={...job,status:'pending',result:'',progress:undefined};
+            else if(action==='remove')jobs.splice(i,1);
+            else return;
+            if(saveQueue(jobs)){render();focusQueueJob(action==='remove'?jobs[Math.min(i,jobs.length-1)]?.id:id,action);}
+        }
         function jobTitle(cfg){const target={legend:legendSelectionLabel(cfg),roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
-        function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendIds','legendTier','roamId','itemId','trainUid',...(cfg.mode==='train'?['trainUids','trainLevel','trainRank','trainGems']:[]),'shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil','region',...(['dex','shiny'].includes(cfg.mode)?['Species','Weather','Regions'].map(suffix=>cfg.mode+suffix):[])].map(key=>cfg[key]));}
-        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings)&&current.progress){current.progress={budget:current.progress.budget};}Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
-        query('#start-queue').onclick=()=>{dailySelected=false;engine.startQueue();syncSettings();render();};
+        function goalIdentity(cfg){
+            const keys={
+                dex:['dexSpecies','dexWeather','dexRegions'],shiny:['shinyId','shinySpecies','shinyWeather','shinyRegions'],
+                legend:['legendId','legendIds','legendTier'],roam:['roamId'],item:['itemId'],train:['trainUid','trainUids','trainLevel','trainRank','trainGems'],
+                breed:['breedId','breedShiny'],elite:['eliteRegion','eliteTier'],world:['worldCapture'],
+                resource:['resourceItem','resourceAction','useUid'],progress:['progressUntil'],
+            };
+            return JSON.stringify([cfg.mode,cfg.region,...(keys[cfg.mode]||[]).map(key=>cfg[key])]);
+        }
+        query('#queue-add').onclick=()=>{queueError='';dailySelected=false;selectWorkspace('tasks');};
+        query('#cancel-job').onclick=()=>{const id=editingJob;finishQueueEdit();selectWorkspace('queue');focusQueueJob(id);};
+        query('#add-job').onclick=()=>{
+            if(engine.running||engine.suspended)return;
+            const jobs=engine.queue.slice(),i=jobs.findIndex(job=>job.id===editingJob),current=jobs[i];
+            if(jobs.length>=50&&!current){engine.status='任务队列最多保存 50 项';render();return;}
+            const settings=normalizeSettings(engine.settings);
+            const job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(settings),settings,status:'pending',result:''};
+            if(current?.progress){
+                const compatible=goalIdentity(current.settings)===goalIdentity(settings);
+                job.progress=compatible?current.progress:{budget:current.progress.budget};
+                if(compatible){job.status='paused';job.result=current.result;}
+            }
+            if(current)jobs[i]=job;else jobs.push(job);
+            if(!saveQueue(jobs))return;
+            finishQueueEdit();engine.status='任务已保存到队列';selectWorkspace('queue');focusQueueJob(job.id);
+        };
+        query('#start-queue').onclick=()=>{if(editingJob)return;dailySelected=false;engine.startQueue();if(!engine.running)queueError=engine.status;else queueError='';syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start(false,selectedCard()==='daily');syncSettings();render();};
         query('#daily-shiny-raid').onchange=event=>changeSetting('raids',event.target.checked);
         query('#daily-edit-goal').onclick=()=>{
@@ -1104,7 +1164,8 @@
         };
         query('#probability-info').addEventListener('toggle',()=>{if(query('#probability-info').open)render();});
         query('#export-profile').onclick=()=>{
-            const blob=new Blob([JSON.stringify(configurationProfile(engine),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
+            const profile=configurationProfile({settings:engine.idleTaskSettings(),queue:engine.queue});
+            const blob=new Blob([JSON.stringify(profile,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
             link.href=url;link.download=`pokecatch-settings-${VERSION}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
         };
         query('#import-profile').onclick=()=>query('#profile-file').click();

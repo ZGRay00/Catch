@@ -60,13 +60,41 @@ test('discarding an incompatible old resume record leaves the live owner checkpo
 
 test('the controlling tab still saves current queue progress and budget on an ordinary Stop',t=>{
     const {e,storage,key,leaseKey}=fixture(t);e.queue=H.normalizeJobs([{settings:e.settings,status:'running'}]);e.queueRunning=true;e.budget.spent=432;e.budget.used=5;e.stop('user stop');
-    const saved=JSON.parse(storage.getItem(key));assert.equal(saved.resume,null);assert.equal(saved.queue[0].status,'running');assert.equal(saved.queue[0].progress.budget.spent,432);assert.equal(saved.queue[0].progress.budget.used,5);
-    assert.equal(storage.getItem(leaseKey),null);assert.equal(e.running,false);
+    const saved=JSON.parse(storage.getItem(key));assert.equal(saved.resume,null);assert.equal(saved.queue[0].status,'paused');assert.equal(saved.queue[0].progress.budget.spent,432);assert.equal(saved.queue[0].progress.budget.used,5);
+    assert.equal(storage.getItem(leaseKey),null);assert.equal(e.running,false);assert.equal(e.queueRunning,false);
 });
 
 test('an explicit local-only Stop never writes a checkpoint even when its lease is still owned',t=>{
     const {e,storage,key,writes}=fixture(t),record=storage.getItem(key);e.stop('control lost',{persist:false});
     assert.equal(storage.getItem(key),record);assert.equal(writes.some(([,writtenKey])=>writtenKey===key),false);assert.equal(e.running,false);
+});
+
+test('queue edits follow the job ID across a move and roll back if settings cannot be saved',t=>{
+    const {e,storage,key}=fixture(t);
+    e.stop();e.queue=H.normalizeJobs([{id:'a',settings:{mode:'money'}},{id:'b',settings:{mode:'train'}}]);
+    e.queueIndex=1;e.queueDraftBase={...e.settings};e.settings.mode='resource';
+    e.updateQueue([e.queue[1],e.queue[0]]);
+    assert.equal(e.queueIndex,0);
+    assert.deepEqual(JSON.parse(storage.getItem(key)).queue.map(job=>job.id),['b','a']);
+    assert.equal(JSON.parse(storage.getItem(key)).settings.mode,'money');
+    const prior=e.queue,write=storage.setItem;
+    storage.setItem=(name,value)=>{if(name===key)throw Error('storage full');write(name,value);};
+    assert.throws(()=>e.updateQueue([e.queue[1]]),/storage full/);
+    assert.equal(e.queue,prior);assert.equal(e.queueIndex,0);
+});
+
+test('reloaded queue checkpoints find the intended job by ID even when its old index changed',t=>{
+    const {e,storage,key,make}=fixture(t);
+    e.queue=H.normalizeJobs([{id:'a',settings:e.settings,status:'running'},{id:'b',settings:e.settings}]);
+    e.queueRunning=true;e.budget.used=4;e.persist();e.release();
+    const record=JSON.parse(storage.getItem(key));
+    assert.equal(record.resume.queueJobId,'a');
+    record.queue.reverse();
+    storage.setItem(key,JSON.stringify(record));
+    const resumed=make();resumed.start(true);
+    assert.equal(resumed.running,true,resumed.status);
+    assert.equal(resumed.queue[resumed.queueIndex].id,'a');assert.equal(resumed.budget.used,4);
+    resumed.stop();
 });
 
 test('storage failures during ownership checks still allow Stop to clear its local scheduler',t=>{

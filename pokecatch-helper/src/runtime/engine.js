@@ -49,6 +49,7 @@
                 this.cancelRouteRankings();
                 for (const field of SESSION_FIELDS) delete this[field];
                 this.endedTotals=null;
+                this.queueDraftBase=null;
                 this.queueRunning = false;
                 this.tabToken = undefined;
                 this.target = this.visit = this.preparation = this.nextWake = null;
@@ -160,7 +161,7 @@
             if (!this.mayPersist()) return false;
             const entries = Object.entries(this.metrics).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 200);
             const snapshot=this.progressSnapshot();if(captureJob)this.saveJobProgress(snapshot);
-            const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,daily:this.daily,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex}:null;
+            const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,daily:this.daily,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex,queueJobId:this.queueRunning?this.queue[this.queueIndex]?.id:undefined}:null;
             const record=JSON.stringify({ settings: this.idleTaskSettings(), metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw,dailyMarks:this.dailyMarks });
             this.storage.setItem(PREFIX + this.account, record);
             if(this.suspended)this.suspended.record=record;
@@ -169,7 +170,29 @@
             for(const key of Object.keys(this.metrics))if(!retained.has(key))delete this.metrics[key];
             return true;
         }
-        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(queueJobPending);if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=this.taskSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
+        updateQueue(jobs){
+            if(this.running||this.suspended||this.checkpoint?.wanted&&this.settings.resumeOnReload)throw new Error('请先停止任务，再调整任务队列');
+            if(!Array.isArray(jobs)||jobs.length>50)throw new Error('任务队列最多保存 50 项');
+            const s=this.read();
+            if(!s?.adv||accountId(s)!==this.account||!this.mayPersist())throw new Error('当前标签页无法保存任务队列');
+            const previous={queue:this.queue,queueIndex:this.queueIndex,queueRunning:this.queueRunning,checkpoint:this.checkpoint};
+            const currentId=this.queue[this.queueIndex]?.id;
+            this.queue=normalizeJobs(jobs);
+            this.queueIndex=Math.max(0,this.queue.findIndex(job=>job.id===currentId));
+            this.queueRunning=false;
+            this.checkpoint=null;
+            try{if(!this.persist(false,false))throw new Error('当前标签页无法保存任务队列');}
+            catch(error){Object.assign(this,previous);throw error;}
+        }
+        startQueue(){
+            if(this.running||this.suspended||this.queueDraftBase)return;
+            this.queue=normalizeJobs(this.queue);
+            const index=this.queue.findIndex(queueJobPending);
+            if(index<0){this.status='任务队列中没有可执行任务';return;}
+            this.queueIndex=index;this.queueRunning=true;
+            this.settings=this.taskSettings(this.queue[index].settings);
+            this.start();
+        }
         beginTask(s,cp,now,continuingQueue=false){
             this.nurseryAssist.cancelIdle();
             this.nurseryAssist.feed=null;
@@ -247,7 +270,7 @@
             }
         }
         idleTaskSettings(){
-            if(!this.daily)return this.settings;
+            if(!this.daily)return this.queueDraftBase?{...this.queueDraftBase,autoPurchase:this.settings.autoPurchase}:this.settings;
             return {...this.daily.base,mode:this.daily.menuMode||this.daily.base.mode,autoPurchase:this.settings.autoPurchase};
         }
         yieldLegendToDaily(s,now){
@@ -511,8 +534,14 @@
                 if (s.adv.layout !== DATA.layout) throw new Error(`存档版本不匹配（需要 layout ${DATA.layout}），请更新助手`);
                 if (!this.account) this.loadAccount(s);
                 const jobProgress=this.queueRunning?this.queue[this.queueIndex]?.progress:null;
-                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex}:null;
-                if(cp){this.settings=this.taskSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=Number(cp.queueIndex)||0;}
+                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex,queueJobId:this.queue[this.queueIndex]?.id}:null;
+                if(cp){
+                    const index=cp.queueJobId?this.queue.findIndex(job=>job.id===cp.queueJobId):Number(cp.queueIndex)||0;
+                    if(cp.queueRunning&&(!this.queue[index]||!queueJobPending(this.queue[index])||this.queue[index].settings.mode!==cp.settings?.mode)){
+                        this.queueRunning=false;throw new Error('续跑的任务在队列中已变化，请检查任务队列后继续');
+                    }
+                    this.settings=this.taskSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=index;
+                }
                 else this.refreshAutoPurchase();
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=daily?dailyMainMode(this.settings):this.settings.mode;
@@ -531,6 +560,7 @@
                 }
                 if (mode === 'dex' && ENCOUNTER_DATA_ERRORS.length) throw new Error('图鉴出没数据损坏，请重新安装完整脚本');
                 if (!this.acquire(Date.now())) { controlDenied=true;throw new Error('另一个标签页正在运行助手'); }
+                if(this.queueRunning&&this.queue[this.queueIndex])this.queue[this.queueIndex].status='running';
                 this.running = true; this.runId++; this.started = Date.now(); this.stoppedAt = null;this.hiddenAt=null;this.endedTotals=null;
                 this.manual = cp?.manual||null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.startMoney=combinedWalletMoney(s);this.walletScope='all';
@@ -562,7 +592,7 @@
                 } else this.status = this.daily?.checking?'正在检查通关日常':'规划中';
                 if(cp){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
                 this.persist(); this.schedule(50);
-            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;} try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
+            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(!controlDenied&&this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;}this.queueRunning=false;try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
         }
         stop(reason = '已停止助手',options={}) {
             const save=options.persist!==false&&this.mayPersist();
@@ -576,8 +606,13 @@
                     xp:sameAccount&&this.startTrainingXp!=null?experienceTotal(s,this.trainProtected||s.team):null,
                 };
             }
+            if((this.running||this.suspended)&&save){
+                this.saveJobProgress();
+                const job=this.queueRunning&&this.queue[this.queueIndex];
+                if(job?.status==='running'){job.status='paused';job.result=reason;}
+            }
             this.suspended=null;
-            this.saveJobProgress();
+            this.queueRunning=false;
             if(this.daily){this.settings=this.taskSettings(this.idleTaskSettings());this.daily=null;}
             this.running = false; this.runId++; this.stoppedAt ??= Date.now(); clearTimeout(this.timer); this.timer = null;
             this.cancelTeamSearch();

@@ -54,7 +54,7 @@
             while (ids.has(id)) id = `job-${++suffix}`;
             ids.add(id);
             jobs.push({id, title:String(row.title || MODE_NAMES[row.settings.mode]).slice(0,80),
-                settings:normalizeSettings(row.settings), status:['done','skipped','failed','running','pending'].includes(row.status) ? row.status : 'pending',
+                settings:normalizeSettings(row.settings), status:['done','skipped','failed','running','paused','pending'].includes(row.status) ? row.status : 'pending',
                 result:String(row.result || '').slice(0,200),
                 ...(row.progress && typeof row.progress === 'object' && !Array.isArray(row.progress) ? {progress:row.progress} : {})});
         }

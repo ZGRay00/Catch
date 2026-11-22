@@ -93,7 +93,7 @@ test('task execution summaries are read-only and remain available when passive j
 });
 test('UI execution state separates the serial foreground queue from passive timer readiness',t=>{
     const f=fixture(t),view=H.taskExecutionState(f.s,f.e,f.now());
-    assert.match(view.summary,/串行/);assert.match(view.summary,/并行/);assert.match(view.queueLabel,/串行/);
+    assert.match(view.summary,/队列顺序/);assert.match(view.summary,/并行/);assert.match(view.queueLabel,/任务队列/);
     assert.equal(view.foreground.state,'running');assert.ok(view.services.some(service=>service.id==='eggs'&&service.state==='ready'));
     assert.ok(view.services.some(service=>service.id==='underground'&&service.state==='ready'));assert.equal(view.uiOwner,'空闲');
 });

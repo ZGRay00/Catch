@@ -304,9 +304,9 @@ async function main(){
             metric('money').click();await waitUntil('₽/分钟');
             const gold=r.querySelector('#view th:last-child')?.textContent;
             const savedMetric=JSON.parse(localStorage.getItem('pokecatch-helper:v1:ui')).yieldView;
-            r.querySelector('[data-tab="queue"]').click();
-            const hiddenInQueue=r.querySelector('#yield-metric').hidden;
-            r.querySelector('[data-tab="maps"]').click();metric('train').click();await waitUntil('EXP/分钟');
+            r.querySelector('[data-workspace="queue"]').click();
+            const hiddenInQueue=!r.querySelector('#yield-metric').getClientRects().length;
+            r.querySelector('[data-workspace="activity"]').click();r.querySelector('[data-tab="maps"]').click();metric('train').click();await waitUntil('EXP/分钟');
             const xp=r.querySelector('#view th:last-child')?.textContent;
             const viewOnly=e.preparation===preparation&&e.settings.mode==='progress'&&JSON.stringify(e.queue)===queue;
             metric('task').click();await waitUntil('按补练阵容');
@@ -327,7 +327,7 @@ async function main(){
         checks.push('gold and XP leaderboard switches preserve the task, training and queue, and remember the display preference');
         assert.match(preparationRanking.comparing,/EXP\/分钟/);assert.match(preparationRanking.shown,/蓝色徽章/);checks.push('mainline preparation compares the actual XP of adjacent routes in both directions, and speed choices match native buttons');
         const state=()=>evaluate(`(()=>{const r=${root},host=document.querySelector('#pokecatch-auto-helper').getBoundingClientRect(),e=__pcExecutionTest.engine;return{foreground:r.querySelector('#foreground-task')?.textContent,foregroundDetail:r.querySelector('#foreground-detail')?.textContent,services:r.querySelector('#background-services')?.textContent,serviceStates:Object.fromEntries([...r.querySelectorAll('#background-services [data-service]')].map(el=>[el.dataset.service,{state:el.dataset.state,text:el.textContent}])),owner:r.querySelector('#ui-owner')?.textContent,rules:r.querySelector('#parallel-rules')?.textContent,queue:r.querySelector('#start-queue')?.textContent,mini:r.querySelector('#mini-state')?.textContent,running:e.running,manual:!!e.manual,host:{left:host.left,right:host.right,top:host.top,bottom:host.bottom},card:!!r.querySelector('#execution-info'),save:localStorage.getItem('gachamon-save-v1')}})()`);
-        let current=await state();assert.equal(current.card,true);assert.ok(current.host.right<=1280&&current.host.left>=0);assert.match(current.queue,/串行/);checks.push('the task card and serial queue explanation mount before automation starts');
+        let current=await state();assert.equal(current.card,true);assert.ok(current.host.right<=1280&&current.host.left>=0);assert.match(current.queue,/任务队列/);checks.push('the task card and dedicated queue entry mount before automation starts');
         await evaluate(`(()=>{const e=__pcExecutionTest.engine;e.schedule=()=>{};e.settings={...e.settings,mode:'money',autoTeam:true,autoPrepare:false,raids:false,moneyBuff:false};e.running=true;e.started=Date.now();e.startMoney=fixtureState.money;e.lastProgress=Date.now();e.status='fixture active primary';e.onChange()})()`);
         current=await state();assert.match(current.foreground,/刷钱/);assert.match(current.services,/未配置|没有|暂无|未寄养|未派遣|空闲/);checks.push('a selected primary task does not invent configured background work');
         assert.match(await evaluate(`${root}.querySelector('#action').textContent`),/助手已接管/);checks.push('a running task with no recent click never displays the idle start prompt');
@@ -541,6 +541,43 @@ async function main(){
         checks.push('invalid or unsaved budget drafts stay editable and block start, queue launch and enqueue until corrected or successfully saved');
         checks.push('the queue snapshots the edited budget, keeps manual-pause settings locked and resumes with the same limits and use counter');
         checks.push('the account purchase switch can be turned off while running, and queue restart and page suspension cannot turn it back on');
+        const queueWorkspace=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,r=${root},q=selector=>r.querySelector(selector);
+            const previous={...e.settings,mode:'resource'},key='pokecatch-helper:v1:'+e.account;
+            e.settings=previous;
+            const ongoing={id:'money-test',title:'刷钱测试',settings:{...previous,mode:'money',moneyTarget:12000},status:'paused',result:'上次已停止',progress:{budget:{spent:25,used:2}}};
+            const other={id:'resource-test',title:'道具测试',settings:previous,status:'pending',result:''};
+            e.updateQueue([ongoing,other]);e.onChange();
+            const open=()=>q('[data-workspace="queue"]').click();
+            const row=id=>q('[data-queue-job="'+id+'"]');
+            const action=(id,name)=>row(id).querySelector('[data-job-action="'+name+'"]').click();
+            const visible=el=>el.getClientRects().length>0;
+            const setTarget=value=>{const input=q('[data-setting="moneyTarget"]');input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));};
+            q('[data-workspace="tasks"]').click();
+            q('#open-queue').click();
+            const entry=visible(q('#pane-queue'))&&visible(q('#start-queue'))&&!visible(q('#pane-activity'))&&q('[data-workspace="queue"]').textContent==='任务队列';
+            const controls=[row('money-test').querySelector('[data-job-action="up"]').disabled,row('resource-test').querySelector('[data-job-action="down"]').disabled];
+            const width=q('.panel').getBoundingClientRect().width,fit=q('.content').scrollWidth<=q('.content').clientWidth+1;
+            action('money-test','edit');setTarget('14000');
+            const draft=JSON.parse(localStorage.getItem(key));
+            const isolated=visible(q('#queue-edit-note'))&&draft.settings.mode==='resource'&&draft.queue[0].settings.moneyTarget===12000;
+            q('#cancel-job').click();
+            const cancelled=visible(q('#pane-queue'))&&e.settings.mode==='resource'&&e.queue[0].settings.moneyTarget===12000;
+            action('money-test','edit');setTarget('16000');q('#add-job').click();
+            const edited=visible(q('#pane-queue'))&&e.settings.mode==='resource'&&e.queue[0].settings.moneyTarget===16000&&e.queue[0].progress?.budget.used===2;
+            action('money-test','down');
+            const order=JSON.parse(localStorage.getItem(key)).queue.map(job=>job.id);
+            action('resource-test','skip');open();q('#start-queue').click();
+            const resumed=[e.running,e.queue[e.queueIndex]?.id,e.budget.used];
+            q('#stop').click();
+            return{entry,controls,width,fit,isolated,cancelled,edited,order,resumed};
+        })()`);
+        assert.equal(queueWorkspace.entry,true);assert.deepEqual(queueWorkspace.controls,[true,true]);assert.ok(queueWorkspace.width<=360&&queueWorkspace.fit);
+        assert.ok(queueWorkspace.isolated&&queueWorkspace.cancelled&&queueWorkspace.edited);
+        assert.deepEqual(queueWorkspace.order,['resource-test','money-test']);assert.deepEqual(queueWorkspace.resumed,[true,'money-test',2]);
+        const queueShot=await send('Page.captureScreenshot',{format:'png'});
+        fs.writeFileSync(path.join(dir,'mobile-queue.png'),Buffer.from(queueShot.data,'base64'));
+        checks.push('dedicated mobile queue opens directly, keeps drafts separate, reorders, skips and resumes the intended saved task');
         console.log('PASS: '+checks.length+' execution/concurrency UI checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

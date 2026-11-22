@@ -280,7 +280,7 @@ async function main() {
             if(e.teamSearch===job&&!job.result)throw Error('Fixture team planner timed out');
             await e.step();
         }`);
-        const resumed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('manual pause');e.start();await e.step();const running=e.running;mock.state.adv.event=null;mock.save();await tickWithTeam(e);return{running,after:e.running,raid:e.driver.raid,probe:e.raidProbe,pending:!!e.driver.pendingMap}})()`);
+        const resumed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('manual pause');e.start();await e.step();const running=e.running;mock.state.adv.event=null;mock.save();const deadline=performance.now()+5000;do{await tickWithTeam(e);if(e.driver.pendingMap||!e.running)break;await new Promise(resolve=>setTimeout(resolve,20));}while(performance.now()<deadline);return{running,after:e.running,raid:e.driver.raid,probe:e.raidProbe,pending:!!e.driver.pendingMap}})()`);
         assert.equal(resumed.running, true); assert.equal(resumed.after, true); assert.equal(resumed.raid, null); assert.equal(resumed.probe, false); assert.equal(resumed.pending, true);
         const timed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('timeout-fixture');mock.state.adv.event={raid:true,reg:'kanto',id:35,loops:23};mock.save();phase='home';mock.nav('adventure');e.start();e.driver.raid.started=Date.now()-91*60000;for(let i=0;i<8&&mock.state.adv.event;i++){e.driver.lastClick=0;await e.step()}return{event:mock.state.adv.event,cooldowns:Object.values(e.raidCooldown),now:Date.now(),running:e.running}})()`);
         assert.equal(timed.event, null, 'timeout must open Chroma from raid home before clicking Leave');
@@ -294,7 +294,7 @@ async function main() {
             while(!await evaluate('!!__pcTest.engine.driver.pendingMap')&&Date.now()<deadline){await delay(20);await tick();}
             return evaluate('!!__pcTest.engine.driver.pendingMap');
         };
-        const begin = async () => evaluate(`document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#start').click()`);
+        const begin = async () => evaluate(`(()=>{const root=document.querySelector('#pokecatch-auto-helper').shadowRoot;root.querySelector('[data-workspace="tasks"]').click();root.querySelector('#start').click()})()`);
         const registered=H.DATA.zones.filter(zone=>[144,145].includes(zone.id)).flatMap(zone=>zone.gate.ids);
         await evaluate(`for(const id of ${JSON.stringify(registered)})mock.state.dex[id]={caught:1};mock.save()`);
         await setUI({ mode:'legend',legendId:145,legendTier:0,optimizeRaid:false,raids:true });
@@ -346,6 +346,7 @@ async function main() {
         assert.equal(towerProgress.value,'0/100');assert.equal(towerProgress.progress,'0','old weekly records cannot fill the current tower progress bar');
         const backgroundRender=await evaluate(`(()=>{
             const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot;
+            r.querySelector('[data-workspace="activity"]').click();
             const current=r.querySelector('[data-tab][aria-pressed=true]'),view=r.querySelector('#view');
             r.querySelector('[data-tab="logs"]').click();
             let hidden=true;Object.defineProperty(document,'hidden',{configurable:true,get:()=>hidden});
@@ -573,12 +574,12 @@ async function main() {
         await send('Emulation.setDeviceMetricsOverride',{width:1440,height:1000,deviceScaleFactor:1,mobile:false});
         await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector(".mini").click();__pcTest.engine.onChange()');
         const breedShot=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(taskDir,'desktop-breeding.png'),Buffer.from(breedShot.data,'base64'));
-        await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').shadowRoot;r.querySelector('#add-job').click();const mode=r.querySelector('[data-setting="mode"]');mode.value='resource';mode.dispatchEvent(new Event('change',{bubbles:true}));r.querySelector('#add-job').click()})()`);
+        await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').shadowRoot;r.querySelector('[data-workspace="tasks"]').click();r.querySelector('#add-job').click();r.querySelector('#queue-add').click();const mode=r.querySelector('[data-setting="mode"]');mode.value='resource';mode.dispatchEvent(new Event('change',{bubbles:true}));r.querySelector('#add-job').click()})()`);
         assert.equal(await evaluate('__pcTest.engine.queue.length'),2,'queue UI stores configured task snapshots');
         await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').shadowRoot;r.querySelector('[data-job-action="edit"]').click();const goal=r.querySelector('[data-setting="breedGoal"]');goal.value=3;goal.dispatchEvent(new Event('change',{bubbles:true}));r.querySelector('#add-job').click()})()`);
         assert.equal(await evaluate('__pcTest.engine.queue[0].settings.breedGoal'),3,'queue editor updates its own task');
         assert.equal(await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot,button=r.querySelector('[data-job-action="edit"]');button.focus();e.onChange();return button===r.querySelector('[data-job-action="edit"]')&&r.activeElement===button})()`),true,'unchanged queue rendering preserves focused controls');
-        assert.equal(await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot;e.queue[0].status='running';e.queueRunning=false;e.running=true;e.onChange();const label=r.querySelector('.job-state').textContent;e.running=false;e.queue[0].status='pending';e.onChange();return label})()`),'已暂停','running a single task cannot label a paused queue item as running');
+        assert.equal(await evaluate(`(()=>{const e=__pcTest.engine,r=document.querySelector('#pokecatch-auto-helper').shadowRoot;e.queue[0].status='running';e.queueRunning=false;e.running=true;e.onChange();const label=r.querySelector('.queue-state').textContent;e.running=false;e.queue[0].status='pending';e.onChange();return label})()`),'已暂停','running a single task cannot label a paused queue item as running');
         await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector(".content").scrollTop=100000');
         await send('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true});
         await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))');
@@ -591,7 +592,7 @@ async function main() {
         assert.equal(await evaluate('__pcTest.engine.preparation?.targets[0].goal'),preparationGoal,'a real reload preserves achievable training goals');
         assert.equal(await evaluate('__pcTest.engine.settings.mode'),'progress','temporary preparation keeps the original mainline task');
         assert.equal(await evaluate('__pcTest.engine.budget.used'),2,'reload keeps the preparation resource budget');
-        await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector(".mini").click()');
+        await evaluate('(()=>{const root=document.querySelector("#pokecatch-auto-helper").shadowRoot;root.querySelector(".mini").click();root.querySelector(\'[data-workspace="tasks"]\').click()})()');
         assert.equal(await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector("#prepare-info").classList.contains("hidden")'),false,'unfolding after reload immediately shows the original destination and live levels');
         assert.equal(await evaluate('(()=>{const r=document.querySelector("#pokecatch-auto-helper").shadowRoot;return Math.round(parseFloat(r.querySelector("#prepare-bar").style.width))})()'),Math.round(5/preparationGoal*100),'training progress is separate from mainline progress');
         await evaluate('(()=>{const r=document.querySelector("#pokecatch-auto-helper").shadowRoot;r.querySelector(".mini").click();r.querySelector(".content").scrollTop=0})()');

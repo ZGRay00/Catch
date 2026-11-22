@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.2.0
+// @version      6.3.0
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.2.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.3.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1009,7 +1009,7 @@
             underText+='；'+(!collectOn?'后台派遣和领取均已关闭，原生计时保留':under.slots.length?'只领取已派出队伍':'尚无派遣队伍，可开启神奥后自动派遣');
         }
         entries.push({id:'underground',label:'地下探险',state:underState,...underLabel?{stateLabel:underLabel}:{},detail:underText,nextAt:underAt});
-        return{foreground:{label,detail,state:paused?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
+        return{foreground:{label,detail,state:paused?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'任务队列 · 按顺序执行',summary:'主任务按队列顺序执行 · 后台计时可并行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
     }
     function executionDecision(s,e){
         if(!s?.adv)return{route:'进入游戏后显示实际路线',team:'进入游戏后显示配队状态',reason:''};
@@ -1204,7 +1204,7 @@
             while (ids.has(id)) id = `job-${++suffix}`;
             ids.add(id);
             jobs.push({id, title:String(row.title || MODE_NAMES[row.settings.mode]).slice(0,80),
-                settings:normalizeSettings(row.settings), status:['done','skipped','failed','running','pending'].includes(row.status) ? row.status : 'pending',
+                settings:normalizeSettings(row.settings), status:['done','skipped','failed','running','paused','pending'].includes(row.status) ? row.status : 'pending',
                 result:String(row.result || '').slice(0,200),
                 ...(row.progress && typeof row.progress === 'object' && !Array.isArray(row.progress) ? {progress:row.progress} : {})});
         }
@@ -7697,6 +7697,7 @@
                 this.cancelRouteRankings();
                 for (const field of SESSION_FIELDS) delete this[field];
                 this.endedTotals=null;
+                this.queueDraftBase=null;
                 this.queueRunning = false;
                 this.tabToken = undefined;
                 this.target = this.visit = this.preparation = this.nextWake = null;
@@ -7808,7 +7809,7 @@
             if (!this.mayPersist()) return false;
             const entries = Object.entries(this.metrics).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 200);
             const snapshot=this.progressSnapshot();if(captureJob)this.saveJobProgress(snapshot);
-            const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,daily:this.daily,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex}:null;
+            const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,daily:this.daily,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex,queueJobId:this.queueRunning?this.queue[this.queueIndex]?.id:undefined}:null;
             const record=JSON.stringify({ settings: this.idleTaskSettings(), metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw,dailyMarks:this.dailyMarks });
             this.storage.setItem(PREFIX + this.account, record);
             if(this.suspended)this.suspended.record=record;
@@ -7817,7 +7818,29 @@
             for(const key of Object.keys(this.metrics))if(!retained.has(key))delete this.metrics[key];
             return true;
         }
-        startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(queueJobPending);if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=this.taskSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
+        updateQueue(jobs){
+            if(this.running||this.suspended||this.checkpoint?.wanted&&this.settings.resumeOnReload)throw new Error('请先停止任务，再调整任务队列');
+            if(!Array.isArray(jobs)||jobs.length>50)throw new Error('任务队列最多保存 50 项');
+            const s=this.read();
+            if(!s?.adv||accountId(s)!==this.account||!this.mayPersist())throw new Error('当前标签页无法保存任务队列');
+            const previous={queue:this.queue,queueIndex:this.queueIndex,queueRunning:this.queueRunning,checkpoint:this.checkpoint};
+            const currentId=this.queue[this.queueIndex]?.id;
+            this.queue=normalizeJobs(jobs);
+            this.queueIndex=Math.max(0,this.queue.findIndex(job=>job.id===currentId));
+            this.queueRunning=false;
+            this.checkpoint=null;
+            try{if(!this.persist(false,false))throw new Error('当前标签页无法保存任务队列');}
+            catch(error){Object.assign(this,previous);throw error;}
+        }
+        startQueue(){
+            if(this.running||this.suspended||this.queueDraftBase)return;
+            this.queue=normalizeJobs(this.queue);
+            const index=this.queue.findIndex(queueJobPending);
+            if(index<0){this.status='任务队列中没有可执行任务';return;}
+            this.queueIndex=index;this.queueRunning=true;
+            this.settings=this.taskSettings(this.queue[index].settings);
+            this.start();
+        }
         beginTask(s,cp,now,continuingQueue=false){
             this.nurseryAssist.cancelIdle();
             this.nurseryAssist.feed=null;
@@ -7895,7 +7918,7 @@
             }
         }
         idleTaskSettings(){
-            if(!this.daily)return this.settings;
+            if(!this.daily)return this.queueDraftBase?{...this.queueDraftBase,autoPurchase:this.settings.autoPurchase}:this.settings;
             return {...this.daily.base,mode:this.daily.menuMode||this.daily.base.mode,autoPurchase:this.settings.autoPurchase};
         }
         yieldLegendToDaily(s,now){
@@ -8159,8 +8182,14 @@
                 if (s.adv.layout !== DATA.layout) throw new Error(`存档版本不匹配（需要 layout ${DATA.layout}），请更新助手`);
                 if (!this.account) this.loadAccount(s);
                 const jobProgress=this.queueRunning?this.queue[this.queueIndex]?.progress:null;
-                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex}:null;
-                if(cp){this.settings=this.taskSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=Number(cp.queueIndex)||0;}
+                const cp=resume?this.checkpoint:jobProgress?{...jobProgress,settings:this.settings,queueRunning:true,queueIndex:this.queueIndex,queueJobId:this.queue[this.queueIndex]?.id}:null;
+                if(cp){
+                    const index=cp.queueJobId?this.queue.findIndex(job=>job.id===cp.queueJobId):Number(cp.queueIndex)||0;
+                    if(cp.queueRunning&&(!this.queue[index]||!queueJobPending(this.queue[index])||this.queue[index].settings.mode!==cp.settings?.mode)){
+                        this.queueRunning=false;throw new Error('续跑的任务在队列中已变化，请检查任务队列后继续');
+                    }
+                    this.settings=this.taskSettings(cp.settings);this.queueRunning=!!cp.queueRunning;this.queueIndex=index;
+                }
                 else this.refreshAutoPurchase();
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=daily?dailyMainMode(this.settings):this.settings.mode;
@@ -8179,6 +8208,7 @@
                 }
                 if (mode === 'dex' && ENCOUNTER_DATA_ERRORS.length) throw new Error('图鉴出没数据损坏，请重新安装完整脚本');
                 if (!this.acquire(Date.now())) { controlDenied=true;throw new Error('另一个标签页正在运行助手'); }
+                if(this.queueRunning&&this.queue[this.queueIndex])this.queue[this.queueIndex].status='running';
                 this.running = true; this.runId++; this.started = Date.now(); this.stoppedAt = null;this.hiddenAt=null;this.endedTotals=null;
                 this.manual = cp?.manual||null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.startMoney=combinedWalletMoney(s);this.walletScope='all';
@@ -8210,7 +8240,7 @@
                 } else this.status = this.daily?.checking?'正在检查通关日常':'规划中';
                 if(cp){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
                 this.persist(); this.schedule(50);
-            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;} try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
+            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(!controlDenied&&this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;}this.queueRunning=false;try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
         }
         stop(reason = '已停止助手',options={}) {
             const save=options.persist!==false&&this.mayPersist();
@@ -8224,8 +8254,13 @@
                     xp:sameAccount&&this.startTrainingXp!=null?experienceTotal(s,this.trainProtected||s.team):null,
                 };
             }
+            if((this.running||this.suspended)&&save){
+                this.saveJobProgress();
+                const job=this.queueRunning&&this.queue[this.queueIndex];
+                if(job?.status==='running'){job.status='paused';job.result=reason;}
+            }
             this.suspended=null;
-            this.saveJobProgress();
+            this.queueRunning=false;
             if(this.daily){this.settings=this.taskSettings(this.idleTaskSettings());this.daily=null;}
             this.running = false; this.runId++; this.stoppedAt ??= Date.now(); clearTimeout(this.timer); this.timer = null;
             this.cancelTeamSearch();
@@ -9733,11 +9768,11 @@
             .target{padding:10px;border:1px solid #33455c;border-radius:11px;background:#162236;margin:9px 0}.field{display:flex;gap:9px;align-items:center;margin:6px 0}.field>span,.field>label{flex:0 0 82px;color:#b6c8df;font-size:12px}.field select{flex:1;width:0}.field input{flex:1;width:0}select,input[type=number],input[type=search]{min-width:0;width:100%;border:1px solid #3d506a;background:#0e192a;color:#edf4ff;border-radius:7px;padding:7px}input[type=number]{font-variant-numeric:tabular-nums}.hint{font-size:11px;color:#8fa7c2;line-height:1.65;margin:6px 0 0}.warn{color:#e6be7a}.goal{display:flex;justify-content:space-between;gap:8px;font-size:11px;color:#b9cde4;margin-top:9px}.bar{height:4px;overflow:hidden;border-radius:3px;background:#30415a;margin-top:5px}.bar i{display:block;height:100%;width:0;background:#79dcba;transition:width .3s ease}.row{display:flex;gap:7px;margin:10px 0}.row button{flex:1;padding:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:11px}.checks label{display:flex;align-items:flex-start;gap:5px;color:#becce0}input[type=checkbox]{accent-color:#79dcba;margin:3px 0 0}
             details{margin:10px 0;border-top:1px solid #2c3b51;padding-top:8px}summary{font-size:11px;color:#9fb7d4}.setting{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0;font-size:11px}.setting input[type=number],.setting select{width:125px}.setting input[type=checkbox]{margin-right:5px}.tabs{display:flex;border-bottom:1px solid #34465c;gap:4px;margin:12px 0 0}.tabs button{flex:1;border:none;border-radius:7px 7px 0 0;background:transparent;color:#8da7c6;font-size:11px;padding:8px 4px}.tabs button.on{background:#22334a;color:#a3f0d3;box-shadow:inset 0 -2px #79dcba}.list{max-height:185px;overflow:auto;scrollbar-width:thin;min-height:44px;padding:4px 0}table{width:100%;border-collapse:collapse;font-size:11px}th,td{padding:7px 4px;border-bottom:1px solid #28394f;text-align:left}th{font-weight:400;color:#8ca4c0;position:sticky;top:0;background:#111a29}td:last-child,th:last-child{text-align:right}tr.active td{color:#8ce8c7}.missing{display:flex;gap:5px;flex-wrap:wrap;padding:6px 0}.chip{padding:3px 6px;background:#23344b;border-radius:6px;font-size:11px}.log{font-size:11px;padding:5px 0;border-bottom:1px solid #25364b;overflow-wrap:anywhere}.log time{color:#859dbb;margin-right:6px}.empty{padding:15px 8px;color:#93abc7;font-size:11px}.actions{display:flex;gap:5px;padding-top:8px;border-top:1px solid #2e3f55}.actions button{flex:1;font-size:10px;padding:5px}.mini{border-radius:30px;box-shadow:0 4px 24px #0008;background:#1e3346;padding:10px 15px;border-color:#79dcba;display:flex;align-items:center;gap:8px}.mini.running::before{content:'';width:6px;height:6px;border-radius:50%;background:#79dcba}.hidden{display:none!important}.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
             .mini{touch-action:none;user-select:none;cursor:grab;max-width:calc(100vw - 20px)}.mini:active{cursor:grabbing}#mini-state{min-width:0;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status.manual{border-color:#8b713f}.manual .dot{background:#e6be7a;box-shadow:none}.manual .live{color:#e6be7a}.mini.manual{border-color:#e6be7a}.mini.manual::before{background:#e6be7a}
-            .execution-card{padding:10px;border:1px solid #344b5c;border-radius:11px;background:#142431;margin:10px 0}.execution-top{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#9ab8c7;margin-bottom:5px}#ui-owner{max-width:68%;text-align:right;overflow-wrap:anywhere;color:#9bd9c4}#foreground-task{font-size:12px;color:#e1f2f3}#foreground-detail{font-size:10px;color:#9bb3c4;line-height:1.5;margin:3px 0 7px;overflow-wrap:anywhere}.service-row{display:grid;grid-template-columns:78px auto 1fr;gap:6px;align-items:start;margin:5px 0;font-size:10px}.service-label{color:#bed2de}.service-state{white-space:nowrap;padding:1px 5px;border-radius:4px;background:#283b4a;color:#b7c8d6}.service-detail{min-width:0;color:#91aabd;overflow-wrap:anywhere}.service-row[data-state=ready] .service-state,.service-row[data-state=running] .service-state{color:#b6f0d7;background:#235045}.service-row[data-state=waiting] .service-state,.service-row[data-state=blocked] .service-state{color:#f0d29d;background:#4d4030}#concurrency-note{border-top:1px solid #2d4655;padding-top:6px;margin-top:7px;font-size:10px;color:#8faeba;line-height:1.5}#parallel-rules{margin:6px 0 10px}#parallel-rules table{font-size:10px}#parallel-rules td:first-child{width:48%}#parallel-rules td:last-child{text-align:left;color:#a8d3c1}.background-toggles{margin:7px 0;font-size:11px}.background-toggles label{align-items:flex-start}.queue-note{padding:6px 3px;font-size:10px;line-height:1.5;color:#94aebb}
+            .execution-card{padding:10px;border:1px solid #344b5c;border-radius:11px;background:#142431;margin:10px 0}.execution-top{display:flex;justify-content:space-between;gap:8px;font-size:10px;color:#9ab8c7;margin-bottom:5px}#ui-owner{max-width:68%;text-align:right;overflow-wrap:anywhere;color:#9bd9c4}#foreground-task{font-size:12px;color:#e1f2f3}#foreground-detail{font-size:10px;color:#9bb3c4;line-height:1.5;margin:3px 0 7px;overflow-wrap:anywhere}.service-row{display:grid;grid-template-columns:78px auto 1fr;gap:6px;align-items:start;margin:5px 0;font-size:10px}.service-label{color:#bed2de}.service-state{white-space:nowrap;padding:1px 5px;border-radius:4px;background:#283b4a;color:#b7c8d6}.service-detail{min-width:0;color:#91aabd;overflow-wrap:anywhere}.service-row[data-state=ready] .service-state,.service-row[data-state=running] .service-state{color:#b6f0d7;background:#235045}.service-row[data-state=waiting] .service-state,.service-row[data-state=blocked] .service-state{color:#f0d29d;background:#4d4030}#concurrency-note{border-top:1px solid #2d4655;padding-top:6px;margin-top:7px;font-size:10px;color:#8faeba;line-height:1.5}#parallel-rules{margin:6px 0 10px}#parallel-rules table{font-size:10px}#parallel-rules td:first-child{width:48%}#parallel-rules td:last-child{text-align:left;color:#a8d3c1}.background-toggles{margin:7px 0;font-size:11px}.background-toggles label{align-items:flex-start}
             @media(max-width:450px){.panel{width:360px;border-radius:14px}.content{padding:10px}header{padding:10px 12px}.metric b{font-size:16px}.list{max-height:155px}.modes button{padding:7px}.field>span,.field>label{flex-basis:74px}}
             @media(prefers-reduced-motion:reduce){*{transition:none!important}}
-            .categories{display:flex;gap:4px;padding:3px;background:#0b1423;border-radius:9px;margin-bottom:7px}.categories button{flex:1;border:0;background:transparent;color:#93abc7;font-size:11px;padding:6px 3px}.categories .on{color:#b5f5de;background:#23403e}.modes{grid-template-columns:repeat(2,1fr)}.modes button span{display:inline-block;width:22px;margin:0 4px 0 0;vertical-align:middle}.queue-tools{display:flex;gap:6px;margin:8px 0}.queue-tools button{flex:1;font-size:11px;padding:7px}.queue-tools #queue-count{display:inline-block;min-width:17px;background:#102138;border-radius:10px;margin-left:3px}.job{padding:9px 7px;border-bottom:1px solid #2d4058}.job.active{border-left:2px solid #79dcba;background:#1c303a}.job-head{display:flex;justify-content:space-between;gap:8px;font-size:12px}.job-state{color:#8be5c3;font-size:10px;white-space:nowrap}.job-actions{display:flex;gap:4px;margin-top:6px}.job-actions button{font-size:10px;padding:3px 6px}.job .sub{white-space:normal}#budget-summary{float:right;color:#91d2ba;font-size:10px}.wait-time{color:#e6be7a;font-variant-numeric:tabular-nums}.flow-list{display:grid;gap:6px;padding:6px 0}.flow-list .step{padding:8px;background:#1a293c;border-radius:8px;font-size:11px;color:#b8cce3}.flow-list .step b{color:#87e3c3;margin-right:7px}
-            .commandbar{padding:9px 12px;background:#172337;border-top:1px solid #34465c}.commandbar .row{margin:0}.commandbar .queue-tools{margin:6px 0 0}.job-head>span:first-child{min-width:0;overflow-wrap:anywhere}@media(max-width:450px){.commandbar{padding:8px 10px}}
+            .categories{display:flex;gap:4px;padding:3px;background:#0b1423;border-radius:9px;margin-bottom:7px}.categories button{flex:1;border:0;background:transparent;color:#93abc7;font-size:11px;padding:6px 3px}.categories .on{color:#b5f5de;background:#23403e}.modes{grid-template-columns:repeat(2,1fr)}.modes button span{display:inline-block;width:22px;margin:0 4px 0 0;vertical-align:middle}.queue-tools{display:flex;gap:6px;margin:8px 0}.queue-tools button{flex:1;font-size:11px;padding:7px}.queue-tools #queue-count{display:inline-block;min-width:17px;background:#102138;border-radius:10px;margin-left:3px}#budget-summary{float:right;color:#91d2ba;font-size:10px}.wait-time{color:#e6be7a;font-variant-numeric:tabular-nums}.flow-list{display:grid;gap:6px;padding:6px 0}.flow-list .step{padding:8px;background:#1a293c;border-radius:8px;font-size:11px;color:#b8cce3}.flow-list .step b{color:#87e3c3;margin-right:7px}
+            .commandbar{padding:9px 12px;background:#172337;border-top:1px solid #34465c}.commandbar .row{margin:0}.commandbar .queue-tools{margin:6px 0 0}@media(max-width:450px){.commandbar{padding:8px 10px}}
 
     .purchase-card {
         margin:10px 0; padding:10px 12px; background:#162739;
@@ -9780,7 +9815,7 @@
     header { padding:10px 13px; background:#1b2c3a }
     header b { font-size:15px }
     .logo { padding:2px 8px; border-radius:7px }
-    .workspace-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)) minmax(0,1.45fr) minmax(0,1fr); border-bottom:1px solid #324858 }
+    .workspace-nav { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.45fr) repeat(3,minmax(0,1fr)) minmax(0,1.45fr) minmax(0,1fr); border-bottom:1px solid #324858 }
     .workspace-nav button {
         min-height:42px; padding:4px 2px; white-space:nowrap; border:0; border-radius:0; background:transparent;
         color:#acbecb; font-weight:600;
@@ -9793,6 +9828,29 @@
     .lookup-page #support-info, .lookup-page #season-calendar { display:none }
     .commandbar .lookup-task, .lookup-page .commandbar:not(.has-task),
     .lookup-page .commandbar .queue-tools, .lookup-page .commandbar #start { display:none }
+    .panel:not(.queue-page) #start-queue,
+    .queue-page .commandbar .queue-tools, .queue-page #start,
+    .queue-page .content > .status, .queue-page .metrics, .queue-page #prepare-info,
+    .queue-page #support-info, .queue-page #season-calendar, .queue-page #spirit-conditions { display:none }
+    .queue-page .content { padding-block:12px }
+    .queue-heading { display:flex; align-items:center; justify-content:space-between; gap:10px; margin:0 0 10px }
+    .queue-heading h2 { font-size:16px; margin:0 0 3px; color:#edf7f6 }
+    .queue-heading p, .queue-notice, .queue-job-detail { margin:0; color:#b1c7d9; font-size:12px; overflow-wrap:anywhere }
+    .queue-heading button { font-size:12px; min-height:36px; flex:none }
+    .queue-notice:not([hidden]) { padding:8px 10px; margin:0 0 9px; border:1px solid #375669; border-radius:8px; background:#192d3b }
+    .queue-list { display:grid; gap:7px; list-style:none; margin:0; padding:0 }
+    .queue-job, .queue-empty { border:1px solid #33495d; border-radius:10px; padding:9px; background:#152232 }
+    .queue-empty { border-style:dashed; padding:16px 12px; color:#a9bfd1; font-size:12px }
+    .queue-job[aria-current=step] { border-color:#6db79f; background:#1a3338 }
+    .queue-job-head { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:start; gap:7px }
+    .queue-job-head strong { font-size:13px; line-height:1.35; overflow-wrap:anywhere }
+    .queue-position, .queue-state { padding:2px 5px; border-radius:5px; background:#24384d; font-size:10px; font-variant-numeric:tabular-nums; white-space:nowrap }
+    .queue-state[data-state=running], .queue-state[data-state=done] { color:#a2e5d0; background:#21443e }
+    .queue-state[data-state=paused], .queue-state[data-state=failed] { color:#f2cf93; background:#473924 }
+    .queue-job-detail { margin-top:6px }
+    .queue-job-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px }
+    .queue-job-actions button { min-height:32px; padding:5px 7px; font-size:11px }
+    .queue-job-actions button[data-job-action=remove] { color:#f1b3bc }
     .lookup-page .commandbar .lookup-task { display:block; flex:1; color:#b4cbd4; font-size:12px; overflow-wrap:anywhere }
     .lookup-page .commandbar .row button { flex:0 1 auto; min-height:36px }
     .dex-searchbar { display:flex; align-items:center; gap:6px; margin:2px 0 12px }
@@ -9939,6 +9997,8 @@
         .panel { max-height:calc(100dvh - 24px) }
         .content { padding:8px 10px }
         .workspace-nav button { min-height:32px }
+        .workspace-nav button { font-size:11px }
+        .queue-job-actions button { min-height:34px }
         .commandbar { padding:6px 10px }
     }
     @media(max-width:360px) {
@@ -10575,6 +10635,63 @@
             const events=query('#nursery-events');events.replaceChildren();for(const event of eventsRows){const item=document.createElement('div');item.className='nursery-event';item.textContent=new Date(event.at).toLocaleTimeString('zh-CN',{hour12:false})+' '+event.text;events.appendChild(item);}return snap;
         }};
     }
+    function mountQueuePanel(root,engine){
+        const list=root.querySelector('#queue-list'),summary=root.querySelector('#queue-summary');
+        const notice=root.querySelector('#queue-notice'),add=root.querySelector('#queue-add');
+        let previous;
+        return function renderQueue(s,locked,pending,editingJob,error){
+            const ready=!!s?.adv&&!!engine.account;
+            const canEdit=ready&&!locked&&!(engine.checkpoint?.wanted&&engine.settings.resumeOnReload);
+            const active=engine.queueRunning&&(engine.running||engine.suspended)?engine.queue[engine.queueIndex]:null;
+            const next=engine.queueRunning&&active?pending.find(job=>job.id!==active.id):pending[0];
+            const title=ready?(engine.queue.length?`${pending.length} 项待处理 · ${engine.queue.length-pending.length} 项已结束`:'队列为空'):'进入游戏后管理任务队列';
+            if(summary.textContent!==title)summary.textContent=title;
+            add.disabled=!canEdit;
+            add.textContent=editingJob?'继续编辑':'配置新任务';
+            const nextLabel=next?`下一项 · ${next.title}`:'';
+            const message=error||(editingJob?'保存或取消当前编辑后，可继续运行队列。':
+                locked?[engine.status,nextLabel].filter(Boolean).join(' · '):nextLabel);
+            notice.hidden=!message;
+            if(notice.textContent!==message)notice.textContent=message;
+            const jobs=ready?engine.queue:[];
+            const signature=JSON.stringify([canEdit,active?.id,!!engine.manual,!!engine.suspended,editingJob,
+                jobs.map(job=>[job.id,job.title,job.status,job.result,!!job.progress,job.settings.mode,job.settings.moneyTarget])]);
+            if(previous===signature)return;
+            previous=signature;
+            const fragment=document.createDocumentFragment();
+            for(const [index,job] of jobs.entries()){
+                const card=document.createElement('li');card.className='queue-job';card.dataset.queueJob=job.id;
+                const isActive=job===active;
+                if(isActive)card.setAttribute('aria-current','step');
+                const head=document.createElement('div');head.className='queue-job-head';
+                const order=document.createElement('span');order.className='queue-position';order.textContent=String(index+1);order.setAttribute('aria-hidden','true');
+                const label=document.createElement('strong');label.textContent=job.title;
+                const chip=document.createElement('span');chip.className='queue-state';
+                chip.dataset.state=isActive?engine.suspended||engine.manual?'paused':'running':job.status==='running'?'paused':job.status;
+                chip.textContent={pending:'待执行',running:'运行中',paused:job.progress||isActive?'可续跑':'已暂停',done:'已完成',skipped:'已跳过',failed:'待处理'}[chip.dataset.state];
+                head.append(order,label,chip);card.append(head);
+                const detail=job.result||((job.settings.mode==='money'&&!job.settings.moneyTarget&&queueJobPending(job))?'未设置金币目标，后续任务会等待。':'');
+                if(detail){const text=document.createElement('p');text.className='queue-job-detail';text.textContent=detail;card.append(text);}
+                const actions=document.createElement('div');actions.className='queue-job-actions';
+                const buttons=[['edit','编辑'],['up','上移'],['down','下移']];
+                if(queueJobPending(job))buttons.push(['skip','跳过']);
+                if(job.progress||job.status!=='pending')buttons.push(['retry','重置进度']);
+                buttons.push(['remove','移除']);
+                for(const [action,text] of buttons){
+                    const button=document.createElement('button');button.dataset.job=job.id;button.dataset.jobAction=action;
+                    button.textContent=text;button.setAttribute('aria-label',`${text}：${job.title}`);
+                    if(action==='retry')button.title='清除该项助手进度和任务内用量，从头运行';
+                    button.disabled=!canEdit||!!editingJob||action==='up'&&index===0||action==='down'&&index===jobs.length-1;
+                    actions.append(button);
+                }
+                card.append(actions);fragment.append(card);
+            }
+            if(ready&&!jobs.length){
+                const empty=document.createElement('li');empty.className='queue-empty';empty.textContent='从「任务」配置目标，再点「加入队列」。按列表顺序执行。';fragment.append(empty);
+            }
+            list.replaceChildren(fragment);
+        };
+    }
     function bindManualInput(engine,host,paint,showHelper){
         const pointers=new Map(), keys=new Map();
         const modifierNames=new Set(['Alt','AltGraph','Control','Meta','Shift']);
@@ -10753,6 +10870,7 @@
             <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
             <nav class="workspace-nav" aria-label="助手面板">
                 <button data-workspace="tasks" aria-controls="pane-tasks">任务</button>
+                <button data-workspace="queue" aria-controls="pane-queue">任务队列</button>
                 <button data-workspace="dex" aria-controls="pane-dex">图鉴</button>
                 <button data-workspace="weather" aria-controls="pane-weather">天气</button>
                 <button data-workspace="eggs" aria-controls="pane-eggs">孵蛋</button>
@@ -10764,7 +10882,7 @@
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric" title="合计当前钱包及跨地区暂存的钱包余额"><b id="money-value">0</b><span id="money-label">本次金币净增</span></div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <details id="season-calendar" class="season-calendar"><summary><span>游戏季节</span><strong></strong><span class="season-remaining"></span></summary><div class="season-period"></div><div class="season-next"></div></details>
             <div class="target hidden" id="prepare-info"><b id="prepare-title"></b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-buddy"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
-            <section id="pane-tasks" aria-label="任务"><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
+            <section id="pane-tasks" aria-label="任务"><div id="queue-edit-note" class="queue-notice" hidden></div><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['daily','☀','通关日常','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
             <section class="target hidden" id="daily-routine" aria-label="通关日常设置">
@@ -10817,11 +10935,16 @@
                 <div class="hint" id="target-hint"></div><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
             </section>
+            <section id="pane-queue" aria-label="任务队列" hidden>
+                <div class="queue-heading"><div><h2>任务队列</h2><p id="queue-summary" aria-live="polite"></p></div><button id="queue-add">配置新任务</button></div>
+                <p class="queue-notice" id="queue-notice" role="status" hidden></p>
+                <ol id="queue-list" class="queue-list"></ol>
+            </section>
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
-            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="queue" aria-controls="view">任务队列</button><button data-tab="logs" aria-controls="view">日志</button></div>
+            <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="logs" aria-controls="view">日志</button></div>
             <div id="yield-metric" role="group" aria-label="地图收益显示方式" hidden>
                 <button type="button" data-yield-view="task" aria-controls="view">跟随任务</button>
                 <button type="button" data-yield-view="money" aria-controls="view">金币</button>
@@ -10868,8 +10991,8 @@
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
             <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">培养规划考虑可达免费进化形态；实际进化并确认存档后再按新形态配队。道具与分支进化留待手动。</div>
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
-            <div class="row"><button id="start" class="primary">开始当前任务</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
-            <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="start-queue" title="按顺序执行一个主任务；后台计时独立">串行队列 <span id="queue-count">0</span></button></div>
+            <div class="row"><button id="start" class="primary">开始当前任务</button><button id="start-queue" class="primary">运行任务队列</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
+            <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="open-queue" aria-controls="pane-queue">任务队列 <span id="queue-count">0</span></button><button id="cancel-job" class="hidden">取消编辑</button></div>
             <details><summary>运行设置与自动停止</summary>
                 <label class="setting">游戏速度<select data-setting="speed"><option value="1">×1</option><option value="4">×3（最高档）</option></select></label>
                 <label class="setting">单图最短采样（分钟）<input data-setting="sampleMinutes" type="number" min="1" max="30"></label>
@@ -10897,7 +11020,7 @@
             </details>
             <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
-        const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null;
+        const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const roamingStock=[...root.querySelectorAll('[data-roam-ball-stock]')];
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
         const lookupTask=document.createElement('span');lookupTask.className='lookup-task';commandbar.querySelector('.row').prepend(lookupTask);
@@ -10940,9 +11063,11 @@
             }
             ui.workspace = active.dataset.workspace;
             query('.panel').classList.toggle('lookup-page', ['dex','weather','eggs'].includes(ui.workspace));
+            query('.panel').classList.toggle('queue-page', ui.workspace==='queue');
             if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
         }
         for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
+        query('#open-queue').onclick=()=>selectWorkspace('queue');
         query('#purchase-edit-budget').onclick = () => {
             query('#budget-details').open = true;
             selectWorkspace('settings');
@@ -10951,6 +11076,7 @@
             summary.scrollIntoView({block:'nearest'});
         };
         selectWorkspace(ui.workspace, false);
+        const drawQueue=mountQueuePanel(root,engine);
         const nurseryPanel=mountNurseryPanel(root,engine,{preferences:ui,save:saveUI,onChange:()=>render()});
         query('#nursery-plan').onclick=()=>{
             if(engine.running||engine.suspended||!changeSetting('mode','breed'))return;
@@ -11306,7 +11432,7 @@
             lastPaint=performance.now();
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
             let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
-                engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; memberKeys.clear(); viewSignature = null;
+                engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
@@ -11401,7 +11527,7 @@
                     if(el.textContent!==value)el.textContent=value;
                 }
             }
-            query('#start').disabled=locked||(dailyCard&&!canDaily);
+            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily);
             query('#daily-edit-goal').hidden=locked||baseMode==='legend'||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
             const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
@@ -11413,11 +11539,20 @@
             if(engine.daily&&!wait&&!nativePaused)query('#run-state').textContent='通关日常 · '+(dailyPhase||(s?.adv?.zone?'传说战进行中':engine.daily.checking?'检查待办':'挂机 · '+activeLabel));
             const leaving=s?.adv&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&engine.activityToLeave(s,engine.settings);
             query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
-            query('#queue-count').textContent=engine.queue.filter(queueJobPending).length;
-            query('#add-job').disabled=locked||dailyCard;query('#start-queue').disabled=locked||!engine.queue.some(queueJobPending);
+            const pending=engine.queue.filter(queueJobPending),nextJob=pending[0];
+            query('#queue-count').textContent=pending.length;
+            query('#add-job').disabled=locked||dailyCard||!s?.adv;
+            query('#start-queue').disabled=locked||!!editingJob||!nextJob||!s?.adv;
+            query('#start-queue').classList.toggle('hidden',locked);
+            query('#start-queue').textContent=engine.running&&engine.queueRunning?'任务队列运行中':nextJob?.progress?'继续任务队列':'运行任务队列';
+            query('#add-job').textContent=editingJob?'保存并返回队列':'＋ 加入队列';
+            query('#cancel-job').classList.toggle('hidden',!editingJob);
+            const editNote=query('#queue-edit-note');
+            editNote.hidden=!editingJob;
+            if(editingJob)editNote.textContent=queueError||`正在编辑队列中的「${engine.queue.find(job=>job.id===editingJob)?.title||'任务'}」`;
             renderPurchases(s);
             query('#reset').disabled = locked; query('#restore').disabled = locked || !engine.oldLoops;
-            query('#import-profile').disabled=locked||!engine.account;
+            query('#import-profile').disabled=locked||!!editingJob||!engine.account;
             if(locked!==lastLockState){
                 editableControls.forEach(input=>input.disabled=locked);
                 query('#hunt-filters').disabled=locked;
@@ -11426,6 +11561,7 @@
             const lookup = ['dex','weather','eggs'].includes(ui.workspace);
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
             metricGroup.hidden = !s?.adv || tab!=='maps';
+            if(ui.workspace==='queue'){drawQueue(s,locked,pending,editingJob,queueError);return;}
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;query('#weather-panel').hidden=true;
                 const view=query('#view');view.hidden=false;viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';return;
@@ -11577,8 +11713,7 @@
             }
             let rows,signature=null,leagueNotes=[];
             if(FLOW_MODES.has(mode)||['legend','roam','shiny','item'].includes(mode))engine.releaseRankingView();
-            if(tab==='queue')signature=JSON.stringify([tab,engine.running,!!engine.suspended,!!engine.manual,engine.queueRunning,engine.queueIndex,engine.queue.map(job=>[job.id,job.title,job.status,job.result])]);
-            else if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
+            if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
             else if(FLOW_MODES.has(mode))signature='flow:'+mode;
             else if(mode==='shiny')signature=JSON.stringify([mode,shinyRoutes.map(row=>[row.key,row.name,row.expected])]);
             else if(!['legend','roam'].includes(mode)){
@@ -11645,16 +11780,6 @@
                     }
                     view.appendChild(table); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '当前范围没有可规划地图，请检查解锁、来源条件或目标。'; view.appendChild(empty); }
                 }
-            } else if(tab==='queue'){
-                const note=document.createElement('div');note.className='queue-note';note.textContent='主任务按顺序执行；已配置的寄养、孵蛋和地下计时可并行，后台领取不占队列项。';view.appendChild(note);
-                for(const [index,job]of engine.queue.entries()){
-                    const active=engine.running&&engine.queueRunning&&index===engine.queueIndex;
-                    const el=document.createElement('div');el.className='job'+(active?' active':'');
-                    const head=document.createElement('div');head.className='job-head';const title=document.createElement('span');title.textContent=`${index+1}. ${job.title}`;const state=document.createElement('span');state.className='job-state';state.textContent=({pending:'等待',running:active?engine.manual?'手动暂停':'运行中':'已暂停',done:'已完成',skipped:'已跳过',failed:'需处理'})[job.status];head.append(title,state);el.appendChild(head);
-                    if(job.result){const result=document.createElement('div');result.className='sub';result.textContent=job.result;el.appendChild(result);}
-                    const actions=document.createElement('div');actions.className='job-actions';for(const[action,label]of [['up','↑'],['down','↓'],['edit','编辑'],['retry','重置'],['remove','移除']]){const button=document.createElement('button');button.dataset.job=job.id;button.dataset.jobAction=action;button.textContent=label;button.disabled=engine.running||!!engine.suspended;actions.appendChild(button);}el.appendChild(actions);view.appendChild(el);
-                }
-                if(!engine.queue.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='设置一个任务后点击“加入队列”。任务按顺序执行。精英联盟落败时跳过，其他任务异常时保留进度并暂停；持续刷钱项需设置目标金币，后续任务才能开始。';view.appendChild(empty);}
             } else {
                 for (const item of engine.logs) { const el = document.createElement('div'); el.className = 'log'; const time = document.createElement('time'); time.textContent = item.time; el.append(time,item.text); view.appendChild(el); }
                 if (!engine.logs.length) view.append('开始运行后将在这里记录切图、收益与停止原因。');
@@ -11677,7 +11802,7 @@
             if(key==='legendId')patch.legendIds=[];
             engine.settings=normalizeSettings({...previous,...patch});
             try {
-                if(engine.account&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
+                if(engine.account&&!editingJob&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
                 if (key === 'mode') { dailySelected=false; engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
             } catch(error) {
                 engine.settings=previous;
@@ -11752,7 +11877,7 @@
             const button=event.target.closest('button');if(!button)return;
             if(button.dataset.category)showCategory(button.dataset.category);
             if(button.dataset.mode==='daily'&&!engine.running&&!engine.suspended){
-                dailySelected=true;editingJob=null;query('#add-job').textContent='＋ 加入队列';
+                finishQueueEdit();dailySelected=true;
                 engine.status='已选择通关日常';engine.action='';syncSettings();render();place();
             }else if(button.dataset.mode)changeSetting('mode',button.dataset.mode);
             if(button.dataset.tab){selectActivityTab(button.dataset.tab);render();}
@@ -11763,14 +11888,7 @@
             if(button.dataset.lookup){
                 dexPanel.search('#'+button.dataset.lookup, () => selectWorkspace('dex'));
             }
-            if(button.dataset.jobAction&&!engine.running&&!engine.suspended){const i=engine.queue.findIndex(job=>job.id===button.dataset.job);if(i<0)return;const job=engine.queue[i],action=button.dataset.jobAction;
-                if(action==='remove'){engine.queue.splice(i,1);if(editingJob===job.id){editingJob=null;query('#add-job').textContent='＋ 加入队列';}}
-                if(action==='retry'){job.status='pending';job.result='';delete job.progress;}
-                if(action==='up'&&i>0)[engine.queue[i-1],engine.queue[i]]=[job,engine.queue[i-1]];
-                if(action==='down'&&i<engine.queue.length-1)[engine.queue[i+1],engine.queue[i]]=[job,engine.queue[i+1]];
-                if(action==='edit'){dailySelected=false;resetBudgetDrafts();selectWorkspace('tasks');editingJob=job.id;engine.settings=engine.taskSettings(job.settings);engine.status='正在编辑队列项；调整目标后点击“更新任务”';query('#add-job').textContent='保存到队列项';itemOptions();syncSettings();}
-                engine.persist(false);render();
-            }
+            if(button.dataset.jobAction)manageQueueJob(button.dataset.job,button.dataset.jobAction);
         });
         query('#item-search').addEventListener('input',itemOptions);
         function beginDrag(event) {
@@ -11799,10 +11917,69 @@
         document.addEventListener('visibilitychange',()=>{if(document.hidden){commitBudgetDrafts();engine.releaseRankingView();}else{render();place();}});
         query('#fold').onclick=()=>fold(true);
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
+        function finishQueueEdit(){
+            if(!editingJob)return;
+            engine.settings=engine.taskSettings(engine.queueDraftBase);
+            engine.queueDraftBase=null;editingJob=null;queueError='';
+            resetBudgetDrafts();itemOptions();syncSettings();
+        }
+        function saveQueue(jobs){
+            try{engine.updateQueue(jobs);queueError='';return true;}
+            catch(error){queueError='任务队列未保存 · '+error.message;engine.status=queueError;render();return false;}
+        }
+        function focusQueueJob(id,action='edit'){
+            const card=[...root.querySelectorAll('[data-queue-job]')].find(el=>el.dataset.queueJob===id);
+            (card?.querySelector(`[data-job-action="${action}"]:not(:disabled)`)||card?.querySelector('[data-job-action="edit"]:not(:disabled)')||query('#queue-add')).focus({preventScroll:true});
+            card?.scrollIntoView({block:'nearest'});
+        }
+        function manageQueueJob(id,action){
+            if(engine.running||engine.suspended||editingJob)return;
+            const jobs=engine.queue.slice(),i=jobs.findIndex(job=>job.id===id),job=jobs[i];
+            if(!job)return;
+            queueError='';
+            if(action==='edit'){
+                dailySelected=false;resetBudgetDrafts();
+                engine.queueDraftBase=engine.settings;editingJob=id;
+                engine.settings=engine.taskSettings(job.settings);itemOptions();syncSettings();selectWorkspace('tasks');return;
+            }
+            if(action==='up'||action==='down'){
+                const next=i+(action==='up'?-1:1);
+                if(!jobs[next])return;
+                [jobs[i],jobs[next]]=[jobs[next],job];
+            }else if(action==='skip')jobs[i]={...job,status:'skipped',result:'已手动跳过'};
+            else if(action==='retry')jobs[i]={...job,status:'pending',result:'',progress:undefined};
+            else if(action==='remove')jobs.splice(i,1);
+            else return;
+            if(saveQueue(jobs)){render();focusQueueJob(action==='remove'?jobs[Math.min(i,jobs.length-1)]?.id:id,action);}
+        }
         function jobTitle(cfg){const target={legend:legendSelectionLabel(cfg),roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
-        function goalIdentity(cfg){return JSON.stringify(['mode','legendId','legendIds','legendTier','roamId','itemId','trainUid',...(cfg.mode==='train'?['trainUids','trainLevel','trainRank','trainGems']:[]),'shinyId','breedId','eliteRegion','worldCapture','resourceItem','resourceAction','useUid','progressUntil','region',...(['dex','shiny'].includes(cfg.mode)?['Species','Weather','Regions'].map(suffix=>cfg.mode+suffix):[])].map(key=>cfg[key]));}
-        query('#add-job').onclick=()=>{if(engine.running)return;if(engine.queue.length>=50&&!editingJob){engine.status='队列最多保存 50 项';render();return;}const current=engine.queue.find(job=>job.id===editingJob),job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(engine.settings),settings:normalizeSettings(engine.settings),status:'pending',result:''};if(current){if(goalIdentity(current.settings)!==goalIdentity(job.settings)&&current.progress){current.progress={budget:current.progress.budget};}Object.assign(current,job);}else engine.queue.push(job);editingJob=null;query('#add-job').textContent='＋ 加入队列';engine.persist(false);selectActivityTab('queue');engine.status='任务已保存到队列';selectWorkspace('activity');};
-        query('#start-queue').onclick=()=>{dailySelected=false;engine.startQueue();syncSettings();render();};
+        function goalIdentity(cfg){
+            const keys={
+                dex:['dexSpecies','dexWeather','dexRegions'],shiny:['shinyId','shinySpecies','shinyWeather','shinyRegions'],
+                legend:['legendId','legendIds','legendTier'],roam:['roamId'],item:['itemId'],train:['trainUid','trainUids','trainLevel','trainRank','trainGems'],
+                breed:['breedId','breedShiny'],elite:['eliteRegion','eliteTier'],world:['worldCapture'],
+                resource:['resourceItem','resourceAction','useUid'],progress:['progressUntil'],
+            };
+            return JSON.stringify([cfg.mode,cfg.region,...(keys[cfg.mode]||[]).map(key=>cfg[key])]);
+        }
+        query('#queue-add').onclick=()=>{queueError='';dailySelected=false;selectWorkspace('tasks');};
+        query('#cancel-job').onclick=()=>{const id=editingJob;finishQueueEdit();selectWorkspace('queue');focusQueueJob(id);};
+        query('#add-job').onclick=()=>{
+            if(engine.running||engine.suspended)return;
+            const jobs=engine.queue.slice(),i=jobs.findIndex(job=>job.id===editingJob),current=jobs[i];
+            if(jobs.length>=50&&!current){engine.status='任务队列最多保存 50 项';render();return;}
+            const settings=normalizeSettings(engine.settings);
+            const job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(settings),settings,status:'pending',result:''};
+            if(current?.progress){
+                const compatible=goalIdentity(current.settings)===goalIdentity(settings);
+                job.progress=compatible?current.progress:{budget:current.progress.budget};
+                if(compatible){job.status='paused';job.result=current.result;}
+            }
+            if(current)jobs[i]=job;else jobs.push(job);
+            if(!saveQueue(jobs))return;
+            finishQueueEdit();engine.status='任务已保存到队列';selectWorkspace('queue');focusQueueJob(job.id);
+        };
+        query('#start-queue').onclick=()=>{if(editingJob)return;dailySelected=false;engine.startQueue();if(!engine.running)queueError=engine.status;else queueError='';syncSettings();render();};
         query('#start').onclick=()=>{engine.queueRunning=false;engine.start(false,selectedCard()==='daily');syncSettings();render();};
         query('#daily-shiny-raid').onchange=event=>changeSetting('raids',event.target.checked);
         query('#daily-edit-goal').onclick=()=>{
@@ -11820,7 +11997,8 @@
         };
         query('#probability-info').addEventListener('toggle',()=>{if(query('#probability-info').open)render();});
         query('#export-profile').onclick=()=>{
-            const blob=new Blob([JSON.stringify(configurationProfile(engine),null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
+            const profile=configurationProfile({settings:engine.idleTaskSettings(),queue:engine.queue});
+            const blob=new Blob([JSON.stringify(profile,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
             link.href=url;link.download=`pokecatch-settings-${VERSION}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
         };
         query('#import-profile').onclick=()=>query('#profile-file').click();

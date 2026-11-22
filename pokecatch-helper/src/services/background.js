@@ -238,7 +238,7 @@
             underText+='；'+(!collectOn?'后台派遣和领取均已关闭，原生计时保留':under.slots.length?'只领取已派出队伍':'尚无派遣队伍，可开启神奥后自动派遣');
         }
         entries.push({id:'underground',label:'地下探险',state:underState,...underLabel?{stateLabel:underLabel}:{},detail:underText,nextAt:underAt});
-        return{foreground:{label,detail,state:paused?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'主任务队列串行 · 后台计时独立',summary:'主任务串行 · 后台计时可并行 · 页面操作依次执行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
+        return{foreground:{label,detail,state:paused?'paused':e.running?'running':'stopped'},services:entries,uiOwner,queueLabel:'任务队列 · 按顺序执行',summary:'主任务按队列顺序执行 · 后台计时可并行',pendingCount:plan.pendingCount,decision:executionDecision(s,e)};
     }
     function executionDecision(s,e){
         if(!s?.adv)return{route:'进入游戏后显示实际路线',team:'进入游戏后显示配队状态',reason:''};

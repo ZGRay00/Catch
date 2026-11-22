@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "6.2.0",
-  "scriptSha256": "fb3f327eaf40ce3c73ff3879516cf517c60e3714859f7c5a76d9d7b9437f0c1d",
-  "metadataSha256": "b006de06584ef593e8622b0b219a0776efe0aec68734935275f9f45810714cac",
+  "version": "6.3.0",
+  "scriptSha256": "b06bf07a75d9ffd111441b03f711a7c7080edef82df3184cac77bcf9577ab363",
+  "metadataSha256": "bee5b65ee0210325f4a237a6bd7f27468a60436e6f5107c9ab89d97f7f93fa57",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "d445a91eea7d12ec448bed24be4197acf83c5e3655ee426896e39d0c7cbb68d6"
+      "sha256": "1aaac07ca287a4ba00e56d7597cf5206719797bc6b01c445fb28f3526078aea6"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "b4c69ceb862fc88e89026098c355c75aeb29c6695e16510401a6d6644f2a86a3"
+      "sha256": "a542e646f186369132a7673f3b71f94ce495bcaccc6b2ea017ac18c787e73522"
     },
     {
       "file": "userscript.header.txt",
@@ -66,11 +66,11 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "fed7182cf560dfc438477acfdd053942ecd76c47fefefb76b1f532a0c43b0c81"
+      "sha256": "a230b6efdbd82519f2916251e097cbf4835c5ce44ce8e9d4deea7bd71d5b23a0"
     },
     {
       "file": "src/models/farming.js",
-      "sha256": "9a11cb084083245f590bb3611aad68b81a73638d7bf4717a945753a9e888a125"
+      "sha256": "7ad0d4b2f6f1afe79e4f816b97c56b9a9d5f0bdaa788398243530fc06be4c6c1"
     },
     {
       "file": "src/models/nursery-model.js",
@@ -150,7 +150,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "8924c3be1c74743be527bf42b8a115a5b90c1babe95336b7ddad61a7fd943b63"
+      "sha256": "fabe01bb013f019eae019c32d105b925fb25239d7ecd4569b518fcd3e1a70970"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -158,7 +158,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "0b66bbb0e98ea6dc15aa6b1ede681047e01a5dc2ff6e52bc9a9661a3caaa6148"
+      "sha256": "2563499f5acefba8a51eb046b55a1a99350a7ff8d1e8b2147bf19faf400f990b"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -173,12 +173,16 @@
       "sha256": "472ceeea4498907b329f2ae6f3338cbe0b03e3161a1fa03a58d331e39463c569"
     },
     {
+      "file": "src/ui/queue-panel.js",
+      "sha256": "25309568dd495c3e1b3b004f749950d7732190a89cb5fa9f93596da046356b80"
+    },
+    {
       "file": "src/ui/manual-input.js",
       "sha256": "4520d25d9bfe8f5a3556b79a3587385c759c376f108516cf3d6d6616e169dddd"
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "02bd16ee1140f128698ff93f49198c75eae425cd0ef462076afc92d169cbfd8a"
+      "sha256": "4a2b2dd4f90587f90accb4bec6a1d9c130ff496e6b3c5e9cb36f2e702fbebf32"
     }
   ]
 }

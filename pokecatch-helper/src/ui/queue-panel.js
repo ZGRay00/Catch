@@ -1,0 +1,57 @@
+    function mountQueuePanel(root,engine){
+        const list=root.querySelector('#queue-list'),summary=root.querySelector('#queue-summary');
+        const notice=root.querySelector('#queue-notice'),add=root.querySelector('#queue-add');
+        let previous;
+        return function renderQueue(s,locked,pending,editingJob,error){
+            const ready=!!s?.adv&&!!engine.account;
+            const canEdit=ready&&!locked&&!(engine.checkpoint?.wanted&&engine.settings.resumeOnReload);
+            const active=engine.queueRunning&&(engine.running||engine.suspended)?engine.queue[engine.queueIndex]:null;
+            const next=engine.queueRunning&&active?pending.find(job=>job.id!==active.id):pending[0];
+            const title=ready?(engine.queue.length?`${pending.length} 项待处理 · ${engine.queue.length-pending.length} 项已结束`:'队列为空'):'进入游戏后管理任务队列';
+            if(summary.textContent!==title)summary.textContent=title;
+            add.disabled=!canEdit;
+            add.textContent=editingJob?'继续编辑':'配置新任务';
+            const nextLabel=next?`下一项 · ${next.title}`:'';
+            const message=error||(editingJob?'保存或取消当前编辑后，可继续运行队列。':
+                locked?[engine.status,nextLabel].filter(Boolean).join(' · '):nextLabel);
+            notice.hidden=!message;
+            if(notice.textContent!==message)notice.textContent=message;
+            const jobs=ready?engine.queue:[];
+            const signature=JSON.stringify([canEdit,active?.id,!!engine.manual,!!engine.suspended,editingJob,
+                jobs.map(job=>[job.id,job.title,job.status,job.result,!!job.progress,job.settings.mode,job.settings.moneyTarget])]);
+            if(previous===signature)return;
+            previous=signature;
+            const fragment=document.createDocumentFragment();
+            for(const [index,job] of jobs.entries()){
+                const card=document.createElement('li');card.className='queue-job';card.dataset.queueJob=job.id;
+                const isActive=job===active;
+                if(isActive)card.setAttribute('aria-current','step');
+                const head=document.createElement('div');head.className='queue-job-head';
+                const order=document.createElement('span');order.className='queue-position';order.textContent=String(index+1);order.setAttribute('aria-hidden','true');
+                const label=document.createElement('strong');label.textContent=job.title;
+                const chip=document.createElement('span');chip.className='queue-state';
+                chip.dataset.state=isActive?engine.suspended||engine.manual?'paused':'running':job.status==='running'?'paused':job.status;
+                chip.textContent={pending:'待执行',running:'运行中',paused:job.progress||isActive?'可续跑':'已暂停',done:'已完成',skipped:'已跳过',failed:'待处理'}[chip.dataset.state];
+                head.append(order,label,chip);card.append(head);
+                const detail=job.result||((job.settings.mode==='money'&&!job.settings.moneyTarget&&queueJobPending(job))?'未设置金币目标，后续任务会等待。':'');
+                if(detail){const text=document.createElement('p');text.className='queue-job-detail';text.textContent=detail;card.append(text);}
+                const actions=document.createElement('div');actions.className='queue-job-actions';
+                const buttons=[['edit','编辑'],['up','上移'],['down','下移']];
+                if(queueJobPending(job))buttons.push(['skip','跳过']);
+                if(job.progress||job.status!=='pending')buttons.push(['retry','重置进度']);
+                buttons.push(['remove','移除']);
+                for(const [action,text] of buttons){
+                    const button=document.createElement('button');button.dataset.job=job.id;button.dataset.jobAction=action;
+                    button.textContent=text;button.setAttribute('aria-label',`${text}：${job.title}`);
+                    if(action==='retry')button.title='清除该项助手进度和任务内用量，从头运行';
+                    button.disabled=!canEdit||!!editingJob||action==='up'&&index===0||action==='down'&&index===jobs.length-1;
+                    actions.append(button);
+                }
+                card.append(actions);fragment.append(card);
+            }
+            if(ready&&!jobs.length){
+                const empty=document.createElement('li');empty.className='queue-empty';empty.textContent='从「任务」配置目标，再点「加入队列」。按列表顺序执行。';fragment.append(empty);
+            }
+            list.replaceChildren(fragment);
+        };
+    }

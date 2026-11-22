@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.1.8",
-  "scriptSha256": "3d80c7c219ee3249e54696204621c7f40a34e4bc809917ca17c4ec16a367172a",
-  "metadataSha256": "0e2db2b041aebac9a5d5908eb2586484e785fe1e0e4dd8346de78a93621a692b",
+  "version": "6.1.10",
+  "scriptSha256": "d1abc286de3c2cce18b2231e5efd30e7cf3ddfdc9362dfd280135e02e8fe2f5d",
+  "metadataSha256": "90272c57810cea2126881691ba5be690235397b13fea310590ca767c8aa304da",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "0e962fdf15922aef2ecae33398b6afde0043d328a6fc24ab793079d1abbf680a"
+      "sha256": "4dcf1dd50f92c396fbe3fda382808ecc9d11db6c415550302bde895a418360f6"
     },
     {
       "file": "build.manifest.json",
@@ -74,7 +74,7 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "1823076588d56996ace0c2100253ac22fb85ffab3790aa6d9d5bdb5a8669e6dc"
+      "sha256": "8cc77dc992dc699283466a14c560a4b1bb05d05f41c71328f8337ac5b0946cf4"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -154,7 +154,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "820086a9b7c46d92aac84ed5002854df60ea3357024127790a144d76481ecc00"
+      "sha256": "d0731fc915d4fffaa67d6cc6a449c60dd4fe7b0965b1374f320fa73e3901b0ba"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -166,7 +166,7 @@
     },
     {
       "file": "src/ui/nursery-panel.js",
-      "sha256": "0f14aed082087026fbe92b99dec5397a6ee419416b719f83ede46bfd0b3896b8"
+      "sha256": "5732197359b226209f4e742b20e42362f6105dfad9256ed383fed82773fa4e23"
     },
     {
       "file": "src/ui/manual-input.js",
@@ -174,7 +174,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "fc695dd61c959dfee9be5e09776cb2f9d4398036329152bddc16afadd72b03e5"
+      "sha256": "33b4ad4acf7f8e8af71e9f02a77d9379712c8dccd3e330de2cc7fd95ce0cc05b"
     }
   ]
 }

@@ -1,6 +1,6 @@
     function mountNurseryPanel(root,engine,{preferences={},save=()=>{},onChange=()=>{}}={}){
         const box=document.createElement('div');box.id='nursery-info';box.className='nursery-card';
-        box.innerHTML=`<div class="nursery-heading"><h3>孵化器</h3><span id="nursery-summary"></span></div>
+        box.innerHTML=`<div class="nursery-heading"><div class="nursery-title"><h3>孵化器</h3><small id="nursery-rule-notice" role="status" hidden></small></div><span id="nursery-summary"></span></div>
             <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
@@ -61,20 +61,24 @@
         function eggEvidence(row){
             if(row.certainty==='saved')return '存档已记录';
             if(row.certainty==='deterministic')return row.source==='legacy'?'按旧蛋标识确定':'按蛋序号确定';
-            const rate=Number.isFinite(row.rate)?' · '+(row.rateVerified?'机制闪率 ':'旧规则参考闪率 ')+percent(row.rate):'';
+            if(row.reason===NURSERY_UNVERIFIED_REASON)return '';
+            const rate=row.rateVerified&&Number.isFinite(row.rate)?' · 机制闪率 '+percent(row.rate):'';
             return row.reason+rate;
         }
-        function hintCards(container,rows){
-            const wanted=new Map(rows.filter(row=>row.known&&row.shiny&&row.uid!=null).map(row=>[String(row.uid),row]));
-            for(const card of container.querySelectorAll('.pen-egg[data-egg]')){
-                const row=hints.checked&&wanted.get(card.dataset.egg),badge=card.querySelector('[data-pch-nursery-tag]');
-                if(!row){if(card.hasAttribute('data-pch-shiny'))card.removeAttribute('data-pch-shiny');badge?.remove();continue;}
-                if(card.dataset.pchShiny!=='1')card.dataset.pchShiny='1';
-                const tag=badge||document.createElement('span'),title='✦ '+name(row.id);
-                if(tag.textContent!==title)tag.textContent=title;
-                if(!badge){tag.dataset.pchNurseryTag='';card.appendChild(tag);}
+        let nativeHintStyle,nativeHintKey='';
+        function hintCards(rows=[]){
+            const ids=rows.filter(row=>row.known&&row.shiny&&row.uid!=null&&String(row.uid)!=='').map(row=>String(row.uid));
+            const key=ids.length?JSON.stringify(ids):'';
+            if(key===nativeHintKey)return;
+            nativeHintKey=key;
+            if(!nativeHintStyle){
+                nativeHintStyle=document.createElement('style');nativeHintStyle.id='pokecatch-nursery-hints';
+                (document.head||document.documentElement).appendChild(nativeHintStyle);
             }
-            if(!document.getElementById('pokecatch-nursery-hints')){const css=document.createElement('style');css.id='pokecatch-nursery-hints';css.textContent='#pen-eggs [data-pch-shiny="1"]{position:relative;outline:2px solid #ffdc79;outline-offset:2px}#pen-eggs [data-pch-nursery-tag]{position:absolute;top:3px;left:3px;right:3px;padding:1px 3px;border-radius:4px;background:#352a14ef;color:#ffe6a0;font:10px/1.3 system-ui;pointer-events:none;white-space:normal;z-index:1}';(document.head||document.documentElement).appendChild(css);}
+            // Keep the mark outside the game's card markup so native morphing cannot erase it.
+            const cards=ids.map(id=>`#pen-eggs .pen-egg[data-egg=${CSS.escape(id)}]`);
+            nativeHintStyle.textContent=cards.length?`${cards.join(',')}{position:relative;border-color:#e8b94e;outline:1px solid #e8b94e;outline-offset:-2px}
+                ${cards.map(card=>card+'::after').join(',')}{content:"✦ 闪蛋";position:absolute;right:4px;bottom:3px;padding:1px 4px;border-radius:4px;background:#382905;color:#fff1bb;font:600 10px/1.3 system-ui;white-space:nowrap;pointer-events:none;z-index:2}`:'';
         }
         let forecastKey,forecast,scan,scanTimer,eggListKey,historyKey,parentKey,shownComparison;
         function renderParents(s,pool){
@@ -102,8 +106,7 @@
             if(shownComparison===f)return;
             shownComparison=f;grid.replaceChildren();
             if(!f?.active)return;
-            write('#nursery-comparison-note',(f.known?'':'旧规则参考。')+
-                '按实际抽中的亲代分组。喂果才闪的蛋，须在该蛋产出前喂靛莓果。');
+            write('#nursery-comparison-note','按实际抽中的亲代分组。喂果才闪的蛋，须在该蛋产出前喂靛莓果。');
             for(const rule of f.comparisons){
                 const group=label('section','','nursery-scenario');
                 group.dataset.berry=String(rule.berry);
@@ -143,7 +146,7 @@
             },16);
         }
         return{render(s,now=Date.now()){
-            box.classList.toggle('hidden',!s?.adv);if(!s?.adv){cancelScan();return null;}
+            box.classList.toggle('hidden',!s?.adv);if(!s?.adv){cancelScan();hintCards();return null;}
             const detailsVisible=visiblePanel();
             if(!detailsVisible)cancelScan();
             const monitor=engine.nurseryMonitor;
@@ -151,11 +154,14 @@
             const sameAccount=accountId(s)===engine.account;
             if(detailsVisible||monitor.ledger.dirty||monitor.ledger.pending.length||monitor.ledger.credits.length)monitor.observe(s,now,false);
             const ledger=sameAccount&&detailsVisible?monitor.ledger:null;
-            const nativeEggs=document.getElementById('pen-eggs');
-            if(!detailsVisible&&!preferences.folded&&!nativeEggs)return null;
+            const markNative=hints.checked&&Array.isArray(s.pension?.eggs)&&s.pension.eggs.length>0;
+            if(!detailsVisible&&!preferences.folded&&!markNative){hintCards();return null;}
             const options={...nurseryRuntimeOptions(),now,forecast:false},snap=nurserySnapshot(s,options);
-            if(nativeEggs&&!document.hidden)hintCards(nativeEggs,snap.eggRows);
+            hintCards(markNative?snap.eggRows:[]);
             if(!detailsVisible)return snap;
+            const verified=NURSERY_RULES.compatibleBuilds.includes(options.build),notice=query('#nursery-rule-notice');
+            if(notice.hidden!==verified)notice.hidden=verified;
+            write('#nursery-rule-notice',verified?'':'规则待核对 · 预测仅供参考');
             write('#nursery-summary',`占用 ${snap.counts.total}/${snap.capacity}${snap.counts.unknown?' · 待判 '+snap.counts.unknown:''}`);
             query('#nursery-plan').disabled=engine.running||!!engine.suspended||!sameAccount;
             // In older saves the native counter is initialized only when the next egg is laid.
@@ -170,9 +176,7 @@
             snap.forecast=forecast;
             write('#nursery-shiny',snap.counts.unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
-            write('#nursery-prediction-state',!f?'计算中':f.estimated?'旧规则参考':f.active?'当前条件预测':'条件待确认');
-            const indicator=query('#nursery-prediction-state'),certainty=f?.certainty||'working';
-            if(indicator.dataset.certainty!==certainty)indicator.dataset.certainty=certainty;
+            write('#nursery-prediction-state',!f?'计算中':f.active?'当前条件预测':'条件待确认');
             renderComparisons(f);
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');
@@ -186,23 +190,22 @@
                 if(next&&f.known){
                     const effect=next.withoutBerryShiny?'无果也会闪':next.withBerryShiny?'需要靛莓果才会闪':'用靛莓果仍为普通';
                     feed=`下一枚 #${next.k} · ${effect}。`+(next.bx?'已记录待用靛莓果。':next.withBerryShiny&&!next.withoutBerryShiny?'现在可喂百变怪，须在这枚自然蛋产出前生效。':'');
-                }else if(reference)feed='当前游戏程序尚未核对，请勿依据参考序列消耗靛莓果。';
+                }
                 write('#nursery-feed',feed);
-                write('#nursery-next',next?(reference?'旧规则参考 · ':'按当前条件预测 · ')+nextLabel:'下一枚自然蛋暂无法预测 · '+f.reason);
-                write('#nursery-forecast',f.active?(reference?'预计 · '+sequence+' · 旧规则单枚参考闪率 '+percent(f.nextRate):sequence):Number.isFinite(f.nextRate)?
-                    (f.rateVerified?'仅可估计单枚闪率 ':'旧规则单枚参考闪率 ')+percent(f.nextRate)+'（按当前亲本池）':'');
+                write('#nursery-next',next?(reference?'预计 · ':'按当前条件预测 · ')+nextLabel:'下一枚自然蛋暂无法预测 · '+f.reason);
+                write('#nursery-forecast',f.active?(reference?'预计 · '+sequence:sequence):Number.isFinite(f.nextRate)?
+                    '仅可估计单枚闪率 '+percent(f.nextRate)+'（按当前亲本池）':'');
                 const windowLabel=row=>row?`第 ${row.position} 枚 · ${name(row.eggId)}（#${row.k}）`:`前 ${f.scanned} 枚未找到`;
                 query('#nursery-berry-plan').hidden=!f.active;
-                const windowPrefix=reference?'参考 · ':'';
-                write('#nursery-natural',f.active?windowPrefix+windowLabel(f.firstWithoutBerry):'');
-                write('#nursery-berry-only',f.active?windowPrefix+windowLabel(f.firstBerryOnly)+(f.known&&f.firstBerryOnly?
+                write('#nursery-natural',f.active?windowLabel(f.firstWithoutBerry):'');
+                write('#nursery-berry-only',f.active?windowLabel(f.firstBerryOnly)+(f.known&&f.firstBerryOnly?
                     (f.firstBerryOnly.position===1?(f.pendingBerry?' · 已为下一枚备果':' · 就是下一枚'):
                         ` · 等下一枚编号变成 #${f.firstBerryOnly.k} 再喂`):''):'');
                 const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
                 const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];
-                write('#nursery-scenarios',f.active?windowPrefix+`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}仅下一枚用果时，首枚闪蛋为${position(scenarios.berryNext)}。`:'');
+                write('#nursery-scenarios',f.active?`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}仅下一枚用果时，首枚闪蛋为${position(scenarios.berryNext)}。`:'');
                 const buildBasis=options.launcherBuild?`启动器 ${options.launcherBuild} 沿用已核对的游戏程序 ${options.bundle}。`:
-                    f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:`当前构建 ${options.build} 尚未核对，参考预测沿用 ${NURSERY_RULES.build} 的规则。`;
+                    f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:'';
                 const counterBasis=f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'';
                 write('#nursery-basis',buildBasis+counterBasis+' 已产蛋优先读存档标记。');
             }
@@ -231,8 +234,8 @@
                     const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.known&&row.shiny);
                     const title=document.createElement('div'),basis=document.createElement('div'),time=document.createElement('span');
                     title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+(row.known?row.shiny?'✦ 闪光':'普通':'待判定')+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
-                    basis.className='hint';basis.textContent=eggEvidence(row)+' · '+(row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果');
-                    if(row.parentId)basis.textContent+=' · 亲本 '+name(row.parentId);
+                    const evidence=eggEvidence(row),berry=row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果';
+                    basis.className='hint';basis.textContent=[evidence,berry,row.parentId?'亲本 '+name(row.parentId):''].filter(Boolean).join(' · ');
                     title.appendChild(basis);
                     if(!row.ready&&Number.isFinite(row.laidAt)&&row.hatchAt>row.laidAt){
                         const bar=document.createElement('progress');bar.max=row.hatchAt-row.laidAt;

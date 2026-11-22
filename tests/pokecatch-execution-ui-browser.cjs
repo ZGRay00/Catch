@@ -47,14 +47,18 @@ async function main(){
                 const before=[stock.textContent,check.checked,!!stock.getClientRects().length];check.click();
                 const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+s.trainer.id)).settings.roamAllowMasterBall;
                 pick('roamId','380');
-                const destination=stock.textContent;pick('roamId','245');s.link.stash.items={};commitExecution();
-                return [before,saved,destination,stock.textContent,r.querySelector('#roam-ball-roam').textContent.includes('异色团体战的保底单独计数')];
+                const destination=!!stock.getClientRects().length;pick('roamId','245');r.querySelector('[data-mode="legend"]').click();
+                const multiBag=r.querySelector('[data-roam-ball-stock="legend"]').textContent;
+                r.querySelector('[data-mode="roam"]').click();s.link.stash.items={};commitExecution();
+                const removed=!!stock.getClientRects().length;r.querySelector('[data-mode="legend"]').click();
+                const legend=!!r.querySelector('[data-roam-ball-stock="legend"]').getClientRects().length;
+                return [before,saved,destination,multiBag,removed,legend];
             }finally{
                 s.adv.chapter=0;delete s.link;e.settings=initial;e.persist();commitExecution();
             }
         })()`);
-        assert.deepEqual(roamingBalls,[['城都背包 · 2 个',false,true],true,'丰缘背包 · 0 个','城都背包 · 0 个',true]);
-        checks.push('roaming displays the destination inventory and persists the shared opt-in while distinguishing raid pity');
+        assert.deepEqual(roamingBalls,[['城都背包 · 2 个',false,true],true,false,'背包合计 · 2 个',false,false]);
+        checks.push('roaming and legendary screens hide the legacy Master Ball controls until the relevant bag has one');
         const daily=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;
             const choices=[...r.querySelectorAll('.modes [data-group="adventure"]')].filter(el=>el.getClientRects().length);
             if(choices.map(el=>el.dataset.mode).join(',')!=='dex,money,progress,daily'||r.querySelector('#daily-routine').getClientRects().length)throw Error('Adventure task grid');
@@ -393,10 +397,12 @@ async function main(){
         await evaluate(`(()=>{const e=__pcExecutionTest.engine;e.driver.teamTask=null;e.driver.navigation=null;e.automation.state={};e.running=true;e.settings.autoTeam=true;e.settings.autoUnderDispatch=true;e.settings.autoUnderCollect=false;fixtureState.adv.chapter=48;fixtureState.adv.unlocked=60;fixtureState.travel.to=['johto','hoenn','sinnoh'];fixtureState.mons=[6,9,3,65,68,149,19,16,10,13].map((id,i)=>({uid:'idle-ui-'+i,id,level:i<6?100:20,reg:'sinnoh'}));fixtureState.team=fixtureState.mons.slice(0,6).map(mon=>mon.uid);fixtureState.road=[...fixtureState.team];fixtureState.under={day:new Intl.DateTimeFormat('en-CA',{timeZone:'Europe/Paris',year:'numeric',month:'2-digit',day:'2-digit'}).format(Date.now()),sent:0,used:{},slots:[],geodes:[0,0,0,0]};commitExecution()})()`);
         const dispatchUI=await evaluate(`(()=>{const r=${root},service=r.querySelector('[data-service="underground"]');return{enabled:r.querySelector('[data-setting="autoUnderDispatch"]').checked,state:service.dataset.state,text:service.textContent,rules:r.querySelector('#parallel-rules').textContent,width:r.querySelector('.content').clientWidth,scrollWidth:r.querySelector('.content').scrollWidth}})()`);
         assert.equal(dispatchUI.enabled,true);assert.equal(dispatchUI.state,'waiting');assert.match(dispatchUI.text,/自动派遣开.*领取关.*冒险配队|自动派遣开.*领取关.*适配冒险阵容/);assert.match(dispatchUI.rules,/空闲队员.*主队.*Buddy/);assert.ok(dispatchUI.scrollWidth<=dispatchUI.width+1);checks.push('Sinnoh background dispatch waits for adventure fitting and explains its independent settings');
-        await evaluate(`(()=>{fixtureState.pension.eggs=[{uid:'odds-sp2',id:25,sp:2,hatchAt:Date.now()+600000}];fixtureState.dex={};fixtureState.buffs={};const r=${root};r.querySelector('#probability-info').open=true;r.querySelector('#decision-info').open=true;commitExecution()})()`);
+        await evaluate(`(()=>{window.BUILD=${JSON.stringify(H.NURSERY_RULES.build)};fixtureState.pension.eggs=[{uid:'odds-sp2',id:25,sp:2,hatchAt:Date.now()+600000}];fixtureState.dex={};fixtureState.buffs={};const r=${root};r.querySelector('#probability-info').open=true;r.querySelector('#decision-info').open=true;commitExecution()})()`);
         const odds=await evaluate(`(()=>{const r=${root},panel=r.querySelector('.panel').getBoundingClientRect(),content=r.querySelector('.content');return{wild:r.querySelector('#probability-wild').textContent,eggs:r.querySelector('#probability-eggs').textContent,open:r.querySelector('#probability-info').open,importDisabled:r.querySelector('#import-profile').disabled,exportPresent:!!r.querySelector('#export-profile'),inputType:r.querySelector('#profile-file').type,left:panel.left,right:panel.right,bottom:panel.bottom,width:content.clientWidth,scrollWidth:content.scrollWidth}})()`);
         assert.equal(odds.open,true);assert.match(odds.wild,/1\/2048/);assert.match(odds.eggs,/1\/16/);assert.equal(odds.importDisabled,true);assert.equal(odds.exportPresent,true);assert.equal(odds.inputType,'file');
         assert.ok(odds.left>=0&&odds.right<=360&&odds.bottom<=780,JSON.stringify(odds));assert.ok(odds.scrollWidth<=odds.width+1,JSON.stringify(odds));checks.push('expanded mobile odds show native wild 1/2048 and new sp:2 egg 1/16 while importing remains disabled during execution');
+        await evaluate("delete window.BUILD;commitExecution()");
+        assert.equal(await evaluate(`${root}.querySelector('#probability-eggs').textContent`),'蛋的闪率和判定见「孵蛋」页。');
         await evaluate(`__pcExecutionTest.engine.stop('configuration review fixture');commitExecution()`);
         assert.equal(await evaluate(`${root}.querySelector('#import-profile').disabled`),false);checks.push('stopping the task re-enables configuration import without auto-starting a replacement task');
         const environment=await evaluate(`(async()=>{const e=__pcExecutionTest.engine,r=${root};e.running=true;e.started=Date.now();e.tabToken=localStorage.getItem('pokecatch-tab');e.manual=null;e.preparation=null;e.raidPreparation=null;e.driver.teamTask=null;e.driver.navigation=null;e.lastProgress=Date.now();Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.documentElement.setAttribute('data-pc-helper-background-at',String(Date.now()));e.onChange();const active=r.querySelector('#execution-environment').textContent;document.documentElement.setAttribute('data-pc-helper-background-at',String(Date.now()-90000));e.onChange();await e.step();e.onChange();const expired=r.querySelector('#execution-environment').textContent,status=e.status;document.documentElement.removeAttribute('data-pc-helper-background-at');delete document.hidden;e.stop('environment fixture complete');e.onChange();return{active,expired,status}})()`);

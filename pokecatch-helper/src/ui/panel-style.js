@@ -77,12 +77,14 @@
     .dex-searchbar input { flex:1; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #465b70; border-radius:8px; background:#0f1927; color:#edf4f8 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
     #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
-    .roam-ball-control { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:8px 0; padding:7px 8px; border:1px solid #3b4e63; border-radius:8px }
+    .roam-ball-control:not([hidden]) { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:8px 0; padding:7px 8px; border:1px solid #3b4e63; border-radius:8px }
     .roam-ball-control > strong { margin-inline-start:auto; color:#b1e6d6; font-size:11px; font-variant-numeric:tabular-nums }
     .roam-ball-control > .hint { flex-basis:100%; margin:0 }
     .nursery-card { background:#172335; border:1px solid #3b4e63; border-radius:12px; padding:10px }
     .nursery-heading, .nursery-tools, .nursery-section-heading { display:flex; align-items:center; justify-content:space-between; gap:6px 10px; flex-wrap:wrap }
     .nursery-heading h3 { margin:0!important; font-size:15px!important }
+    .nursery-title { display:flex; flex-wrap:wrap; align-items:center; gap:4px 7px }
+    #nursery-rule-notice { color:#efc47c; font-size:11px }
     .nursery-section-heading { margin:14px 0 6px }
     .nursery-section-heading h3 { margin:0!important }
     #nursery-summary, #nursery-parent-summary { color:#aac2cc; font-size:11px; font-variant-numeric:tabular-nums }
@@ -99,7 +101,6 @@
     .nursery-parent { display:grid; grid-template-columns:auto minmax(0,1fr); align-content:start; gap:1px 5px; padding:5px 6px; border:1px solid #344459; border-radius:7px; background:#111c2d; overflow-wrap:anywhere }
     .nursery-parent small { grid-column:2; color:#aebed2; font-size:11px }
     .nursery-slot, #nursery-prediction-state { align-self:start; border-radius:4px; padding:1px 4px; color:#b1e6d6; background:#24433f; font-size:10px }
-    #nursery-prediction-state[data-certainty=reference] { color:#ffdc91; background:#443725 }
     .nursery-laying { padding-top:7px }
     .nursery-laying > div { display:flex; justify-content:space-between; flex-wrap:wrap; gap:2px 8px; color:#b7c8d7; font-size:11px }
     .nursery-card progress { display:block; width:100%; height:5px; margin:4px 0; accent-color:#79dcba }

@@ -54,9 +54,23 @@ async function main(){
             })()`);console.table(result);return;
         }
         await evaluate(`${root}.querySelector('[data-workspace="activity"]').click()`);
-        const state=()=>evaluate(`(()=>{const r=${root},e=__pcNurseryTest.engine;return{running:e.running,account:e.account,open:!r.querySelector('#pane-eggs').hidden,summary:r.querySelector('#nursery-summary').textContent,shiny:r.querySelector('#nursery-shiny').textContent,ready:r.querySelector('#nursery-ready').textContent,native:r.querySelector('#nursery-native').textContent,observed:r.querySelector('#nursery-observed').textContent,error:r.querySelector('#nursery-error').textContent,hints:r.querySelector('#nursery-hints').checked,marked:[...document.querySelectorAll('#pen-eggs [data-pch-shiny="1"]')].map(el=>el.dataset.egg),badges:document.querySelectorAll('#pen-eggs [data-pch-nursery-tag]').length,ledger:e.nurseryMonitor.ledger.snapshot(),save:localStorage.getItem('gachamon-save-v1'),queue:JSON.stringify(e.queue)}})()`);
+        const state=()=>evaluate(`(()=>{const r=${root},e=__pcNurseryTest.engine,marked=[...document.querySelectorAll('#pen-eggs [data-egg]')].filter(el=>getComputedStyle(el,'::after').content.includes('闪蛋')).map(el=>el.dataset.egg);return{running:e.running,account:e.account,open:!r.querySelector('#pane-eggs').hidden,summary:r.querySelector('#nursery-summary').textContent,shiny:r.querySelector('#nursery-shiny').textContent,ready:r.querySelector('#nursery-ready').textContent,native:r.querySelector('#nursery-native').textContent,observed:r.querySelector('#nursery-observed').textContent,error:r.querySelector('#nursery-error').textContent,hints:r.querySelector('#nursery-hints').checked,marked,badges:marked.length,ledger:e.nurseryMonitor.ledger.snapshot(),save:localStorage.getItem('gachamon-save-v1'),queue:JSON.stringify(e.queue)}})()`);
         const click=async selector=>{const point=await evaluate(`(()=>{const el=${root}.querySelector(${JSON.stringify(selector)});el.scrollIntoView({block:'center'});const box=el.getBoundingClientRect();return{x:box.x+box.width/2,y:box.y+box.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...point});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...point});await delay(20);};
         let current=await state();assert.equal(current.running,false);assert.equal(current.open,false);assert.equal(current.ledger.nativeHatched,500);assert.equal(current.ledger.stats.hatched,0);assert.equal(current.ledger.stats.eggsObserved,0);assert.equal(current.ledger.current.shiny,1);assert.equal(current.ledger.current.unknown,1);assert.deepEqual(current.marked,['baseline-shiny']);assert.equal(current.badges,1);checks.push('collapsed startup separates current known shiny eggs from historical hatch counts and unknown results');
+        await click('#fold');
+        const redraw=await evaluate(`(()=>{const r=${root},e=__pcNurseryTest.engine,native=document.querySelector('#pen-eggs'),active=native.querySelector('.pen-egg');
+            const original=e.onChange;e.onChange=()=>{throw Error('redraw depends on helper rendering')};
+            try{
+                native.replaceWith(native.cloneNode(false));drawNativeEggs();
+                const cards=[...document.querySelectorAll('#pen-eggs .pen-egg')];cards[0].disabled=true;
+                return {folded:!r.querySelector('.mini').classList.contains('hidden'),running:e.running,redrawn:cards[0]!==active,
+                    text:cards.map(card=>getComputedStyle(card,'::after').content),disabled:cards[0].disabled};
+            }finally{e.onChange=original;}
+        })()`);
+        assert.equal(redraw.folded,true);assert.equal(redraw.running,false);assert.equal(redraw.redrawn,true);assert.equal(redraw.disabled,true);
+        assert.match(redraw.text[0],/✦ 闪蛋/);assert.deepEqual(redraw.text.slice(1),['none','none']);
+        assert.equal((await state()).save,current.save);await click('.mini');
+        checks.push('the folded idle helper marks the right card immediately after native replacement without editing the save or enabling the card');
         await click('[data-workspace="eggs"]');current=await state();assert.equal(current.open,true);assert.equal(current.shiny,'1');assert.equal(current.ready,'1');assert.equal(current.native,'500');assert.ok(await evaluate(`${root}.querySelector('#nursery-next').textContent.length>0&&${root}.querySelector('#nursery-forecast').textContent.length>0&&${root}.querySelector('#nursery-scenarios').textContent.length>0`));assert.ok(await evaluate(`${root}.querySelector('#nursery-berry-only').textContent.length>0`));checks.push('opening the eggs workspace displays real incubator counters and clearly separated forecasts');
         const comparison=()=>evaluate(`(()=>{const r=${root},section=r.querySelector('#nursery-comparison');return{hidden:section.hidden,open:section.open,note:r.querySelector('#nursery-comparison-note').textContent,groups:[...section.querySelectorAll('.nursery-scenario')].map(el=>({name:el.querySelector('strong').textContent,rate:el.querySelector('.nursery-rate').textContent,hits:[...el.querySelectorAll('ol li')].map(row=>row.textContent),keys:[...el.querySelectorAll('ol code')].map(row=>row.textContent)}))}})()`);
         const ordinary=await comparison();assert.equal(ordinary.open,true);assert.deepEqual(ordinary.groups.map(({name,rate})=>[name,rate]),[['普通亲代 · 自然闪','1/512'],['普通亲代 · 喂果才闪','1/512 → 1/256']]);
@@ -110,12 +124,19 @@ async function main(){
         assert.ok(counters.segment.includes(new Date(at).getFullYear().toString()));
         checks.push('the saved laying timer is shown in minutes, independently of candy progress and the preserved observation date');
         await evaluate("window.BUILD='new-unverified';commitNursery()");
-        const reference=await nurseryText();assert.match(reference.next,/旧规则参考 · 下一枚自然蛋 #\d+/);assert.match(reference.forecast,/预计.*第 \d+ 枚自然蛋.*旧规则单枚参考闪率/);assert.match(reference.basis,/尚未核对/);
-        const referenceComparison=await comparison();assert.match(referenceComparison.note,/旧规则参考/);assert.equal(referenceComparison.groups.length,2);
-        assert.match((await berryText())[0],/请勿依据参考序列消耗/);
-        assert.match(reference.eggs,/存档已记录/);assert.doesNotMatch(reference.eggs,/按蛋序号确定/);assert.match(reference.eggs,/旧规则参考闪率/);
+        const reference=await nurseryText();assert.match(reference.next,/预计 · 下一枚自然蛋 #\d+/);assert.match(reference.forecast,/预计.*第 \d+ 枚自然蛋/);assert.match(reference.basis,/已产蛋优先读存档标记/);
+        const referenceComparison=await comparison();assert.match(referenceComparison.note,/实际抽中的亲代/);assert.equal(referenceComparison.groups.length,2);
+        assert.equal((await berryText())[0],'');
+        assert.match(reference.eggs,/存档已记录/);assert.match(reference.eggs,/待判定/);assert.doesNotMatch(reference.eggs,/按蛋序号确定|旧规则|参考闪率|构建尚未核对/);
+        const notice=await evaluate(`(()=>{const r=${root},tag=r.querySelector('.nursery-title #nursery-rule-notice');return {text:tag.textContent,hidden:tag.hidden,body:r.querySelector('#nursery-info').textContent}})()`);
+        assert.equal(notice.text,'规则待核对 · 预测仅供参考');assert.equal(notice.hidden,false);
+        assert.equal(notice.body.split(notice.text).length,2);assert.doesNotMatch(notice.body,/旧规则|构建尚未核对/);
+        await send('Emulation.setDeviceMetricsOverride',{width:360,height:780,deviceScaleFactor:1,mobile:true});
+        await evaluate(`${root}.querySelector('#nursery-info').scrollIntoView({block:'start'})`);
+        const noticeImage=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(dir,'nursery-notice-mobile.png'),Buffer.from(noticeImage.data,'base64'));
+        await send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
         assert.ok(await evaluate(`!${root}.querySelector('#nursery-rules').open&&!${root}.querySelector('#nursery-berry-plan').hidden`));
-        await click('#nursery-rules > summary');assert.match((await nurseryText()).scenarios,/参考 ·/);
+        await click('#nursery-rules > summary');assert.match((await nurseryText()).scenarios,/仅下一枚用果/);
         await click('#nursery-rules > summary');assert.equal((await nurseryText()).next,reference.next);
         await evaluate("window.BUILD='another-new-build';fixtureState.pension.laid++;commitNursery()");
         assert.notEqual((await nurseryText()).next,reference.next);
@@ -123,9 +144,10 @@ async function main(){
         const invalid=await nurseryText();assert.match(invalid.next,/靛莓果标记/);assert.equal(invalid.forecast,'');
         const invalidComparison=await comparison();assert.equal(invalidComparison.hidden,true);assert.equal(invalidComparison.groups.length,0);
         await evaluate("delete fixtureState.pension.bx;commitNursery()");
-        checks.push('consecutive unknown builds show conditional estimates with the disclosure closed; bad inputs clear prior predictions');
+        checks.push('unknown builds show one small header notice and omit feeding advice; bad inputs clear prior predictions');
         await evaluate(`window.BUILD=${JSON.stringify(H.NURSERY_RULES.build)};delete fixtureState.pension.laid;commitNursery()`);
         const initial=await nurseryText();
+        assert.equal(await evaluate(`${root}.querySelector('#nursery-rule-notice').hidden`),true);
         const firstK=await evaluate("fixtureState.stats.hatched+fixtureState.pension.eggs.length");
         assert.ok(initial.next.includes('#'+firstK+' ·'));assert.match(initial.basis,/按游戏初始化规则/);
         await evaluate("fixtureState.stats.hatched+=2;commitNursery()");
@@ -175,6 +197,14 @@ async function main(){
         assert.match(await evaluate(`${root}.querySelector('#nursery-next').textContent`),/#279/);
         checks.push('unfinished scans yield, cancel on navigation and display only the latest egg serial');
         await click('#nursery-plan');assert.ok(await evaluate(`!${root}.querySelector('#pane-tasks').hidden && __pcNurseryTest.engine.settings.mode==='breed' && !__pcNurseryTest.engine.running`));checks.push('breeding shortcut configures the task without starting it');
+        await click('[data-workspace="eggs"]');await click('#nursery-hints');
+        const markedUid='egg" with ] and \\';
+        let deterministicK=0;while(!H.eggOutcome(game,{k:deterministicK,sp:2}).shiny)deterministicK++;
+        await evaluate(`fixtureState.pension.eggs=[{uid:${JSON.stringify(markedUid)},id:4,k:${deterministicK},sp:2,hatchAt:Date.now()+600000},{uid:'explicit-shiny',id:4,shiny:true,hatchAt:Date.now()+600000}];commitNursery()`);
+        assert.deepEqual((await state()).marked,[markedUid,'explicit-shiny']);
+        await evaluate("window.BUILD='unverified-original';commitNursery();drawNativeEggs()");
+        assert.deepEqual((await state()).marked,['explicit-shiny']);
+        checks.push('native badges attach by exact UID and an unknown build leaves only explicit saved shiny marks');
         console.log('PASS: '+checks.length+' nursery browser checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

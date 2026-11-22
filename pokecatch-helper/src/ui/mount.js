@@ -28,7 +28,7 @@
             <strong>自动购买</strong><span data-purchase-state aria-hidden="true"></span>
             <input type="checkbox" role="switch" data-setting="autoPurchase" aria-label="自动购买">
         </label>`;
-        const roamingBallControl = mode => `<div class="roam-ball-control">
+        const roamingBallControl = mode => `<div class="roam-ball-control" hidden>
             <label><input type="checkbox" data-setting="roamAllowMasterBall" aria-describedby="roam-ball-${mode}">允许游荡战消耗背包大师球</label>
             <strong data-roam-ball-stock="${mode}"></strong>
             <p class="hint" id="roam-ball-${mode}">赢下游荡战时，游戏会自动用掉背包里的 1 个大师球并必中。关闭时，助手跳过会用球的主动追踪。异色团体战的保底单独计数。</p>
@@ -276,10 +276,10 @@
             if(query('#probability-info').open){
                 const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>!Number.isFinite(rate)?'标记待核对':rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;
-                const rates=[...new Set(eggs.map(egg=>shinyOdds(s||{},{kind:'egg',egg},now).rate))];
                 const verified=NURSERY_RULES.compatibleBuilds.includes(nurseryRuntimeOptions().build);
+                const rates=verified?[...new Set(eggs.map(egg=>shinyOdds(s||{},{kind:'egg',egg},now).rate))]:[];
                 const ratesText=rates.length?rates.map(format).join('、'):'普通亲本 1/512，异色亲本 1/16，靛莓果翻倍';
-                query('#probability-eggs').textContent=(verified?'蛋的已核对规则':'蛋的旧规则参考')+' · '+ratesText+'。每枚蛋的判定依据见培育屋。';
+                query('#probability-eggs').textContent=verified?'孵蛋 · '+ratesText+'。':'蛋的闪率和判定见「孵蛋」页。';
             }
             const signature=JSON.stringify(model.services.map(service=>[service.id,service.state,service.label,service.stateLabel,service.detail,Math.max(0,Math.ceil((service.nextAt-now)/60000))]));
             if(signature===serviceSignature)return model;
@@ -659,11 +659,15 @@
             if(ui.workspace==='tasks'){
                 const cfg=dailyCard?dailyBase:engine.settings,ids=selectedLegendIds(cfg);
                 for(const el of roamingStock){
-                    const target=el.dataset.roamBallStock==='roam'?cfg.roamId:!cfg.legendTier&&ids.length===1?ids[0]:null;
+                    const roaming=el.dataset.roamBallStock==='roam';
+                    const target=roaming?cfg.roamId:!cfg.legendTier&&ids.length===1?ids[0]:null;
                     const group=ROAMING_DATA.groups.find(entry=>entry.ids.includes(target));
-                    const stock=roamingMasterBalls(s,target);
-                    const scope=group?DATA.regions.find(region=>region.key===group.reg)?.name||'目标地区':'当前';
-                    const value=s?.adv?`${scope}背包 · ${stock} 个`:'进入游戏后显示数量';
+                    const stock=group?roamingMasterBalls(s,target):roaming||!cfg.legendTier?ownedItems(s||{},'master-ball'):0;
+                    const control=el.parentElement,hidden=!s?.adv||stock<=0;
+                    if(control.hidden!==hidden)control.hidden=hidden;
+                    if(hidden)continue;
+                    const scope=group?(DATA.regions.find(region=>region.key===group.reg)?.name||'目标地区')+'背包':'背包合计';
+                    const value=`${scope} · ${stock} 个`;
                     if(el.textContent!==value)el.textContent=value;
                 }
             }
@@ -874,7 +878,7 @@
                     el.textContent = `${p.zone.monName || p.zone.name} · ${DATA.regions.find(r=>r.key===p.zone.reg)?.name} / ${p.zone.name}。${p.done ? '所选目标已完成。' : `当前精英 ${p.tier} 阶。${p.zone.condition || '请查看游戏开放条件。'}`}`; view.appendChild(el);
                 } else if(mode==='roam'){
                     const p=roamingProgress(s,engine.settings,Date.now()),el=document.createElement('div');el.className='empty';
-                    const map=CHAPTERS.get(p.location?.ch);el.textContent=`${MONS.get(engine.settings.roamId)?.name||engine.settings.roamId} · ${p.captured?'目标已捕获':p.unlocked?'已满足地区冠军条件':'需先获得对应地区冠军徽章'}。${map?'当前驻留：'+map.name+'。':'暂无有效驻留记录，按原生踪迹查找。'}普通色目标，基础捕获率 4%；捕获果加成与大师球按游戏原生规则处理。`;view.appendChild(el);
+                    const map=CHAPTERS.get(p.location?.ch);el.textContent=`${MONS.get(engine.settings.roamId)?.name||engine.settings.roamId} · ${p.captured?'目标已捕获':p.unlocked?'已满足地区冠军条件':'需先获得对应地区冠军徽章'}。${map?'当前驻留：'+map.name+'。':'暂无有效驻留记录，按原生踪迹查找。'}普通色目标，基础捕获率 4%，捕获树果可提高捕获率。`;view.appendChild(el);
                 } else if(FLOW_MODES.has(mode)){
                     const steps={breed:['安排百变怪与目标亲本','游戏自动产蛋、进入孵化器','等待成熟并孵化至目标'],underground:['按主题配队并派遣','等待原生远征返回','领取奖励、按设置开启晶洞'],tower:['核对本周进度与实际原生阵容','确认启动后记录已过楼层','达标原生退出、结算后切换任务'],candy:['读取今日主题并配置独立阵容','补练达标后开始今日免费场次','到目标营地退出或尽力挑战，核对真实结算'],elite:['配置整座联盟的专属队伍','逐阶挑战未完成阶级','选择宝石并领取奖励'],world:['进入本期活动并提交攻击','等待护盾击破与捕获阶段','配置捕获队伍并捕获首领'],resource:['核对目标、余额与预算','逐份购买或使用','核对新增与消耗数量']}[mode];
                     const list=document.createElement('div');list.className='flow-list';for(const [i,label]of steps.entries()){const row=document.createElement('div');row.className='step';const n=document.createElement('b');n.textContent=String(i+1).padStart(2,'0');row.append(n,label);list.appendChild(row);}view.appendChild(list);

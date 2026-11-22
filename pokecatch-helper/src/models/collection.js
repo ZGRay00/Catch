@@ -29,6 +29,17 @@
         const zone=settings.mode==='legend'&&!settings.legendTier&&DATA.zones.find(zone=>zone.id===settings.legendId&&zone.eliteOnly);
         return zone?{...settings,roamId:zone.id,roamMinutes:settings.legendMinutes}:settings;
     }
+    function roamingMasterBalls(s,targetId){
+        if(!s)return 0;
+        const group=ROAMING_DATA.groups.find(entry=>entry.ids.includes(targetId));
+        const chapter=DATA.regions.find(region=>region.key===group?.reg)?.start??s.adv?.chapter;
+        return Math.max(0,chapterItemCount(s,chapter,'master-ball'));
+    }
+    function roamingMasterBallWait(s,cfg,targetId){
+        if(cfg.roamAllowMasterBall)return '';
+        const count=roamingMasterBalls(s,targetId);
+        return count>0?`目标地区背包有 ${count} 个大师球，已暂停主动追踪。若要允许游戏消耗，请停止任务后勾选用球选项。`:'';
+    }
     function roamingProgress(s,settings,now=Date.now()){
         settings=roamingSettings(settings);
         const target=MONS.get(Number(settings.roamId)),group=ROAMING_DATA.groups.find(group=>group.ids.includes(target?.id));
@@ -54,6 +65,7 @@
     function bestRoamingPlan(s,cfg,ids,now,preferred,owned=[]){
         let best=null,bestPriority=0;
         for(const id of ids){
+            if(!cfg.roamAllowMasterBall&&roamingMasterBalls(s,id)>0)continue;
             const plan=roamingPlan(s,{...cfg,mode:'roam',roamId:id,roamRequireOwned:owned.includes(id)},now);
             if(!plan.row)continue;
             const priority=plan.active?5:plan.marked?4:plan.row.id===s.adv.chapter?3:id===preferred?2:1;

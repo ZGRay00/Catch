@@ -6,7 +6,7 @@ const H=require('../Pokecatch自动助手.user.js'),original=fs.readFileSync(pat
 const source=original.replace('    mount();','    window.__pcNurseryTest={engine};\n    mount();');assert.notEqual(source,original);
 const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms)),at=Date.now();
 const game={trainer:{id:'nursery-ui-browser',since:1700000000000},money:1000,mons:[{uid:'existing-shiny',id:1,level:30,reg:'kanto',shiny:true}],team:['existing-shiny'],road:['existing-shiny'],dex:{1:{caught:1,shiny:true}},stats:{hatched:500,caught:1},items:{},travel:{to:[]},
-    pension:{laid:30,bx:0,egg:0,open:{eggs:4,slots:2},mons:[{mon:{uid:'parent-fire',id:6,level:50,shiny:false},candy:3},{mon:{uid:'parent-ditto',id:132,level:50,shiny:true}}],eggs:[{uid:'baseline-shiny',id:1,shiny:true,hatchAt:at-1000},{uid:'baseline-plain',id:4,shiny:false,hatchAt:at+600000},{uid:'baseline-unknown',id:7,k:-1,hatchAt:at+600000}]},
+    pension:{laid:30,bx:0,egg:0,open:{eggs:4,slots:2},mons:[{mon:{uid:'parent-fire',id:6,level:50,shiny:false},candy:3},{mon:{uid:'parent-ditto',id:132,level:50,shiny:true}}],eggs:[{uid:'baseline-shiny',id:1,shiny:true,hatchAt:at-1000},{uid:'baseline-plain',id:4,shiny:false,laidAt:at-600000,hatchAt:at+600000,pa:{id:6}},{uid:'baseline-unknown',id:7,k:-1,hatchAt:at+600000}]},
     adv:{layout:H.DATA.layout,chapter:0,unlocked:8,node:0,runs:0,speed:4,badges:[],loops:[],gifts:{},deaths:{}}};
 async function main(){
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pokecatch-egg-ui-browser-'));
@@ -58,6 +58,12 @@ async function main(){
         const click=async selector=>{const point=await evaluate(`(()=>{const el=${root}.querySelector(${JSON.stringify(selector)});el.scrollIntoView({block:'center'});const box=el.getBoundingClientRect();return{x:box.x+box.width/2,y:box.y+box.height/2}})()`);await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,...point});await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',buttons:0,clickCount:1,...point});await delay(20);};
         let current=await state();assert.equal(current.running,false);assert.equal(current.open,false);assert.equal(current.ledger.nativeHatched,500);assert.equal(current.ledger.stats.hatched,0);assert.equal(current.ledger.stats.eggsObserved,0);assert.equal(current.ledger.current.shiny,1);assert.equal(current.ledger.current.unknown,1);assert.deepEqual(current.marked,['baseline-shiny']);assert.equal(current.badges,1);checks.push('collapsed startup separates current known shiny eggs from historical hatch counts and unknown results');
         await click('[data-workspace="eggs"]');current=await state();assert.equal(current.open,true);assert.equal(current.shiny,'1');assert.equal(current.ready,'1');assert.equal(current.native,'500');assert.ok(await evaluate(`${root}.querySelector('#nursery-next').textContent.length>0&&${root}.querySelector('#nursery-forecast').textContent.length>0&&${root}.querySelector('#nursery-scenarios').textContent.length>0`));assert.ok(await evaluate(`${root}.querySelector('#nursery-berry-only').textContent.length>0`));checks.push('opening the eggs workspace displays real incubator counters and clearly separated forecasts');
+        const comparison=()=>evaluate(`(()=>{const r=${root},section=r.querySelector('#nursery-comparison');return{hidden:section.hidden,open:section.open,note:r.querySelector('#nursery-comparison-note').textContent,groups:[...section.querySelectorAll('.nursery-scenario')].map(el=>({rate:el.querySelector('.nursery-rate').textContent,current:!!el.querySelector('.nursery-current'),hits:[...el.querySelectorAll('ol li')].map(row=>row.textContent)}))}})()`);
+        const ordinary=await comparison();assert.equal(ordinary.open,true);assert.deepEqual(ordinary.groups.map(({rate,current})=>[rate,current]),[['1/512',true],['1/256',true],['1/16',false],['1/8',false]]);
+        assert.ok(ordinary.groups.every(group=>group.hits.length===3&&group.hits.every(hit=>/1 号位 喷火龙.*小火龙.*k=\d+/.test(hit))));
+        const eggDetail=await evaluate(`(()=>{const r=${root},bar=r.querySelector('#nursery-eggs progress');return{progress:bar.value/bar.max,eggs:r.querySelector('#nursery-eggs').textContent,parents:r.querySelector('#nursery-parents').textContent}})()`);
+        assert.ok(eggDetail.progress>.49&&eggDetail.progress<.55);assert.match(eggDetail.eggs,/亲本 喷火龙/);assert.match(eggDetail.parents,/百变怪自然产蛋所需/);assert.match(eggDetail.parents,/产出 小火龙/);
+        checks.push('four rate groups show exact slots and serials, while incubation progress and parent details use saved data');
         const beforeNative=current.save;await evaluate(`(()=>{const e=__pcNurseryTest.engine;e.schedule=()=>{};e.manual={until:Date.now()+15000};for(let i=0;i<8;i++){e.read();e.onChange()}})()`);current=await state();assert.equal(current.ledger.stats.hatched,0);assert.equal(current.ledger.stats.eggsObserved,0);assert.equal(current.save,beforeNative);assert.equal(await evaluate('updateRequests.length'),0);checks.push('stopped and manual repeated renders never count an egg again or invoke game/update actions');
         await evaluate(`fixtureState.pension.eggs=fixtureState.pension.eggs.filter(egg=>egg.uid!=='baseline-shiny');fixtureState.stats.hatched++;commitNursery()`);current=await state();assert.equal(current.ledger.stats.hatched,1);assert.equal(current.ledger.stats.shinyHatched,1);assert.equal(current.badges,0);
         assert.equal(current.shiny,'待判');assert.match(current.summary,/待判 1/);checks.push('remaining eggs with unconfirmed colour show pending in the shiny counter');
@@ -97,10 +103,14 @@ async function main(){
         await evaluate('fixtureState.pension.mons[0].candy=1024164;fixtureState.pension.egg=90*60000;commitNursery()');
         const counters=await nurseryText();
         assert.match(counters.condition,/存档产蛋进度 90\/240 分钟/);assert.doesNotMatch(counters.condition,/1024164|待领糖果/);
+        assert.equal(await evaluate(`${root}.querySelector('#nursery-laying-progress').position`),.375);
+        await evaluate('fixtureState.pension.eggGoal=180*60000;commitNursery()');
+        assert.equal(await evaluate(`${root}.querySelector('#nursery-laying-progress').position`),.5);
         assert.ok(counters.segment.includes(new Date(at).getFullYear().toString()));
         checks.push('the saved laying timer is shown in minutes, independently of candy progress and the preserved observation date');
         await evaluate("window.BUILD='new-unverified';commitNursery()");
         const reference=await nurseryText();assert.match(reference.next,/旧规则参考 · 下一枚自然蛋 #\d+/);assert.match(reference.forecast,/预计.*第 \d+ 枚自然蛋.*旧规则单枚参考闪率/);assert.match(reference.basis,/尚未核对/);
+        const referenceComparison=await comparison();assert.match(referenceComparison.note,/旧规则参考/);assert.ok(referenceComparison.groups.every(group=>!group.current));
         assert.match((await berryText())[0],/请勿依据参考序列消耗/);
         assert.match(reference.eggs,/存档已记录/);assert.doesNotMatch(reference.eggs,/按蛋序号确定/);assert.match(reference.eggs,/旧规则参考闪率/);
         assert.ok(await evaluate(`!${root}.querySelector('#nursery-rules').open&&!${root}.querySelector('#nursery-berry-plan').hidden`));
@@ -110,6 +120,7 @@ async function main(){
         assert.notEqual((await nurseryText()).next,reference.next);
         await evaluate("fixtureState.pension.laid--;fixtureState.pension.bx={invalid:true};commitNursery()");
         const invalid=await nurseryText();assert.match(invalid.next,/靛莓果标记/);assert.equal(invalid.forecast,'');
+        const invalidComparison=await comparison();assert.equal(invalidComparison.hidden,true);assert.equal(invalidComparison.groups.length,0);
         await evaluate("delete fixtureState.pension.bx;commitNursery()");
         checks.push('consecutive unknown builds show conditional estimates with the disclosure closed; bad inputs clear prior predictions');
         await evaluate(`window.BUILD=${JSON.stringify(H.NURSERY_RULES.build)};delete fixtureState.pension.laid;commitNursery()`);
@@ -136,11 +147,16 @@ async function main(){
         let changed=await nurseryText();assert.match(changed.next,/皮卡丘/);assert.match(changed.next,/亲本槽 1/);
         await evaluate("fixtureState.travel.to.push('johto');fixtureState.pension.mons.reverse();commitNursery()");
         changed=await nurseryText();assert.match(changed.next,/皮丘/);assert.match(changed.next,/亲本槽 2/);
+        const shinyParents=await comparison();assert.deepEqual(shinyParents.groups.map(group=>group.current),[false,false,true,true]);
+        await evaluate("fixtureState.pension.mons.push({mon:{uid:'mixed',id:6,shiny:false}});commitNursery()");await nurseryText();
+        const mixedParents=await comparison();assert.match(mixedParents.note,/混合亲本/);assert.ok(mixedParents.groups.every(group=>!group.current));
+        await evaluate('fixtureState.pension.mons.pop();commitNursery()');await nurseryText();
         checks.push('saved flags, deterministic eggs, unverified projections and probability-only states carry distinct evidence and refresh with build, berry and parent changes');
         await send('Emulation.setDeviceMetricsOverride',{width:360,height:780,deviceScaleFactor:1,mobile:true});await evaluate('__pokecatchHelper.show();__pcNurseryTest.engine.onChange()');
         const layout=await evaluate(`(()=>{const r=${root},h=document.querySelector('#pokecatch-auto-helper').getBoundingClientRect(),c=r.querySelector('.content');return{left:h.left,right:h.right,top:h.top,bottom:h.bottom,width:c.clientWidth,scrollWidth:c.scrollWidth,open:!r.querySelector('#pane-eggs').hidden,taskControls:!!r.querySelector('.commandbar #start')&&!!r.querySelector('.commandbar #stop'),update:r.querySelector('#check-update').textContent,sources:[...r.querySelector('#update-source').options].map(option=>option.value)}})()`);
         assert.ok(layout.left>=0&&layout.right<=360&&layout.top>=0&&layout.bottom<=780,JSON.stringify(layout));assert.ok(layout.scrollWidth<=layout.width+1,JSON.stringify(layout));assert.equal(layout.open,true);assert.equal(layout.taskControls,true);assert.ok(layout.update);assert.deepEqual(layout.sources,['auto',...H.UPDATE_SOURCES.map(source=>source.id)]);checks.push('expanded nursery content fits 360 pixels while bottom task controls and four update sources remain intact');
         await evaluate(`${root}.querySelector('#nursery-info').scrollIntoView({block:'start'})`);const screenshot=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(dir,'nursery-mobile.png'),Buffer.from(screenshot.data,'base64'));
+        await evaluate(`${root}.querySelector('#nursery-comparison').scrollIntoView({block:'start'})`);const groupsScreenshot=await send('Page.captureScreenshot',{format:'png'});fs.writeFileSync(path.join(dir,'nursery-comparison-mobile.png'),Buffer.from(groupsScreenshot.data,'base64'));
         const scanStatus=await evaluate(`(()=>{
             const r=${root};let tick=performance.now();
             Object.defineProperty(performance,'now',{configurable:true,value:()=>tick+=10});

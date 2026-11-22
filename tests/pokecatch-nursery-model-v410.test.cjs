@@ -50,6 +50,25 @@ test('ordinary and shiny-parent hypotheses remain separate from actual predictio
  assert.equal(f.scenarios.plainParents.nextShiny.rate,1/512);assert.equal(f.scenarios.shinyParents.nextShiny.rate,1/16);
  const bx=f.scenarios.berryNext.nextShiny;assert.equal(bx.rate,N.nurseryEggRate({sp:bx.parent.shiny?2:0,bx:bx.offset===0}));
 });
+test('four comparison groups reuse native draws and preserve the current forecast',()=>{
+ const s=state(),before=JSON.stringify(s),actual=N.nurseryForecast(s),f=N.nurseryForecast(s,{compare:true});
+ assert.deepEqual(f.nextEgg,actual.nextEgg);assert.deepEqual(f.hits,actual.hits);assert.deepEqual(plain(actual.comparisons),[]);
+ assert.deepEqual(plain(f.comparisons.map(rule=>[rule.key,rule.rate])),[['plain',1/512],['plain-berry',1/256],['shiny',1/16],['shiny-berry',1/8]]);
+ for(const rule of f.comparisons){
+  const expected=[];
+  for(let k=s.pension.laid;k<s.pension.laid+f.limit&&expected.length<3;k++){
+   if(N.nurseryFixedRoll(s,k)>=rule.rate)continue;
+   const parent=f.pool[Math.floor(N.nurseryFixedRoll(s,k,1)*f.pool.length)];
+   expected.push([k,k-s.pension.laid+1,parent.slot,parent.eggId]);
+  }
+  assert.equal(expected.length,3);
+  assert.deepEqual(plain(rule.hits.map(hit=>[hit.k,hit.position,hit.parent.slot,hit.eggId])),expected);
+ }
+ const brief=N.nurseryForecast(s,{compare:true,limit:1});assert.equal(brief.scanned,1);assert.ok(brief.comparisons.every(rule=>rule.hits.length<=1));
+ const reference=N.nurseryForecast(s,{compare:true,build:'future',estimateUnverified:true});
+ assert.equal(reference.certainty,'reference');assert.equal(reference.known,false);assert.deepEqual(reference.comparisons,f.comparisons);
+ assert.equal(JSON.stringify(s),before);
+});
 test('legacy initialization follows the native counter rule only with both operands on an audited build',()=>{
  const s=state();delete s.pension.laid;s.stats.hatched=999;s.pension.eggs=[{uid:'x'}];const f=N.nurseryForecast(s,{build:N.NURSERY_RULES.build});assert.equal(f.known,true);assert.equal(f.counter,1000);assert.equal(f.counterSource,'native-initializer');
  assert.equal(N.nurseryForecast(s,{build:'unverified',estimateUnverified:true}).counter,null);
@@ -63,8 +82,9 @@ test('forecast limits bound computation and an empty search is not a no-shiny pr
  s.pension.laid=Number.MAX_SAFE_INTEGER;assert.equal(N.nurseryForecast(s).known,false);
 });
 test('snapshot counts known shiny eggs without inventing unknown outcomes or readiness',()=>{
- const s=state();s.pension.eggs=[{uid:'old',shiny:true,hatchAt:1000},{uid:'plain',shiny:false,hatchAt:3000},{k:33,hatchAt:2000},{}];const before=JSON.stringify(s),snap=N.nurserySnapshot(s,{now:2000,forecast:false});
+ const s=state();s.pension.eggs=[{uid:'old',shiny:true,hatchAt:1000},{uid:'plain',shiny:false,hatchAt:3000,laidAt:1000,pa:{id:6}},{k:33,hatchAt:2000},{}];const before=JSON.stringify(s),snap=N.nurserySnapshot(s,{now:2000,forecast:false});
  assert.equal(snap.counts.total,4);assert.equal(snap.counts.known,3);assert.equal(snap.counts.unknown,1);assert.equal(snap.counts.ready,2);assert.equal(snap.capacity,4);assert.equal(snap.hatched,10);assert.equal(snap.counter,30);assert.equal(snap.forecast,null);
+ assert.equal(snap.eggRows[1].parentId,6);assert.equal(snap.eggRows[1].remainingMs,1000);
  assert.equal(snap.eggRows[3].shiny,null);assert.equal(snap.eggRows[3].readyKnown,false);assert.equal(JSON.stringify(s),before);
 });
 

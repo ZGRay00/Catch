@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.1.5
+// @version      6.1.7
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.1.5', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.7', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1558,6 +1558,12 @@
         }
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
+    const NURSERY_COMPARISONS=[
+        {key:'plain',label:'普通亲本',shiny:false,berry:false},
+        {key:'plain-berry',label:'普通亲本 · 用果',shiny:false,berry:true},
+        {key:'shiny',label:'异色亲本',shiny:true,berry:false},
+        {key:'shiny-berry',label:'异色亲本 · 用果',shiny:true,berry:true},
+    ].map(rule=>({...rule,rate:nurseryEggRate({sp:rule.shiny?2:0,bx:rule.berry})}));
     function nurseryForecast(s,options={}){
         const scan=nurseryForecastSteps(s,options);
         let step;
@@ -1585,6 +1591,7 @@
             nextRate,rateVerified:!unverified,
             limit,scanned:0,pool:pool.parents,hasDitto:pool.hasDitto,pendingBerry,nextEgg:null,nextShiny:null,hits:[],
             firstWithoutBerry:null,firstBerryOnly:null,
+            comparisons:options.compare?NURSERY_COMPARISONS.map(rule=>({...rule,hits:[]})):[],
             assumptions:['亲本顺序与异色状态保持不变','期间没有赠送蛋等其他来源占用蛋序号','只计现有待用靛莓果，不假设后续自动喂果','距离指自然产蛋次数，不是孵化次数或保底进度'],
             scenarios:{plainParents:{hypothetical:true,nextShiny:null},shinyParents:{hypothetical:true,nextShiny:null},berryNext:{hypothetical:true,nextShiny:null}}};
         const reject=reason=>({...result,reason});
@@ -1599,12 +1606,13 @@
         result.certainty=unverified?'reference':'conditional';
         const keep=Number.isFinite(+options.count)?Math.max(1,Math.min(20,Math.floor(+options.count))):3;
         const prefix=seed+'|egg|',scenarios=result.scenarios;
+        let comparisonsPending=result.comparisons.length;
         for(let offset=0;offset<limit;offset++){
             if(offset>0&&offset%64===0)yield;
             const k=laid+offset,drawPrefix=prefix+k+'|',roll=nurseryHash(drawPrefix+'0');
             result.scanned=offset+1;
             // A conditional berry window can reach 1/8 with a shiny parent.
-            const ceiling=result.firstBerryOnly?NURSERY_RULES.parentRate:NURSERY_RULES.parentRate*NURSERY_RULES.berryMultiplier;
+            const ceiling=result.firstBerryOnly&&!comparisonsPending?NURSERY_RULES.parentRate:NURSERY_RULES.parentRate*NURSERY_RULES.berryMultiplier;
             if(offset>0&&roll>=ceiling)continue;
             const parentIndex=pool.parents.length===1?0:Math.floor(nurseryHash(drawPrefix+'1')*pool.parents.length);
             const parent=pool.parents[parentIndex],bx=offset===0&&pendingBerry;
@@ -1623,6 +1631,15 @@
                     parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
             }
             if(row.shiny&&result.hits.length<keep)result.hits.push(row);
+            // Each comparison tests this egg on its own. A berry used for one
+            // candidate does not carry over to any later natural egg.
+            if(comparisonsPending){
+                for(const rule of result.comparisons){
+                    if(rule.hits.length>=keep||roll>=rule.rate)continue;
+                    rule.hits.push({k,position:offset+1,eggId:parent.eggId,parent});
+                    if(rule.hits.length===keep)comparisonsPending--;
+                }
+            }
             for(const key of Object.keys(scenarios)){
                 if(scenarios[key].nextShiny)continue;
                 const shinyParent=key==='berryNext'?parent.shiny:key==='shinyParents';
@@ -1630,7 +1647,7 @@
                 const threshold=nurseryEggRate({sp:shinyParent?2:0,bx:berry});
                 if(roll<threshold)scenarios[key].nextShiny={...row,parent:{...parent,shiny:shinyParent},bx:berry,rate:threshold,shiny:true,hypothetical:true};
             }
-            if(result.hits.length>=keep&&result.firstWithoutBerry&&result.firstBerryOnly&&scenarios.plainParents.nextShiny&&scenarios.shinyParents.nextShiny&&scenarios.berryNext.nextShiny)break;
+            if(!comparisonsPending&&result.hits.length>=keep&&result.firstWithoutBerry&&result.firstBerryOnly&&scenarios.plainParents.nextShiny&&scenarios.shinyParents.nextShiny&&scenarios.berryNext.nextShiny)break;
         }
         result.nextShiny=result.hits[0]||null;result.truncated=!result.nextShiny;
         result.reason=result.nextShiny?'按当前亲本池核对的自然产蛋序列；条件变化时重新计算':'扫描范围内尚未找到；不代表之后不会出现';
@@ -1638,7 +1655,7 @@
     }
     function nurserySnapshot(s,options={}){
         const now=Number.isFinite(options.now)?options.now:Date.now(),eggs=Array.isArray(s?.pension?.eggs)?s.pension.eggs:[];
-        const eggRows=eggs.map(egg=>{const outcome=eggOutcome(s,egg,options),readyKnown=Number.isFinite(egg?.hatchAt);return{uid:egg?.uid??null,id:egg?.id??null,k:egg?.k??null,laidAt:egg?.laidAt??null,hatchAt:egg?.hatchAt??null,
+        const eggRows=eggs.map(egg=>{const outcome=eggOutcome(s,egg,options),readyKnown=Number.isFinite(egg?.hatchAt);return{uid:egg?.uid??null,id:egg?.id??null,k:egg?.k??null,laidAt:egg?.laidAt??null,hatchAt:egg?.hatchAt??null,parentId:MONS.has(egg?.pa?.id)?egg.pa.id:null,
             berryApplied:egg?.bx===undefined?false:nurseryFlag(egg.bx)?!!egg.bx:null,
             readyKnown,ready:readyKnown&&now>=egg.hatchAt,remainingMs:readyKnown?Math.max(0,egg.hatchAt-now):null,...outcome};});
         const total=eggRows.length,known=eggRows.filter(row=>row.known).length,shiny=eggRows.filter(row=>row.known&&row.shiny).length;
@@ -4228,6 +4245,17 @@
         const zone=settings.mode==='legend'&&!settings.legendTier&&DATA.zones.find(zone=>zone.id===settings.legendId&&zone.eliteOnly);
         return zone?{...settings,roamId:zone.id,roamMinutes:settings.legendMinutes}:settings;
     }
+    function roamingMasterBalls(s,targetId){
+        if(!s)return 0;
+        const group=ROAMING_DATA.groups.find(entry=>entry.ids.includes(targetId));
+        const chapter=DATA.regions.find(region=>region.key===group?.reg)?.start??s.adv?.chapter;
+        return Math.max(0,chapterItemCount(s,chapter,'master-ball'));
+    }
+    function roamingMasterBallWait(s,cfg,targetId){
+        if(cfg.roamAllowMasterBall)return '';
+        const count=roamingMasterBalls(s,targetId);
+        return count>0?`目标地区背包有 ${count} 个大师球，已暂停主动追踪。若要允许游戏消耗，请停止任务后勾选用球选项。`:'';
+    }
     function roamingProgress(s,settings,now=Date.now()){
         settings=roamingSettings(settings);
         const target=MONS.get(Number(settings.roamId)),group=ROAMING_DATA.groups.find(group=>group.ids.includes(target?.id));
@@ -4253,6 +4281,7 @@
     function bestRoamingPlan(s,cfg,ids,now,preferred,owned=[]){
         let best=null,bestPriority=0;
         for(const id of ids){
+            if(!cfg.roamAllowMasterBall&&roamingMasterBalls(s,id)>0)continue;
             const plan=roamingPlan(s,{...cfg,mode:'roam',roamId:id,roamRequireOwned:owned.includes(id)},now);
             if(!plan.row)continue;
             const priority=plan.active?5:plan.marked?4:plan.row.id===s.adv.chapter?3:id===preferred?2:1;
@@ -8383,11 +8412,10 @@
                     this.driver.pendingMap=null;this.target=null;this.visit=null;this.telemetry.sample=null;
                     this.status='地图条件已变化，重新选择搜寻路线';return;
                 }
-                if(pending.options?.roamId&&!this.settings.roamAllowMasterBall&&(Number(s.items?.['master-ball'])||0)>0){
-                    pending.started=now;this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球';return;
-                }
                 if(pending.options?.roamId){
                     const opt=pending.options;
+                    const wait=roamingMasterBallWait(s,this.settings,opt.roamId);
+                    if(wait){pending.started=now;this.lastProgress=now;this.status=wait;return;}
                     const gates=opt.roamGoals?legendRequirements(s,opt.roamGoals.filter(id=>!captured(s,id))):null;
                     const ids=opt.roamGoals?(gates?.roam||[]):opt.roamIds||[opt.roamId];
                     const best=bestRoamingPlan(s,this.settings,ids,now,opt.roamId,gates?[...gates.roamOwned]:[]);
@@ -8691,18 +8719,21 @@
             if(!remaining.length){this.completeTask('所选传说战目标已全部完成');return false;}
             const eligible=remaining.filter(({zone,captured})=>regions.has(zone.reg)&&(!cfg.legendTier||captured)&&
                 !(this.cooldowns['legend:'+zone.id]>now));
+            const blocked=goal=>!cfg.roamAllowMasterBall&&roamingMasterBalls(s,goal.zone.id)>0;
+            const unlockedRoamer=goal=>goal.roaming&&!cfg.legendTier&&roamingProgress(s,{...cfg,legendId:goal.zone.id},now).unlocked;
             const canAttempt=goal=>{
                 if(cfg.legendTier||!goal.roaming)return true;
+                if(blocked(goal))return false;
                 const plan=roamingPlan(s,{...cfg,legendId:goal.zone.id},now);
-                return plan.unlocked&&(plan.marked||plan.location)&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall);
+                return plan.unlocked&&(plan.marked||plan.location);
             };
             const tracked=!cfg.legendTier&&bestRoamingPlan(s,cfg,eligible.filter(g=>g.roaming).map(g=>g.zone.id),now,this.target?.roamId);
             const first=eligible.find(canAttempt);
-            const prefer=tracked&&(tracked.active||(cfg.roamAllowMasterBall||!s.items?.['master-ball'])&&(tracked.marked||first?.roaming));
-            const goal=(prefer&&eligible.find(g=>g.zone.id===tracked.target.id))||first||eligible.find(g=>g.roaming&&!cfg.legendTier&&
-                roamingProgress(s,{...cfg,legendId:g.zone.id},now).unlocked&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall));
+            const prefer=tracked&&(tracked.active||tracked.marked||first?.roaming);
+            const goal=(prefer&&eligible.find(g=>g.zone.id===tracked.target.id))||first||eligible.find(g=>unlockedRoamer(g)&&!blocked(g));
             if(!goal){
-                this.status='还有 '+remaining.length+' 个传说目标，等待地区、地图、普通捕获或游荡条件满足';
+                const reserved=eligible.find(g=>unlockedRoamer(g)&&blocked(g));
+                this.status=reserved?roamingMasterBallWait(s,cfg,reserved.zone.id):'还有 '+remaining.length+' 个传说目标，等待地区、地图、普通捕获或游荡条件满足';
                 this.lastProgress=now;return false;
             }
             if(goal.zone.id!==cfg.legendId){
@@ -8719,7 +8750,8 @@
             if(!plan.target){this.failTask('无法识别所选游荡宝可梦');return;}
             if(plan.done){if(!prerequisite)this.completeTask('指定游荡宝可梦已确认捕获');return;}
             if(!plan.unlocked){this.lastProgress=now;this.status=`等待${MONS.get(plan.target.id)?.name}游荡开放 · 需要${DATA.regions.find(region=>region.key===plan.group.reg)?.name}冠军及地区解锁`;return;}
-            if((Number(s.items?.['master-ball'])||0)>0&&!cfg.roamAllowMasterBall){this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球，再开始主动追踪';return;}
+            const wait=roamingMasterBallWait(s,cfg,plan.target.id);
+            if(wait){this.lastProgress=now;this.status=wait;return;}
             if(cfg.roamMinutes>0&&this.roamStarted!=null&&now-this.roamStarted>=cfg.roamMinutes*60000){this.failTask('达到游荡目标在线搜寻时限，已停止助手规划');return;}
             if(s.adv.speed!==cfg.speed){if(d.nav('adventure'))d.click($(`#speed-btns [data-speed="${cfg.speed}"]`),'设置游荡捕获速度');return;}
             if(plan.active){this.roamStarted??=now;this.status=`游荡战斗 · ${plan.target.name} · 捕获后以存档确认完成`;d.nav('adventure');return;}
@@ -9229,7 +9261,7 @@
             this.farmWait={mode:this.settings.mode};this.lastProgress=now;this.status=reason;
         }
         pursueGateRoamer(s,cfg,plan,now){
-            if(!cfg.legends||cfg.dexWeather?.length||!plan.roam.size||s.items?.['master-ball']&&!cfg.roamAllowMasterBall)return false;
+            if(!cfg.legends||cfg.dexWeather?.length||!plan.roam.size)return false;
             const best=bestRoamingPlan(s,cfg,plan.roam,now,this.target?.roamId,[...plan.roamOwned]);
             if(!best)return false;
             const id=best.target.id;
@@ -9303,14 +9335,15 @@
             if(plan.progress&&cfg.progress&&(this.canProgress(s)||cfg.autoTravel)){this.progress(s,now);return true;}
             const names=ids=>[...ids].slice(0,4).map(id=>MONS.get(id)?.name||id).join('、');
             const details=[...plan.notes];
-            if(plan.roam.size)details.push('等待游荡 · '+names(plan.roam)+(s.items?.['master-ball']&&!cfg.roamAllowMasterBall?'（受大师球设置限制）':''));
+            const roamIds=[...plan.roam],availableRoam=roamIds.filter(id=>cfg.roamAllowMasterBall||roamingMasterBalls(s,id)===0);
+            if(roamIds.length)details.push('等待游荡 · '+names(roamIds)+(availableRoam.length<roamIds.length?'（有目标受大师球保护限制）':''));
             if(plan.zones.size)details.push(enabled?'等待传说入口开放':'请检查传说战开关和天气筛选');
             if(plan.items.size)details.push('待取得 '+[...plan.items].map(id=>ITEMS.get(id)?.name||(id==='auroraticket'?'极光船票':id)).join('、'));
             if(plan.wild.size)details.push('待登记 '+names(plan.wild)+'，可在图鉴查看进化、赠送或交换条件');
             if(plan.elites.size)details.push('需要开放地下通道与对应精英阶级');
             if(plan.progress&&!cfg.progress)details.push('可开启无目标时推进主线');
-            if(enabled&&plan.roam.size&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall)){
-                for(const id of plan.roam){
+            if(enabled){
+                for(const id of availableRoam){
                     const sub={...cfg,mode:'roam',roamId:id,roamRequireOwned:plan.roamOwned.has(id)},state=roamingProgress(s,sub,now);
                     if(!state.done&&state.unlocked){this.roaming(s,now,sub,true,{roamGoals:plan.goals});return true;}
                 }
@@ -9432,13 +9465,51 @@
     .dex-searchbar input { flex:1; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #465b70; border-radius:8px; background:#0f1927; color:#edf4f8 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
     #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
-    .nursery-heading, .nursery-tools { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap }
+    .roam-ball-control { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:8px 0; padding:7px 8px; border:1px solid #3b4e63; border-radius:8px }
+    .roam-ball-control > strong { margin-inline-start:auto; color:#b1e6d6; font-size:11px; font-variant-numeric:tabular-nums }
+    .roam-ball-control > .hint { flex-basis:100%; margin:0 }
+    .nursery-card { background:#172335; border:1px solid #3b4e63; border-radius:12px; padding:10px }
+    .nursery-heading, .nursery-tools, .nursery-section-heading { display:flex; align-items:center; justify-content:space-between; gap:6px 10px; flex-wrap:wrap }
     .nursery-heading h3 { margin:0!important; font-size:15px!important }
-    #nursery-summary { color:#aac2cc; font-variant-numeric:tabular-nums }
+    .nursery-section-heading { margin:14px 0 6px }
+    .nursery-section-heading h3 { margin:0!important }
+    #nursery-summary, #nursery-parent-summary { color:#aac2cc; font-size:11px; font-variant-numeric:tabular-nums }
+    .nursery-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin:8px 0; padding:6px 0; text-align:center; font-size:11px; color:#b7c8d7; background:#111c2d; border-radius:8px }
+    .nursery-metrics b { display:block; color:#e0f1ed; font-size:16px; font-variant-numeric:tabular-nums }
+    .nursery-metrics > div + div { border-left:1px solid #334655 }
+    .nursery-egg { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; align-items:start; padding:7px 0; border-bottom:1px solid #344459 }
+    .nursery-egg > div { min-width:0; overflow-wrap:anywhere }
+    .nursery-egg > span { color:#b6c7d5; font-size:11px; font-variant-numeric:tabular-nums }
+    .nursery-egg[data-shiny=true] > div { color:#ffe1a3 }
+    #nursery-eggs:empty, #nursery-feed:empty, #nursery-forecast:empty { display:none }
     .nursery-tools { margin-top:10px; padding:8px 0; border-block:1px solid #34495d }
+    #nursery-parents { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(130px,100%),1fr)); gap:5px }
+    .nursery-parent { display:grid; grid-template-columns:auto minmax(0,1fr); align-content:start; gap:1px 5px; padding:5px 6px; border:1px solid #344459; border-radius:7px; background:#111c2d; overflow-wrap:anywhere }
+    .nursery-parent small { grid-column:2; color:#aebed2; font-size:11px }
+    .nursery-slot, .nursery-current, #nursery-prediction-state { align-self:start; border-radius:4px; padding:1px 4px; color:#b1e6d6; background:#24433f; font-size:10px }
+    #nursery-prediction-state[data-certainty=reference] { color:#ffdc91; background:#443725 }
+    .nursery-laying { padding-top:7px }
+    .nursery-laying > div { display:flex; justify-content:space-between; flex-wrap:wrap; gap:2px 8px; color:#b7c8d7; font-size:11px }
+    .nursery-card progress { display:block; width:100%; height:5px; margin:4px 0; accent-color:#79dcba }
+    .nursery-next-card { background:#101b2b; border-left:2px solid #79dcba; border-radius:7px; padding:8px; overflow-wrap:anywhere }
+    .nursery-next-card .sub { margin-top:3px }
     #nursery-berry-plan:not([hidden]) { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 10px; background:#10282b; border-left:3px solid #69cbb0; padding:9px; border-radius:6px }
     #nursery-berry-plan dt { color:#a2ddc9; font-size:11px }
     #nursery-berry-plan dd { margin:0; overflow-wrap:anywhere; font-size:12px }
+    #nursery-comparison { padding:7px 9px; border:1px solid #3b4e63; border-radius:8px }
+    #nursery-comparison > summary { padding:2px 0; font-weight:650 }
+    #nursery-comparison-grid { display:grid; gap:6px; margin-top:7px }
+    .nursery-scenario { min-width:0; background:#111c2d; border:1px solid #344459; border-radius:7px; padding:6px 8px }
+    .nursery-scenario-heading { display:flex; align-items:center; flex-wrap:wrap; gap:4px 8px; font-size:12px }
+    .nursery-rate { color:#aac2cc; font-variant-numeric:tabular-nums }
+    .nursery-scenario[data-berry=true] .nursery-rate { color:#d6b8f8 }
+    .nursery-predictions { list-style:none; padding:0; margin:5px 0 0 }
+    .nursery-predictions li { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:6px; padding:3px 0; border-top:1px solid #2f4052; font-size:11px }
+    .nursery-predictions li > span { display:flex; align-items:baseline; flex-wrap:wrap; gap:0 6px; min-width:0 }
+    .nursery-predictions li b { color:#e1eaf1 }
+    .nursery-predictions small { color:#b2c3d4; font-size:inherit; overflow-wrap:anywhere }
+    .nursery-predictions code { color:#a9d5c9; font-variant-numeric:tabular-nums }
+    .nursery-preference { margin-top:10px }
     #nursery-eggs .nursery-egg[data-ready=true] > span { color:#99e6bd }
     .metrics { gap:0; margin:6px 0 12px; padding:7px 0; background:#172637; border-radius:9px }
     .metric { background:transparent; border:0; border-radius:0; padding:2px 4px; line-height:1.45 }
@@ -9897,18 +9968,31 @@
             <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
-            <h3>下一枚与闪蛋预测</h3><div id="nursery-next" class="sub"></div><div id="nursery-forecast" class="sub"></div>
-            <div id="nursery-feed" class="sub"></div>
+            <div class="nursery-section-heading"><h3>寄养亲本</h3><span id="nursery-parent-summary"></span></div>
+            <div id="nursery-parents"></div>
+            <div id="nursery-laying" class="nursery-laying" hidden>
+                <div><span>自然产蛋进度</span><b id="nursery-laying-time"></b></div>
+                <progress id="nursery-laying-progress" aria-label="自然产蛋进度"></progress>
+            </div>
+            <div class="nursery-section-heading"><h3>闪光蛋预测</h3><span id="nursery-prediction-state"></span></div>
+            <div class="nursery-next-card">
+                <strong id="nursery-next"></strong><div id="nursery-forecast" class="sub"></div>
+                <div id="nursery-feed" class="sub"></div>
+            </div>
             <dl id="nursery-berry-plan" hidden><dt>首枚无果闪蛋</dt><dd id="nursery-natural"></dd><dt>最近的用果窗口</dt><dd id="nursery-berry-only"></dd></dl>
+            <details id="nursery-comparison" open>
+                <summary>四种条件对照</summary>
+                <p class="hint" id="nursery-comparison-note"></p>
+                <div id="nursery-comparison-grid"></div>
+            </details>
             <div id="nursery-condition" class="hint"></div>
-            <details id="nursery-rules"><summary>预测依据与亲本对照</summary><div id="nursery-basis" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
+            <details id="nursery-rules"><summary>预测依据</summary><div id="nursery-basis" class="hint"></div><div id="nursery-scenarios" class="hint"></div></details>
             <div id="nursery-observed" class="sub"></div><div id="nursery-segment" class="hint"></div><div id="nursery-error" class="hint warn"></div>
             <label class="nursery-preference"><input id="nursery-hints" type="checkbox">标记游戏孵化器中的闪光蛋</label>
             <div class="actions"><button id="nursery-export">导出蛋统计</button><button id="nursery-reset">清空观测统计</button></div>
             <div class="hint">闪蛋统计从首次观测开始。清空后从当前孵化器重新计数。</div>
             <details><summary>最近孵化与观测</summary><div id="nursery-recent"></div><div id="nursery-events"></div></details>`;
         root.querySelector('#pane-eggs').appendChild(box);
-        const style=document.createElement('style');style.textContent='.nursery-card{border:1px solid #3c4c62;border-radius:11px;padding:9px 10px;background:#172335}.nursery-card>summary{color:#d4e4ed;font-size:12px}.nursery-card.has-shiny>summary{color:#ffe096}.nursery-metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:8px 0}.nursery-metrics>div{text-align:center;font-size:10px;background:#101b2b;border-radius:8px;padding:7px 3px}.nursery-metrics b{display:block;font-size:17px;color:#a6e4d1}.nursery-metrics>div:first-child b{color:#ffdb85}.nursery-egg{display:flex;justify-content:space-between;gap:6px;font-size:11px;padding:6px 0;border-bottom:1px solid #304157}.nursery-egg[data-shiny=true]{color:#ffdf91}.nursery-preference{font-size:11px;margin:9px 0}.nursery-egg span:last-child{text-align:right}.nursery-event{font-size:10px;margin:5px 0;color:#9aafc5}';root.appendChild(style);
         const nodes=new Map([...box.querySelectorAll('[id]')].map(node=>['#'+node.id,node]));
         const query=selector=>nodes.get(selector),hints=query('#nursery-hints');hints.checked=preferences.nurseryHints!==false;
         function write(selector,value){
@@ -9933,6 +10017,11 @@
         }
         function name(id){return MONS.get(id)?.name||'未知物种';}
         function percent(rate){return (rate*100).toLocaleString('zh-CN',{maximumFractionDigits:3})+'%';}
+        function label(tag,text,className){
+            const node=document.createElement(tag);node.textContent=text;
+            if(className)node.className=className;
+            return node;
+        }
         function eggEvidence(row){
             if(row.certainty==='saved')return '存档已记录';
             if(row.certainty==='deterministic')return row.source==='legacy'?'按旧蛋标识确定':'按蛋序号确定';
@@ -9951,7 +10040,54 @@
             }
             if(!document.getElementById('pokecatch-nursery-hints')){const css=document.createElement('style');css.id='pokecatch-nursery-hints';css.textContent='#pen-eggs [data-pch-shiny="1"]{position:relative;outline:2px solid #ffdc79;outline-offset:2px}#pen-eggs [data-pch-nursery-tag]{position:absolute;top:3px;left:3px;right:3px;padding:1px 3px;border-radius:4px;background:#352a14ef;color:#ffe6a0;font:10px/1.3 system-ui;pointer-events:none;white-space:normal;z-index:1}';(document.head||document.documentElement).appendChild(css);}
         }
-        let forecastKey,forecast,scan,scanTimer,eggListKey,historyKey;
+        let forecastKey,forecast,scan,scanTimer,eggListKey,historyKey,parentKey,shownComparison;
+        function renderParents(s,pool){
+            const parents=query('#nursery-parents'),residents=Array.isArray(s.pension?.mons)?s.pension.mons:[];
+            const key=JSON.stringify([pool.known,residents.map(row=>[row?.mon?.id,row?.mon?.shiny]),pool.parents]);
+            write('#nursery-parent-summary',residents.length+' 只寄养 · '+pool.parents.length+' 只可抽中');
+            if(parentKey===key)return;
+            parentKey=key;
+            const eligible=new Map(pool.parents.map(parent=>[parent.slot,parent]));
+            parents.replaceChildren(...residents.map((resident,index)=>{
+                const mon=resident?.mon;
+                const parent=eligible.get(index+1),ditto=mon?.id===NURSERY_RULES.ditto;
+                const row=label('div','','nursery-parent');
+                row.append(label('span',(index+1)+' 号','nursery-slot'),
+                    label('strong',(mon?.shiny===true||mon?.shiny===1?'✦ ':'')+name(mon?.id)),
+                    label('small',ditto?'自然产蛋所需':parent?'产出 '+name(parent.eggId):pool.known?'未进入亲本池':'亲本待核对'));
+                return row;
+            }));
+            if(!residents.length)parents.append(label('p','尚未寄养亲本。','hint'));
+        }
+        function renderComparisons(f){
+            const section=query('#nursery-comparison'),grid=query('#nursery-comparison-grid');
+            const hidden=!f?.active;
+            if(section.hidden!==hidden)section.hidden=hidden;
+            if(shownComparison===f)return;
+            shownComparison=f;grid.replaceChildren();
+            if(!f?.active)return;
+            const mixed=f.pool.some(parent=>parent.shiny)&&f.pool.some(parent=>!parent.shiny);
+            write('#nursery-comparison-note',(f.known?'':'旧规则参考。')+
+                '沿用当前槽位。用果行假设为每枚候选蛋单独提前喂果。'+(mixed?'混合亲本请以上方当前预测为准。':''));
+            for(const rule of f.comparisons){
+                const group=label('section','','nursery-scenario');
+                group.dataset.berry=String(rule.berry);
+                const current=f.known&&!mixed&&rule.shiny===f.pool[0].shiny;
+                const heading=label('div','','nursery-scenario-heading');
+                heading.append(label('strong',rule.label),label('span','1/'+Math.round(1/rule.rate),'nursery-rate'));
+                if(current)heading.append(label('span','当前亲本','nursery-current'));
+                const list=label('ol','','nursery-predictions');
+                for(const hit of rule.hits){
+                    const entry=label('li','');
+                    const offset=hit.position===1?'下一枚':(hit.position-1)+' 枚后';
+                    const body=label('span','');
+                    body.append(label('b',offset),label('small',hit.parent.slot+' 号位 '+name(hit.parent.id)+' → '+name(hit.eggId)));
+                    entry.append(body,label('code','k='+hit.k));list.append(entry);
+                }
+                if(!rule.hits.length)list.append(label('li','前 '+f.scanned+' 枚未找到。'));
+                group.append(heading,list);grid.append(group);
+            }
+        }
         const visiblePanel=()=>!box.closest('[hidden]')&&!root.querySelector('.panel').classList.contains('hidden')&&!document.hidden;
         function cancelScan(){
             clearTimeout(scanTimer);scanTimer=null;
@@ -9989,14 +10125,20 @@
             query('#nursery-plan').disabled=engine.running||!!engine.suspended||!sameAccount;
             // In older saves the native counter is initialized only when the next egg is laid.
             const laid=s.pension?.laid,counterKey=laid==null?[snap.hatched,Array.isArray(s.pension?.eggs)?snap.counts.total:null]:laid;
-            const key=JSON.stringify([options.build,nurserySeed(s),counterKey,Object.hasOwn(s.pension||{},'bx')?[s.pension.bx]:[],nurseryParentPool(s)]);
+            const pool=nurseryParentPool(s);
+            renderParents(s,pool);
+            const key=JSON.stringify([options.build,nurserySeed(s),counterKey,Object.hasOwn(s.pension||{},'bx')?[s.pension.bx]:[],pool]);
             if(key!==forecastKey){
                 cancelScan();forecastKey=key;forecast=null;
-                scan=nurseryForecastSteps(s,{...options,estimateUnverified:true});advance();
+                scan=nurseryForecastSteps(s,{...options,estimateUnverified:true,compare:true});advance();
             }
             snap.forecast=forecast;
             write('#nursery-shiny',snap.counts.unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
+            write('#nursery-prediction-state',!f?'计算中':f.estimated?'旧规则参考':f.active?'当前条件预测':'条件待确认');
+            const indicator=query('#nursery-prediction-state'),certainty=f?.certainty||'working';
+            if(indicator.dataset.certainty!==certainty)indicator.dataset.certainty=certainty;
+            renderComparisons(f);
             if(!f){
                 write('#nursery-next','正在计算当前亲本的闪蛋序列…');
                 for(const id of ['forecast','scenarios','basis','feed'])write('#nursery-'+id,'');
@@ -10023,23 +10165,30 @@
                         ` · 等下一枚编号变成 #${f.firstBerryOnly.k} 再喂`):''):'');
                 const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
                 const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];
-                write('#nursery-scenarios',f.active?windowPrefix+`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}首枚闪蛋对照 · 全普通亲本 ${position(scenarios.plainParents)}，全异色亲本 ${position(scenarios.shinyParents)}，仅下一枚用果 ${position(scenarios.berryNext)}。`:'');
+                write('#nursery-scenarios',f.active?windowPrefix+`${effect?'保持下一枚的蛋号和树果状态时，'+effect+'。 ':''}仅下一枚用果时，首枚闪蛋为${position(scenarios.berryNext)}。`:'');
                 const buildBasis=options.launcherBuild?`启动器 ${options.launcherBuild} 沿用已核对的游戏程序 ${options.bundle}。`:
                     f.rateVerified?`游戏构建 ${options.build} 的蛋规则已核对。`:`当前构建 ${options.build} 尚未核对，参考预测沿用 ${NURSERY_RULES.build} 的规则。`;
                 const counterBasis=f.counterSource==='native-initializer'?' 下一蛋号按游戏初始化规则取累计孵化数加现存蛋数。':'';
                 write('#nursery-basis',buildBasis+counterBasis+' 已产蛋优先读存档标记。');
             }
-            const progress=s.pension?.egg,condition=[`孵化器 ${snap.counts.total}/${snap.capacity} · 寄养 ${s.pension?.mons?.length||0} 只。`];
-            if(f?.rateVerified&&f.hasDitto&&f.pool.length&&Number.isFinite(progress)&&progress>=0){
-                const minutes=Math.floor(Math.min(progress,NURSERY_RULES.eggMs)/60000);
-                condition.push(`存档产蛋进度 ${minutes}/${NURSERY_RULES.eggMs/60000} 分钟。`);
+            const progress=s.pension?.egg,savedGoal=s.pension?.eggGoal,condition=[];
+            const goal=Number.isFinite(savedGoal)&&savedGoal>0?savedGoal:NURSERY_RULES.eggMs;
+            const showLaying=!!f?.rateVerified&&pool.known&&pool.hasDitto&&pool.parents.length>0&&Number.isFinite(progress)&&progress>=0;
+            query('#nursery-laying').hidden=!showLaying;
+            if(showLaying){
+                const bar=query('#nursery-laying-progress'),value=Math.min(progress,goal);
+                if(bar.max!==goal)bar.max=goal;
+                if(bar.value!==value||!bar.hasAttribute('value'))bar.value=value;
+                const full=snap.counts.total>=snap.capacity;
+                write('#nursery-laying-time',full?'等待空出蛋位':value===goal?'等待游戏产蛋':'预计还需 '+duration(goal-value));
+                condition.push(`存档产蛋进度 ${Math.floor(value/60000)}/${Math.floor(goal/60000)} 分钟。`);
             }
             if(snap.counts.total>=snap.capacity)condition.push('孵化器已满，空出蛋位后才能收下新蛋。');
-            else condition.push(`下一枚预计进入 ${snap.counts.total+1} 号位。`);
+            else if(f?.active)condition.push(`下一枚预计进入 ${snap.counts.total+1} 号位。`);
             if(f?.active)condition.push('距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。');
             if(next?.eggId===351||snap.eggRows.some(row=>row.id===351))condition.push('飘浮泡泡的形态取决于实际孵出时的培育屋天气。');
             write('#nursery-condition',condition.join(' '));
-            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.berryApplied,eggEvidence(row),duration(row.remainingMs)]));
+            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.berryApplied,row.parentId,row.laidAt,row.hatchAt,eggEvidence(row),duration(row.remainingMs)]));
             if(listKey!==eggListKey){
                 eggListKey=listKey;eggs.replaceChildren();
                 if(!snap.counts.total)eggs.textContent='孵化器目前没有蛋。';
@@ -10047,7 +10196,14 @@
                     const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.known&&row.shiny);
                     const title=document.createElement('div'),basis=document.createElement('div'),time=document.createElement('span');
                     title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+(row.known?row.shiny?'✦ 闪光':'普通':'待判定')+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
-                    basis.className='hint';basis.textContent=eggEvidence(row)+' · '+(row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果');title.appendChild(basis);
+                    basis.className='hint';basis.textContent=eggEvidence(row)+' · '+(row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果');
+                    if(row.parentId)basis.textContent+=' · 亲本 '+name(row.parentId);
+                    title.appendChild(basis);
+                    if(!row.ready&&Number.isFinite(row.laidAt)&&row.hatchAt>row.laidAt){
+                        const bar=document.createElement('progress');bar.max=row.hatchAt-row.laidAt;
+                        bar.value=Math.max(0,bar.max-row.remainingMs);bar.setAttribute('aria-label',name(row.id)+'孵化进度');
+                        title.appendChild(bar);
+                    }
                     time.textContent=duration(row.remainingMs);item.dataset.ready=String(row.ready);item.append(title,time);eggs.appendChild(item);
                 }
             }
@@ -10231,6 +10387,11 @@
             <strong>自动购买</strong><span data-purchase-state aria-hidden="true"></span>
             <input type="checkbox" role="switch" data-setting="autoPurchase" aria-label="自动购买">
         </label>`;
+        const roamingBallControl = mode => `<div class="roam-ball-control">
+            <label><input type="checkbox" data-setting="roamAllowMasterBall" aria-describedby="roam-ball-${mode}">允许游荡战消耗背包大师球</label>
+            <strong data-roam-ball-stock="${mode}"></strong>
+            <p class="hint" id="roam-ball-${mode}">赢下游荡战时，游戏会自动用掉背包里的 1 个大师球并必中。关闭时，助手跳过会用球的主动追踪。异色团体战的保底单独计数。</p>
+        </div>`;
         root.innerHTML = `<style>${PANEL_STYLE}</style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
             <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
             <nav class="workspace-nav" aria-label="助手面板">
@@ -10266,8 +10427,8 @@
                 <p class="hint">捕获窗口沿用补图鉴筛选。选择传说战后，助手会在日常待办结束后前往目标地图。</p>
             </section><div class="target" id="ordinary-target">
                 <div class="field" id="scope-field"><span>规划范围</span><select data-setting="region" aria-label="规划地区"><option value="current">当前地区</option><option value="all">所有已解锁地区</option></select></div>
-                <div data-fields="legend" class="hidden"><div class="field"><span>单选目标</span><select data-setting="legendId" aria-label="传说战目标"></select></div><details id="legend-multi"><summary>多选传说目标 · <span id="legend-count"></span></summary><div class="row"><button type="button" id="legend-all">全选</button><button type="button" id="legend-single">保留单选目标</button></div><div class="hint">至少保留一个目标。按地图顺序挑战，跳过已完成目标，暂未开放的入口稍后复查。</div><div id="legend-checks" class="list"></div></details><div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div><div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div><label class="setting"><span><input type="checkbox" data-setting="roamAllowMasterBall">允许游荡目标自动消耗库存大师球</span></label><div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div></div>
-                <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限（分钟）</span><input data-setting="roamMinutes" type="number" min="0" max="720" aria-label="游荡搜寻时限，0 为不限时"></div><label class="setting"><span><input type="checkbox" data-setting="roamAllowMasterBall">允许游戏自动使用库存大师球</span></label><div class="hint">填 0 持续在线追踪，或填 5–720 分钟限时。捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。默认不允许消耗大师球，持有大师球时会提示等待你处理。</div></div>
+                <div data-fields="legend" class="hidden"><div class="field"><span>单选目标</span><select data-setting="legendId" aria-label="传说战目标"></select></div><details id="legend-multi"><summary>多选传说目标 · <span id="legend-count"></span></summary><div class="row"><button type="button" id="legend-all">全选</button><button type="button" id="legend-single">保留单选目标</button></div><div class="hint">至少保留一个目标。按地图顺序挑战，跳过已完成目标，暂未开放的入口稍后复查。</div><div id="legend-checks" class="list"></div></details><div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div><div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>${roamingBallControl('legend')}<div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div></div>
+                <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限（分钟）</span><input data-setting="roamMinutes" type="number" min="0" max="720" aria-label="游荡搜寻时限，0 为不限时"></div>${roamingBallControl('roam')}<div class="hint">填 0 持续在线追踪，或填 5–720 分钟限时。捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。</div></div>
                 <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div></div>
                 <div data-fields="train" class="hidden"><div class="field"><span>练级对象</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><div id="train-members" class="checks"></div><label id="train-pc-field" class="field"><span>从电脑添加（最多六只）</span><select id="train-pc" aria-label="从电脑添加培育目标"><option value="">选择成员…</option></select></label><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div><label><input data-setting="trainGems" type="checkbox">使用库存宝石升阶（指定目标 · Lv.100）</label><div id="train-rank-settings"><label class="field"><span>目标阶数</span><input type="number" data-setting="trainRank" min="1" max="5"></label><small>仅对指定的最终形态生效。目标等级设为 100 后，升阶会回到 Lv.5，再练至 Lv.100。每颗宝石占一份道具额度。</small></div></div>
                 <div data-fields="progress" class="hidden"><div class="field"><span>完成章节</span><select data-setting="progressUntil" aria-label="主线目标章节"></select></div><label class="setting"><span><input type="checkbox" data-setting="autoTravel">达到条件后自动跨地区开局</span></label></div>
@@ -10375,6 +10536,7 @@
             <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null;
+        const roamingStock=[...root.querySelectorAll('[data-roam-ball-stock]')];
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
         const lookupTask=document.createElement('span');lookupTask.className='lookup-task';commandbar.querySelector('.row').prepend(lookupTask);
         const updater=new UpdateChecker({onChange:renderUpdate});let updateTouched=false;
@@ -10853,6 +11015,17 @@
             const dailyBase=engine.daily?.base||engine.settings,baseMode=engine.daily?.base.mode||dailyMainMode(dailyBase);
             const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
             const dailyCard=selectedCard()==='daily';
+            if(ui.workspace==='tasks'){
+                const cfg=dailyCard?dailyBase:engine.settings,ids=selectedLegendIds(cfg);
+                for(const el of roamingStock){
+                    const target=el.dataset.roamBallStock==='roam'?cfg.roamId:!cfg.legendTier&&ids.length===1?ids[0]:null;
+                    const group=ROAMING_DATA.groups.find(entry=>entry.ids.includes(target));
+                    const stock=roamingMasterBalls(s,target);
+                    const scope=group?DATA.regions.find(region=>region.key===group.reg)?.name||'目标地区':'当前';
+                    const value=s?.adv?`${scope}背包 · ${stock} 个`:'进入游戏后显示数量';
+                    if(el.textContent!==value)el.textContent=value;
+                }
+            }
             query('#start').disabled=locked||(dailyCard&&!canDaily);
             query('#daily-edit-goal').hidden=locked||baseMode==='legend'||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];

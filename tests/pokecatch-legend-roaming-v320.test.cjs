@@ -69,6 +69,27 @@ test('inventory Master Balls require explicit authorization before active roamin
     const {s,e,calls}=fixture(t);s.items['master-ball']=1;e.roaming(s,now);assert.match(e.status,/大师球/);assert.equal(calls.length,0);
     e.settings.roamAllowMasterBall=true;e.roaming(s,now+1200);assert.equal(calls[0][0],'travel');assert.equal(s.items['master-ball'],1);
 });
+test('the destination bag controls roaming across the active region link in both directions',t=>{
+    const {s,e,calls}=fixture(t);
+    s.adv.chapter=31;s.adv.unlocked=47;
+    s.link={from:'johto',to:'hoenn',side:'to',stash:{items:{'master-ball':2}}};
+    e.roaming(s,now);assert.match(e.status,/目标地区背包有 2 个大师球/);assert.equal(calls.length,0);
+    s.adv.chapter=14;s.link.side='from';s.items=s.link.stash.items;s.link.stash.items={};
+    e.roaming(s,now+1000);assert.match(e.status,/目标地区背包有 2 个大师球/);assert.equal(calls.length,0);
+    s.adv.chapter=31;s.link.side='to';s.link.stash.items={};
+    e.roaming(s,now+2000);assert.equal(calls[0][2].roamId,243);
+    assert.equal(s.items['master-ball'],2);
+});
+test('multi-legend selection defers only roaming targets whose own bag holds a Master Ball',t=>{
+    const {s,e}=fixture(t,{mode:'legend',legendId:243,legendIds:[243,380]});
+    s.adv.chapter=31;s.adv.unlocked=47;s.adv.badges.push('Maître Hoenn');s.roam.at[380]={ch:33,until:now+60000};
+    s.link={from:'johto',to:'hoenn',side:'to',stash:{items:{'master-ball':1}}};
+    assert.equal(e.selectLegendTarget(s,now),true);assert.equal(e.settings.legendId,380);
+    s.items['master-ball']=1;
+    assert.equal(e.selectLegendTarget(s,now),false);assert.match(e.status,/背包有 1 个大师球/);
+    e.settings.roamAllowMasterBall=true;
+    assert.equal(e.selectLegendTarget(s,now),true);assert.equal(e.settings.legendId,243);
+});
 test('valid native positions plan only the actual target chapter with a target-aware context',t=>{
     const {s,e,calls}=fixture(t);e.roaming(s,now);const travel=calls.find(call=>call[0]==='travel');assert.equal(travel[1].id,15);assert.equal(travel[2].roamId,243);assert.equal(e.roamStarted,undefined);
 });
@@ -128,6 +149,15 @@ test('a Master Ball received after planning blocks native map travel until expli
     const {e,s,calls,save}=fixture(t);s.items['master-ball']=1;save();const row={...H.DATA.chapters.find(c=>c.id===15),key:'15',members:[15]};
     e.driver.pendingMap={row,options:{roamId:243},started:now};let nativeMapCalls=0;e.driver.map=()=>{nativeMapCalls++;return true;};
     await e.step(now);assert.equal(nativeMapCalls,0);assert.equal(e.running,true);assert.match(e.status,/大师球/);assert.equal(s.items['master-ball'],1);
+});
+test('the map rechecks a change to the destination bag before entering a roaming route',async t=>{
+    const {e,s,save}=fixture(t);s.adv.chapter=31;s.adv.unlocked=47;
+    s.link={from:'johto',to:'hoenn',side:'to',stash:{items:{'master-ball':3}}};
+    const row={...H.DATA.chapters.find(c=>c.id===15),key:'15',members:[15]};
+    e.driver.pendingMap={row,options:{roamId:243},started:now};let mapCalls=0;
+    e.driver.map=()=>{mapCalls++;return true;};
+    save();await e.step(now);assert.equal(mapCalls,0);assert.match(e.status,/背包有 3 个大师球/);
+    s.link.stash.items={};save();await e.step(now+1100);assert.equal(mapCalls,1);
 });
 
 test('a settled roaming encounter immediately restarts or follows the new marker before party and berry work',t=>{

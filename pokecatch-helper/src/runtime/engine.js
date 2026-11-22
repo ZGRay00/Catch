@@ -1020,11 +1020,10 @@
                     this.driver.pendingMap=null;this.target=null;this.visit=null;this.telemetry.sample=null;
                     this.status='地图条件已变化，重新选择搜寻路线';return;
                 }
-                if(pending.options?.roamId&&!this.settings.roamAllowMasterBall&&(Number(s.items?.['master-ball'])||0)>0){
-                    pending.started=now;this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球';return;
-                }
                 if(pending.options?.roamId){
                     const opt=pending.options;
+                    const wait=roamingMasterBallWait(s,this.settings,opt.roamId);
+                    if(wait){pending.started=now;this.lastProgress=now;this.status=wait;return;}
                     const gates=opt.roamGoals?legendRequirements(s,opt.roamGoals.filter(id=>!captured(s,id))):null;
                     const ids=opt.roamGoals?(gates?.roam||[]):opt.roamIds||[opt.roamId];
                     const best=bestRoamingPlan(s,this.settings,ids,now,opt.roamId,gates?[...gates.roamOwned]:[]);
@@ -1328,18 +1327,21 @@
             if(!remaining.length){this.completeTask('所选传说战目标已全部完成');return false;}
             const eligible=remaining.filter(({zone,captured})=>regions.has(zone.reg)&&(!cfg.legendTier||captured)&&
                 !(this.cooldowns['legend:'+zone.id]>now));
+            const blocked=goal=>!cfg.roamAllowMasterBall&&roamingMasterBalls(s,goal.zone.id)>0;
+            const unlockedRoamer=goal=>goal.roaming&&!cfg.legendTier&&roamingProgress(s,{...cfg,legendId:goal.zone.id},now).unlocked;
             const canAttempt=goal=>{
                 if(cfg.legendTier||!goal.roaming)return true;
+                if(blocked(goal))return false;
                 const plan=roamingPlan(s,{...cfg,legendId:goal.zone.id},now);
-                return plan.unlocked&&(plan.marked||plan.location)&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall);
+                return plan.unlocked&&(plan.marked||plan.location);
             };
             const tracked=!cfg.legendTier&&bestRoamingPlan(s,cfg,eligible.filter(g=>g.roaming).map(g=>g.zone.id),now,this.target?.roamId);
             const first=eligible.find(canAttempt);
-            const prefer=tracked&&(tracked.active||(cfg.roamAllowMasterBall||!s.items?.['master-ball'])&&(tracked.marked||first?.roaming));
-            const goal=(prefer&&eligible.find(g=>g.zone.id===tracked.target.id))||first||eligible.find(g=>g.roaming&&!cfg.legendTier&&
-                roamingProgress(s,{...cfg,legendId:g.zone.id},now).unlocked&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall));
+            const prefer=tracked&&(tracked.active||tracked.marked||first?.roaming);
+            const goal=(prefer&&eligible.find(g=>g.zone.id===tracked.target.id))||first||eligible.find(g=>unlockedRoamer(g)&&!blocked(g));
             if(!goal){
-                this.status='还有 '+remaining.length+' 个传说目标，等待地区、地图、普通捕获或游荡条件满足';
+                const reserved=eligible.find(g=>unlockedRoamer(g)&&blocked(g));
+                this.status=reserved?roamingMasterBallWait(s,cfg,reserved.zone.id):'还有 '+remaining.length+' 个传说目标，等待地区、地图、普通捕获或游荡条件满足';
                 this.lastProgress=now;return false;
             }
             if(goal.zone.id!==cfg.legendId){
@@ -1356,7 +1358,8 @@
             if(!plan.target){this.failTask('无法识别所选游荡宝可梦');return;}
             if(plan.done){if(!prerequisite)this.completeTask('指定游荡宝可梦已确认捕获');return;}
             if(!plan.unlocked){this.lastProgress=now;this.status=`等待${MONS.get(plan.target.id)?.name}游荡开放 · 需要${DATA.regions.find(region=>region.key===plan.group.reg)?.name}冠军及地区解锁`;return;}
-            if((Number(s.items?.['master-ball'])||0)>0&&!cfg.roamAllowMasterBall){this.lastProgress=now;this.status='原生游荡捕获会自动消耗大师球；请先处理库存或明确开启允许大师球，再开始主动追踪';return;}
+            const wait=roamingMasterBallWait(s,cfg,plan.target.id);
+            if(wait){this.lastProgress=now;this.status=wait;return;}
             if(cfg.roamMinutes>0&&this.roamStarted!=null&&now-this.roamStarted>=cfg.roamMinutes*60000){this.failTask('达到游荡目标在线搜寻时限，已停止助手规划');return;}
             if(s.adv.speed!==cfg.speed){if(d.nav('adventure'))d.click($(`#speed-btns [data-speed="${cfg.speed}"]`),'设置游荡捕获速度');return;}
             if(plan.active){this.roamStarted??=now;this.status=`游荡战斗 · ${plan.target.name} · 捕获后以存档确认完成`;d.nav('adventure');return;}
@@ -1866,7 +1869,7 @@
             this.farmWait={mode:this.settings.mode};this.lastProgress=now;this.status=reason;
         }
         pursueGateRoamer(s,cfg,plan,now){
-            if(!cfg.legends||cfg.dexWeather?.length||!plan.roam.size||s.items?.['master-ball']&&!cfg.roamAllowMasterBall)return false;
+            if(!cfg.legends||cfg.dexWeather?.length||!plan.roam.size)return false;
             const best=bestRoamingPlan(s,cfg,plan.roam,now,this.target?.roamId,[...plan.roamOwned]);
             if(!best)return false;
             const id=best.target.id;
@@ -1940,14 +1943,15 @@
             if(plan.progress&&cfg.progress&&(this.canProgress(s)||cfg.autoTravel)){this.progress(s,now);return true;}
             const names=ids=>[...ids].slice(0,4).map(id=>MONS.get(id)?.name||id).join('、');
             const details=[...plan.notes];
-            if(plan.roam.size)details.push('等待游荡 · '+names(plan.roam)+(s.items?.['master-ball']&&!cfg.roamAllowMasterBall?'（受大师球设置限制）':''));
+            const roamIds=[...plan.roam],availableRoam=roamIds.filter(id=>cfg.roamAllowMasterBall||roamingMasterBalls(s,id)===0);
+            if(roamIds.length)details.push('等待游荡 · '+names(roamIds)+(availableRoam.length<roamIds.length?'（有目标受大师球保护限制）':''));
             if(plan.zones.size)details.push(enabled?'等待传说入口开放':'请检查传说战开关和天气筛选');
             if(plan.items.size)details.push('待取得 '+[...plan.items].map(id=>ITEMS.get(id)?.name||(id==='auroraticket'?'极光船票':id)).join('、'));
             if(plan.wild.size)details.push('待登记 '+names(plan.wild)+'，可在图鉴查看进化、赠送或交换条件');
             if(plan.elites.size)details.push('需要开放地下通道与对应精英阶级');
             if(plan.progress&&!cfg.progress)details.push('可开启无目标时推进主线');
-            if(enabled&&plan.roam.size&&(!s.items?.['master-ball']||cfg.roamAllowMasterBall)){
-                for(const id of plan.roam){
+            if(enabled){
+                for(const id of availableRoam){
                     const sub={...cfg,mode:'roam',roamId:id,roamRequireOwned:plan.roamOwned.has(id)},state=roamingProgress(s,sub,now);
                     if(!state.done&&state.unlocked){this.roaming(s,now,sub,true,{roamGoals:plan.goals});return true;}
                 }

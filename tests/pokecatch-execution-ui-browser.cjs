@@ -37,6 +37,24 @@ async function main(){
         })()`);
         assert.deepEqual(standby,['wait',true,'xp',true,'xp']);
         checks.push('weather standby is visible for a hunt and keeps its selection after switching tasks');
+        const roamingBalls=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,s=fixtureState,initial={...e.settings};
+            const pick=(field,value)=>{const input=r.querySelector('[data-setting="'+field+'"]');input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));};
+            try{
+                s.adv.chapter=31;s.link={from:'johto',to:'hoenn',side:'to',stash:{items:{'master-ball':2}}};commitExecution();
+                r.querySelector('[data-mode="roam"]').click();pick('roamId','245');
+                const stock=r.querySelector('[data-roam-ball-stock="roam"]'),check=r.querySelector('[data-fields="roam"] input[data-setting="roamAllowMasterBall"]');
+                const before=[stock.textContent,check.checked,!!stock.getClientRects().length];check.click();
+                const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+s.trainer.id)).settings.roamAllowMasterBall;
+                pick('roamId','380');
+                const destination=stock.textContent;pick('roamId','245');s.link.stash.items={};commitExecution();
+                return [before,saved,destination,stock.textContent,r.querySelector('#roam-ball-roam').textContent.includes('异色团体战的保底单独计数')];
+            }finally{
+                s.adv.chapter=0;delete s.link;e.settings=initial;e.persist();commitExecution();
+            }
+        })()`);
+        assert.deepEqual(roamingBalls,[['城都背包 · 2 个',false,true],true,'丰缘背包 · 0 个','城都背包 · 0 个',true]);
+        checks.push('roaming displays the destination inventory and persists the shared opt-in while distinguishing raid pity');
         const daily=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;
             const choices=[...r.querySelectorAll('.modes [data-group="adventure"]')].filter(el=>el.getClientRects().length);
             if(choices.map(el=>el.dataset.mode).join(',')!=='dex,money,progress,daily'||r.querySelector('#daily-routine').getClientRects().length)throw Error('Adventure task grid');

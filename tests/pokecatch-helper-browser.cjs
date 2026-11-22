@@ -287,7 +287,22 @@ async function main() {
         assert.equal(timed.running, true); assert.ok(timed.cooldowns.some(expiry => expiry > timed.now));
         const stopped = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('test-stop');const before=mock.actions;await e.step();e.driver.click(document.querySelector('#tabs button'),'must not click');return{before,after:mock.actions,running:e.running}})()`);
         assert.equal(stopped.before, stopped.after); assert.equal(stopped.running, false);
-        const setUI = async values => evaluate(`(()=>{const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,folded=root.querySelector('.panel').classList.contains('hidden');if(folded)root.querySelector('.mini').click();__pcTest.engine.onChange();for(const [key,value] of Object.entries(${JSON.stringify(values)})){const el=root.querySelector('[data-setting="'+key+'"]');if(el.type==='checkbox')el.checked=value;else el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}))}if(folded)root.querySelector('#fold').click()})()`);
+        const setUI = async values => evaluate(`(()=>{
+            const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,folded=root.querySelector('.panel').classList.contains('hidden');
+            if(folded)root.querySelector('.mini').click();
+            __pcTest.engine.onChange();
+            for(const [key,value] of Object.entries(${JSON.stringify(values)})){
+                if(key==='legendId'){
+                    const picker=root.querySelector('#legend-picker');picker.open=true;
+                    picker.querySelector('[value="'+value+'"]').closest('.legend-option').querySelector('button').click();
+                    picker.open=false;continue;
+                }
+                const el=root.querySelector('[data-setting="'+key+'"]');
+                if(el.type==='checkbox')el.checked=value;else el.value=value;
+                el.dispatchEvent(new Event('change',{bubbles:true}));
+            }
+            if(folded)root.querySelector('#fold').click();
+        })()`);
         const tick = async () => evaluate('(async()=>{const e=__pcTest.engine;e.driver.lastClick=0;await tickWithTeam(e);e.onChange()})()');
         const waitForMap = async () => {
             const deadline=Date.now()+5000;

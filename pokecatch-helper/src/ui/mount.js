@@ -69,7 +69,21 @@
                 <p class="hint">捕获窗口沿用补图鉴筛选。选择传说战后，助手会在日常待办结束后前往目标地图。</p>
             </section><div class="target" id="ordinary-target">
                 <div class="field" id="scope-field"><span>规划范围</span><select data-setting="region" aria-label="规划地区"><option value="current">当前地区</option><option value="all">所有已解锁地区</option></select></div>
-                <div data-fields="legend" class="hidden"><div class="field"><span>单选目标</span><select data-setting="legendId" aria-label="传说战目标"></select></div><details id="legend-multi"><summary>多选传说目标 · <span id="legend-count"></span></summary><div class="row"><button type="button" id="legend-all">全选</button><button type="button" id="legend-single">保留单选目标</button></div><div class="hint">至少保留一个目标。按地图顺序挑战，跳过已完成目标，暂未开放的入口稍后复查。</div><div id="legend-checks" class="list"></div></details><div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div><div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>${roamingBallControl('legend')}<div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div></div>
+                <div data-fields="legend" class="hidden">
+                    <details id="legend-picker" class="legend-picker">
+                        <summary><strong>传说目标</strong><span id="legend-selection"></span></summary>
+                        <div class="legend-tools">
+                            <input type="search" id="legend-search" placeholder="搜宝可梦、地点或地区" aria-label="搜索传说目标">
+                            <button type="button" id="legend-all" title="选中所有地区的传说目标">全选</button>
+                        </div>
+                        <div id="legend-checks" class="legend-list"></div>
+                        <div id="legend-empty" class="hint" role="status" hidden>没有匹配的传说目标。</div>
+                        <div class="legend-footer"><span id="legend-count" role="status"></span><span>按地图顺序挑战，跳过已完成目标</span></div>
+                    </details>
+                    <div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div>
+                    <div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>
+                    ${roamingBallControl('legend')}<div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div>
+                </div>
                 <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限（分钟）</span><input data-setting="roamMinutes" type="number" min="0" max="720" aria-label="游荡搜寻时限，0 为不限时"></div>${roamingBallControl('roam')}<div class="hint">填 0 持续在线追踪，或填 5–720 分钟限时。捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。</div></div>
                 <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div></div>
                 <div data-fields="train" class="hidden"><div class="field"><span>练级对象</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><div id="train-members" class="checks"></div><label id="train-pc-field" class="field"><span>从电脑添加（最多六只）</span><select id="train-pc" aria-label="从电脑添加培育目标"><option value="">选择成员…</option></select></label><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div><label><input data-setting="trainGems" type="checkbox">使用库存宝石升阶（指定目标 · Lv.100）</label><div id="train-rank-settings"><label class="field"><span>目标阶数</span><input type="number" data-setting="trainRank" min="1" max="5"></label><small>仅对指定的最终形态生效。目标等级设为 100 后，升阶会回到 Lv.5，再练至 Lv.100。每颗宝石占一份道具额度。</small></div></div>
@@ -280,7 +294,9 @@
         }
         function fold(value) { const changed=!!ui.folded!==value;ui.folded = value; query('.panel').classList.toggle('hidden', value); query('.mini').classList.toggle('hidden', !value); saveUI();if(changed)render();place(); }
         function renderEnvironment(now){
-            query('#execution-environment').textContent=backgroundKeepalive(now)?'保活扩展已启用，心跳有效，助手拥有后台运行许可。浏览器冻结时会保留任务并等待恢复。':pageHidden()?'当前标签在后台，等待回到游戏后继续。可在游戏页启用包内的保持激活扩展。':'当前游戏页面可操作。切走后要继续推图，可加载完整包里的 pokecatch-keep-active，并在游戏页开启。';
+            const node=query('#execution-environment');
+            const text=backgroundKeepalive(now)?'保活扩展已启用，心跳有效，助手拥有后台运行许可。浏览器冻结时会保留任务并等待恢复。':document.hidden?'当前标签在后台，等待回到游戏后继续。可在游戏页启用包内的保持激活扩展。':'当前游戏页面可操作。切走后要继续推图，可加载完整包里的 pokecatch-keep-active，并在游戏页开启。';
+            if(node.textContent!==text)node.textContent=text;
         }
         let serviceSignature=null;
         function renderExecution(s,now){
@@ -310,29 +326,68 @@
             fold(false);render();place();return true;
         };
         restorePanel=helperAPI.show;
-        const legendChecks=query('#legend-checks');
+        const legendPicker=query('#legend-picker'),legendChecks=query('#legend-checks'),legendSearch=query('#legend-search');
+        const legendGroups=[],legendEntries=new Map();
         for(const region of DATA.regions){
             const section=document.createElement('fieldset'),title=document.createElement('legend');
             title.textContent=region.name;section.append(title);
+            const entries=[];
             for(const zone of DATA.zones.filter(zone=>zone.reg===region.key)){
-                const label=document.createElement('label'),input=document.createElement('input');
+                const mon=MONS.get(zone.id),name=zone.monName||mon?.name||String(zone.id);
+                const row=document.createElement('div'),label=document.createElement('label'),input=document.createElement('input');
+                const text=document.createElement('span'),species=document.createElement('strong'),place=document.createElement('small');
+                row.className='legend-option';
                 input.type='checkbox';input.value=zone.id;
-                label.append(input,(zone.monName||MONS.get(zone.id)?.name||zone.id)+' · '+zone.name);
-                section.append(label);
+                species.textContent=name;place.textContent=zone.name;text.append(species,place);label.append(input,text);
+                const only=document.createElement('button');
+                only.type='button';only.textContent='仅选';only.setAttribute('aria-label','仅选'+name+' · '+zone.name);
+                only.onclick=()=>{
+                    if(changeSetting('legendIds',[zone.id])){
+                        legendPicker.open=false;legendPicker.querySelector('summary').focus();
+                    }
+                };
+                const entry={row,input,only,name,place:zone.name,search:`${name} ${zone.name} ${region.name} ${mon?.key||''} ${zone.id}`.toLowerCase()};
+                entries.push(entry);legendEntries.set(zone.id,entry);
+                row.append(label,only);section.append(row);
             }
-            legendChecks.append(section);
+            if(entries.length){legendGroups.push({section,entries});legendChecks.append(section);}
         }
         legendChecks.onchange=()=>{
-            const ids=[...legendChecks.querySelectorAll('input:checked')].map(input=>Number(input.value));
+            const ids=[...legendEntries].filter(([,entry])=>entry.input.checked).map(([id])=>id);
             if(ids.length)changeSetting('legendIds',ids);
             else syncSettings();
         };
-        query('#legend-all').onclick=()=>changeSetting('legendIds',DATA.zones.map(zone=>zone.id));
-        query('#legend-single').onclick=()=>changeSetting('legendId',engine.settings.legendId);
-        for (const region of DATA.regions) {
-            const group = document.createElement('optgroup'); group.label = region.name;
-            for (const zone of DATA.zones.filter(z => z.reg === region.key)) { const option = document.createElement('option'); option.value = zone.id; option.textContent = `${zone.monName || MONS.get(zone.id)?.name || zone.id} · ${zone.name}`; group.appendChild(option); }
-            query('[data-setting="legendId"]').appendChild(group);
+        const legendAll=query('#legend-all');
+        legendAll.textContent='全选 '+legendEntries.size+' 项';
+        legendAll.onclick=()=>changeSetting('legendIds',[...legendEntries.keys()]);
+        function filterLegendTargets(){
+            const words=legendSearch.value.trim().toLowerCase().split(/\s+/);
+            let found=false;
+            for(const {section,entries} of legendGroups){
+                let visible=false;
+                for(const entry of entries){
+                    const matches=words.every(word=>entry.search.includes(word));
+                    entry.row.hidden=!matches;visible||=matches;
+                }
+                section.hidden=!visible;found||=visible;
+            }
+            query('#legend-empty').hidden=found;legendChecks.hidden=!found;legendChecks.scrollTop=0;
+        }
+        legendSearch.oninput=filterLegendTargets;
+        legendPicker.ontoggle=()=>{
+            if(!legendPicker.open&&legendSearch.value){legendSearch.value='';filterLegendTargets();}
+        };
+        function syncLegendPicker(cfg,locked){
+            const selected=new Set(selectedLegendIds(cfg));
+            for(const [id,entry] of legendEntries){
+                const picked=selected.has(id),last=picked&&selected.size===1;
+                entry.input.checked=picked;entry.input.disabled=locked||last;entry.only.disabled=locked||last;
+                entry.row.classList.toggle('selected',picked);
+            }
+            const single=selected.size===1&&legendEntries.get(cfg.legendId);
+            query('#legend-selection').textContent=single?`${single.name} · ${single.place}`:selected.size===legendEntries.size?'全部目标':`已选 ${selected.size} 项`;
+            query('#legend-count').textContent=`已选 ${selected.size} / ${legendEntries.size}`;
+            legendAll.disabled=locked||selected.size===legendEntries.size;
         }
         function addOption(select,value,label){const el=document.createElement('option');el.value=String(value);el.textContent=label;select.appendChild(el);}
         for(const group of ROAMING_DATA.groups){const options=document.createElement('optgroup');options.label=DATA.regions.find(region=>region.key===group.reg)?.name||group.reg;for(const id of group.ids)addOption(options,id,`#${id} ${MONS.get(id)?.name||id}`);query('[data-setting="roamId"]').appendChild(options);}
@@ -490,15 +545,7 @@
             untilCaught.checked=dailyBase.dailyRaidUntilCaught!==false;
             untilCaught.disabled=!dailyBase.raids||engine.running||!!engine.suspended;
             const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
-            const legendConfig=dailyLegend?dailyBase:engine.settings;
-            const legendSelection=new Set(selectedLegendIds(legendConfig)),legendLocked=engine.running||!!engine.suspended;
-            for(const input of legendChecks.querySelectorAll('input')){
-                input.checked=legendSelection.has(Number(input.value));
-                input.disabled=legendLocked||input.checked&&legendSelection.size===1;
-            }
-            query('#legend-count').textContent='已选 '+legendSelection.size+' 个';
-            query('#legend-all').disabled=legendLocked||legendSelection.size===DATA.zones.length;
-            query('#legend-single').disabled=legendLocked||legendSelection.size===1;
+            syncLegendPicker(dailyLegend?dailyBase:engine.settings,engine.running||!!engine.suspended);
             const legendFields=query('[data-fields="legend"]');
             const destination=query(dailyLegend?'#daily-legend-fields':'#ordinary-target');
             if(legendFields.parentNode!==destination)destination.insertBefore(legendFields,dailyLegend?null:query('[data-fields="roam"]'));
@@ -594,21 +641,23 @@
             if(engine.manual||engine.suspended||s.adv?.paused)return label+' · 恢复后评估候选 '+target;
             return label+(engine.automation.buddyTask?.uid===next?' · 正在切换为':' · 待切换为')+target;
         }
-        let lastLockState=null,lastPaint=0,guideState=null,guideId=null,guidePlan=null;
+        let lastLockState=null,lastPaint=0,guideState=null,guideId=null,guidePlan=null,paintedTask='';
+        const taskState=()=>[engine.runId,engine.running,!!engine.manual,!!engine.suspended,engine.queueIndex,engine.settings.mode].join('|');
+        const paintDue=()=>taskState()!==paintedTask||performance.now()-lastPaint>=2000;
         function render() {
             lastPaint=performance.now();
+            if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(Date.now());
+            if(document.hidden){engine.releaseRankingView();return;}
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
             let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
                 engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
+            paintedTask=taskState();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
             if(wait?.reason==='ready'&&engine.running&&!pageHidden()&&!engine.timer)engine.schedule(50);
-            // Keepalive permits background game actions, but its invisible panel does not need drawing.
-            if(document.hidden||ui.folded||ui.workspace!=='activity'||tab!=='maps'||!s?.adv)engine.releaseRankingView();
-            if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(now);
-            if(document.hidden)return;
+            if(ui.folded||ui.workspace!=='activity'||tab!=='maps'||!s?.adv)engine.releaseRankingView();
             if(ui.workspace==='settings'&&!ui.folded){
                 for(const input of root.querySelectorAll('[data-nursery-pref]')){
                     input.disabled=!engine.account||!!engine.suspended;
@@ -674,7 +723,9 @@
             query('#switch-hint').textContent=!s?'进入游戏后显示换人状态。':s.autoSwitch!==false?'游戏自动换人已开启，由游戏选择出战者。':!engine.settings.activeSwitch?'游戏和助手的自动换人均已关闭。':!engine.settings.autoTeam?'手动配队中，保留你的队首顺序。':'助手接管普通冒险单打。只剩一个对手且换人能明显改善战况时点击替补，游戏会将其移到队首。';
             query('#resume').classList.toggle('hidden', !resumable); query('#start').classList.toggle('hidden', resumable);
             query('#resume').textContent=engine.manual&&s?.adv?.event?.raid?'接管当前团体战':engine.suspended?'继续原任务':'立即恢复';
-            query('#action').textContent = wait?.detail||(nativePaused?'在游戏中继续冒险后，助手会接着执行当前任务。':engine.nextWake>now?`预计等待 ${Math.max(1,Math.ceil((engine.nextWake-now)/60000))} 分钟 · ${engine.action||'按游戏时间结算'}`:engine.action || (engine.running?'助手已接管，按当前任务执行':'选择任务与目标后开始'));
+            const action=wait?.detail||(nativePaused?'在游戏中继续冒险后，助手会接着执行当前任务。':engine.nextWake>now?`预计等待 ${Math.max(1,Math.ceil((engine.nextWake-now)/60000))} 分钟 · ${engine.action||'按游戏时间结算'}`:engine.action || (engine.running?'助手已接管，按当前任务执行':'选择任务与目标后开始'));
+            const actionNode=query('#action'),actionText=engine.running&&engine.checkpointError?action+' · 续跑进度暂未保存，正在重试':action;
+            if(actionNode.textContent!==actionText)actionNode.textContent=actionText;
             query('#stop').disabled = !locked;
             const dailyBase=engine.daily?.base||engine.settings,baseMode=engine.daily?.base.mode||dailyMainMode(dailyBase);
             const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
@@ -723,6 +774,7 @@
             if(locked!==lastLockState){
                 editableControls.forEach(input=>input.disabled=locked);
                 query('#hunt-filters').disabled=locked;
+                syncLegendPicker(dailyCard?dailyBase:engine.settings,locked);
                 lastLockState=locked;
             }
             const lookup = ['dex','weather','eggs'].includes(ui.workspace);
@@ -966,7 +1018,6 @@
             if (engine.running||engine.suspended) return false;
             const previous=engine.settings;
             const patch=key==='underStartChoice'?{underAutoStart:value==='auto',underFrom:value==='auto'?previous.underFrom:Number(value)}:{[key]:value};
-            if(key==='legendId')patch.legendIds=[];
             engine.settings=normalizeSettings({...previous,...patch});
             try {
                 if(engine.account&&!editingJob&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
@@ -1081,7 +1132,6 @@
             handle.addEventListener('pointerup',endDrag); handle.addEventListener('pointercancel',endDrag); handle.addEventListener('lostpointercapture',endDrag);
         }
         window.addEventListener('resize',place);
-        document.addEventListener('visibilitychange',()=>{if(document.hidden){commitBudgetDrafts();engine.releaseRankingView();}else{render();place();}});
         query('#fold').onclick=()=>fold(true);
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
         function finishQueueEdit(){
@@ -1205,9 +1255,14 @@
         };
         bindManualInput(engine,host,force=>{if(force||performance.now()-lastPaint>=500)render();},()=>helperAPI.show());
         document.addEventListener('visibilitychange',()=>{
-            if(pageHidden()){if(engine.running)engine.hiddenAt??=Date.now();}
-            else if(engine.suspended){engine.resumeSuspended();render();}
+            if(document.hidden){
+                if(pageHidden()&&engine.running)engine.hiddenAt??=Date.now();
+                engine.releaseRankingView();commitBudgetDrafts();
+                return;
+            }
+            if(engine.suspended)engine.resumeSuspended();
             else if(engine.running&&!engine.restoring)engine.schedule(50);
+            engine.notifyView(true);place();
         });
         engine.gameInputFocused = () => {
             const active = document.activeElement;
@@ -1220,7 +1275,10 @@
             if(active.matches('#pc-search,input[type="search"]')||!visible(active)){active.blur();return !engine.gameInputFocused();}
             return false;
         };
-        window.addEventListener('pagehide', () => {commitBudgetDrafts();engine.nurseryAssist.cancelIdle();engine.suspend();});
+        window.addEventListener('pagehide', () => {
+            try{commitBudgetDrafts();}
+            finally{engine.releaseRankingView();engine.nurseryAssist.cancelIdle();engine.suspend();}
+        });
         window.addEventListener('storage',event=>{
             if(engine.nurseryAssist.key&&event.key===engine.nurseryAssist.key){
                 engine.nurseryAssist.refresh();render();return;
@@ -1229,12 +1287,14 @@
             engine.refreshAutoPurchase();
             syncSettings();render();
         });
-        window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();render();}});
-        engine.onChange = render; itemOptions(); syncSettings(); render(); fold(!!ui.folded);
+        window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();engine.notifyView(true);}});
+        engine.onChange = (force=true) => {if(force||paintDue())render();};
+        itemOptions(); syncSettings(); render(); fold(!!ui.folded);
         setInterval(()=>{
-            if(performance.now()-lastPaint>=2000)render();
+            if(!document.hidden&&engine.settings.resumeOnReload&&engine.suspended?.retryAt<=Date.now())engine.resumeSuspended();
             try{engine.nurseryAssist.idleStep();}
             catch(error){engine.nurseryAssist.cancelIdle();engine.nurseryAssist.note='待命孵蛋暂停 · '+error.message;}
+            if(!document.hidden&&paintDue())engine.notifyView();
         },2500);
         helperAPI.ready=true;startupPhase='已显示';
         }catch(err){

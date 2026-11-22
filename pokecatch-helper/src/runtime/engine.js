@@ -60,6 +60,7 @@
             }
             if(switching)this.raidCheckNote='';
             this.account = id;
+            this.lastPersistedRecord = null;this.lastPersistedAt=null;this.checkpointError=null;this.lastCheckpoint=0;
             let saved = {};
             try { saved = JSON.parse(this.storage.getItem(PREFIX + id) || '{}') || {}; } catch {}
             this.metrics = readRouteHistory(saved.metrics);
@@ -155,20 +156,46 @@
                 return !(held?.token!==this.lease&&held?.expires>now);
             }catch{return false;}
         }
-        persist(wanted=this.running,captureJob=this.running) {
+        persist(wanted=this.running,captureJob=this.running,periodicAt=null) {
             // A stale tab can stop or receive pagehide after another tab has saved its
             // checkpoint. Its cleanup must not replace that owner's task or settings.
             if (!this.mayPersist()) return false;
-            const entries = Object.entries(this.metrics).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 200);
-            const snapshot=this.progressSnapshot();if(captureJob)this.saveJobProgress(snapshot);
-            const resume=wanted&&this.settings.resumeOnReload?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:Date.now(),settings:this.settings,daily:this.daily,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex,queueJobId:this.queueRunning?this.queue[this.queueIndex]?.id:undefined}:null;
-            const record=JSON.stringify({ settings: this.idleTaskSettings(), metrics: Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw,dailyMarks:this.dailyMarks });
+            const now=periodicAt??Date.now();
+            const entries = Object.entries(this.metrics);
+            if(entries.length>200){
+                entries.sort((a,b)=>(b[1].at||0)-(a[1].at||0));
+                entries.length=200;
+            }
+            const shouldResume=wanted&&this.settings.resumeOnReload;
+            const snapshot=captureJob||shouldResume?this.progressSnapshot():null;
+            if(captureJob)this.saveJobProgress(snapshot);
+            const resume=shouldResume?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:periodicAt===null?now:this.lastPersistedAt??now,settings:this.settings,daily:this.daily,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex,queueJobId:this.queueRunning?this.queue[this.queueIndex]?.id:undefined}:null;
+            const state={settings:this.idleTaskSettings(),metrics:Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw,dailyMarks:this.dailyMarks};
+            let record=JSON.stringify(state);
+            if(periodicAt!==null&&!this.checkpointError&&record===this.lastPersistedRecord&&(!resume||now-this.lastPersistedAt<300000))return true;
+            if(resume&&resume.at!==now){resume.at=now;record=JSON.stringify(state);}
             this.storage.setItem(PREFIX + this.account, record);
+            this.lastPersistedRecord=record;this.lastPersistedAt=now;this.checkpointError=null;
             if(this.suspended)this.suspended.record=record;
             // Keep the Telemetry object stable, but prune only after durable persistence.
             const retained=new Set(entries.map(([key])=>key));
             for(const key of Object.keys(this.metrics))if(!retained.has(key))delete this.metrics[key];
             return true;
+        }
+        checkpointTick(now,idle){
+            const interval=this.checkpointError?30000:idle?15000:5000;
+            const elapsed=now-(this.lastCheckpoint||0);
+            if(elapsed>=0&&elapsed<=interval)return;
+            this.lastCheckpoint=now;
+            // Expired route and dated raid entries otherwise travel with every resume record.
+            for(const dates of [this.cooldowns,this.raidCooldown,this.preparation?.avoid,this.weatherFarm?.cooldowns]){
+                for(const key of Object.keys(dates||{}))if(!(dates[key]>now))delete dates[key];
+            }
+            try{this.persist(true,true,now);}
+            catch(error){
+                if(!this.checkpointError)this.log('暂时无法保存续跑进度，将自动重试：'+(error?.message||error));
+                this.checkpointError=String(error?.message||error);
+            }
         }
         updateQueue(jobs){
             if(this.running||this.suspended||this.checkpoint?.wanted&&this.settings.resumeOnReload)throw new Error('请先停止任务，再调整任务队列');
@@ -380,7 +407,7 @@
             const s=state,now=Date.now();
             this.beginTask(s,next.progress,now,true);
             if(!this.adoptManualPreparation(s,now,true))return;
-            this.status=`队列 ${index+1}/${this.queue.length} · ${next.title}`;this.persist();this.onChange?.();
+            this.status=`队列 ${index+1}/${this.queue.length} · ${next.title}`;this.persist();this.notifyView();
         }
         failTask(reason){if(this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=reason;}this.stop(reason);}
         suspend(){
@@ -394,6 +421,7 @@
                 this.persist(!this.restoring,!this.restoring);
             }catch{}
             this.running=false;this.runId++;clearTimeout(this.timer);this.timer=null;this.release();
+            this.clearFrameProbe();
             this.cancelTeamSearch();
             this.cancelRouteRankings();
             if(this.restoring){this.restoring=false;this.status='页面已离开，循环恢复操作已中断';}
@@ -406,7 +434,10 @@
                 const s=this.read();if(!s?.adv)throw new Error('游戏存档不可用');
                 if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return false;}
                 if(this.storage.getItem('pokecatch-tab')!==this.tabToken){this.stop('另一个标签页接管了游戏');return false;}
-                if(!this.acquire(now)){this.status='等待其他标签页释放助手，再继续原任务';return false;}
+                if(!this.acquire(now)){
+                    suspended.retryAt=now+5000;
+                    this.status='等待其他标签页释放助手，再继续原任务';return false;
+                }
                 if(this.storage.getItem(PREFIX+this.account)!==suspended.record){
                     // A different page may have settled the order, advanced the queue, or stopped it.
                     this.stop('原任务记录已更新，重新读取账号进度',{persist:false});
@@ -448,6 +479,7 @@
             const key = PREFIX + 'lease:' + this.account;
             let held = null; try { held = JSON.parse(this.storage.getItem(key)); } catch {}
             if (held?.token !== this.lease && held?.expires > now) return false;
+            if (held?.token === this.lease && held.expires-now > 5000 && held.expires-now <= 10000) return true;
             this.storage.setItem(key, JSON.stringify({ token: this.lease, expires: now + 10000 }));
             return JSON.parse(this.storage.getItem(key) || '{}').token === this.lease;
         }
@@ -565,7 +597,7 @@
                 this.manual = cp?.manual||null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.startMoney=combinedWalletMoney(s);this.walletScope='all';
                 this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
-                this.errors=0;this.lastCheckpoint=0;
+                this.errors=0;this.lastCheckpoint=0;this.saveUnavailableAt=null;
                 this.checkpoint=null;
                 this.daily=cp?.daily&&!this.queueRunning&&DAILY_BASE_MODES.has(cp.daily.base?.mode)?cp.daily:
                     daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null,checking:true}:null;
@@ -615,6 +647,7 @@
             this.queueRunning=false;
             if(this.daily){this.settings=this.taskSettings(this.idleTaskSettings());this.daily=null;}
             this.running = false; this.runId++; this.stoppedAt ??= Date.now(); clearTimeout(this.timer); this.timer = null;
+            this.clearFrameProbe();
             this.cancelTeamSearch();
             this.cancelRouteRankings();
             this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
@@ -780,24 +813,55 @@
             this.persist();this.schedule(50);
         }
         schedule(ms = 1200) {
-            clearTimeout(this.timer);
             if (!this.running) return;
-            const epoch = this.runId;this.sleepDelay=ms;
+            const epoch=this.runId, due=Date.now()+ms;
+            if(this.activeTick){
+                if(this.requestedTick?.epoch!==epoch||due<this.requestedTick.due)this.requestedTick={epoch,due};
+                return;
+            }
+            if(this.timer!=null&&this.tickEpoch===epoch&&this.scheduledDue<=due)return;
+            clearTimeout(this.timer);
+            this.sleepDelay=ms;this.scheduledDue=due;
             // A visibility event can reschedule an already overdue callback before it runs.
-            const due=Date.now()+ms;
             this.tickDue=this.tickEpoch===epoch?Math.min(this.tickDue??due,due):due;this.tickEpoch=epoch;
-            this.timer = setTimeout(async () => {
-                if (epoch !== this.runId) return;
+            const ticket=this.tickTicket={};
+            this.timer=setTimeout(async()=>{
+                if(epoch!==this.runId||ticket!==this.tickTicket||!this.running)return;
+                this.timer=null;this.activeTick=true;
                 const now=Date.now();
-                this.accountTimerDelay(this.tickDue,now);this.tickDue=null;
-                try { await this.step(now); this.errors = 0; }
-                catch (err) { this.log(`异常：${err.message}`); this.status = err.message; if (++this.errors >= 3) this.failTask('连续异常，已暂停：' + err.message); }
-                try{this.onChange?.();this.renderError=null;}catch(err){if(this.renderError!==err.message)this.log('面板刷新失败：'+err.message);this.renderError=err.message;}
-                if (this.running && epoch === this.runId) this.schedule(this.nextDelay());
-            }, ms);
+                const tickDue=this.tickDue;this.tickDue=null;
+                try{
+                    this.accountTimerDelay(tickDue,now);
+                    await this.step(now);
+                    if(epoch===this.runId)this.errors=0;
+                }catch(error){
+                    if(epoch===this.runId&&this.running){
+                        const message=String(error?.message||error);
+                        this.log('异常：'+message);this.status=message;
+                        if(++this.errors>=3)this.failTask('连续异常，已暂停：'+message);
+                    }
+                }finally{
+                    this.activeTick=false;
+                    const requested=this.requestedTick;this.requestedTick=null;
+                    if(this.running&&(epoch===this.runId||requested?.epoch===this.runId)){
+                        const delay=requested?.epoch===this.runId?Math.max(0,requested.due-Date.now()):this.nextDelay();
+                        this.schedule(delay);
+                    }
+                    this.notifyView();
+                }
+            },ms);
+        }
+        notifyView(force=false){
+            try{this.onChange?.(force);this.renderError=null;}
+            catch(error){
+                const message=String(error?.message||error);
+                if(this.renderError!==message)this.log('面板刷新失败：'+message);
+                this.renderError=message;
+            }
         }
         nextDelay(now=Date.now()){
             if(pageHidden())return 6000;
+            if(this.saveUnavailableAt!=null)return 3000;
             if(this.manual){const left=Number(this.manual.until)-now;return left>0?Math.min(1200,Math.max(50,left)):1200;}
             if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.driver.navigation||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution||this.services.underground)return 1200;
             if(this.farmWait?.mode===this.settings.mode)return 6000;
@@ -810,12 +874,16 @@
             if(this.hiddenAt!=null){this.hiddenAt=Math.min(this.hiddenAt,due);return;}
             this.hiddenAt=due;this.resumeUIClock(now,true);
         }
+        clearFrameProbe(){
+            const probe=this.frameProbe;this.frameProbe=null;
+            if(probe&&typeof cancelAnimationFrame==='function')cancelAnimationFrame(probe.frame);
+        }
         backgroundFramesStalled(now){
-            if(!backgroundKeepalive(now)||typeof requestAnimationFrame!=='function'){this.frameProbe=null;return false;}
+            if(!backgroundKeepalive(now)||typeof requestAnimationFrame!=='function'){this.clearFrameProbe();return false;}
             if(this.frameProbe==null){
                 const probe={at:now};
                 this.frameProbe=probe;
-                requestAnimationFrame(()=>{if(this.frameProbe===probe)this.frameProbe=null;});
+                probe.frame=requestAnimationFrame(()=>{if(this.frameProbe===probe)this.frameProbe=null;});
             }
             return now-this.frameProbe.at>=8000;
         }
@@ -870,13 +938,22 @@
         }
         async step(now = Date.now()) {
             if (!this.running) return;
-            const s = this.read(); if (!s?.adv) { this.stop('游戏存档不可用'); return; }
-            if (accountId(s) !== this.account || s.adv.layout !== DATA.layout) { this.stop('账号或游戏版本发生变化，请刷新检查'); return; }
             if (this.storage.getItem('pokecatch-tab') !== this.tabToken || !this.acquire(now)) { this.stop('另一个标签页接管了游戏',{persist:false}); return; }
             if (this.settings.stopMinutes && now - this.started >= this.settings.stopMinutes * 60000) { this.stop('达到定时运行上限'); return; }
-            const idle=pageHidden()||FLOW_MODES.has(this.settings.mode)&&this.nextWake>now;
-            if(now-(this.lastCheckpoint||0)>(idle?15000:5000)){this.lastCheckpoint=now;this.persist();}
-            if (pageHidden()) { this.frameProbe=null;this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
+            if (pageHidden()) { this.checkpointTick(now,true);this.clearFrameProbe();this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
+            let s;
+            try{s=this.read();}
+            catch(error){if(error?.name==='UnsupportedGameSaveError'){this.stop(error.message,{persist:false});return;}}
+            if(!s?.adv){
+                this.saveUnavailableAt??=now;
+                this.telemetry.sample=null;this.hiddenAt??=now;this.lastProgress=now;
+                if(now-this.saveUnavailableAt>=60000)this.stop('游戏存档持续不可用，请检查游戏是否已加载');
+                else this.status='等待游戏存档恢复，期间暂停助手操作';
+                return;
+            }
+            if (accountId(s) !== this.account || s.adv.layout !== DATA.layout) { this.stop('账号或游戏版本发生变化，请刷新检查',{persist:false}); return; }
+            this.saveUnavailableAt=null;
+            this.checkpointTick(now,FLOW_MODES.has(this.settings.mode)&&this.nextWake>now);
             if(this.backgroundFramesStalled(now)){
                 this.hiddenAt??=now;this.status='浏览器已暂停游戏画面，等待恢复渲染后继续补练或原任务';
                 this.lastProgress=now;this.telemetry.sample=null;return;
@@ -1533,6 +1610,10 @@
             const kind=request.cacheSlot||request.kind;
             if(view)this.releaseRankingView(kind);
             let job=this.rankingJobs.get(kind);
+            // A different preview must never restart the planner serving the active task.
+            if(view&&job?.task&&job.signature!==request.signature){
+                return routeRankings.get(kind)?.signature===request.signature?completeYieldRanking(request,cooldowns,now):null;
+            }
             if(job&&job.signature!==request.signature){this.cancelRankingJob(kind);job=null;}
             if(routeRankings.get(kind)?.signature===request.signature||!request.needsSlices){
                 if(job)this.cancelRankingJob(kind);
@@ -1565,7 +1646,7 @@
                     }while(performance.now()<deadline);
                 }catch(error){job.error=error;}
                 if(!job.rows&&!job.error)job.timer=setTimeout(advance,0);
-                else if(job.view)this.onChange?.();
+                else if(job.view)this.notifyView(true);
             };
             job.timer=setTimeout(advance,0);
             return null;

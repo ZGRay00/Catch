@@ -52,6 +52,16 @@
 
     class DOMDriver {
         constructor(engine) { this.e = engine; this.lastClick = 0; this.ownedDialog = null; this.pendingMap = null; this.raid = null; this.recent = new Map(); this.teamTask = null; this.navigation = null; }
+        rememberTeam(key,value){
+            if(typeof key!=='string'||!key)return;
+            this.recent.delete(key);this.recent.set(key,value);
+            let characters=0;
+            for(const savedKey of this.recent.keys())characters+=savedKey.length;
+            for(const savedKey of this.recent.keys()){
+                if(this.recent.size<=1||this.recent.size<=80&&characters<=250000)break;
+                this.recent.delete(savedKey);characters-=savedKey.length;
+            }
+        }
         click(el, label, pointer = false, resuming = false) {
             const handoff=this.e.manual;
             if (!enabled(el) || !this.e.running&&!this.e.nurseryAssist?.idleAccess || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || pageHidden() || Date.now() - this.lastClick < 700) return false;
@@ -211,7 +221,7 @@
                 edit=$(`#map-root [data-lz-team="${zone.id}"]${zone.elite?`[data-lz-tier="${zone.elite}"]`:':not([data-lz-tier])'}`);
             }
             if(enabled(edit)){if(this.click(edit,'适配当前特殊战队伍'))this.ownedDialog={type:'team',key,optimized:false};return true;}
-            this.recent.set(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
+            this.rememberTeam(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
         }
         animations(s) {
             if (!this.e.settings.animations) return false;
@@ -466,7 +476,7 @@
                 }
                 if (!$('#evt-team [data-uid]')) throw new Error('没有可出战的宝可梦，请先配置队伍');
                 if (this.click($('#evt-pick [data-evt-close]'), '保存推荐队伍')) {
-                    this.recent.set(own.key, Date.now()); if(this.recent.size>80)this.recent.delete(this.recent.keys().next().value);
+                    this.rememberTeam(own.key,Date.now());
                     this.e.log('特殊战队伍已按游戏推荐调整');this.ownedDialog = null;
                 }
                 return true;
@@ -567,8 +577,7 @@
                     else if(elite)this.e.log('已确认'+this.e.automation.elitePlan.label+'专属队伍');
                     else if(under)this.e.log('地下探险队伍已配置，将在出发前再次核对');
                     else{
-                        this.recent.set(own.key,[...desired]);
-                        if(this.recent.size>80)this.recent.delete(this.recent.keys().next().value);
+                        this.rememberTeam(own.key,[...desired]);
                         this.e.log('糖果工厂队伍已按今日主题调整');
                     }
                 }return true;

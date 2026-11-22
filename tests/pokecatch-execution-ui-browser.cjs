@@ -120,24 +120,34 @@ async function main(){
                 r.querySelector('[data-mode="daily"]').click();
                 const menu=r.querySelector('[data-setting="dailyMain"]');if(menu.querySelector('[value="raid"]'))throw Error('Obsolete raid main');
                 menu.value='legend';menu.dispatchEvent(new Event('change',{bubbles:true}));
-                const target=r.querySelector('#daily-legend-fields [data-setting="legendId"]');if(!target.getClientRects().length)throw Error('Invisible legendary target');
-                target.value='385';target.dispatchEvent(new Event('change',{bubbles:true}));
+                const picker=r.querySelector('#daily-legend-fields #legend-picker'),summary=picker.querySelector('summary');
+                if(!summary.getClientRects().length||r.querySelectorAll('#legend-picker').length!==1)throw Error('Expected one shared legendary picker');
+                const checks=r.querySelector('#legend-checks'),search=r.querySelector('#legend-search');
+                const filter=value=>{search.value=value;search.dispatchEvent(new Event('input',{bubbles:true}));};
+                const only=id=>checks.querySelector('[value="'+id+'"]').closest('.legend-option').querySelector('button');
+                summary.click();filter('丰缘 许愿');
+                const rows=[...checks.querySelectorAll('.legend-option:not([hidden])')];
+                if(rows.length!==1||rows[0].querySelector('input').value!=='385')throw Error('Combined region and place search did not match Jirachi');
+                only(385).click();
                 const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.legendId;
-                const checks=r.querySelector('#legend-checks'),multi=r.querySelector('#legend-multi');
-                multi.open=true;
+                if(picker.open||r.activeElement!==summary||!summary.textContent.includes('基拉祈'))throw Error('Only-select should collapse and return focus');
+                summary.click();filter('关都');
                 checks.querySelector('[value="145"]').click();
                 if(e.settings.legendIds.join(',')!=='145,385')throw Error('Multiple legendary selection not saved');
+                if(!summary.textContent.includes('已选 2 项'))throw Error('The summary must show the full selected count');
                 r.querySelector('#legend-all').click();
                 if(e.settings.legendIds.length!==checks.querySelectorAll('input').length)throw Error('Select all missed a region');
                 const profile=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id));
                 if(profile.settings.legendIds.length!==e.settings.legendIds.length)throw Error('Legendary selection not persisted');
-                r.querySelector('#legend-single').click();multi.open=false;
-                if(e.settings.legendIds.length||e.settings.legendId!==385)throw Error('Single legendary target not restored');
+                filter('no matching pokémon');if(r.querySelector('#legend-empty').hidden||!checks.hidden)throw Error('Missing empty search state');
+                filter('385');only(385).click();filter('');
+                if(e.settings.legendIds.length||e.settings.legendId!==385||!checks.querySelector('[value="385"]').disabled)throw Error('Single legendary target was not retained');
                 // One selected goal is already registered, the other still needs a map visit.
                 const oldDex=structuredClone(fixtureState.dex);
                 fixtureState.dex[145]={caught:1};
                 // Jirachi's zone requires the Hoenn dex before it can be the next route.
                 for(let id=252;id<=386;id++)if(id!==385)fixtureState.dex[id]={caught:1};
+                picker.open=true;
                 checks.querySelector('[value="145"]').click();
                 const dailyRaid=r.querySelector('#daily-shiny-raid');
                 if(dailyRaid.checked||!dailyRaid.getClientRects().length)throw Error('Expected the visible saved daily raid preference');
@@ -351,6 +361,44 @@ async function main(){
         await evaluate(`__pokecatchHelper.show();${root}.querySelector('#fold').click();fixtureState.pension.eggs[0].hatchAt=Date.now()+600000;commitExecution()`);
         current=await state();assert.ok(current.mini?.length>0);assert.ok(current.host.left>=0&&current.host.right<=1280&&current.host.bottom<=900);checks.push('the folded dock remains reachable and its status can update');
         await send('Emulation.setDeviceMetricsOverride',{width:360,height:780,deviceScaleFactor:1,mobile:true});await evaluate('__pokecatchHelper.show()');
+        const legendaryMobile=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,original=e.settings;
+            const picker=r.querySelector('#legend-picker'),summary=picker.querySelector('summary');
+            try{
+                r.querySelector('[data-workspace="tasks"]').click();
+                r.querySelector('[data-mode="legend"]').click();
+                e.settings={...e.settings,legendId:486,legendIds:[]};e.onChange();picker.open=true;
+                const rows=[...picker.querySelectorAll('.legend-option')],content=r.querySelector('.content');
+                return {solo:summary.textContent.includes('雷吉奇卡斯'),ordinary:!!picker.closest('#ordinary-target'),
+                    fits:content.scrollWidth<=content.clientWidth+1&&rows.every(row=>row.offsetHeight>=44&&row.scrollWidth<=row.clientWidth+1),
+                    distinctLocations:rows.every(row=>!!row.querySelector('small').textContent)};
+            }finally{
+                picker.open=false;e.settings=original;e.persist();e.onChange();r.querySelector('[data-workspace="activity"]').click();
+            }
+        })()`);
+        assert.deepEqual(legendaryMobile,{solo:true,ordinary:true,fits:true,distinctLocations:true});
+        checks.push('a legacy single target is shown in the shared standalone picker and its full rows fit a 360-pixel viewport');
+        const queuedLegend=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,before={settings:e.settings,queue:e.queue,index:e.queueIndex};
+            const picker=r.querySelector('#legend-picker');
+            const target=id=>picker.querySelector('[value="'+id+'"]');
+            try{
+                r.querySelector('[data-workspace="tasks"]').click();r.querySelector('[data-mode="legend"]').click();
+                e.settings={...e.settings,legendId:145,legendIds:[145,385]};e.queue=[];e.onChange();
+                r.querySelector('#add-job').click();
+                r.querySelector('[data-workspace="queue"]').click();
+                r.querySelector('[data-job-action="edit"]').click();
+                picker.open=true;target(486).closest('.legend-option').querySelector('button').click();
+                r.querySelector('#add-job').click();
+                const saved=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+e.account));
+                return {queued:saved.queue[0].settings.legendId,count:saved.queue[0].settings.legendIds.length,current:saved.settings.legendIds};
+            }finally{
+                picker.open=false;e.settings=before.settings;e.queue=before.queue;e.queueIndex=before.index;e.persist();e.onChange();
+                r.querySelector('[data-workspace="activity"]').click();
+            }
+        })()`);
+        assert.deepEqual(queuedLegend,{queued:486,count:0,current:[145,385]});
+        checks.push('editing a queued legendary task saves its new single target without changing the active standalone selection');
         const previous=await evaluate(`(()=>{
             const e=__pcExecutionTest.engine,r=${root},prior={settings:e.settings,adv:fixtureState.adv,to:fixtureState.travel.to,page:r.querySelector('[data-workspace][aria-pressed=true]').dataset.workspace};
             fixtureState.adv={...fixtureState.adv,chapter:76,unlocked:83};fixtureState.travel.to=[...fixtureState.travel.to,'unova'];

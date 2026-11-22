@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.3.0",
-  "scriptSha256": "b06bf07a75d9ffd111441b03f711a7c7080edef82df3184cac77bcf9577ab363",
-  "metadataSha256": "bee5b65ee0210325f4a237a6bd7f27468a60436e6f5107c9ab89d97f7f93fa57",
+  "version": "6.3.2",
+  "scriptSha256": "7cc03364c51b4cc2290cd65d750335f1e7822c52cb480d05c4c9b2f2612d3274",
+  "metadataSha256": "d7bd05cd5a89158ef4844f25695f32901c93343fa1e6271122ca988efe8120ff",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "1aaac07ca287a4ba00e56d7597cf5206719797bc6b01c445fb28f3526078aea6"
+      "sha256": "42071b67488bb515fbf9b4e6bc7762526fdf863786d1b0c5d3394553003c70b4"
     },
     {
       "file": "build.manifest.json",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "06b6d44acf577232aea431746057418b5aa211c2f63ef9b93a451e2d83b3ebe0"
+      "sha256": "32c674b36b7f40680d146172988cd87b76da5029c0f206cce0519b5420b5e042"
     },
     {
       "file": "src/models/facilities.js",
@@ -82,7 +82,7 @@
     },
     {
       "file": "src/services/nursery-monitor.js",
-      "sha256": "77c6922c94e56f829cdf4ae04d9e8ab1757f8f21db9e3109aadcc4ca7ca01adb"
+      "sha256": "643710ba4452bc3cc9ae123d4e45a345051cb1d9a7e1e416446f1c31a08aaa41"
     },
     {
       "file": "src/services/nursery-assist.js",
@@ -138,7 +138,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "45f5f0777cf2602d2e0459eb04b42d260a63792165b292521486a03f4debdf17"
+      "sha256": "48cd04e415860a3340e9c5b48521d2f08c2afba6471a1d8deb582918e451d67e"
     },
     {
       "file": "src/runtime/automation.js",
@@ -150,7 +150,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "fabe01bb013f019eae019c32d105b925fb25239d7ecd4569b518fcd3e1a70970"
+      "sha256": "098e6ff88fc67b36973aa99308440382cc5bdce571947b8205e66dbcbd18fa39"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -158,7 +158,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "2563499f5acefba8a51eb046b55a1a99350a7ff8d1e8b2147bf19faf400f990b"
+      "sha256": "059aaeedcc387b09b0cf96981897590e609ed68b6c9857d5921c39dd53c93914"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -182,7 +182,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "4a2b2dd4f90587f90accb4bec6a1d9c130ff496e6b3c5e9cb36f2e702fbebf32"
+      "sha256": "133be67e817d790304dc40bab81369c9efd31465eb1ecadce47631cae7598a33"
     }
   ]
 }

@@ -118,7 +118,10 @@
     function decodeSave(wire){
         const object=value=>!!value&&typeof value==='object'&&!Array.isArray(value);
         if(!object(wire)||wire.fmt===undefined)return wire;
-        if(wire.fmt!==2)throw new Error(`不支持的游戏存档格式 fmt ${wire.fmt}，请更新助手`);
+        if(wire.fmt!==2){
+            const error=new Error(`不支持的游戏存档格式 fmt ${wire.fmt}，请更新助手`);
+            error.name='UnsupportedGameSaveError';throw error;
+        }
         const packed=wire.mz;
         if(!object(packed)||!Array.isArray(packed.m)||packed.r!==undefined&&!Array.isArray(packed.r)||packed.w!==undefined&&!Array.isArray(packed.w))throw new Error('游戏压缩存档结构不完整，请先检查游戏保存状态');
         const regions=packed.r||[],places=packed.w||[],state={...wire};delete state.fmt;delete state.mz;

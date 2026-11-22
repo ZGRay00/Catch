@@ -163,10 +163,32 @@
     summary { font-size:12px; color:#c2d3df }
     .field,.setting { min-height:28px }
     .list { max-height:min(38dvh,330px) }
-    #legend-checks { overflow:auto; overscroll-behavior:contain }
-    #legend-checks fieldset { min-width:0; margin:6px 0; padding:4px 8px; border:1px solid #34475c; border-radius:8px }
-    #legend-checks legend { padding:0 4px; color:#b9d6d2 }
-    #legend-checks label { min-height:32px; cursor:pointer }
+    .legend-picker { margin:0 0 10px; border:1px solid #38536a; border-radius:10px; background:#111f2e }
+    .legend-picker > summary { display:grid; grid-template-columns:auto minmax(0,1fr) 8px; align-items:center; gap:10px; min-height:44px; padding:8px 11px; border-radius:9px; list-style:none }
+    .legend-picker > summary::-webkit-details-marker { display:none }
+    .legend-picker > summary::after { content:''; width:6px; height:6px; border:solid #9fb7c8; border-width:0 1.5px 1.5px 0; transform:rotate(45deg) }
+    .legend-picker[open] > summary::after { transform:rotate(225deg) }
+    .legend-picker > summary strong { color:#e4eff9 }
+    #legend-selection { color:#a8e5d4; text-align:right; overflow-wrap:anywhere }
+    .legend-tools { display:flex; gap:6px; padding:8px; border-top:1px solid #30485d }
+    .legend-tools input { flex:1; min-height:40px }
+    .legend-tools button { flex:none; min-width:52px }
+    .legend-list { max-height:min(36dvh,300px); overflow:auto; padding:0 8px; scrollbar-width:thin }
+    .legend-list[hidden] { display:none }
+    .legend-list fieldset { min-width:0; margin:0 0 8px; padding:0; border:0 }
+    .legend-list legend { padding:0 1px 3px; color:#9db6c9; font-size:11px }
+    .legend-option { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; margin:0 0 3px; border:1px solid transparent; border-radius:7px; background:#1a2a3d }
+    .legend-option[hidden] { display:none }
+    .legend-option.selected { border-color:#436f69; background:#1c3a3a }
+    .legend-option label { display:flex; align-items:center; gap:9px; min-width:0; min-height:44px; padding:4px 8px; cursor:pointer }
+    .legend-option label input { flex:none; margin:0; width:16px; height:16px; accent-color:#79dcba }
+    .legend-option label span { min-width:0; overflow-wrap:anywhere }
+    .legend-option label strong,.legend-option label small { display:block; line-height:1.25 }
+    .legend-option label small { margin-top:2px; color:#b2c4d5; font-size:11px }
+    .legend-option button { min-height:40px; min-width:44px; margin:2px; padding:4px 7px; border-color:transparent; background:transparent; color:#a6ddd3; font-size:11px }
+    #legend-empty { margin:4px 9px 8px }
+    .legend-footer { display:flex; flex-wrap:wrap; justify-content:space-between; gap:3px 10px; padding:7px 9px; border-top:1px solid #30485d; color:#9eb4c8; font-size:11px }
+    #legend-count { color:#cae7e4; font-variant-numeric:tabular-nums }
     #dex-clear { flex:none; min-height:38px; padding:5px 8px; font-size:12px }
     .dex-list-title, .dex-heading { margin:0 0 8px; line-height:1.5 }
     .dex-list-title { font-size:13px; color:#cedeeb }

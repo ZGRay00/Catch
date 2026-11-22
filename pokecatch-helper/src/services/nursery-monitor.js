@@ -2,7 +2,7 @@
     function nurseryRuntimeOptions(){
         if(typeof document==='undefined')return{};
         const declared=typeof window!=='undefined'&&typeof window.BUILD==='string'?window.BUILD:'';
-        const scripts=[...(document.querySelectorAll?.('script[src]')||[])];
+        const scripts=[...(document.querySelectorAll?.('script[src*="bundle/app."]')||[])];
         const hashes=new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
         if(!hashes.size){
@@ -42,7 +42,6 @@
                 const options={...nurseryRuntimeOptions(),snapshot:false};
                 for(let attempt=0;attempt<2;attempt++){
                     const raw=this.e.storage.getItem(this.key);if(raw!==this.raw)this.restore(raw);
-                    if(!this.fresh(s)){this.error='游戏存档已更新，等待最新状态再核对蛋统计';return result();}
                     const before=this.ledger.stats.shinyObserved;
                     // A caller may still hold an equivalent nursery snapshot from a previous
                     // read. Use the latest decoded save for matching actual hatched members.
@@ -50,12 +49,15 @@
                     const key=JSON.stringify([options.build,latest.trainer?.since,latest.trainer?.id,latest.stats?.hatched,latest.pension?.eggs]);
                     const l=this.ledger;
                     const expired=row=>now-row.at>NURSERY_LEDGER_LIMITS.windowMs;
-                    if(!l.initialized||key!==this.observationKey||l.pending.some(expired)||l.credits.some(expired)){
+                    const changed=!l.initialized||key!==this.observationKey||l.pending.some(expired)||l.credits.some(expired);
+                    const backfill=!changed&&this.evidenceRows?.length&&latest!==this.evidenceSave;
+                    if((changed||backfill||l.dirty)&&!this.fresh(s)){this.error='游戏存档已更新，等待最新状态再核对蛋统计';return result();}
+                    if(changed){
                         l.observe(latest,now,options);
                         this.observationKey=key;
                         this.evidenceRows=l.hatchlingsAwaitingEvidence();
                         this.evidenceSave=this.evidenceRows.length&&this.e.raw!=null?latest:null;
-                    }else if(this.evidenceRows.length&&latest!==this.evidenceSave){
+                    }else if(backfill){
                         // A later PC save can identify an unknown hatch without replaying the whole ledger.
                         if(l.reconcileHatchlings(latest,now,this.evidenceRows))this.evidenceRows=l.hatchlingsAwaitingEvidence();
                         this.evidenceSave=this.evidenceRows.length&&this.e.raw!=null?latest:null;

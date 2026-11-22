@@ -47,7 +47,15 @@ function fixture() {
     document.querySelector('#side-chapter').onclick=()=>document.querySelector('#screen-adventure.active')?nav('map'):document.querySelector('#tabs [data-screen="adventure"]').click();
     function map(){const root=document.querySelector('#map-root');const rows=chapters.filter(c=>c.reg===region);const seen=new Set();root.innerHTML='<div class="pg-regions">'+[...new Set(chapters.map(c=>c.reg))].map(r=>'<button class="rg open '+(r===region?'active':'')+'" data-rg="'+r+'">'+r+'</button>').join('')+'</div>'+rows.filter(c=>!seen.has(c.loop)&&seen.add(c.loop)).map(c=>{const id=c.league?'L':c.id;return '<button class="mp-row '+(String(selected)===String(id)?'sel':'')+'" data-ch="'+id+'">'+c.name+' <span class="pg-loop" data-loop="'+c.loop+'" aria-checked="'+state.adv.loops.includes(c.loop)+'">↻</span></button>'}).join('')+'<button class="mp-go" data-go="'+selected+'">Go</button>';
       root.insertAdjacentHTML('beforeend',zones.filter(z=>z.reg===region).map(z=>'<button class="mp-row lz-open '+(String(selected)==='Z'+z.id?'sel':'')+'" data-ch="Z'+z.id+'">'+z.monName+'</button>').join(''));
-      if(String(selected).startsWith('Z')){const id=+String(selected).slice(1),tier=state.dex[id]?.caught?(state.elite?.[id]?.t||0)+1:0;root.insertAdjacentHTML('beforeend','<button class="mp-go" data-zone="'+id+'" '+(tier?'data-tier="'+tier+'"':'')+' '+(window.zoneLocked?'disabled':'')+'>'+(window.zoneLocked?'条件未满足':'Challenge')+'</button>');root.querySelector('[data-zone]').onclick=()=>{state.adv.zone={id,foe:id,back:state.adv.chapter,...(tier?{elite:tier}:{})};save();actions++;nav('adventure')}}
+       if(String(selected).startsWith('Z')){
+           const id=+String(selected).slice(1),tier=state.dex[id]?.caught?(state.elite?.[id]?.t||0)+1:0;
+           root.insertAdjacentHTML('beforeend','<button class="mp-go" data-zone="'+id+'" '+(tier?'data-tier="'+tier+'"':'')+' '+(window.zoneLocked?'disabled':'')+'>'+(window.zoneLocked?'条件未满足':'Challenge')+'</button>');
+           if(tier){
+               root.insertAdjacentHTML('beforeend','<button data-lz-team="'+id+'" data-lz-tier="'+tier+'">Team</button>');
+               root.querySelector('[data-lz-team]').onclick=()=>{window.eliteZoneEdits=(window.eliteZoneEdits||0)+1;window.openEliteZonePicker(id);};
+           }
+           root.querySelector('[data-zone]').onclick=()=>{if(tier)window.launchedEliteParty=[...(state.eventTeams?.['zone:'+id]||[])];state.adv.zone={id,foe:id,back:state.adv.chapter,...(tier?{elite:tier}:{})};save();actions++;nav('adventure');};
+       }
       root.querySelectorAll('[data-rg]').forEach(b=>b.onclick=()=>{region=b.dataset.rg;selected=String(chapters.find(c=>c.reg===region).id);actions++;map()});
       root.querySelectorAll('[data-ch]').forEach(b=>b.onclick=()=>{selected=b.dataset.ch;actions++;map()});
       root.querySelectorAll('[data-loop]').forEach(b=>b.onclick=e=>{e.stopPropagation();const c=chapters.find(c=>String(c.loop)===b.dataset.loop);state.adv.loops=state.adv.loops.includes(c.loop)?state.adv.loops.filter(k=>k!==c.loop):[...state.adv.loops,c.loop];save();actions++;map()});
@@ -322,6 +330,7 @@ async function main() {
         await setUI({legendTier:2});await begin();
         for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();
         assert.equal(await evaluate('mock.state.adv.zone?.elite'),1);
+        assert.equal(await evaluate('window.eliteZoneEdits||0'),0,'manual elite policy leaves the special team alone');
         await evaluate('mock.state.elite={145:{t:1}};mock.state.adv.zone=null;mock.save()');
         for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();
         assert.equal(await evaluate('mock.state.adv.zone?.elite'),2,'only next elite tier is selected');
@@ -341,6 +350,23 @@ async function main() {
         assert.equal(await evaluate('mock.state.adv.zone?.id'),144,'original target launches after native conditions unlock');
         await evaluate('mock.state.dex[144]={caught:1};mock.state.adv.zone=null;mock.save()');await tick();
         assert.equal(await evaluate('__pcTest.engine.running'),false,'the unlocked legendary goal completes normally');
+        const eliteRoster=[150,145,384,76,112,450,473,445,6,89,169,289,130,526].map(id=>({id,uid:'elite-zone-'+id,level:100,reg:'kanto'}));
+        const beforeEliteTeam=await evaluate(`(()=>{
+            const s=mock.state,saved={mons:s.mons,team:s.team,eventTeams:s.eventTeams,elite:s.elite};
+            s.mons=${JSON.stringify(eliteRoster)};s.team=s.mons.slice(0,3).map(mon=>mon.uid);
+            s.eventTeams={'zone:145':s.team.slice(0,1),'zone:144':s.team.slice(1)};
+            mock.save();return saved;
+        })()`);
+        await setUI({legendId:145,legendTier:3,optimizeRaid:true,autoPrepare:false});await begin();
+        for(let n=0;n<42&&!await evaluate('!!mock.state.adv.zone');n++){await tick();await delay(20);}
+        const configured=await evaluate(`({tier:mock.state.adv.zone?.elite,team:mock.state.team,elite:mock.state.eventTeams['zone:145'],other:mock.state.eventTeams['zone:144'],launched:window.launchedEliteParty,edits:window.eliteZoneEdits,log:__pcTest.engine.logs.map(row=>row.text),status:__pcTest.engine.status})`);
+        assert.equal(configured.tier,3,JSON.stringify(configured));assert.equal(configured.edits,1);
+        assert.deepEqual(configured.elite,configured.launched);assert.equal(configured.elite.length,6);
+        assert.equal(configured.elite.filter(uid=>H.MONS.get(+uid.split('-').at(-1)).legend).length<=1,true);
+        assert.deepEqual(configured.team,eliteRoster.slice(0,3).map(mon=>mon.uid));assert.deepEqual(configured.other,configured.team.slice(1));
+        assert.ok(configured.log.some(line=>line.includes('精英传说专属队伍已确认')));
+        await tick();assert.equal(await evaluate('window.eliteZoneEdits'),1,'a running elite fight does not open the team editor again');
+        await evaluate(`(()=>{const e=__pcTest.engine;e.stop();Object.assign(mock.state,${JSON.stringify(beforeEliteTeam)});mock.state.adv.zone=null;mock.save();e.onChange();})()`);
         await setUI({mode:'item',itemId:'berry-oran',itemQuantity:2,raids:false});await begin();await tick();
         assert.ok(await evaluate('!!__pcTest.engine.driver.pendingMap'),'item planner chooses native chapter');
         await evaluate('mock.state.stats.itemIn={"berry-oran":2};mock.save()');await tick();

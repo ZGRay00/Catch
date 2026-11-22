@@ -85,6 +85,8 @@
       "kind": "source",
       "file": "src/models/combat-team.js"
     },
+    {"kind":"json","file":"data/legend-elite.json","constant":"LEGEND_ELITE"},
+    {"kind":"source","file":"src/models/legend-elite.js"},
     {
       "kind": "source",
       "file": "src/models/routes-training.js"

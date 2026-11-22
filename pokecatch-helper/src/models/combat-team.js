@@ -102,12 +102,14 @@
             if(!best||choice>best.choice)best={key,move,type,stab,weather,attack,weakened,resistance,accuracy,choice,typeless};
         };
         const types=defensiveTypes(enemy);
-        for (const {level,key,move,stab} of damagingMoves(model)) {
+        const fixed=DATA.combat.moves[options.move];
+        if(fixed?.power)consider(options.move,fixed,types[fixed.type]??1,model.types.includes(fixed.type)?1.5:1);
+        else for (const {level,key,move,stab} of damagingMoves(model)) {
             if (level > mon.level) continue;
             consider(key,move,types[move.type]??1,stab);
         }
         // Native combat uses typeless Struggle when all learned damaging moves are immune.
-        if(best&&!(best.choice>0)&&DATA.combat.moves.struggle){best=null;consider('struggle',DATA.combat.moves.struggle,1,1,true);}
+        if(!fixed?.power&&best&&!(best.choice>0)&&DATA.combat.moves.struggle){best=null;consider('struggle',DATA.combat.moves.struggle,1,1,true);}
         if(!best)return options.details?{damage:0,sustainedDamage:0,hit:0,minHit:0,maxHit:0,accuracy:1,turnAccuracy:1,type:null}:0;
         // Native selection uses aggregate power. Integrate per-strike rolls only for the selected move.
         const {key,move,type,stab,weather,attack,weakened,resistance,accuracy,choice,typeless}=best;

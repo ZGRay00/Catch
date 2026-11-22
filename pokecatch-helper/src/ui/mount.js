@@ -82,7 +82,7 @@
                     </details>
                     <div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div>
                     <div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>
-                    ${roamingBallControl('legend')}<div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div>
+                    ${roamingBallControl('legend')}<div class="hint" id="legend-elite-team-hint" hidden></div><div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div>
                 </div>
                 <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限（分钟）</span><input data-setting="roamMinutes" type="number" min="0" max="720" aria-label="游荡搜寻时限，0 为不限时"></div>${roamingBallControl('roam')}<div class="hint">填 0 持续在线追踪，或填 5–720 分钟限时。捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。</div></div>
                 <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div></div>
@@ -546,6 +546,9 @@
             untilCaught.disabled=!dailyBase.raids||engine.running||!!engine.suspended;
             const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
             syncLegendPicker(dailyLegend?dailyBase:engine.settings,engine.running||!!engine.suspended);
+            const legendSettings=dailyLegend?dailyBase:engine.settings,legendHint=query('#legend-elite-team-hint');
+            legendHint.hidden=!legendSettings.legendTier;
+            if(legendSettings.legendTier)legendHint.textContent=legendSettings.optimizeRaid?'精英战按首领形态和阶级自动配置专属队伍，最多带一只传说或幻之宝可梦。':'精英战使用你在游戏中设置的专属队伍。';
             const legendFields=query('[data-fields="legend"]');
             const destination=query(dailyLegend?'#daily-legend-fields':'#ordinary-target');
             if(legendFields.parentNode!==destination)destination.insertBefore(legendFields,dailyLegend?null:query('[data-fields="roam"]'));

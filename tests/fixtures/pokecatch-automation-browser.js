@@ -81,6 +81,7 @@
         q('#evt-search').oninput=render;q('#evt-sort').onchange=render;q('#evt-eff').onclick=()=>{q('#evt-eff').classList.toggle('on');render();};
         picker.querySelector('[data-evt-close]').onclick=()=>{if(teamKey==='candy')factoryClosedFilters={search:q('#evt-search').value,sort:q('#evt-sort').value,eff:q('#evt-eff').classList.contains('on')};picker.remove();onClose();};picker.render=render;render();
     }
+    window.openEliteZonePicker=id=>factoryPicker('zone:'+id,6,()=>mock.nav('map'));
     document.addEventListener('pointerdown',event=>{const cell=event.target.closest('#evt-team [data-uid],#evt-pc .pc-cell[data-uid]');if(cell)factoryDrag={uid:cell.dataset.uid,id:event.pointerId,pc:!!cell.closest('#evt-pc')};});
     document.addEventListener('pointermove',event=>{if(factoryDrag&&factoryDrag.id===event.pointerId)factoryDrag.point={x:event.clientX,y:event.clientY};});
     document.addEventListener('pointerup',event=>{

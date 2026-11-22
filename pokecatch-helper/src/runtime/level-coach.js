@@ -143,7 +143,7 @@
         activity(s){
             const a=s.adv;
             if(a.event?.raid)return battleContext(s,'raid',{id:a.event.id,reg:a.event.reg});
-            if(a.zone&&!a.zone.riddle&&a.pending?.type!=='riddle'&&(a.zone.id!==493||this.e.settings.mode==='world'))return battleContext(s,a.zone.id===493?'worldCapture':'zone',{id:a.zone.foe||a.zone.id,level:a.zone.level||100,reg:DATA.zones.find(z=>z.id===a.zone.id)?.reg,tier:a.zone.elite});
+            if(a.zone&&!a.zone.riddle&&a.pending?.type!=='riddle'&&(a.zone.id!==493||this.e.settings.mode==='world'))return battleContext(s,a.zone.id===493?'worldCapture':'zone',{id:a.zone.elite?a.zone.id:a.zone.foe||a.zone.id,level:a.zone.level||100,reg:DATA.zones.find(z=>z.id===a.zone.id)?.reg,tier:a.zone.elite});
             if(a.league)return battleContext(s,'elite',{reg:a.league.reg,tier:a.league.tier});
             if(a.tower&&a.tower.kind!=='candy'&&towerProgress(s).run)return battleContext(s,'tower',{floor:this.e.settings.towerFloor});
             return null;

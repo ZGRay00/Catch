@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.3.2
+// @version      6.3.3
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.3.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.3.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -2981,12 +2981,14 @@
             if(!best||choice>best.choice)best={key,move,type,stab,weather,attack,weakened,resistance,accuracy,choice,typeless};
         };
         const types=defensiveTypes(enemy);
-        for (const {level,key,move,stab} of damagingMoves(model)) {
+        const fixed=DATA.combat.moves[options.move];
+        if(fixed?.power)consider(options.move,fixed,types[fixed.type]??1,model.types.includes(fixed.type)?1.5:1);
+        else for (const {level,key,move,stab} of damagingMoves(model)) {
             if (level > mon.level) continue;
             consider(key,move,types[move.type]??1,stab);
         }
         // Native combat uses typeless Struggle when all learned damaging moves are immune.
-        if(best&&!(best.choice>0)&&DATA.combat.moves.struggle){best=null;consider('struggle',DATA.combat.moves.struggle,1,1,true);}
+        if(!fixed?.power&&best&&!(best.choice>0)&&DATA.combat.moves.struggle){best=null;consider('struggle',DATA.combat.moves.struggle,1,1,true);}
         if(!best)return options.details?{damage:0,sustainedDamage:0,hit:0,minHit:0,maxHit:0,accuracy:1,turnAccuracy:1,type:null}:0;
         // Native selection uses aggregate power. Integrate per-strike rolls only for the selected move.
         const {key,move,type,stab,weather,attack,weakened,resistance,accuracy,choice,typeless}=best;
@@ -3632,6 +3634,166 @@
         }
         return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
     }
+    const LEGEND_ELITE = {"bundle":"0a5492aada","size":6,"level":100,"legendLimit":1,"apart":[[643,[646,64602]],[644,[646,64601]]],"enemyHp":4.5,"enemyDamage":1,"rage":8,"counter":0.3,"burst":1,"resist":[0.92,0.84,0.76,0.68,0.6],"hurt":[44,48,52,56,60],"dotTurns":4,"dot":{"ember":["burn",0.1],"fire-punch":["burn",0.1],"flamethrower":["burn",0.1],"fire-blast":["burn",0.1],"flame-wheel":["burn",0.1],"sacred-fire":["burn",0.5],"fire-fang":["burn",0.1],"lava-plume":["burn",0.3],"heat-wave":["burn",0.1],"flare-blitz":["burn",0.1],"blaze-kick":["burn",0.1],"inferno":["burn",1],"scald":["burn",0.3],"searing-shot":["burn",0.3],"scorching-sands":["burn",0.3],"ice-burn":["burn",0.3],"blue-flare":["burn",0.2],"sandsear-storm":["burn",0.2],"poison-jab":["poison",0.3],"poison-fang":["poison",0.3],"cross-poison":["poison",0.1],"gunk-shot":["poison",0.3],"sludge-wave":["poison",0.1],"poison-tail":["poison",0.1],"poison-sting":["poison",0.3],"sludge":["poison",0.3],"sludge-bomb":["poison",0.3],"smog":["poison",0.3],"twineedle":["poison",0.2]},"setupChance":0.3,"statusMoves":{"will-o-wisp":["burn",0.7,"fire"],"toxic":["poison",0.7,"poison"],"sleep-powder":["sleep",0.7,"grass"],"spore":["sleep",1,"grass"],"hypnosis":["sleep",0.6,"psychic"],"sing":["sleep",0.55,"normal"],"lovely-kiss":["sleep",0.7,"normal"],"stun-spore":["paralysis",0.7,"grass"],"thunder-wave":["paralysis",0.7,"electric"],"glare":["paralysis",0.7,"normal"],"poison-powder":["poison",0.7,"poison"],"poison-gas":["poison",0.7,"poison"],"confuse-ray":["confusion",0.7,"ghost"],"supersonic":["confusion",0.55,"normal"],"sweet-kiss":["confusion",0.7,"fairy"]},"statusLearn":{"1":[[30,"poison-powder"],[34,"sleep-powder"]],"2":[[30,"poison-powder"],[35,"sleep-powder"]],"3":[[30,"poison-powder"],[35,"sleep-powder"]],"12":[[5,"supersonic"],[18,"poison-powder"],[22,"stun-spore"],[27,"sleep-powder"]],"23":[[14,"glare"],[38,"toxic"]],"24":[[15,"glare"],[43,"toxic"]],"29":[[43,"toxic"]],"30":[[50,"toxic"]],"31":[[79,"toxic"]],"32":[[40,"toxic"]],"33":[[50,"toxic"]],"34":[[69,"toxic"]],"37":[[29,"confuse-ray"],[38,"will-o-wisp"]],"38":[[29,"confuse-ray"],[37,"will-o-wisp"]],"41":[[5,"supersonic"],[28,"toxic"],[53,"confuse-ray"]],"42":[[6,"supersonic"],[28,"toxic"],[55,"confuse-ray"]],"43":[[16,"poison-powder"],[30,"stun-spore"],[34,"sleep-powder"],[44,"toxic"]],"44":[[17,"poison-powder"],[31,"stun-spore"],[35,"sleep-powder"],[44,"toxic"]],"45":[[17,"poison-powder"],[30,"stun-spore"],[39,"sleep-powder"],[48,"toxic"]],"46":[[5,"sleep-powder"],[9,"poison-powder"],[14,"stun-spore"],[45,"spore"]],"47":[[6,"sleep-powder"],[10,"poison-powder"],[14,"stun-spore"],[46,"spore"]],"48":[[11,"supersonic"],[19,"poison-powder"],[47,"stun-spore"],[60,"sleep-powder"]],"49":[[10,"supersonic"],[19,"poison-powder"],[42,"stun-spore"],[55,"sleep-powder"]],"69":[[15,"sleep-powder"],[42,"poison-powder"],[46,"stun-spore"]],"70":[[15,"sleep-powder"],[42,"poison-powder"],[46,"stun-spore"]],"71":[[15,"sleep-powder"],[42,"poison-powder"],[47,"stun-spore"]],"88":[[5,"poison-gas"],[33,"toxic"]],"89":[[6,"poison-gas"],[34,"toxic"]],"92":[[10,"confuse-ray"],[15,"hypnosis"],[19,"poison-gas"],[28,"will-o-wisp"],[41,"toxic"]],"93":[[9,"confuse-ray"],[14,"hypnosis"],[19,"poison-gas"],[32,"will-o-wisp"],[45,"toxic"]],"94":[[10,"confuse-ray"],[14,"hypnosis"],[19,"poison-gas"],[32,"will-o-wisp"],[46,"toxic"]],"96":[[5,"hypnosis"],[19,"poison-gas"]],"97":[[5,"hypnosis"],[19,"poison-gas"]],"102":[[9,"hypnosis"],[34,"stun-spore"],[38,"poison-powder"],[47,"sleep-powder"]],"103":[[9,"hypnosis"],[35,"stun-spore"],[39,"poison-powder"],[43,"sleep-powder"]],"109":[[6,"poison-gas"],[38,"toxic"]],"110":[[6,"poison-gas"],[42,"toxic"]],"114":[[11,"stun-spore"],[29,"poison-powder"],[46,"sleep-powder"]],"152":[[11,"poison-powder"]],"153":[[11,"poison-powder"]],"154":[[10,"poison-powder"]],"169":[[5,"supersonic"],[28,"toxic"],[59,"confuse-ray"]],"182":[[17,"poison-powder"],[30,"stun-spore"],[35,"sleep-powder"],[43,"toxic"]],"187":[[15,"poison-powder"],[19,"stun-spore"],[23,"sleep-powder"]],"188":[[19,"poison-powder"],[24,"stun-spore"],[28,"sleep-powder"]],"189":[[19,"poison-powder"],[24,"stun-spore"],[29,"sleep-powder"]],"194":[[47,"toxic"]],"195":[[46,"toxic"]],"211":[[55,"toxic"]],"269":[[24,"poison-powder"],[42,"toxic"]],"285":[[11,"stun-spore"],[29,"poison-powder"],[42,"toxic"],[51,"spore"]],"286":[[10,"stun-spore"],[41,"poison-powder"],[59,"toxic"],[69,"spore"]],"315":[[5,"stun-spore"],[40,"toxic"]],"316":[[8,"poison-gas"],[25,"toxic"]],"317":[[10,"poison-gas"],[25,"toxic"]],"353":[[16,"will-o-wisp"]],"354":[[16,"will-o-wisp"]],"355":[[13,"confuse-ray"],[26,"will-o-wisp"]],"356":[[13,"confuse-ray"],[26,"will-o-wisp"]],"407":[[6,"stun-spore"],[40,"toxic"]],"414":[[37,"poison-powder"]],"416":[[19,"confuse-ray"],[64,"toxic"]],"434":[[5,"poison-gas"],[41,"toxic"]],"435":[[6,"poison-gas"],[42,"toxic"]],"451":[[39,"toxic"]],"452":[[43,"toxic"]],"453":[[69,"toxic"]],"454":[[74,"toxic"]],"465":[[10,"stun-spore"],[32,"poison-powder"],[59,"sleep-powder"]],"477":[[12,"confuse-ray"],[26,"will-o-wisp"]],"478":[[52,"confuse-ray"],[62,"will-o-wisp"]],"543":[[47,"toxic"]],"544":[[48,"toxic"]],"545":[[52,"toxic"]],"546":[[10,"stun-spore"],[28,"poison-powder"]],"547":[[9,"stun-spore"],[32,"poison-powder"]],"562":[[16,"will-o-wisp"]],"563":[[17,"will-o-wisp"]],"568":[[6,"poison-gas"],[38,"toxic"]],"569":[[5,"poison-gas"],[47,"toxic"]],"590":[[9,"stun-spore"],[45,"toxic"],[55,"spore"]],"591":[[10,"stun-spore"],[46,"toxic"],[55,"spore"]],"607":[[15,"confuse-ray"],[32,"will-o-wisp"]],"608":[[14,"confuse-ray"],[32,"will-o-wisp"]],"609":[[14,"confuse-ray"],[37,"will-o-wisp"]],"617":[[52,"toxic"]]},"zones":{"144":{"foes":{"144":[[9.11,0.747054],[9.11,0.747054],[9.11,0.747054],[9.11,0.747054],[9.11,0.747054]]}},"145":{"foes":{"145":[[6.32,0.606375],[6.32,0.606375],[6.32,0.606375],[6.32,0.606375],[6.32,0.606375]]}},"146":{"foes":{"146":[[11.84,0.499686],[11.84,0.499686],[11.84,0.499686],[11.84,0.499686],[11.84,0.499686]]}},"150":{"foes":{"150":[[4.87,1.492755],[4.87,1.492755],[4.87,1.492755],[4.87,1.492755],[4.87,1.492755]]},"counter":"confusion","burst":"psystrike"},"151":{"foes":{"151":[[4.59,0.83985],[4.59,0.83985],[4.59,0.83985],[4.59,0.83985],[4.59,0.83985]]}},"243":{"foes":{"243":[[10,0.99],[10,0.99],[10,0.99],[10,0.99],[10,0.99]]}},"244":{"foes":{"244":[[10,0.5247],[10,0.5247],[10,0.5247],[10,0.5247],[10,0.5247]]}},"245":{"foes":{"245":[[10,0.4554],[10,0.4554],[10,0.4554],[10,0.4554],[10,0.4554]]}},"249":{"foes":{"249":[[4.25,0.83655],[4.25,0.83655],[4.25,0.83655],[4.25,0.83655],[4.25,0.83655]]},"burst":"aeroblast"},"250":{"foes":{"250":[[11.2,0.92565],[11.2,0.92565],[11.2,0.92565],[11.2,0.92565],[11.2,0.92565]]},"burst":"sacred-fire"},"251":{"foes":{"251":[[6.76,1.0725],[6.76,1.0725],[6.76,1.0725],[6.76,1.0725],[6.76,1.0725]]}},"377":{"foes":{"377":[[5.07,1.112496],[5.07,1.112496],[5.07,1.112496],[5.07,1.112496],[5.07,1.112496]]},"burst":"rock-slide"},"378":{"foes":{"378":[[7.79,0.830775],[7.79,0.830775],[7.79,0.830775],[7.79,0.830775],[7.79,0.830775]]},"burst":"blizzard"},"379":{"foes":{"379":[[5.59,1.3398],[5.59,1.3398],[5.59,1.3398],[5.59,1.3398],[5.59,1.3398]]},"burst":"iron-head"},"380":{"foes":{"380":[[10,0.5445],[10,0.5445],[10,0.5445],[10,0.5445],[10,0.5445]]}},"381":{"foes":{"381":[[10,0.5049],[10,0.5049],[10,0.5049],[10,0.5049],[10,0.5049]]}},"382":{"foes":{"382":[[5.7,0.80256],[5.7,0.80256],[5.7,0.80256],[5.7,0.80256],[5.7,0.80256]]},"burst":"origin-pulse"},"383":{"foes":{"383":[[6.41,0.79101],[6.41,0.79101],[6.41,0.79101],[6.41,0.79101],[6.41,0.79101]]},"burst":"precipice-blades"},"384":{"foes":{"384":[[10.13,0.289641],[10.13,0.289641],[10.13,0.289641],[10.13,0.289641],[10.13,0.289641]]},"burst":"dragon-ascent"},"385":{"foes":{"385":[[6.86,0.848925],[6.86,0.848925],[6.86,0.848925],[6.86,0.848925],[6.86,0.848925]]},"burst":"doom-desire"},"386":{"foes":{"386":[[14.43,2.44035],[14.43,2.44035],[14.43,2.44035],[14.43,2.44035],[14.43,2.44035]],"38601":[[17.61,2.81061],[17.61,2.81061],[17.61,2.81061],[17.61,2.81061],[17.61,2.81061]],"38602":[[4.96,3.75309],[4.96,3.75309],[4.96,3.75309],[4.96,3.75309],[4.96,3.75309]],"38603":[[6.16,3.68577],[6.16,3.68577],[6.16,3.68577],[6.16,3.68577],[6.16,3.68577]]},"burst":"psycho-boost"},"480":{"foes":{"480":[[4.46,5.145525],[4.46,5.145525],[4.46,5.145525],[4.46,5.145525],[4.46,5.145525]]},"burst":"mystical-power"},"481":{"foes":{"481":[[5,1.815],[5,1.815],[5,1.815],[5,1.815],[5,1.815]]}},"482":{"foes":{"482":[[7.87,2.178],[7.87,2.178],[7.87,2.178],[7.87,2.178],[7.87,2.178]]},"burst":"mystical-power"},"483":{"foes":{"483":[[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875]]},"burst":"roar-of-time"},"484":{"foes":{"484":[[5,0.616704],[5,0.616704],[5,0.616704],[5,0.616704],[5,0.616704]]},"burst":"spacial-rend"},"485":{"foes":{"485":[[7.22,0.8316],[7.22,0.8316],[7.22,0.8316],[7.22,0.8316],[7.22,0.8316]]},"burst":"magma-storm"},"486":{"foes":{"486":[[6.81,0.583605],[6.81,0.583605],[6.81,0.583605],[6.81,0.583605],[6.81,0.583605]]},"burst":"giga-impact"},"487":{"foes":{"487":[[3.03,0.858],[3.03,0.858],[3.03,0.858],[3.03,0.858],[3.03,0.858]]},"burst":"shadow-force"},"488":{"foes":{"488":[[4.41,1.32066],[4.41,1.32066],[4.41,1.32066],[4.41,1.32066],[4.41,1.32066]]},"burst":"moonblast"},"491":{"foes":{"491":[[8.68,0.91476],[8.68,0.91476],[8.68,0.91476],[8.68,0.91476],[8.68,0.91476]]},"burst":"dark-pulse"},"492":{"foes":{"492":[[6.13,2.873475],[6.13,2.873475],[6.13,2.873475],[6.13,2.873475],[6.13,2.873475]]},"burst":"seed-flare"},"494":{"foes":{"494":[[4.5,0.91377],[4.5,0.91377],[4.5,0.91377],[4.5,0.91377],[4.5,0.91377]]}},"638":{"foes":{"638":[[6.72,1.49787],[6.72,1.49787],[6.72,1.49787],[6.72,1.49787],[6.72,1.49787]]}},"639":{"foes":{"639":[[8.19,0.59598],[8.19,0.59598],[8.19,0.59598],[8.19,0.59598],[8.19,0.59598]]}},"640":{"foes":{"640":[[12.81,1.269675],[12.81,1.269675],[12.81,1.269675],[12.81,1.269675],[12.81,1.269675]]}},"641":{"foes":{"641":[[10,0.4851],[10,0.4851],[10,0.4851],[10,0.4851],[10,0.4851]]}},"642":{"foes":{"642":[[10,0.5544],[10,0.5544],[10,0.5544],[10,0.5544],[10,0.5544]]}},"643":{"foes":{"643":[[5.89,0.33957],[5.89,0.33957],[5.89,0.33957],[5.89,0.33957],[5.89,0.33957]]}},"644":{"foes":{"644":[[5.18,0.614196],[5.18,0.614196],[5.18,0.614196],[5.18,0.614196],[5.18,0.614196]]}},"645":{"foes":{"645":[[9.87,0.45045],[9.87,0.45045],[9.87,0.45045],[9.87,0.45045],[9.87,0.45045]]}},"646":{"foes":{"646":[[4.95,0.5808],[4.95,0.5808],[4.95,0.5808],[4.95,0.5808],[4.95,0.5808]]}},"647":{"foes":{"647":[[6.78,0.93357],[6.78,0.93357],[6.78,0.93357],[6.78,0.93357],[6.78,0.93357]]}},"648":{"foes":{"648":[[5.15,0.814275],[5.15,0.814275],[5.15,0.814275],[5.15,0.814275],[5.15,0.814275]]}},"649":{"foes":{"649":[[16.59,0.7425],[16.59,0.7425],[16.59,0.7425],[16.59,0.7425],[16.59,0.7425]]}},"48701":{"foes":{"48701":[[4.06,0.63954],[4.06,0.63954],[4.06,0.63954],[4.06,0.63954],[4.06,0.63954]]},"burst":"shadow-force"},"49201":{"foes":{"49201":[[8.77,1.04181],[8.77,1.04181],[8.77,1.04181],[8.77,1.04181],[8.77,1.04181]]},"burst":"seed-flare"},"64101":{"foes":{"64101":[[7.7,0.81774],[7.7,0.81774],[7.7,0.81774],[7.7,0.81774],[7.7,0.81774]]}},"64201":{"foes":{"64201":[[9.22,0.5643],[9.22,0.5643],[9.22,0.5643],[9.22,0.5643],[9.22,0.5643]]}},"64501":{"foes":{"64501":[[10.73,0.372834],[10.73,0.372834],[10.73,0.372834],[10.73,0.372834],[10.73,0.372834]]}},"64601":{"foes":{"64601":[[4.39,0.528],[4.39,0.528],[4.39,0.528],[4.39,0.528],[4.39,0.528]]}},"64602":{"foes":{"64602":[[6.12,0.17985],[6.12,0.17985],[6.12,0.17985],[6.12,0.17985],[6.12,0.17985]]}},"64801":{"foes":{"64801":[[6.69,1.25235],[6.69,1.25235],[6.69,1.25235],[6.69,1.25235],[6.69,1.25235]]}},"64901":{"foes":{"64901":[[17.58,0.35145],[17.58,0.35145],[17.58,0.35145],[17.58,0.35145],[17.58,0.35145]]}},"64902":{"foes":{"64902":[[16.41,0.759],[16.41,0.759],[16.41,0.759],[16.41,0.759],[16.41,0.759]]}},"64903":{"foes":{"64903":[[16.15,0.759],[16.15,0.759],[16.15,0.759],[16.15,0.759],[16.15,0.759]]}},"64904":{"foes":{"64904":[[16.72,0.7095],[16.72,0.7095],[16.72,0.7095],[16.72,0.7095],[16.72,0.7095]]}}}};    function legendEliteContext(s,id,tier,now=Date.now()){
+        const zone=DATA.zones.find(entry=>entry.id===id),rules=LEGEND_ELITE.zones[id];
+        if(!zone||!rules)return null;
+        // A launched run keeps its rolled form. Fresh runs use the native Monday UTC rotation.
+        const active=s.adv.zone?.id===id&&s.adv.zone.elite===tier?s.adv.zone:null;
+        const week=Math.floor(Date.parse(towerWeek(now))/(7*86400000)),forms=zone.forms||[id];
+        const foeId=active?.foe??forms[((week%forms.length)+forms.length)%forms.length],knobs=rules.foes[foeId]?.[tier-1];
+        if(!knobs||!MONS.has(foeId))return null;
+        const [hp,power]=knobs,weather=weatherDamageContext(s,s.adv.chapter,now);
+        const foe={id:foeId,rank:tier,level:LEGEND_ELITE.level,hpMult:hp*LEGEND_ELITE.enemyHp,damageMult:power*LEGEND_ELITE.enemyDamage,weight:1};
+        return{kind:'zone',id,tier,reg:zone.reg,level:foe.level,size:LEGEND_ELITE.size,speciesUnique:true,foes:[foe],weather,
+            label:(MONS.get(foeId).name||zone.monName)+' · 精英 '+tier+' 阶',
+            key:JSON.stringify(['legend-elite',id,tier,foeId,Object.values(weather)]),counter:rules.counter,burst:rules.burst};
+    }
+
+    function legendEliteCompatible(mon,team){
+        const identity=mon=>DATA.combat.singles[mon.id]||mon.id;
+        if(team.some(member=>identity(member)===identity(mon)||LEGEND_ELITE.apart.some(([id,others])=>
+            mon.id===id&&others.includes(member.id)||member.id===id&&others.includes(mon.id))))return false;
+        return !MONS.get(mon.id).legend||team.filter(member=>MONS.get(member.id).legend).length<LEGEND_ELITE.legendLimit;
+    }
+
+    function legendEliteMatchup(mon,context,bossStats,counters){
+        const boss=context.foes[0],member={...mon,status:null,level:Math.min(mon.level,context.level)};
+        const stats=effectiveStats(member),details={weather:context.weather,details:true};
+        const attack=expectedDamage(member,boss,stats,bossStats,details);
+        const types=defensiveTypes(MONS.get(member.id));
+        if(!context.counter&&!counters.has(member.id)){
+            const model=MONS.get(boss.id),moves=[...new Map(damagingMoves(model)
+                .filter(move=>move.level<=boss.level&&move.stab>1&&types[move.move.type]>0)
+                .map(move=>[move.key,move])).values()].sort((a,b)=>a.move.power-b.move.power);
+            counters.set(member.id,moves[Math.floor((moves.length-1)/2)]?.key);
+        }
+        const counter=context.counter||counters.get(member.id);
+        const incoming=expectedDamage(boss,member,bossStats,stats,details).sustainedDamage;
+        const retaliation=expectedDamage(boss,member,bossStats,stats,{...details,move:counter}).sustainedDamage*LEGEND_ELITE.counter;
+        const burst=expectedDamage(boss,member,bossStats,stats,{...details,move:context.burst}).sustainedDamage*LEGEND_ELITE.burst;
+        const [status,chance]=LEGEND_ELITE.dot[attack.key]||[];
+        const foeTypes=MONS.get(boss.id).types,foeDefense=defensiveTypes(MONS.get(boss.id)),resistance=LEGEND_ELITE.resist[context.tier-1];
+        const blocked={burn:foeTypes.includes('fire'),poison:foeTypes.some(type=>['poison','steel'].includes(type)),freeze:foeTypes.includes('ice')};
+        const dot=!blocked[status]&&chance&&attack.hit?chance*attack.turnAccuracy*resistance:0;
+        const setupMove=(LEGEND_ELITE.statusLearn[member.id]||[]).findLast(([level,key])=>{
+            const [effect,,type]=LEGEND_ELITE.statusMoves[key];
+            return level<=member.level&&!blocked[effect]&&foeDefense[type]>0;
+        });
+        const [setupType,setupChance]=LEGEND_ELITE.statusMoves[setupMove?.[1]]||[];
+        const setup=['burn','poison'].includes(setupType)?setupChance*resistance:0;
+        return{mon,hp:stats.hp,speed:stats.spe,damage:attack.sustainedDamage,maxHit:attack.maxHit,hits:attack.hit>0?attack.turnAccuracy:0,incoming,retaliation,burst,dot,setup};
+    }
+
+    function estimateLegendElite(team,bossStats,tier){
+        if(!team.length)return{score:0,turns:0,survivors:0,damage:0};
+        const ordered=[...team].sort((a,b)=>b.speed-a.speed),hp=ordered.map(member=>member.hp);
+        const maxHP=hp.reduce((sum,value)=>sum+value,0);
+        let remaining=bossStats.hp,rage=0,survivors=team.length,turns=0;
+        // Model six active allies, a distributed single-target response, and periodic bursts.
+        // The selected damaging moves can induce one shared burn or poison at a time.
+        const dot=Array(LEGEND_ELITE.dotTurns).fill(0),dotDamage=bossStats.hp/LEGEND_ELITE.hurt[tier-1];
+        function enemyHit(kind,multiplier=1,spread=true){
+            if(!survivors)return;
+            const share=multiplier/(spread?survivors:1);
+            for(let i=0;i<hp.length;i++){
+                if(hp[i]<=0)continue;
+                hp[i]=Math.max(0,hp[i]-ordered[i][kind]*share);
+                if(hp[i]===0)survivors--;
+            }
+        }
+        while(turns<90&&remaining>0&&survivors){
+            turns++;
+            let bossActed=false,withoutDot=1;
+            const available=Math.max(0,1-dot.reduce((sum,value)=>sum+value,0));
+            for(let i=0;i<ordered.length&&remaining>0;i++){
+                const member=ordered[i];
+                if(!bossActed&&member.speed<=bossStats.spe){enemyHit('incoming');bossActed=true;}
+                if(hp[i]<=0)continue;
+                const setUp=member.setup&&remaining>member.maxHit?LEGEND_ELITE.setupChance*available:0;
+                const attacks=1-setUp,hits=member.hits*attacks;
+                remaining-=member.damage*attacks;withoutDot*=1-member.dot*attacks-member.setup*setUp;
+                if(remaining<=0||!hits)continue;
+                rage+=hits;
+                if(rage>=LEGEND_ELITE.rage){rage-=LEGEND_ELITE.rage;enemyHit('burst',1,false);}
+                else enemyHit('retaliation',hits);
+            }
+            if(remaining>0&&survivors&&!bossActed)enemyHit('incoming');
+            for(let i=dot.length-1;i>0;i--)dot[i]=dot[i-1];
+            dot[0]=available*(1-withoutDot);
+            if(remaining>0&&survivors)remaining-=dotDamage*dot.reduce((sum,value)=>sum+value,0);
+        }
+        const damage=1-Math.max(0,remaining)/bossStats.hp;
+        const health=hp.reduce((sum,value)=>sum+value,0)/maxHP;
+        const score=remaining<=0?2+1/(1+turns/10)+.5*health+.25*survivors/LEGEND_ELITE.size:damage+.15*health;
+        return{score,turns,survivors,damage};
+    }
+
+    function* legendEliteTeamSearch(s,context,sliced){
+        const bossStats=effectiveStats(context.foes[0]),counters=new Map(),party=s.eventTeams?.['zone:'+context.id]||[];
+        const currentIndex=new Map(party.map((uid,i)=>[uid,i])),profiles=new Map(),current=[];
+        for(const mon of s.mons||[]){
+            if(!teamEligible(s,mon,context.reg))continue;
+            const profile=JSON.stringify(combatProfile({...mon,status:null}));
+            let row=profiles.get(profile);
+            if(!row||currentIndex.has(mon.uid)){
+                row=legendEliteMatchup(mon,context,bossStats,counters);
+                if(!profiles.has(profile)||currentIndex.has(mon.uid)&&!currentIndex.has(profiles.get(profile).mon.uid))profiles.set(profile,row);
+            }
+            if(currentIndex.has(mon.uid))current.push(row);
+            if(sliced)yield;
+        }
+        const statusPressure=row=>row.dot+LEGEND_ELITE.setupChance*row.setup;
+        const rows=[...profiles.values()],quality=row=>(row.damage+bossStats.hp/LEGEND_ELITE.hurt[context.tier-1]*statusPressure(row))
+            * Math.sqrt(row.hp/Math.max(1,row.incoming+row.retaliation+row.burst/LEGEND_ELITE.rage));
+        for(const row of rows)row.quality=quality(row);
+        const shortlist=(group,by,count)=>{
+            const ids=new Set();
+            return [...group].sort((a,b)=>by(b)-by(a)).filter(row=>{
+                const id=DATA.combat.singles[row.mon.id]||row.mon.id;
+                if(ids.has(id))return false;
+                ids.add(id);return true;
+            }).slice(0,count);
+        };
+        const regular=rows.filter(row=>!MONS.get(row.mon.id).legend),legendary=rows.filter(row=>MONS.get(row.mon.id).legend);
+        const candidates=[...new Set([
+            ...shortlist(regular,row=>row.quality,18),...shortlist(regular,row=>row.damage,8),...shortlist(regular,statusPressure,6),
+            ...shortlist(legendary,row=>row.quality,8),...shortlist(legendary,row=>row.damage,4),...current,
+        ])];
+        const evaluate=team=>estimateLegendElite(team,bossStats,context.tier);
+        const legal=(row,team)=>legendEliteCompatible(row.mon,team.map(other=>other.mon));
+        let chosen=[];
+        while(chosen.length<context.size){
+            let best=null,bestScore=-Infinity;
+            for(const row of candidates){
+                if(!legal(row,chosen))continue;
+                const value=evaluate([...chosen,row]).score;
+                if(value>bestScore){best=row;bestScore=value;}
+                if(sliced)yield;
+            }
+            if(!best)break;
+            chosen.push(best);
+        }
+        let result=evaluate(chosen);
+        for(let i=0;i<chosen.length;i++){
+            const others=chosen.filter((_,index)=>index!==i);
+            for(const row of candidates){
+                if(row===chosen[i]||!legal(row,others))continue;
+                const proposed=[...chosen];proposed[i]=row;
+                const value=evaluate(proposed);
+                if(value.score>result.score*1.001){chosen=proposed;result=value;}
+                if(sliced)yield;
+            }
+        }
+        const legalCurrent=[];
+        for(const row of current.sort((a,b)=>currentIndex.get(a.mon.uid)-currentIndex.get(b.mon.uid))){
+            if(legalCurrent.length<context.size&&legal(row,legalCurrent))legalCurrent.push(row);
+        }
+        if(legalCurrent.length===party.length&&party.length===chosen.length){
+            const previous=evaluate(legalCurrent);
+            if(previous.score>=result.score*.97){chosen=legalCurrent;result=previous;}
+        }
+        return{uids:chosen.map(row=>row.mon.uid),estimate:result};
+    }
     function ownedItems(s, id) { return (Number(s.items?.[id]) || 0) + (Number(s.link?.stash?.items?.[id]) || 0); }
     function itemCounter(s, id) { return s.stats?.itemIn && typeof s.stats.itemIn === 'object' ? Number(s.stats.itemIn[id]) || 0 : ownedItems(s, id); }
     function purchaseEvidence(s,id,cost) {
@@ -4026,6 +4188,10 @@
             key:`elite:${reg}:${tier}:${foes.some(f=>f.chapter===81&&f.id===644)?'night':'default'}`};
     }
     function battleContext(s,kind,options={}){
+        if(kind==='zone'&&options.tier){
+            const elite=legendEliteContext(s,options.id,options.tier,options.now);
+            if(elite)return elite;
+        }
         const row=options.row,c=CHAPTERS.get(row?.id??options.id??s.adv.chapter),zone=kind==='zone'?DATA.zones.find(z=>z.id===options.id):null;
         let reg=options.reg||row?.reg||zone?.reg||(['worldAttack','worldCapture','under'].includes(kind)?'sinnoh':c?.reg||currentRegion(s));
         if(kind==='tower'&&s.link&&reg===s.link.to)reg=DATA.regions.find(region=>region.key===s.link.from)?.key||DATA.regions.filter(region=>region.key!==s.link.to&&region.start<=s.adv.unlocked).at(-1)?.key||'kanto';
@@ -5331,6 +5497,7 @@
         activeTeam(s) {
             if(!this.e.settings.optimizeRaid)return false;
             const raid=s.adv.event?.raid?s.adv.event:null,zone=s.adv.zone;if(!raid&&!zone)return false;
+            if(zone?.elite)return false;
             const key=raid?`raid:${raid.date||parisDay()}|${raid.reg}|${raid.id}|${rosterFingerprint(s)}`:`zone:${zone.id}:${zone.elite||0}|${rosterFingerprint(s)}`;
             if(this.recent.has(key))return false;
             let edit;
@@ -5529,7 +5696,7 @@
             if (options.zone) {
                 const zoneTab = $('#map-root [data-lz-view="zone"]:not(.on)');
                 if (enabled(zoneTab)) { this.click(zoneTab, '打开传说战挑战面板'); return false; }
-                const tier = options.tier || 0, key = `zone:${row.id}:${tier}|${rosterFingerprint(s)}`;
+                const tier = options.tier || 0;
                 const go = $(`#map-root .mp-go[data-zone="${row.id}"]${tier ? `[data-tier="${tier}"]` : ':not([data-tier])'}`);
                 if (!enabled(go)) {
                     if(visible(go)&&(go.disabled||go.getAttribute('aria-disabled')==='true')){
@@ -5540,9 +5707,13 @@
                     return false;
                 }
                 if(options.riddle)return list.classList.contains('lz-seal')&&this.click(go,'阅读'+row.name+'的铭文');
-                if (options.optimize && !this.recent.has(key)) {
-                    const edit = $(`#map-root [data-lz-team="${row.id}"]${tier ? `[data-lz-tier="${tier}"]` : ':not([data-lz-tier])'}`);
-                    if (enabled(edit) && this.click(edit, '配置传说战队伍')) { this.ownedDialog = { type: 'team', key, optimized: false }; return false; }
+                if(tier&&options.optimize&&this.e.settings.optimizeRaid){
+                    const edit=$(`#map-root [data-lz-team="${row.id}"][data-lz-tier="${tier}"]`);
+                    if(this.prepareEliteLegend(s,row,tier,edit,Date.now()))return false;
+                }else if (!tier&&options.optimize) {
+                    const key=`zone:${row.id}:0|${rosterFingerprint(s)}`;
+                    const edit = $(`#map-root [data-lz-team="${row.id}"]:not([data-lz-tier])`);
+                    if (!this.recent.has(key) && enabled(edit) && this.click(edit, '配置传说战队伍')) { this.ownedDialog = { type: 'team', key, optimized: false }; return false; }
                 }
                 if(this.e.ensurePrepared(s,battleContext(s,'zone',{id:row.id,reg:row.reg,level:row.level,tier}),{row:routeDescriptor(row),options},Date.now()))return false;
                 return this.click(go, `挑战${row.name}`);
@@ -5567,6 +5738,30 @@
             const go = $(`#map-root .mp-go[data-go="${row.league ? 'L' : row.id}"]`);
             return this.click(go, `前往${row.name}`);
         }
+        eliteLegendKey(s,context){
+            return JSON.stringify([context.key,rosterFingerprint(s)]);
+        }
+        prepareEliteLegend(s,row,tier,edit,now){
+            const e=this.e,context=legendEliteContext(s,row.id,tier,now),teamKey='zone:'+row.id;
+            if(!context){e.failTask('无法核对当前精英首领的形态，请检查游戏版本和配队');return true;}
+            const party=s.eventTeams?.[teamKey]||[],key=this.eliteLegendKey(s,context);
+            if(this.legendElitePlan?.key!==key){
+                const plan=e.evaluateTeamSearch(JSON.stringify([key,party]),legendEliteTeamSearch(s,context,true));
+                if(!plan){
+                    if(this.pendingMap?.row===row)this.pendingMap.started=now;
+                    e.lastProgress=now;e.status='正在评估精英传说阵容 · '+context.label;
+                    return true;
+                }
+                if(!plan.uids.length){e.failTask('当前地区没有符合条件的精英传说战队员');return true;}
+                this.legendElitePlan={...plan,key};
+            }
+            const {uids,estimate}=this.legendElitePlan;
+            if(uids.length===party.length&&uids.every((uid,i)=>uid===party[i]))return false;
+            if(enabled(edit)&&this.click(edit,'配置队伍 · '+context.label)){
+                this.ownedDialog={type:'legendEliteTeam',key,teamKey,zoneId:row.id,tier,uids,estimate,started:now,openingUntil:now+5000};
+            }else if(!enabled(edit))e.status='等待精英传说战的专属队伍入口 · '+context.label;
+            return true;
+        }
         dialog(s) {
             const own = this.ownedDialog;
             if (!own) return false;
@@ -5575,8 +5770,9 @@
                 if(!visible($('#evt-pick'))){const task=this.e.services.underground;if(task)task.editorOpen=false;this.ownedDialog=null;return false;}
                 own.started??=Date.now();return this.factoryTeam(s,own);
             }
-            if(['team','factoryTeam','eliteTeam','underTeam'].includes(own.type)&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
-            const ownedRoot=['team','factoryTeam','eliteTeam','underTeam'].includes(own.type)?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
+            const teamDialog=['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam'].includes(own.type);
+            if(teamDialog&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
+            const ownedRoot=teamDialog?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
             if(!visible(ownedRoot)){
                 // The native modal queue can mount the picker after the launch click.
                 if(own.openingUntil>Date.now()&&!s.adv?.event?.raid&&!visible($('#modal-root.open .modal'))&&!visible($('#evt-pick')))return true;
@@ -5594,7 +5790,7 @@
                 }
                 return true;
             }
-            if(['factoryTeam','eliteTeam','underTeam'].includes(own.type))return this.factoryTeam(s,own);
+            if(teamDialog&&own.type!=='team')return this.factoryTeam(s,own);
             if (own.type === 'team') {
                 if (!visible($('#evt-pick'))) { this.ownedDialog = null; return false; }
                 if (!own.optimized) {
@@ -5665,7 +5861,19 @@
         }
         factoryTeam(s,own){
             const now=Date.now(),background=own.type==='backgroundUnderTeam',under=background||own.type==='underTeam',desired=own.uids||[],teamKey=own.teamKey||'candy',current=s.eventTeams?.[teamKey]||[],search=$('#evt-search'),grid=$('#evt-pc'),sort=$('#evt-sort'),eff=$('#evt-eff');
-            const elite=own.type==='eliteTeam',facility=under?'地下探险':elite?'精英联盟':'糖果工厂';
+            const elite=own.type==='eliteTeam',legend=own.type==='legendEliteTeam',facility=under?'地下探险':elite?'精英联盟':legend?'精英传说战':'糖果工厂';
+            if(legend){
+                const context=legendEliteContext(s,own.zoneId,own.tier,now);
+                if(!context||s.adv.zone||this.pendingMap?.row.id!==own.zoneId||(Number(s.elite?.[own.zoneId]?.t)||0)+1!==own.tier||
+                    own.key!==this.eliteLegendKey(s,context)){
+                    if(this.click($('#evt-pick [data-evt-close]'),'首领或收藏已变化，重新评估精英队伍')){
+                        this.ownedDialog=null;
+                        if(this.pendingMap)this.pendingMap.started=now;
+                    }
+                    return true;
+                }
+                this.e.status='正在配置精英传说队伍 · '+context.label;
+            }
             if(elite&&!this.e.automation.eliteEditorCurrent(s,own,now)){
                 if(this.click($('#evt-pick [data-evt-close]'),'重新核对地区联盟队伍'))this.ownedDialog=null;
                 return true;
@@ -5703,6 +5911,11 @@
                     this.ownedDialog=null;
                     if(background){const task=this.e.services.underground;task.teamReady=true;task.editorOpen=false;this.e.log('后台地下安全队伍已配置，派遣前再次核对占用');this.e.persist();}
                     else if(elite)this.e.log('已确认'+this.e.automation.elitePlan.label+'专属队伍');
+                    else if(legend){
+                        if(this.pendingMap)this.pendingMap.started=now;
+                        const {damage,turns,survivors}=own.estimate;
+                        this.e.log('精英传说专属队伍已确认 · '+(damage>=1?`估算 ${turns} 回合，剩 ${survivors} 人`:`估算可削减首领 ${Math.floor(damage*100)}% 体力`));
+                    }
                     else if(under)this.e.log('地下探险队伍已配置，将在出发前再次核对');
                     else{
                         this.rememberTeam(own.key,[...desired]);
@@ -7285,7 +7498,7 @@
         activity(s){
             const a=s.adv;
             if(a.event?.raid)return battleContext(s,'raid',{id:a.event.id,reg:a.event.reg});
-            if(a.zone&&!a.zone.riddle&&a.pending?.type!=='riddle'&&(a.zone.id!==493||this.e.settings.mode==='world'))return battleContext(s,a.zone.id===493?'worldCapture':'zone',{id:a.zone.foe||a.zone.id,level:a.zone.level||100,reg:DATA.zones.find(z=>z.id===a.zone.id)?.reg,tier:a.zone.elite});
+            if(a.zone&&!a.zone.riddle&&a.pending?.type!=='riddle'&&(a.zone.id!==493||this.e.settings.mode==='world'))return battleContext(s,a.zone.id===493?'worldCapture':'zone',{id:a.zone.elite?a.zone.id:a.zone.foe||a.zone.id,level:a.zone.level||100,reg:DATA.zones.find(z=>z.id===a.zone.id)?.reg,tier:a.zone.elite});
             if(a.league)return battleContext(s,'elite',{reg:a.league.reg,tier:a.league.tier});
             if(a.tower&&a.tower.kind!=='candy'&&towerProgress(s).run)return battleContext(s,'tower',{floor:this.e.settings.towerFloor});
             return null;
@@ -8342,7 +8555,7 @@
                 const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
                 this.interruptedPicker=null;
                 if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
-                else if(['team','factoryTeam','eliteTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
+                else if(['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
                     const close=$('#evt-pick [data-evt-close]');
                     if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
                 }
@@ -8849,6 +9062,11 @@
             if (this.driver.pendingMap) {
                 const pending = this.driver.pendingMap;
                 const mode=this.settings.mode;
+                if(pending.options?.zone&&pending.options.tier&&(Number(s.elite?.[pending.row.id]?.t)||0)+1!==pending.options.tier){
+                    this.driver.pendingMap=null;
+                    this.status='传说精英阶级已变化，重新核对下一阶';
+                    return;
+                }
                 if(mode==='dex'&&pending.options?.dexWindow){
                     const current=dexRanking(s,this.settings,this.cooldowns,now).find(r=>r.key===pending.row.key);
                     if(!current?.window&&!current?.marked){
@@ -9840,6 +10058,7 @@
     if (typeof module === 'object' && module.exports && typeof document === 'undefined') {
         module.exports = { DATA, DEFAULTS, MONS, ROOTS, ITEMS, MODE_NAMES, normalizeSettings, decodeSave, economicRegion, moneyFactor, accountId, captured, dexStatus, candidates, specialAvailable, dexRanking, moneyRanking, itemRanking, xpRanking, trainingCap, trainingGemTarget, trainingStatus, selectTrainingBuddy, experienceTotal, partyMons, rosterFingerprint, teamEligible, effectiveStats, expectedDamage, matchupScore, chapterThreats, chapterFoes, giftChoices, planAdventureTeam, ownedItems, itemCounter, sourceAvailable, legendProgress, estimateRate, teamFingerprint, metricsKey, activeYieldBuff, yieldFingerprint, parisDay, allyStrength, Telemetry, Engine, DOMDriver, phaseAt, encounterDataErrors,Automation,Budget,shinyOwned,shinyRanking,pensionPlan,parsePrice,normalizeJobs,undergroundTeamKey,undergroundMembers,battleContext,preparationPlan,battleRouteFit,preparationRoutes,LevelCoach,candyRegion,candyXpGap,candyChoice,teamCacheStats,clearTeamCache };
         Object.assign(module.exports,{MULTI_HIT_DATA,damageRollMean,attackTurns,chapterCombatFoes,resolveCombatWeatherNode,combatWeather,deploymentScore,matchupDetails,deployedBattle,battleSwitchCandidate,preparationCosts,preparationReadiness,rebuildPreparationContext,trainingCandidates,leagueTrainingModel});
+        Object.assign(module.exports,{LEGEND_ELITE,legendEliteContext,legendEliteCompatible,legendEliteTeamSearch});
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
         Object.assign(module.exports,{shopCandyTier});
@@ -11032,7 +11251,7 @@
                     </details>
                     <div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div>
                     <div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>
-                    ${roamingBallControl('legend')}<div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div>
+                    ${roamingBallControl('legend')}<div class="hint" id="legend-elite-team-hint" hidden></div><div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div>
                 </div>
                 <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限（分钟）</span><input data-setting="roamMinutes" type="number" min="0" max="720" aria-label="游荡搜寻时限，0 为不限时"></div>${roamingBallControl('roam')}<div class="hint">填 0 持续在线追踪，或填 5–720 分钟限时。捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。</div></div>
                 <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div></div>
@@ -11496,6 +11715,9 @@
             untilCaught.disabled=!dailyBase.raids||engine.running||!!engine.suspended;
             const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
             syncLegendPicker(dailyLegend?dailyBase:engine.settings,engine.running||!!engine.suspended);
+            const legendSettings=dailyLegend?dailyBase:engine.settings,legendHint=query('#legend-elite-team-hint');
+            legendHint.hidden=!legendSettings.legendTier;
+            if(legendSettings.legendTier)legendHint.textContent=legendSettings.optimizeRaid?'精英战按首领形态和阶级自动配置专属队伍，最多带一只传说或幻之宝可梦。':'精英战使用你在游戏中设置的专属队伍。';
             const legendFields=query('[data-fields="legend"]');
             const destination=query(dailyLegend?'#daily-legend-fields':'#ordinary-target');
             if(legendFields.parentNode!==destination)destination.insertBefore(legendFields,dailyLegend?null:query('[data-fields="roam"]'));

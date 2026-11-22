@@ -392,6 +392,10 @@
             key:`elite:${reg}:${tier}:${foes.some(f=>f.chapter===81&&f.id===644)?'night':'default'}`};
     }
     function battleContext(s,kind,options={}){
+        if(kind==='zone'&&options.tier){
+            const elite=legendEliteContext(s,options.id,options.tier,options.now);
+            if(elite)return elite;
+        }
         const row=options.row,c=CHAPTERS.get(row?.id??options.id??s.adv.chapter),zone=kind==='zone'?DATA.zones.find(z=>z.id===options.id):null;
         let reg=options.reg||row?.reg||zone?.reg||(['worldAttack','worldCapture','under'].includes(kind)?'sinnoh':c?.reg||currentRegion(s));
         if(kind==='tower'&&s.link&&reg===s.link.to)reg=DATA.regions.find(region=>region.key===s.link.from)?.key||DATA.regions.filter(region=>region.key!==s.link.to&&region.start<=s.adv.unlocked).at(-1)?.key||'kanto';

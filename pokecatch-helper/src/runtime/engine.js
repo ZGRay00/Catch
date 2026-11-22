@@ -680,7 +680,7 @@
                 const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
                 this.interruptedPicker=null;
                 if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
-                else if(['team','factoryTeam','eliteTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
+                else if(['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
                     const close=$('#evt-pick [data-evt-close]');
                     if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
                 }
@@ -1187,6 +1187,11 @@
             if (this.driver.pendingMap) {
                 const pending = this.driver.pendingMap;
                 const mode=this.settings.mode;
+                if(pending.options?.zone&&pending.options.tier&&(Number(s.elite?.[pending.row.id]?.t)||0)+1!==pending.options.tier){
+                    this.driver.pendingMap=null;
+                    this.status='传说精英阶级已变化，重新核对下一阶';
+                    return;
+                }
                 if(mode==='dex'&&pending.options?.dexWindow){
                     const current=dexRanking(s,this.settings,this.cooldowns,now).find(r=>r.key===pending.row.key);
                     if(!current?.window&&!current?.marked){

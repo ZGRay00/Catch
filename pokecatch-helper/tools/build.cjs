@@ -24,6 +24,12 @@ function validateData(name,data){
     if(!data.chart||typeof data.chart!=='object'||!data.combat||typeof data.combat!=='object')throw Error('DATA lacks battle rules');
   }
   if(name==='EVOLUTION_DATA'&&(!data.rules||typeof data.rules!=='object'||Array.isArray(data.rules)))throw Error('EVOLUTION_DATA lacks its rule map');
+  if(name==='LEGEND_ELITE'){
+    if(!/^[a-f0-9]{10}$/.test(data.bundle)||!Number.isInteger(data.legendLimit)||data.legendLimit<0||!Object.keys(data.zones||{}).length)throw Error('LEGEND_ELITE lacks its build, party limit or matchups');
+    for(const zone of Object.values(data.zones)){
+      if(!Object.keys(zone.foes||{}).length||Object.values(zone.foes).some(tiers=>!Array.isArray(tiers)||tiers.length!==5||tiers.some(pair=>!Array.isArray(pair)||pair.length!==2||pair.some(value=>!Number.isFinite(value)||value<=0))))throw Error('LEGEND_ELITE contains invalid stage multipliers');
+    }
+  }
   if(name==='WEATHER_DATA'){
     if(data.schema!==2||!Number.isFinite(data.slotMs)||data.slotMs<=0||!Number.isFinite(data.chance)||data.chance<0||data.chance>1||!data.types||typeof data.types!=='object'||Array.isArray(data.types)||!Array.isArray(data.chapters)||!data.chapters.length||!Array.isArray(data.tables)||!data.tables.length||!Array.isArray(data.dailySpots))throw Error('WEATHER_DATA requires schema 2 hourly weather, daily spots and encounter tables');
     if(data.tables.some(table=>!Array.isArray(table)||table.some(row=>!Array.isArray(row)||!Number.isInteger(row[0])||row[0]<=0||!Number.isFinite(row[1])||row[1]<=0)))throw Error('WEATHER_DATA contains an invalid encounter table');

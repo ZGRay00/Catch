@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "6.3.2",
-  "scriptSha256": "7cc03364c51b4cc2290cd65d750335f1e7822c52cb480d05c4c9b2f2612d3274",
-  "metadataSha256": "d7bd05cd5a89158ef4844f25695f32901c93343fa1e6271122ca988efe8120ff",
+  "version": "6.3.3",
+  "scriptSha256": "97d36bd4a1f31182bf42438e20e5b963317543aed307b23d582bc9e2953f7ca3",
+  "metadataSha256": "1a1dfa42e22024bec3f72284e2acb1174854a141037b6605017cdbab3688c5cc",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "42071b67488bb515fbf9b4e6bc7762526fdf863786d1b0c5d3394553003c70b4"
+      "sha256": "415e960c169c6fd64bd6d84f2fea53e7ee2d4e5ced514f0a13c3dd3be677d852"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "a542e646f186369132a7673f3b71f94ce495bcaccc6b2ea017ac18c787e73522"
+      "sha256": "8ede0b622acd1be156686651befea0573d4e926145610f56ab235dfaeb665acc"
     },
     {
       "file": "userscript.header.txt",
@@ -118,11 +118,19 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "6756f84b1d62dbd663855cc7eb4d94f5469509f0f12899775011534f3a38dad7"
+      "sha256": "3467593a6f1a64ca237147de8fb00da24e22ce522625032616967b0c15c9ee26"
+    },
+    {
+      "file": "data/legend-elite.json",
+      "sha256": "1fa885370a0b102491307156ecb27be99aef1875507be41a5c2f188f2d803ffc"
+    },
+    {
+      "file": "src/models/legend-elite.js",
+      "sha256": "59c879d4e8dcb6f81aa72fa670c16326b2fd659cd7f4e6e8e5efef82b4b9bb8c"
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "3b9a225481b44416229c78e7bd6533a2254d27296f5256cf057db0cf11009be4"
+      "sha256": "4d0c485c508f41f122410d87c855385922657188a5fb4f6395031840b1dbb801"
     },
     {
       "file": "src/models/legend-requirements.js",
@@ -138,7 +146,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "48cd04e415860a3340e9c5b48521d2f08c2afba6471a1d8deb582918e451d67e"
+      "sha256": "b13357088453082f27b3f43e428c4420aff00b8a58ec06604313a5d19c3f425b"
     },
     {
       "file": "src/runtime/automation.js",
@@ -146,15 +154,15 @@
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "83599de87e702521174835ff948f279c9f062b64e1fe4f6e2d662e0454d167a0"
+      "sha256": "a30566ef708d25ce5e95d72c798059e82dfbcf176faffda9bbd5cb19800519bd"
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "098e6ff88fc67b36973aa99308440382cc5bdce571947b8205e66dbcbd18fa39"
+      "sha256": "f10f16428ddccdea9d02c04f332a1a2ea2f859cf6b42fc4b724e5c6d60df014b"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "fb95f036f5f830004075e87cd965ce1cd52e61e5cbd062f7bdfbd63fcd239140"
+      "sha256": "0dae326dc6ff7301a715113397b3649cd46726854093d8b0340c10a03cfe5d52"
     },
     {
       "file": "src/ui/panel-style.js",
@@ -182,7 +190,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "133be67e817d790304dc40bab81369c9efd31465eb1ecadce47631cae7598a33"
+      "sha256": "60189e9c030fdca31770cbcbf2d3b2358907dbcf530a71a3613629ebf651d8cc"
     }
   ]
 }

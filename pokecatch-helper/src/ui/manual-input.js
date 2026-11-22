@@ -26,7 +26,9 @@
         document.addEventListener('freeze',leavePage);
 
         function manualEvent(event){
-            if(!engine.running||!outside(event))return;
+            if(!engine.running&&!engine.nurseryAssist?.enabled||!outside(event))return;
+            engine.nurseryAssist?.userInput();
+            if(!engine.running)return;
             if(engine.automation?.rankUI)engine.automation.rankUI=null;
             if(!engine.settings.manualPause)return;
             const changed=!engine.manual,previousHeld=engine.inputHeld;
@@ -50,7 +52,7 @@
             if(event.isTrusted&&event.altKey&&event.shiftKey&&event.code==='KeyP'){event.preventDefault();event.stopPropagation();showHelper();}
         },true);
         document.addEventListener('keydown',event=>{
-            if(event.isTrusted&&event.key==='Escape'&&engine.running){engine.stop('Esc 停止助手');paint(true);return;}
+            if(event.isTrusted&&event.key==='Escape'&&engine.running){engine.nurseryAssist?.userInput();engine.stop('Esc 停止助手');paint(true);return;}
             manualEvent(event);
         },true);
         window.addEventListener('keyup',event=>{

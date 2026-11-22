@@ -50,6 +50,7 @@
     {"kind":"source","file":"src/models/nursery-model.js"},
     {"kind":"source","file":"src/models/nursery-ledger.js"},
     {"kind":"source","file":"src/services/nursery-monitor.js"},
+    {"kind":"source","file":"src/services/nursery-assist.js"},
     {
       "kind": "json",
       "file": "data/weather.json",

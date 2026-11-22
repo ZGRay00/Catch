@@ -84,7 +84,7 @@ test('Sinnoh Ice Badge uses the native four opponents and accounts for off-type 
     assert.equal(H.matchupDetails(empoleon,piloswine).incoming.type,'ground');
 });
 
-test('conditional leaders follow the saved starter and farm objectives do not use gym survival bonuses',()=>{
+test('conditional leaders follow the saved starter and farming uses encounter weights without a mainline gym bonus',()=>{
     const s=iceBadge(),chapter=H.DATA.chapters[66];
     for(const [starter,expected] of [[495,513],[498,515]]){
         s.adv.gifts[chapter.foesByStarter.key]=starter;
@@ -94,8 +94,11 @@ test('conditional leaders follow the saved starter and farm objectives do not us
     const foes=H.chapterCombatFoes(s,H.DATA.chapters[55]);
     for(const objective of ['money','train']){
         const options={objective,now:replayTime,foes};
-        const baseline=H.planAdventureTeam(s,progression,[],{...options,foes:foes.map(foe=>({...foe,gymCount:0}))});
-        assert.deepEqual(H.planAdventureTeam(s,progression,[],options),baseline);
+        const plan=H.planAdventureTeam(s,progression,[],options);
+        assert.equal(plan.objective,objective);
+        assert.doesNotMatch(plan.reason,/提高馆主战续航/);
+        assert.ok(Number.isFinite(plan.score)&&Number.isFinite(plan.currentScore));
+        assert.equal(new Set(plan.uids).size,plan.uids.length);
     }
 });
 

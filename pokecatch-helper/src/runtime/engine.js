@@ -4,7 +4,8 @@
     function adventureTeamPolicy(s,members,settings,pinned){
         const choices=members.map(id=>CHAPTERS.get(id)?.foesByStarter).filter(Boolean)
             .map(branch=>starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number)));
-        return JSON.stringify([settings.mode,pinned,helperSwitchEnabled(s,settings),choices]);
+        const training=settings.mode==='train'?[settings.trainLevel,s.buddy?.uid,s.adv.unlocked,s.adv.badges]:null;
+        return JSON.stringify([settings.mode,pinned,helperSwitchEnabled(s,settings),choices,training]);
     }
     class Engine {
         constructor(storage, settings = {}) {
@@ -20,6 +21,7 @@
             this.teamCheck = null; this.teamRetryAt = 0;
             this.automation=new Automation(this);this.services=normalizeServiceState();this.backgroundYield=false;this.budget=new Budget(this);this.queue=[];this.queueIndex=0;this.queueRunning=false;this.checkpoint=null;this.nextWake=null;
             this.nurseryMonitor=new NurseryMonitor(this);
+            this.nurseryAssist=new NurseryAssist(this);
             this.daily=null;this.dailyMarks={};this.dailyCheckAt=0;
             this.coach=new LevelCoach(this);this.preparation=null;this.raidPreparation=null;
         }
@@ -73,6 +75,7 @@
             this.services = normalizeServiceState(saved.services);
             this.telemetry = new Telemetry(this.metrics);
             this.nurseryMonitor.load(s);
+            this.nurseryAssist.load();
         }
         refreshAutoPurchase() {
             if (!this.account) return this.settings.autoPurchase;
@@ -168,6 +171,8 @@
         }
         startQueue(){if(this.running)return;this.queue=normalizeJobs(this.queue);this.queueIndex=this.queue.findIndex(queueJobPending);if(this.queueIndex<0){this.status='队列中没有待执行任务';return;}this.queueRunning=true;this.settings=this.taskSettings(this.queue[this.queueIndex].settings);this.queue[this.queueIndex].status='running';this.start();}
         beginTask(s,cp,now,continuingQueue=false){
+            this.nurseryAssist.cancelIdle();
+            this.nurseryAssist.feed=null;
             this.cancelTeamSearch();
             this.cancelRouteRankings();
             this.budget=new Budget(this,cp?.budget);
@@ -910,6 +915,7 @@
             }
             this.modalWaitSince=null;this.modalWaitNode=null;
             if(this.leaveStartActivity(s,now))return;
+            if(this.nurseryAssist.runningStep(s,now))return;
             if(this.settings.mode==='elite'&&this.automation.exitDefeatedLeague(s,now))return;
             if(!s.team?.length&&pendingRegionalStarter(s)){
                 this.lastProgress=now;this.telemetry.sample=null;
@@ -1321,7 +1327,9 @@
             if(Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid)))return false;
             const current={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(member=>member.loop===c.loop).map(member=>member.id):[c.id]};
             const row=frontier?current:pending?.row||this.target||current;
-            const objective=this.settings.mode==='train'?'train':['money','item','shiny'].includes(this.settings.mode)||this.settings.mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':'progress';
+            const mode=this.settings.mode;
+            const objective=mode==='train'?'train':mode==='money'||mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':
+                ['item','shiny'].includes(mode)?'route':'progress';
             const roamId=trackedRoamer||(roam?roamingSettings(this.settings).roamId:undefined);
             const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;

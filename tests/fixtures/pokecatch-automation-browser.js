@@ -13,6 +13,9 @@
         for(const tab of root.querySelectorAll('#pen-tabs [data-pen-tab]'))tab.onclick=()=>root.querySelectorAll('#pen-tabs [data-pen-tab]').forEach(other=>other.classList.toggle('on',other===tab));
         q('#pen-res').innerHTML=p.mons.map(x=>`<button class="pen-res" data-uid="${x.mon.uid}">${x.mon.id}</button>`).join('');
         q('#pen-eggs').innerHTML=p.eggs.map(egg=>{const ready=eggReadiness.has(egg.uid)?eggReadiness.get(egg.uid):egg.hatchAt<=Date.now();return`<button class="pen-egg ${ready?'ready':''}" data-egg="${egg.uid}" ${ready?'':'disabled'}>Egg</button>`;}).join('');
+        const stock=s.items?.['belue-berry']||0;
+        root.insertAdjacentHTML('beforeend',`<div id="pen-berries"><button data-myrte ${stock>0&&!p.bx?'':'disabled'}><span class="bag-qty">×${stock}</span></button></div>`);
+        q('[data-myrte]').onclick=()=>{s.items['belue-berry']--;p.bx=1;save();pension();};
         for(const button of root.querySelectorAll('[data-egg]'))button.onclick=()=>{hatchClicks++;const commit=()=>{const egg=p.eggs.find(x=>x.uid===button.dataset.egg);p.eggs=p.eggs.filter(x=>x!==egg);s.stats.hatched=(s.stats.hatched||0)+1;save();pension();
             if(eggPresentation==='duplicate'){const fx=document.createElement('div');fx.className='rc-fx lk-fx lk-hatch';fx.innerHTML='<button class="rc-tap">Family XP</button>';fx.querySelector('.rc-tap').onpointerdown=()=>fx.remove();document.body.appendChild(fx);}
             else modal('dexcard-modal',eggPresentation==='plain'?'<b>Hatched</b>':'<b class="dc-new">Hatched</b>');};if(eggPresentation==='delayed')hatchCommit=commit;else commit();};
@@ -427,6 +430,43 @@
         q('#pen-grid [data-uid="d"]').click();q('#pen-grid [data-uid="p"]').click();
         s.pension.eggs=[{uid:'egg1',id:1,hatchAt:Date.now()-1000}];save();pension();await until(()=>!engine.running);assert(s.stats.hatched===1&&engine.automation.state.hatched===1,'mature egg hatches and completes matching goal after manual daycare setup');
         assert(!group.querySelector('.nav-grp-in').inert,'collapsed inert activity navigation expands before entering daycare');
+        reset('money',{autoTeam:true});engine.stop('fixture idle nursery');hatchClicks=0;s.pension.eggs=[{uid:'idle-ready',id:1,hatchAt:Date.now()-1000}];save();
+        const idle=()=>{engine.driver.lastClick=0;engine.nurseryAssist.idleStep();};
+        const nurseryRoot=q('#pokecatch-auto-helper').shadowRoot;
+        nurseryRoot.querySelector('[data-workspace="settings"]').click();
+        const idlePref=nurseryRoot.querySelector('[data-nursery-pref="idleHatch"]'),feedPref=nurseryRoot.querySelector('[data-nursery-pref="autoFeed"]');
+        assert(!idlePref.checked&&!feedPref.checked,'both nursery account settings are disabled by default');
+        idle();assert(s.stats.hatched===0,'stopped helper leaves mature eggs alone by default');
+        idlePref.click();for(let i=0;i<12;i++)idle();
+        assert(!engine.running&&s.stats.hatched===1&&hatchClicks===1&&!!q('#screen-adventure.active'),'opt-in idle collection hatches once and restores the native page without starting a task');
+        idlePref.click();
+        const savedBuild=window.BUILD,fixtureNursery=window.__pcNurseryAutomation;
+        try{
+            s.trainer.since=1234;s.pension.mons=[{mon:{id:132,uid:'d'}},{mon:{id:1,uid:'p',shiny:true}}];
+            s.pension.tick=Date.now();s.pension.egg=0;s.pension.laid=0;s.items['belue-berry']=3;
+            while(!(fixtureNursery.nurseryFixedRoll(s,s.pension.laid)>=1/16&&fixtureNursery.nurseryFixedRoll(s,s.pension.laid)<1/8))s.pension.laid++;
+            save();feedPref.click();
+            window.BUILD='future-nursery-bundle';for(let i=0;i<4;i++)idle();
+            assert(!s.pension.bx&&s.items['belue-berry']===3&&!!q('#screen-adventure.active'),'an unverified game build never feeds or opens the nursery');
+            window.BUILD=fixtureNursery.NURSERY_RULES.build;
+            const berrySerial=s.pension.laid;
+            idle();assert(!!q('#screen-pension.active'),'verified candidate opens the nursery');
+            while(fixtureNursery.nurseryFixedRoll(s,s.pension.laid)>=1/16)s.pension.laid++;
+            save();for(let i=0;i<6;i++)idle();
+            assert(!s.pension.bx&&s.items['belue-berry']===3&&!!q('#screen-adventure.active'),'a changed next egg cancels feeding after navigation and restores the original page');
+            s.pension.laid=berrySerial;save();for(let i=0;i<12;i++)idle();
+            assert(!engine.running&&s.pension.bx===1&&s.items['belue-berry']===2&&!!q('#screen-adventure.active'),'verified next berry-only shiny consumes exactly one stocked berry and returns while idle');
+            delete s.pension.bx;save();engine.nurseryAssist.refresh();for(let i=0;i<6;i++)idle();
+            assert(s.items['belue-berry']===2,'the durable serial guard prevents re-feeding the same egg after a delayed or lost confirmation');
+            do{s.pension.laid++;}while(!(fixtureNursery.nurseryFixedRoll(s,s.pension.laid)>=1/16&&fixtureNursery.nurseryFixedRoll(s,s.pension.laid)<1/8));
+            save();engine.settings.useBudget=0;engine.start();
+            for(let i=0;i<4;i++)await tick();
+            assert(!s.pension.bx&&s.items['belue-berry']===2,'foreground feeding respects a zero use budget');
+            engine.settings.useBudget=1;await until(()=>s.pension.bx===1&&engine.nurseryAssist.feed===null,14);
+            assert(s.items['belue-berry']===1&&engine.budget.used===1&&engine.running,'foreground feeding uses one berry and one allowance then resumes its task');
+            engine.stop('fixture nursery complete');
+            feedPref.click();
+        }finally{window.BUILD=savedBuild;delete s.trainer.since;save();}
         reset('underground',{underRuns:1});await until(()=>s.under.slots.length>0);assert(s.under.slots.length===1,'underground team edit and native dispatch');const dispatched=s.under.slots[0],dispatchedUIDs=[...dispatched.team];assert(dispatched.mons.length===3&&dispatchedUIDs.every(uid=>!s.mons.some(mon=>mon.uid===uid))&&s.under.sent===1&&underCollectionClicks===0&&engine.automation.state.underDone===0,'native dispatch detaches exactly three PC members and never collects a future expedition');await until(()=>!engine.running);assert(engine.automation.state.underDone===1&&s.under.slots.length===0&&underCollectionClicks===1&&dispatchedUIDs.every(uid=>s.mons.some(mon=>mon.uid===uid)),'dispatch collection completes task only after the original three UIDs return');assert(geodeOpened===1&&!q('.gd-fx')&&!q('#modal-root.open')&&engine.budget.used===1,'single-geode tap, skip, receipt and exact usage budget without an open-all button');
         reset('underground',{underRuns:3,underOpenGeodes:false});s.mons.push({uid:'u1',id:9,level:50},{uid:'u2',id:3,level:50},{uid:'u3',id:68,level:50});save();await until(()=>engine.automation.state.underDone===2,45);await tick();assert(engine.running&&underSent===2&&underTeamEdits===2&&/队员不足/.test(engine.status),'second expedition selects fresh members and exhaustion waits without opening an empty picker ('+engine.status+'; sent='+underSent+', edits='+underTeamEdits+')');
         reset('underground',{underRuns:1,underOpenGeodes:false});engine.queue=[{id:'paused-team',title:'Underground',settings:{...engine.settings},status:'running',result:''}];engine.queueRunning=true;engine.queueIndex=0;await until(()=>!!engine.driver.ownedDialog);engine.stop();assert(!!q('#evt-pick'),'special team editor remains open at queue stop');engine.startQueue();await until(()=>!engine.running,25);assert(engine.queue[0].status==='done'&&underSent===1,'paused queue resumes recommendation editor and dispatches exactly once');

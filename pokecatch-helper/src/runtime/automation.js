@@ -247,19 +247,19 @@
             else{task.stage='open';delete task.clickedAt;}
             this.e.persist();return true;
         }
-        eggUI(s,now){
+        eggUI(s,now,idle=false){
             // Hatch results belong to our native egg click, including duplicate-family XP
             // which has an animation but no dex receipt. Never wait for a nonexistent card.
-            if(!this.e.running||this.e.manual||pageHidden())return false;
+            if((idle?!this.e.nurseryAssist?.idleAccess:!this.e.running)||this.e.manual||pageHidden())return false;
             const pending=this.state.eggService?.tx||this.state.hatch;
             if(this.owner||this.e.driver.ownedDialog||!(this.state.eggReceiptUntil>now||pending&&this.state.eggReceiptUntil||this.eggFX?.node?.isConnected))return false;
             const fx=$$('.lk-fx.lk-hatch,.hatch-fx:not(.gift)').find(visible),d=this.e.driver;
             if(fx){
-                if(this.eggFX&&this.eggFX.node!==fx){this.e.stop('孵蛋界面发生变化，请确认后继续');return true;}
+                if(this.eggFX&&this.eggFX.node!==fx){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋界面发生变化，请确认后继续');return true;}
                 this.eggFX??={node:fx,started:now};
-                if(now-this.eggFX.started>120000){this.e.stop('孵蛋动画长时间未结束，请检查游戏后继续');return true;}
+                if(now-this.eggFX.started>120000){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋动画长时间未结束，请检查游戏后继续');return true;}
                 if(visible($('#modal-root.open'))||visible($('#evt-pick'))){
-                    if(d.dismissInformation?.(s)||d.receipt())return true;
+                    if(!idle&&(d.dismissInformation?.(s)||d.receipt()))return true;
                     this.e.status='自动收蛋 · 等待前方弹窗处理完毕';return true;
                 }
                 d.click([...fx.querySelectorAll('.fx-skip:not([data-gone]),.rc-tap,.hx-tap')].find(enabled),'领取孵蛋结果',true);this.e.lastProgress=now;return true;
@@ -273,16 +273,18 @@
             if(d.click(actions[0],'确认自动收蛋结果'))delete this.state.eggReceiptUntil;
             return true;
         }
-        serviceEggs(s,now){
+        serviceEggs(s,now,idle=false,allowIdle=false){
             const e=this.e,d=e.driver,eggs=s.pension?.eggs||[];let task=this.state.eggService;
-            if(!e.running||e.manual||pageHidden())return false;
+            if((idle?!e.nurseryAssist?.idleAccess:!e.running)||e.manual||pageHidden())return false;
+            const allow=idle?allowIdle:e.settings.autoEggs;
+            const persist=()=>{if(!idle)e.persist();};
             if(!task){
                 this.lastService=now;
-                if(!e.settings.autoEggs||e.settings.mode==='breed'||this.state.eggRetryAt>now)return false;
+                if(!allow||!idle&&e.settings.mode==='breed'||this.state.eggRetryAt>now)return false;
                 if(e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
                 // Native ordinary adventure battles keep running on the daycare screen.
                 // Hatching does not reset that battle; real choices and owned UI still wait.
-                if(backgroundBlockReason(s,e,now,'eggs')||this.state.evolution||visible($('#modal-root.open'))||visible($('#evt-pick')))return false;
+                if(!idle&&backgroundBlockReason(s,e,now,'eggs')||this.state.evolution||visible($('#modal-root.open'))||visible($('#evt-pick')))return false;
                 if(!eggs.length)return false;
                 if($$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
                 // The native ready control wins over wall-clock estimates when already visible.
@@ -290,32 +292,32 @@
                 const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=this.state.eggService={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
-                e.telemetry.sample=null;e.log('成熟蛋已就绪，领取后继续原任务');e.persist();
+                e.telemetry.sample=null;e.log(idle?'待命收蛋 · 成熟蛋已就绪':'成熟蛋已就绪，领取后继续原任务');persist();
             }
             e.lastProgress=now;e.status='自动收蛋 · 成熟后孵化领取，再继续原任务';
             const tx=task.tx;
             if(tx){
                 if(!eggs.some(egg=>String(egg.uid)===String(tx.uid))){
-                    if((s.stats?.hatched||0)>tx.before){this.state.autoHatched=(this.state.autoHatched||0)+1;e.log(`自动收蛋完成 · 本任务累计 ${this.state.autoHatched} 枚`);}
+                    if((s.stats?.hatched||0)>tx.before){this.state.autoHatched=(this.state.autoHatched||0)+1;e.log(`自动收蛋完成 · ${idle?'待命':'本任务'}累计 ${this.state.autoHatched} 枚`);}
                     else if(now-tx.at<15000){e.status='自动收蛋 · 蛋已离开孵化器，等待孵化计数确认';return true;}
                     else e.log('蛋已不在孵化器，未确认孵化计数，继续原任务');
-                    delete task.tx;e.persist();
+                    delete task.tx;persist();
                 }else if(now-tx.at<15000){e.status='自动收蛋 · 等待游戏存档确认';return true;}
                 else{task.returning=true;this.state.eggRetryAt=now+60000;delete task.tx;e.log('收蛋未获确认，暂缓一分钟后重试');}
             }
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
             const due=readyBackgroundEggs(s,now).length>0;
-            if(!e.settings.autoEggs||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!allow||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
                 const buttons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
                 if(buttons.length){
                     const rules=buttons.length>1?nurseryRuntimeOptions():null;
                     const ready=(rules&&buttons.find(el=>eggOutcome(s,eggs.find(egg=>String(egg.uid)===el.dataset.egg),rules).shiny===true))||buttons[0];
-                    task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};e.persist();
+                    task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};persist();
                     if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptUntil=now+15000;}
                     else delete task.tx;
-                    e.persist();return true;
+                    persist();return true;
                 }
                 const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
                 if(enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器收蛋');return true;}
@@ -327,8 +329,8 @@
             delete this.state.eggService;this.lastService=now;
             // Exclude this side service from map measurements and preparation UI deadlines.
             const duration=Math.max(0,now-task.started),p=e.preparation;
-            if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
-            e.telemetry.sample=null;e.status='自动收蛋完成，继续原任务';e.persist();return true;
+            if(p&&!idle){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
+            e.telemetry.sample=null;e.status=idle?'待命收蛋完成，已返回原页面':'自动收蛋完成，继续原任务';persist();return true;
         }
         serviceUnderground(s,now){
             const e=this.e,d=e.driver;let task=e.services.underground;

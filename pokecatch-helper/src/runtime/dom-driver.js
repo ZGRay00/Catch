@@ -54,7 +54,7 @@
         constructor(engine) { this.e = engine; this.lastClick = 0; this.ownedDialog = null; this.pendingMap = null; this.raid = null; this.recent = new Map(); this.teamTask = null; this.navigation = null; }
         click(el, label, pointer = false, resuming = false) {
             const handoff=this.e.manual;
-            if (!enabled(el) || !this.e.running || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || pageHidden() || Date.now() - this.lastClick < 700) return false;
+            if (!enabled(el) || !this.e.running&&!this.e.nurseryAssist?.idleAccess || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || pageHidden() || Date.now() - this.lastClick < 700) return false;
             this.lastClick = Date.now();
             if (pointer) el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0 }));
             el.click(); this.e.action = label; return true;
@@ -63,11 +63,16 @@
             if (visible($(`#screen-${screen}.active`))) {this.navigation=null;return true;}
             const tab = $(`#tabs [data-screen="${screen}"]`);
             if (tab?.classList.contains('locked') || tab?.classList.contains('hold')) {this.navigation=null;this.e.status=tab.dataset.why||'目标页面尚未开放，请满足游戏解锁条件';this.e.lastProgress=Date.now();return false;}
-            if(!this.e.running||this.e.manual||pageHidden())return false;
+            if(!this.e.running&&!this.e.nurseryAssist?.idleAccess||this.e.manual||pageHidden())return false;
             const now=Date.now(),name={map:'进度',adventure:'冒险',raid:'团体战',team:'队伍 / PC',pension:'培育屋',underground:'地下通道',shop:'商店'}[screen]||screen;
             if(this.navigation?.screen!==screen)this.navigation={screen,name,started:now,attempts:0,nextAt:now};
             const task=this.navigation;
-            if(now-task.started>=60000){this.navigation=null;this.e.failTask(`无法打开${name}页面：入口缺失或切换未响应，请检查游戏页面后继续`);return false;}
+            if(now-task.started>=60000){
+                this.navigation=null;
+                if(this.e.nurseryAssist?.idleAccess)this.e.nurseryAssist.cancelIdle();
+                else this.e.failTask(`无法打开${name}页面：入口缺失或切换未响应，请检查游戏页面后继续`);
+                return false;
+            }
             if(now<task.nextAt){this.e.status=`正在打开${name}，等待游戏页面响应`;return false;}
             const navigate=control=>{
                 if(!enabled(control)){this.e.status=`${name}入口暂未显示，等待游戏页面恢复`;return false;}

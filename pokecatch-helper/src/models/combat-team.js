@@ -295,21 +295,38 @@
         const routeFoes=route?chapters.filter(Boolean).flatMap(c=>chapterCombatFoes(s,c)):null;
         const foes = (context.foes || routeFoes || chapterThreats(s)).filter(m=>MONS.has(m.id)&&m.weight>0);
         const objective=context.objective||(['money','train','progress','dex'].includes(settings.mode)?settings.mode==='dex'?'progress':settings.mode:'coverage'),execution=objective!=='coverage';
+        const xpShares=new Map(),goalByUid=context.trainingGoals&&new Map(context.trainingGoals.map(({uid,goal})=>[uid,goal]));
+        const targetSet=goalByUid||new Set(pinned);
+        const nominalLearners=Math.max(1,targetSet.size||size);
+        function xpShare(mon){
+            if(!xpShares.has(mon.uid)){
+                const goal=goalByUid?.get(mon.uid)??settings.trainLevel;
+                let share=0;
+                if((!targetSet.size||targetSet.has(mon.uid))&&mon.level<Math.min(goal,trainingCap(s,mon))){
+                    share=mon.uid===s.buddy?.uid?1.3:1;
+                }
+                xpShares.set(mon.uid,share);
+            }
+            return xpShares.get(mon.uid);
+        }
+        const hasLearners=objective==='train'&&pool.some(mon=>xpShare(mon)>0);
+        const farming=objective==='money'||hasLearners;
         const underground=objective==='underMoney'||objective==='underDepth';
         const allowRescue=!underground&&helperSwitchEnabled(s,settings);
         const encounters=allowRescue?foes.flatMap(foe=>{
             if(!foe.wildWeight)return [foe];
             const weight=Math.min(foe.weight,foe.wildWeight),wild={...foe,weight,singleWild:true,gymCount:0};
-            return foe.weight>weight?[wild,{...foe,weight:foe.weight-weight}]:[wild];
+            return foe.weight>weight?[wild,{...foe,weight:foe.weight-weight,wildWeight:0}]:[wild];
         }):foes;
         const weights=encounters.length?encounters.flatMap(foe=>{
-            if(objective!=='progress'||!foe.gymCount)return [foe];
+            if((objective!=='progress'&&!farming)||!foe.gymCount)return [foe];
             // The route export gives each gym appearance weight 3 and merges wild
             // encounters of the same species/level. Only the gym share is indoors.
             const gyms=WEATHER_DATA.chapters[foe.chapter]?.nodes?.filter(node=>node.kind==='gym')||[];
-            const weight=Math.min(foe.weight,3*foe.gymCount),leader={...foe,weight,weatherNode:gyms.length===1?gyms[0]:null};
+            const weight=Math.min(foe.weight,3*foe.gymCount),leader={...foe,weight,wildWeight:0,weatherNode:gyms.length===1?gyms[0]:null};
             return foe.weight>weight?[{...foe,weight:foe.weight-weight,gymCount:0},leader]:[leader];
         }):[{id:19,level:CHAPTERS.get(s.adv.chapter)?.ace||5,weight:1}];
+        if(farming&&sliced)yield;
         const gymTotal=objective==='progress'?weights.reduce((n,foe)=>n+(foe.gymCount||0),0):0;
         const enduranceRoute=execution&&weights.length>1;
         // A chapter's outdoor encounters share a forecast. Keep explicit gym
@@ -328,6 +345,7 @@
         if(!shared){shared=new Map();TEAM_ROWS.set(threatKey,shared);if(TEAM_ROWS.size>4)TEAM_ROWS.delete(TEAM_ROWS.keys().next().value);}
         else{TEAM_ROWS.delete(threatKey);TEAM_ROWS.set(threatKey,shared);}
         const foeStats = weights.map(effectiveStats), cache = new Map();
+        if(farming&&sliced)yield;
         function* computeValues(mon,split) {
             if (cache.has(mon.uid)) return cache.get(mon.uid);
             const healed={...mon,status:null},key=JSON.stringify(combatProfile(healed));let row=shared.get(key);
@@ -364,6 +382,28 @@
         }
         const values=mon=>cache.get(mon.uid)||computeValues(mon,false).next().value;
         const totalWeight=weights.reduce((n,m)=>n+m.weight,0),discount=[1,.35,.15,.075,.04,.02];
+        // Money comes from trainer/gym victories. Wild fights still use time.
+        // Grouped encounter exports can't recover the payout of each trainer,
+        // so level and encounter class are relative weights, not coin amounts.
+        const premiums=farming?weights.map(foe=>{
+            const wildShare=foe.singleWild?1:Math.min(1,(foe.wildWeight||0)/foe.weight);
+            if(objective==='money')return(1-wildShare)*Math.max(1,foe.level)*(foe.gymCount?1.3:1);
+            // The native base XP rises with level^2.4 before species and
+            // storyline multipliers. The mixture includes the 1.5× trainer bonus.
+            return Math.floor(.8*Math.pow(Math.max(1,foe.level),2.4)+10)*(1.5-.5*wildShare);
+        }):[];
+        const totalPremium=farming?weights.reduce((sum,foe,i)=>sum+foe.weight*premiums[i],0):0;
+        const rewardWeight=totalPremium||totalWeight;
+        const trainingPenalty=clamp(context.trainingPenalty,0,2,0);
+        const scoreAfterTrainingCost=(score,team)=>{
+            if(!context.trainingCosts||!trainingPenalty)return score;
+            let highest=0,total=0;
+            for(const member of team){
+                const cost=clamp(context.trainingCosts[member.uid],0,100,0);
+                highest=Math.max(highest,cost);total+=cost;
+            }
+            return score/(1+trainingPenalty*(highest+.25*total));
+        };
         const work=[];
         // Each elite trainer battle starts after a heal. Give the hardest trainer a
         // separate vote so a team cannot hide a bad room behind several easy ones.
@@ -373,6 +413,7 @@
         const roomScores=new Float64Array(eliteRooms.length);
         const utility = (team,summary) => {
             const rows=team.map(values);
+            if(farming&&!rows.length)return 0;
             if(underground){
                 if(!rows.length)return 0;
                 let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0,reserveCredit=0;
@@ -424,12 +465,18 @@
                 return primary*(1+.04*reserveCredit/totalWeight);
             }
             let gymSum=0,gymWorst=1,worstEfficiency=Infinity;
+            let farmingTime=0,earnings=0,farmingLoss=0,fallbackCombat=0;
+            const shares=hasLearners?team.map(xpShare):null;
+            const learnerShare=shares?.reduce((a,b)=>a+b,0)||0;
             if(eliteRooms.length)roomScores.fill(0);
             const routeScore=weights.reduce((sum,foe,i)=>{
-                let count=0;
-                for(const row of rows){const value=row[i];let at=count++;while(at>0&&work[at-1]<value){work[at]=work[at-1];at--;}work[at]=value;}
-                let value=0;for(let k=0;k<count;k++)value+=work[k]*(discount[k]||0);
-                const coverage=Math.log1p(value);
+                let coverage=0;
+                if(!farming){
+                    let count=0;
+                    for(const row of rows){const value=row[i];let at=count++;while(at>0&&work[at-1]<value){work[at]=work[at-1];at--;}work[at]=value;}
+                    let value=0;for(let k=0;k<count;k++)value+=work[k]*(discount[k]||0);
+                    coverage=Math.log1p(value);
+                }
                 if(!execution)return sum+foe.weight*coverage;
                 // If the native lead finishes alone, every reserve would be unused.
                 // A deployment tie stays with the earlier party member, just as in deployedBattle.
@@ -449,6 +496,27 @@
                     summary.turns=(summary.turns||0)+foe.weight*battle.turns;
                     summary.worst=Math.max(summary.worst||0,battle.turns);
                     summary.deaths=(summary.deaths||0)+foe.weight*battle.deaths;
+                    summary.wipes=(summary.wipes||0)+(battle.coverage<1?foe.weight:0);
+                }
+                if(farming){
+                    const clear=battle.coverage===1;
+                    const wear=1-(lead?.endurance[i]??0);
+                    // Fixed travel/reward time prevents a short fight's last
+                    // fraction of a turn from dominating a change of roster.
+                    farmingTime+=foe.weight*(1+Math.min(battle.turns,180)+.65*wear+1.8*battle.deaths+(clear?0:12));
+                    farmingLoss+=foe.weight*(clear?0:foe.gymCount?1.5:1);
+                    fallbackCombat+=foe.weight*(clear?1:battle.coverage);
+                    if(clear){
+                        let credit=1;
+                        if(hasLearners){
+                            // Native XP gives full party shares and a 10% active
+                            // bonus. Count the winner's bonus only when the
+                            // fresh lead actually finished the fight.
+                            credit=(learnerShare+(battle.deaths===0?.1*shares[rows.indexOf(lead)]:0))/nominalLearners;
+                        }
+                        earnings+=foe.weight*(totalPremium?premiums[i]:1)*credit;
+                    }
+                    return sum;
                 }
                 if(gymTotal&&foe.gymCount){
                     const endurance=rows.reduce((sum,row)=>sum+row.endurance[i],0)/Math.max(1,rows.length);
@@ -463,6 +531,11 @@
                 const weight=objective==='progress'?.35:.7;
                 return sum+foe.weight*((1-weight)*coverage+weight*efficiency);
             },0)/totalWeight;
+            if(farming){
+                const safety=Math.max(0,1-farmingLoss/totalWeight);
+                const rate=3*earnings/rewardWeight/(farmingTime/totalWeight)*(.7+.3*safety);
+                return scoreAfterTrainingCost(rate+.025*fallbackCombat/totalWeight,team);
+            }
             const gymScore=gymTotal ? .7*gymSum/gymTotal+.3*gymWorst : 0;
             if(summary)summary.gym=gymScore;
             const worstWeight=enduranceRoute ? (gymTotal ? .025 : .07) : 0;
@@ -473,9 +546,7 @@
                 for(let i=0;i<roomScores.length;i++)weakest=Math.min(weakest,roomScores[i]/roomWeights[i]);
                 score=.85*score+.15*weakest;
             }
-            if(!context.trainingCosts)return score;
-            const costs=team.map(mon=>clamp(context.trainingCosts[mon.uid],0,100,0)),burden=Math.max(0,...costs)+.25*costs.reduce((n,cost)=>n+cost,0);
-            return score/(1+clamp(context.trainingPenalty,0,2,0)*burden);
+            return scoreAfterTrainingCost(score,team);
         };
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
         let force=context.force;
@@ -508,7 +579,7 @@
             const equivalent=new Map();
             for(const mon of pool){
                 if(used.has(identity(mon)))continue;
-                const profile=JSON.stringify([combatProfile({...mon,status:null}),context.trainingCosts?.[mon.uid]??0]);
+                const profile=JSON.stringify([combatProfile({...mon,status:null}),context.trainingCosts?.[mon.uid]??0,hasLearners?xpShare(mon):0]);
                 const other=equivalent.get(profile);
                 if(!other||prefer(mon,other)<0)equivalent.set(profile,mon);
             }
@@ -574,14 +645,17 @@
             candidates=[...new Set([...ranked.slice(0,context.lowBudget?16:32).map(x=>x.mon),...leaders.map(x=>x.mon),...candidates.filter(m=>partyOrder.has(m.uid))])];
         }
         while (chosen.length < size) {
-            let best = null, score = -Infinity;
+            let best = null, score = -Infinity,bestLeads=false;
+            const tryLead=farming&&s.autoSwitch===false&&chosen.length>0&&chosen.every(member=>protectedUids.has(member.uid));
             for (const mon of candidates) {
                 if (used.has(identity(mon))||underground&&chosen.some(other=>undergroundApart(mon,other))) continue;
-                const value = utility([...chosen,mon]);
-                if (value > score + 1e-8 || Math.abs(value-score)<1e-8&&(!best||prefer(mon,best)<0)) { best=mon;score=value; }
+                const append=utility([...chosen,mon]),prepend=tryLead?utility([mon,...chosen]):-Infinity,value=Math.max(append,prepend);
+                if (value > score + 1e-8 || Math.abs(value-score)<1e-8&&(!best||prefer(mon,best)<0)) { best=mon;score=value;bestLeads=prepend>append; }
                 if(sliced)yield;
             }
-            if (!best) break; chosen.push(best);used.add(identity(best));
+            if (!best) break;
+            if(bestLeads)chosen.unshift(best);else chosen.push(best);
+            used.add(identity(best));
         }
         const incumbent=party.filter(m=>pool.includes(m));
         const legalIncumbent=incumbent.length===party.length&&party.length===chosen.length&&new Set(party.map(identity)).size===party.length&&chosen.every(m=>!protectedUids.has(m.uid)||incumbent.includes(m));
@@ -662,10 +736,13 @@
         // Keep a stable party unless the predicted gain is material, so income sampling remains useful.
         const gymGain=proposed.gym-previous.gym;
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
-        const improve = next > now * 1.05 + .01||gymUpgrade;
+        const fewerWipes=farming&&proposed.wipes===0&&previous.wipes>0&&next>=now;
+        const fasterFarm=farming&&next>now*1.035+.005&&proposed.turns<previous.turns*.95&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths;
+        const improve = next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm;
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
-        const reorder=!changed&&orderChanged&&(improve||fasterOrder||s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
+        const fasterFarmOrder=farming&&next>now*1.0125+.001&&proposed.turns<previous.turns&&proposed.wipes<=previous.wipes;
+        const reorder=!changed&&orderChanged&&(improve||fasterOrder||fasterFarmOrder||!farming&&s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
         const apply=force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
         const sharedType=result.find((mon,i)=>result.slice(0,i).some(other=>MONS.get(other.id)?.types.some(t=>MONS.get(mon.id)?.types.includes(t))));
         let backup='';
@@ -674,5 +751,5 @@
             const delta=base>0?Math.round((base-without)/base*100):0;
             backup=`同属性队员${MONS.get(sharedType.id).name} · 移除后模型分${delta>0?'降低 '+delta+'%':delta<0?'提高 '+(-delta)+'%':'接近不变'}`;
         }
-        return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'减少刷钱回合与倒下换人':objective==='train'?'保留学员并提高带练清图效率':'提高打点覆盖与通关稳定性' };
+        return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
     }

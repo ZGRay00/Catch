@@ -16,6 +16,27 @@ function fixture(t,mode='money'){
 }
 function route(id){const c=H.DATA.chapters.find(c=>c.id===id);return{...c,key:String(c.loop),members:c.league?H.DATA.chapters.filter(r=>r.loop===c.loop).map(r=>r.id):[c.id]};}
 
+test('money values the paying trainer while training values XP from both trainers and wild opponents',()=>{
+    const s=state(55);
+    s.mons.push({uid:'water',id:9,level:55});
+    s.adv.badges=['Maître'];s.autoSwitch=false;
+    const foes=[{id:6,weight:17,wildWeight:17,level:44},{id:135,weight:2,level:52}];
+    const options={foes,size:1,force:true,now:1732000000000};
+    const pick=mode=>H.planAdventureTeam(s,{...H.DEFAULTS,mode},[],options).uids;
+    assert.deepEqual(pick('money'),['a']);
+    assert.deepEqual(pick('train'),['water']);
+});
+
+test('XP fitting distinguishes identical copies for the Buddy bonus and still respects a pinned UID',()=>{
+    const s=state(45);
+    s.mons.push({...s.mons[0],uid:'buddy'});
+    s.buddy={uid:'buddy'};s.adv.badges=['Maître'];
+    const options={foes:[{id:3,level:45,weight:1}],size:1,now:1732000000000};
+    const settings={...H.DEFAULTS,mode:'train',trainLevel:60};
+    assert.deepEqual(H.planAdventureTeam(s,settings,[],options).uids,['buddy']);
+    assert.deepEqual(H.planAdventureTeam(s,settings,['a'],options).uids,['a']);
+});
+
 test('unmeasured money routes reflect the actual party ability rather than reward alone',()=>{
     const s=state(),rows=H.moneyRanking(s,H.DEFAULTS),easy=rows.find(r=>r.id===0),hard=rows.find(r=>r.id===6);
     assert.equal(rows[0].id,0);assert.ok(easy.rate>hard.rate);assert.ok(easy.battleFit.coverage>hard.battleFit.coverage);
@@ -76,6 +97,12 @@ test('native auto-switch changes re-evaluate the party while temporary HP change
 test('training fitting preserves its explicit trainee and records a training objective',async t=>{
     const {s,e,now}=fixture(t,'train');e.settings.trainUid='weak';e.trainProtected=['weak'];
     assert.equal(await fit(e,s,now),true);assert.ok(e.driver.teamTask.uids.includes('weak'));assert.equal(e.teamCheck.objective,'train');
+});
+
+test('item farming keeps its route-speed objective instead of optimizing trainer payouts',async t=>{
+    const {s,e,now}=fixture(t,'item');e.target=route(0);
+    assert.equal(await fit(e,s,now),true);
+    assert.equal(e.teamCheck.objective,'route');
 });
 
 test('mainline fitting does not optimize a replay map before returning to its frontier',async t=>{

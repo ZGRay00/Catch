@@ -3,10 +3,10 @@
 const fs=require('node:fs'),path=require('node:path'),os=require('node:os');
 const {spawn}=require('node:child_process');
 const {setTimeout:delay}=require('node:timers/promises');
-const {fixture,clock}=require('./benchmark-team.cjs');
+const {fixture,clock,simulation}=require('./benchmark-team.cjs');
 
-async function browserTrial(H,state,now){
-    const e=new H.Engine({getItem:()=>null},{mode:'progress'});e.running=true;
+async function browserTrial(H,state,now,settings){
+    const e=new H.Engine({getItem:()=>null},settings);e.running=true;
     const native=window.setTimeout,spans=[],frames=[];
     let frame,previous;
     function sample(t){if(previous!==undefined)frames.push(t-previous);previous=t;frame=requestAnimationFrame(sample);}
@@ -37,6 +37,7 @@ async function browserTrial(H,state,now){
 
 async function main(){
     const files=process.argv.slice(2);if(!files.length)throw Error('Pass local userscript paths');
+    const mode=process.env.POKECATCH_BENCH_MODE||'progress';
     const chrome=process.env.CHROME_PATH||['C:/Program Files/Google/Chrome/Application/chrome.exe','C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'].find(fs.existsSync);
     const dir=fs.mkdtempSync(path.join(os.tmpdir(),'pc-team-perf-'));
     const child=spawn(chrome,['--headless=new','--disable-background-networking','--disable-gpu','--remote-debugging-port=0','--user-data-dir='+dir,'about:blank'],{windowsHide:true,stdio:'ignore'});
@@ -63,12 +64,13 @@ async function main(){
             const source=fs.readFileSync(file,'utf8');
             await evaluate('(function(document,module){'+source+'\nwindow.planner=module.exports})(undefined,{exports:{}})');
             for(const n of [18,90,300]){
+                const {state,settings}=simulation(fixture(n),mode);
                 const results=[];
                 for(let i=0;i<5;i++){
                     await evaluate('planner.clearTeamCache()');
-                    results.push(await evaluate('('+browserTrial.toString()+')(planner,'+JSON.stringify(fixture(n))+','+clock+')'));
+                    results.push(await evaluate('('+browserTrial.toString()+')(planner,'+JSON.stringify(state)+','+clock+','+JSON.stringify(settings)+')'));
                 }
-                console.log(JSON.stringify({file,n,peakSlice:Math.max(...results.map(r=>r.maxSlice)),peakFrame:Math.max(...results.map(r=>r.maxFrame)),windows:results.map(r=>r.windows),teams:[...new Set(results.map(r=>r.team.join(',')))]}));
+                console.log(JSON.stringify({file,mode,n,peakSlice:Math.max(...results.map(r=>r.maxSlice)),peakFrame:Math.max(...results.map(r=>r.maxFrame)),windows:results.map(r=>r.windows),teams:[...new Set(results.map(r=>r.team.join(',')))]}));
             }
         }
     }finally{socket?.close();child.kill();}

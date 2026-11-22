@@ -269,10 +269,10 @@
             const row=p.route?.reg===p.context.reg?p.route:fallback;
             const chapters=row?.members?.length?row.members:row?.league?DATA.chapters.filter(c=>c.loop===row.loop).map(c=>c.id):[row?.id??s.adv.chapter];
             const weather=adventureTeamWeatherKey(s,chapters,now);
-            const fingerprint=()=>JSON.stringify([row?.key??row?.id,chapters,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),p.uids,s.autoSwitch!==false,weather,rosterFingerprint(s)]);
+            const fingerprint=()=>JSON.stringify([row?.key??row?.id,chapters,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),p.uids,s.autoSwitch!==false,weather,rosterFingerprint(s),helperSwitchEnabled(s,this.e.settings),s.buddy?.uid,s.adv.unlocked,s.adv.badges]);
             const profile=fingerprint(),last=this.teamReview;
             if(!repair&&last?.preparation===p&&last.profile===profile&&now-last.at<30000)return;
-            const settings=this.e.settings,context={reg:p.context.reg,row,objective:'train',force:repair,now},state={...s,team:p.uids};
+            const settings=this.e.settings,context={reg:p.context.reg,row,objective:'train',trainingGoals:p.targets,force:repair,now},state={...s,team:p.uids};
             const sliced=this.e.running&&s.mons.length>=24;
             const search=adventureTeamSearch(state,settings,required,context,sliced);
             const plan=sliced?this.e.evaluateTeamSearch('trainees:'+profile,search):search.next().value;

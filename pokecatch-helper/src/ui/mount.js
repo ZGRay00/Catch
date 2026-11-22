@@ -142,6 +142,11 @@
             <label class="setting"><span><input type="checkbox" data-setting="trainBuddy">练级 / 补练自动选择经验搭档 Buddy</span></label><div class="hint">搭档获得 1.3 倍经验。当前搭档仍需培养时会保留，更换会重置搭档的击倒计数。</div>
             <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div><div class="caption">后台服务 · 不替换当前任务</div><div class="checks background-toggles"><label title="优先领取成熟蛋，可在普通战斗期间处理，完成后返回原任务"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="进入神奥后仅用空闲队员自动组队派遣；保护主队、Buddy、培养对象与活动队员"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
             ${underStartControls}<div class="hint">地下主任务和后台派遣共用起点。归队领取后按最高纪录开放 25、50、75、100 层。跳过的楼层没有经验和掉落。</div>
+            <h3>孵蛋自动化</h3>
+            <label class="setting"><span><input type="checkbox" data-nursery-pref="idleHatch">待命时自动领取成熟蛋</span></label>
+            <label class="setting"><span><input type="checkbox" data-nursery-pref="autoFeed">下一枚自然蛋喂果才闪时自动喂靛莓果</span></label>
+            <div class="hint">两个开关默认关闭，按账号保存。喂果只用当前背包库存，游戏规则已核对且确认下一枚蛋喂果才闪时生效。任务运行时计入道具用量；待命时也可单独使用。</div>
+            <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
@@ -595,6 +600,14 @@
             if(document.hidden||ui.folded||ui.workspace!=='activity'||tab!=='maps'||!s?.adv)engine.releaseRankingView();
             if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(now);
             if(document.hidden)return;
+            if(ui.workspace==='settings'&&!ui.folded){
+                for(const input of root.querySelectorAll('[data-nursery-pref]')){
+                    input.disabled=!engine.account||!!engine.suspended;
+                    input.checked=engine.nurseryAssist.prefs[input.dataset.nurseryPref];
+                }
+                const note=query('#nursery-auto-note'),text=engine.nurseryAssist.note;
+                if(note.textContent!==text)note.textContent=text;
+            }
             if(s?.adv&&!ui.folded&&['tasks','settings'].includes(ui.workspace)){
                 const best=Number(s.under?.best)||0,selected=undergroundStartFloor(engine.settings,UNDER_START_FLOORS);
                 const floor=undergroundStartFloor(engine.settings,UNDER_START_FLOORS.filter(n=>n===1||n<=best));
@@ -1005,7 +1018,13 @@
             if(Object.hasOwn(BUDGET_LIMITS,input.dataset.setting)&&!input.disabled)budgetDrafts.set(input,engine.account);
         });
         root.addEventListener('change',event=>{
-            const input=event.target,key=input.dataset.setting;if(!key)return;
+            const input=event.target,key=input.dataset.setting;
+            if(input.dataset.nurseryPref){
+                try{engine.nurseryAssist.set(input.dataset.nurseryPref,input.checked);}
+                catch(error){engine.nurseryAssist.note='孵蛋设置未保存 · '+error.message;}
+                render();return;
+            }
+            if(!key)return;
             if(Object.hasOwn(BUDGET_LIMITS,key)){commitBudgetInput(input);return;}
             changeSetting(key,input.dataset.boolean==='true'?input.value==='true':input.type==='checkbox'?input.checked:input.type==='number'||['speed','legendId','legendTier'].includes(key)?Number(input.value):input.value);
         });
@@ -1140,15 +1159,22 @@
             if(active.matches('#pc-search,input[type="search"]')||!visible(active)){active.blur();return !engine.gameInputFocused();}
             return false;
         };
-        window.addEventListener('pagehide', () => {commitBudgetDrafts();engine.suspend();});
+        window.addEventListener('pagehide', () => {commitBudgetDrafts();engine.nurseryAssist.cancelIdle();engine.suspend();});
         window.addEventListener('storage',event=>{
+            if(engine.nurseryAssist.key&&event.key===engine.nurseryAssist.key){
+                engine.nurseryAssist.refresh();render();return;
+            }
             if(!engine.account||event.key!==PREFIX+'purchase:'+engine.account)return;
             engine.refreshAutoPurchase();
             syncSettings();render();
         });
         window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();render();}});
         engine.onChange = render; itemOptions(); syncSettings(); render(); fold(!!ui.folded);
-        setInterval(()=>{if(performance.now()-lastPaint>=2000)render();},2500);
+        setInterval(()=>{
+            if(performance.now()-lastPaint>=2000)render();
+            try{engine.nurseryAssist.idleStep();}
+            catch(error){engine.nurseryAssist.cancelIdle();engine.nurseryAssist.note='待命孵蛋暂停 · '+error.message;}
+        },2500);
         helperAPI.ready=true;startupPhase='已显示';
         }catch(err){
             const reason='助手界面初始化失败：'+(err?.message||err);

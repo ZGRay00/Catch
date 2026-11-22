@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.1.2
+// @version      6.1.3
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.1.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -463,7 +463,7 @@
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
         autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
-        dailyMain:'current',dailyRaidRegions:[],dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
+        dailyMain:'current',dailyRaidRegions:[],dailyRaidUntilCaught:true,dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
         huntWeatherFallback:'wait',
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;
@@ -600,6 +600,10 @@
         if(day&&day!==parisDay(now))return now;
         return Math.min(now+wait,nextParisReset(now));
     }
+    function raidCaptureRecorded(s,reg,day,boss){
+        const key=reg+'|'+day,actual=s.raids?.doneBoss?.[key];
+        return Number(s.raids?.done?.[key])>0&&(actual==null||boss==null||actual===boss);
+    }
     function dailyRaidStatus(s,skipOwned,draw,now,regions){
         const raids=s?.raids,adv=s?.adv;
         if(!adv?.badges?.includes('Maître')||adv.event?.raid)return null;
@@ -612,12 +616,7 @@
         const drawn=raids.seen===day||!!reroll;
         const observed=drawn&&draw?.day===day&&draw.reroll===reroll&&eligible.includes(draw.reg)&&
             (!reroll||reroll===draw.reg)&&MONS.has(draw.boss)?draw:null;
-        const completed=reg=>{
-            const key=reg+'|'+day;
-            if(!(Number(raids.done?.[key])>0))return false;
-            const boss=raids.doneBoss?.[key];
-            return !observed||reg!==observed.reg||boss==null||boss===observed.boss;
-        };
+        const completed=reg=>raidCaptureRecorded(s,reg,day,observed?.reg===reg?observed.boss:null);
         // Draw mode awards one region per day. Older multi-region schedules must finish every unlocked region.
         const reg=observed?.reg||reroll;
         if(reg&&regions?.length&&!regions.includes(reg))return {reason:'今日抽取的团体战不在所选地区',until:nextParisReset(now)};
@@ -5433,8 +5432,9 @@
             let skippedOwned=false,skippedCooldown=false;
             const card = cards.find(card => {
                 const reg=card.dataset.rc,boss=bossOf(card);
-                const key=reg+'|'+day,finishedBoss=s.raids?.doneBoss?.[key];
-                if(s.raids?.done?.[key]>0&&(finishedBoss==null||finishedBoss===boss))return false;
+                const pending=this.e.daily?.raidPending;
+                if(pending&&(pending.reg!==reg||pending.boss!==boss))return false;
+                if(raidCaptureRecorded(s,reg,day,boss))return false;
                 if(this.e.raidReturn&&(this.e.raidReturn.date!==day||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
                 if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > now){skippedCooldown=true;return false;}
                 if(this.e.settings.skipOwnedShiny&&(card.querySelector('.chip-own')||s.dex?.[boss]?.shiny)){skippedOwned=true;return false;}
@@ -7817,6 +7817,7 @@
                     const raid = s.adv.event;
                     const remembered=cp?.activity?.raid,same=remembered?.reg===(raid.reg||currentRegion(s))&&remembered?.boss===raid.id&&(!remembered.date||remembered.date===(raid.date||parisDay()));
                     this.driver.raid = { reg: raid.reg || currentRegion(s), boss: raid.id, date: raid.date || parisDay(), started: same?clamp(remembered.started,1,Date.now(),Date.now()):Date.now(), adopted: true };
+                    this.trackDailyRaid(s,this.started);
                     if(!this.manual&&this.preparation&&this.preparation.context.kind!=='raid'){this.raidPreparation=this.preparation;this.preparation=null;}
                     this.status = `已接管当前团体战 · ${MONS.get(raid.id)?.name || raid.reg} · ${raidProgressText(s,raid)}`;
                     this.log(this.status);
@@ -8115,6 +8116,7 @@
             else this.resumeUIClock(now);
             if(s.adv.paused){this.status='游戏已暂停，等待你在游戏内继续';return;}
             if (this.manual && this.manualStep(s, now)) return;
+            this.trackDailyRaid(s,now);
             if(sleeping){
                 this.status='游戏进入省电界面，正在唤醒后继续原任务';
                 // The native handler restores both its internal sleep state and the active
@@ -8185,6 +8187,7 @@
             if(this.daily&&!inActivity&&this.driver.raid&&!this.raidProbe&&!this.raidReturn&&!this.preparation){
                 this.finishRaidReturn(now,s);
             }
+            if(!inActivity&&this.waitForDailyRaid(s,now))return;
             const reserved=this.daily?.job;
             if(reserved?.waitingForBattle&&!inActivity){
                 if(now>=reserved.until){this.returnFromDaily('日常时段已结束',now,now);return;}
@@ -8297,7 +8300,7 @@
                 const event=s.adv.event;
                 this.status = `团体战进行中 · ${MONS.get(event.id)?.name || event.reg} · ${raidProgressText(s,event,now)}`;
                 this.raidCheckNote=this.status;
-                if (now - raid.started > this.settings.raidMinutes * 60000) {
+                if (!this.daily?.raidPending && now - raid.started > this.settings.raidMinutes * 60000) {
                     if (this.driver.leaveRaid()) {
                         const day=raid.date||s.adv.event.date||parisDay(now);
                         this.raidCooldown[day+'|'+raid.reg]=raidRetryAt(now,day,1800000);
@@ -9001,7 +9004,48 @@
             return this.settings.mode==='progress'&&new Set(['kanto',...(s.travel?.to||[]),s.link?.to]).has(next.reg);
         }
         ensurePrepared(s,context,resume={},now=Date.now()){return this.holdWildShiny(s,now)||this.coach.ensure(s,context,resume,now);}
+        trackDailyRaid(s,now){
+            const daily=this.daily;
+            if(!daily)return;
+            const pending=daily.raidPending,event=s.adv.event;
+            if(!daily.base.raids||daily.base.dailyRaidUntilCaught===false||daily.job){
+                if(pending)delete daily.raidPending;
+                return;
+            }
+            if(!pending&&!event?.raid)return;
+            const today=parisDay(now);
+            if(event?.raid&&event.id&&(event.date||today)===today){
+                const reg=event.reg||currentRegion(s);
+                if(pending?.date!==today||pending.reg!==reg||pending.boss!==event.id){
+                    daily.raidPending={reg,date:today,boss:event.id};this.persist();
+                }
+            }else if(pending&&(pending.date!==today||raidCaptureRecorded(s,pending.reg,today,pending.boss)||
+                s.raids?.reroll?.day===today&&s.raids.reroll.to&&s.raids.reroll.to!==pending.reg)){
+                delete daily.raidPending;this.nextRaid=now;daily.checking=true;
+                if(pending.date===today&&raidCaptureRecorded(s,pending.reg,today,pending.boss))
+                    this.log('已确认今日异色团体战捕获 · '+(MONS.get(pending.boss)?.name||pending.boss));
+                this.persist();
+            }
+        }
+        waitForDailyRaid(s,now){
+            const pending=this.daily?.raidPending;
+            if(!pending||this.preparation||this.raidReturn)return false;
+            this.lastProgress=now;
+            if(!this.raidProbe){
+                if(now<this.nextRaid){
+                    this.status=(MONS.get(pending.boss)?.name||'每日异色团体战')+' · 捕获尚未确认，'+Math.ceil((this.nextRaid-now)/60000)+' 分钟内复查';
+                    return true;
+                }
+                const blocked=this.raidEntryBlock(s);
+                if(blocked){this.deferRaid(blocked,now,raidRetryAt(now,pending.date,30000));return true;}
+                this.raidProbe=true;this.raidProbeStarted=now;
+            }
+            this.probeRaid(s,now);return true;
+        }
         raidDailyStatus(s,now=Date.now()){
+            // Once entered, historical shiny ownership, other regional clears and a
+            // disabled card cannot settle this target while its capture save is pending.
+            if(this.daily?.raidPending?.date===parisDay(now))return null;
             return dailyRaidStatus(s,this.settings.skipOwnedShiny,this.account===accountId(s)?this.raidDraw:null,now,this.settings.mode==='raid'?this.settings.dailyRaidRegions:null);
         }
         rememberDraw(s,reg,boss,now){
@@ -10183,6 +10227,7 @@
                     <label><input type="checkbox" data-setting="dailyWindow">抢即将结束的图鉴窗口</label>
                     <label><input type="checkbox" data-setting="dailyCandy">糖果工厂免费场</label>
                     <label><input type="checkbox" id="daily-shiny-raid">每日异色团体战</label>
+                    <label><input type="checkbox" data-setting="dailyRaidUntilCaught">开战后持续到捕获</label>
                     <label><input type="checkbox" data-setting="dailyWorld">世界首领攻击与捕获</label>
                     <label><input type="checkbox" data-setting="dailyTower">每日至多两场对战塔</label>
                     <label><input type="checkbox" data-setting="dailyElite">每日挑战一阶精英联盟（落败即跳过）</label>
@@ -10279,7 +10324,8 @@
                 <label class="setting">等级落后超过几级补练<input data-setting="prepareGap" type="number" min="0" max="20"></label>
                 <label class="setting">补练无经验停止（分钟）<input data-setting="prepareIdleMinutes" type="number" min="2" max="30"></label>
                 <label class="setting">图鉴轮换（分钟）<input data-setting="rotateMinutes" type="number" min="2" max="120"></label>
-                <label class="setting">团体战时限（分钟）<input data-setting="raidMinutes" type="number" min="5" max="720"></label>
+                <label class="setting">限时团体战（分钟）<input data-setting="raidMinutes" type="number" min="5" max="720"></label>
+                <div class="hint">通关日常勾选「开战后持续到捕获」时，已进入的当日异色团体战会等到捕获确认或每日刷新。普通挂机仍按时限退出。</div>
                 <label class="setting">地图失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
                 <label class="setting">定时停止（分钟，0 不限）<input data-setting="stopMinutes" type="number" min="0" max="1440"></label>
                 <label class="setting"><span><input type="checkbox" data-setting="resumeOnReload">刷新后自动恢复未停止的任务</span></label>
@@ -10592,6 +10638,9 @@
             const dailyBase=engine.daily?.base||engine.settings;
             query('#daily-shiny-raid').checked=dailyBase.raids;
             query('#daily-shiny-raid').disabled=engine.running||!!engine.suspended;
+            const untilCaught=root.querySelector('[data-setting="dailyRaidUntilCaught"]');
+            untilCaught.checked=dailyBase.dailyRaidUntilCaught!==false;
+            untilCaught.disabled=!dailyBase.raids||engine.running||!!engine.suspended;
             const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
             const legendConfig=dailyLegend?dailyBase:engine.settings;
             const legendSelection=new Set(selectedLegendIds(legendConfig)),legendLocked=engine.running||!!engine.suspended;
@@ -10725,6 +10774,7 @@
                 else if(engine.daily.job)dailyPhase=MODE_NAMES[engine.settings.mode];
                 else if(engine.dailyZoneExit)dailyPhase='准备'+MODE_NAMES[engine.dailyZoneExit.kind];
                 else if(engine.raidProbe)dailyPhase='检查每日异色团体战';
+                else if(engine.daily.raidPending)dailyPhase='等待每日异色团体战';
             }
             const activeLabel=dailyPhase||MODE_NAMES[engine.settings.mode];
             commandbar.classList.toggle('has-task',locked);

@@ -27,6 +27,10 @@
         if(day&&day!==parisDay(now))return now;
         return Math.min(now+wait,nextParisReset(now));
     }
+    function raidCaptureRecorded(s,reg,day,boss){
+        const key=reg+'|'+day,actual=s.raids?.doneBoss?.[key];
+        return Number(s.raids?.done?.[key])>0&&(actual==null||boss==null||actual===boss);
+    }
     function dailyRaidStatus(s,skipOwned,draw,now,regions){
         const raids=s?.raids,adv=s?.adv;
         if(!adv?.badges?.includes('Maître')||adv.event?.raid)return null;
@@ -39,12 +43,7 @@
         const drawn=raids.seen===day||!!reroll;
         const observed=drawn&&draw?.day===day&&draw.reroll===reroll&&eligible.includes(draw.reg)&&
             (!reroll||reroll===draw.reg)&&MONS.has(draw.boss)?draw:null;
-        const completed=reg=>{
-            const key=reg+'|'+day;
-            if(!(Number(raids.done?.[key])>0))return false;
-            const boss=raids.doneBoss?.[key];
-            return !observed||reg!==observed.reg||boss==null||boss===observed.boss;
-        };
+        const completed=reg=>raidCaptureRecorded(s,reg,day,observed?.reg===reg?observed.boss:null);
         // Draw mode awards one region per day. Older multi-region schedules must finish every unlocked region.
         const reg=observed?.reg||reroll;
         if(reg&&regions?.length&&!regions.includes(reg))return {reason:'今日抽取的团体战不在所选地区',until:nextParisReset(now)};

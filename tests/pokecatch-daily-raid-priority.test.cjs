@@ -82,6 +82,52 @@ test('continuous ordinary fights on a cleared training map can yield after 15 se
     assert.equal(probes,0);assert.match(e.raidCheckNote,/先完成/);s.adv.battle=null;e.probeRaid(s,now+18000);assert.equal(probes,1);
 });
 
+function dailyLampent(t){
+    const f=fixture(t),{e,s,save}=f,now=Date.parse('2026-11-22T08:59:45+08:00'),day=H.parisDay(now);
+    Object.assign(e.settings,{mode:'legend',legendId:487,raidMinutes:5,autoPrepare:false,
+        dailyWindow:false,dailyCandy:false,dailyWorld:false,dailyTower:false,dailyElite:false});
+    e.daily={base:{...e.settings},checking:true};
+    s.raids={seen:day,done:{},doneBoss:{},pity:{kanto:{date:day,n:0}}};
+    s.adv.event={raid:true,id:608,reg:'kanto',date:day,loops:0};
+    e.driver.raid={reg:'kanto',boss:608,date:day,started:now-303000,adopted:true};
+    e.rememberDraw(s,'kanto',608,now);save();
+    return {...f,now,day};
+}
+
+test('adopted Lampent at 5m03s remains in daily raids through misses, reload, retry backoff and delayed capture confirmation',async t=>{
+    const {e,s,save,now,day}=dailyLampent(t);
+    assert.equal(e.daily.base.dailyRaidUntilCaught,true);
+    e.driver.leaveRaid=()=>assert.fail('left an uncaught daily raid on the ordinary timer');
+    let main=0,probes=0;e.legend=()=>main++;e.driver.activeTeam=()=>false;
+    await e.step(now);s.adv.event.loops++;s.raids.pity.kanto.n=1;save();await e.step(now+1000);
+    assert.deepEqual(e.daily.raidPending,{reg:'kanto',date:day,boss:608});assert.equal(main,0);
+    const saved=JSON.parse(e.storage.getItem('pokecatch-helper:v1:'+e.account)).resume;
+    assert.deepEqual(saved.daily.raidPending,e.daily.raidPending);
+    // The native activity disappeared before the save acknowledged any capture.
+    s.adv.event=null;save();e.daily=structuredClone(saved.daily);e.beginTask(s,saved,now+2000);
+    e.driver.raidStep=()=>{probes++;e.deferRaid('团体战页面暂不可用',now+2000);};
+    await e.step(now+2000);assert.equal(probes,1);
+    s.raids.done['kanto|'+day]=1;s.raids.doneBoss['kanto|'+day]=35;s.dex[608]={shiny:1};save();
+    await e.step(now+4000);assert.equal(main,0);assert.equal(probes,1);assert.match(e.status,/捕获尚未确认/);
+    // Real capture arrives during the retry cooldown, so there is no need to visit the page again.
+    s.raids.doneBoss['kanto|'+day]=608;save();await e.step(now+5000);
+    assert.equal(e.daily.raidPending,undefined);assert.equal(main,1);assert.equal(probes,1);
+});
+
+test('opting into timed daily raids preserves the configured five-minute exit',async t=>{
+    const {e,s,now}=dailyLampent(t);e.daily.base.dailyRaidUntilCaught=false;
+    let exits=0;e.driver.leaveRaid=()=>{exits++;return true;};
+    await e.step(now);assert.equal(exits,1);assert.ok(e.nextRaid>now);assert.equal(e.daily.raidPending,undefined);
+    assert.equal(s.adv.event.id,608);
+});
+
+test('a daily raid reservation expires on Paris rollover or a confirmed regional redraw',t=>{
+    const {e,s,now,day}=dailyLampent(t);e.trackDailyRaid(s,now);s.adv.event=null;
+    s.raids.reroll={day,to:'johto'};e.trackDailyRaid(s,now);assert.equal(e.daily.raidPending,undefined);
+    delete s.raids.reroll;e.daily.raidPending={reg:'kanto',boss:608,date:day};
+    e.trackDailyRaid(s,H.nextParisReset(now));assert.equal(e.daily.raidPending,undefined);
+});
+
 test('native warnings require a matching helper launch, exact text and a two-button confirmation; duplicate preference chooses cancel',t=>{
     const {s,e}=fixture(t),d=e.driver;const launch={},cancel={},name={textContent:'皮皮'};
     const body={textContent:'团体战开始后，就不能再重新抽取今天的团体战了。',querySelector:()=>null};

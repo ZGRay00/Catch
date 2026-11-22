@@ -42,7 +42,7 @@
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
         autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
         autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
-        dailyMain:'current',dailyRaidRegions:[],dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
+        dailyMain:'current',dailyRaidRegions:[],dailyRaidUntilCaught:true,dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
         huntWeatherFallback:'wait',
     });
     const clamp = (v, lo, hi, fallback) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, +v)) : fallback;

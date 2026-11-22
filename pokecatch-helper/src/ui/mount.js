@@ -55,6 +55,7 @@
                     <label><input type="checkbox" data-setting="dailyWindow">抢即将结束的图鉴窗口</label>
                     <label><input type="checkbox" data-setting="dailyCandy">糖果工厂免费场</label>
                     <label><input type="checkbox" id="daily-shiny-raid">每日异色团体战</label>
+                    <label><input type="checkbox" data-setting="dailyRaidUntilCaught">开战后持续到捕获</label>
                     <label><input type="checkbox" data-setting="dailyWorld">世界首领攻击与捕获</label>
                     <label><input type="checkbox" data-setting="dailyTower">每日至多两场对战塔</label>
                     <label><input type="checkbox" data-setting="dailyElite">每日挑战一阶精英联盟（落败即跳过）</label>
@@ -151,7 +152,8 @@
                 <label class="setting">等级落后超过几级补练<input data-setting="prepareGap" type="number" min="0" max="20"></label>
                 <label class="setting">补练无经验停止（分钟）<input data-setting="prepareIdleMinutes" type="number" min="2" max="30"></label>
                 <label class="setting">图鉴轮换（分钟）<input data-setting="rotateMinutes" type="number" min="2" max="120"></label>
-                <label class="setting">团体战时限（分钟）<input data-setting="raidMinutes" type="number" min="5" max="720"></label>
+                <label class="setting">限时团体战（分钟）<input data-setting="raidMinutes" type="number" min="5" max="720"></label>
+                <div class="hint">通关日常勾选「开战后持续到捕获」时，已进入的当日异色团体战会等到捕获确认或每日刷新。普通挂机仍按时限退出。</div>
                 <label class="setting">地图失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
                 <label class="setting">定时停止（分钟，0 不限）<input data-setting="stopMinutes" type="number" min="0" max="1440"></label>
                 <label class="setting"><span><input type="checkbox" data-setting="resumeOnReload">刷新后自动恢复未停止的任务</span></label>
@@ -464,6 +466,9 @@
             const dailyBase=engine.daily?.base||engine.settings;
             query('#daily-shiny-raid').checked=dailyBase.raids;
             query('#daily-shiny-raid').disabled=engine.running||!!engine.suspended;
+            const untilCaught=root.querySelector('[data-setting="dailyRaidUntilCaught"]');
+            untilCaught.checked=dailyBase.dailyRaidUntilCaught!==false;
+            untilCaught.disabled=!dailyBase.raids||engine.running||!!engine.suspended;
             const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
             const legendConfig=dailyLegend?dailyBase:engine.settings;
             const legendSelection=new Set(selectedLegendIds(legendConfig)),legendLocked=engine.running||!!engine.suspended;
@@ -597,6 +602,7 @@
                 else if(engine.daily.job)dailyPhase=MODE_NAMES[engine.settings.mode];
                 else if(engine.dailyZoneExit)dailyPhase='准备'+MODE_NAMES[engine.dailyZoneExit.kind];
                 else if(engine.raidProbe)dailyPhase='检查每日异色团体战';
+                else if(engine.daily.raidPending)dailyPhase='等待每日异色团体战';
             }
             const activeLabel=dailyPhase||MODE_NAMES[engine.settings.mode];
             commandbar.classList.toggle('has-task',locked);

@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.1.2",
-  "scriptSha256": "ccc6d8cbb1c1d6860d76d991291577a57171ef2cc9170f4f81c7ee8d180e1d9b",
-  "metadataSha256": "631949deb1e80fded69b0aa39cf33cefa4abb8f88b54c5892dbf6dfe4893f166",
+  "version": "6.1.3",
+  "scriptSha256": "b4a71153e3e9307cdca860dcc7cffe7fc9abd7f6670623719d23d2c0e6ad37c3",
+  "metadataSha256": "c03d38849edc9b0f52f5b6e14b757b64c36980a4cacf514c00fe7e32319ecbd7",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "7497e5613cba70342377f143843c7d819b40ceb6be4067f0926124fc2bbb29e9"
+      "sha256": "a5dc88909feee767cb5bf5917d18be54e8c4ddfc66c1c3c7792cd4627f65a70f"
     },
     {
       "file": "build.manifest.json",
@@ -50,11 +50,11 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "414ffc90afe6d1e8e22ed7d2584cf471e9fa408052157f6e95494c0cf83587f0"
+      "sha256": "06b6d44acf577232aea431746057418b5aa211c2f63ef9b93a451e2d83b3ebe0"
     },
     {
       "file": "src/models/facilities.js",
-      "sha256": "a7a4fe4e262dc3a931d67b8ed5001651a28ef36605dd97860a65377dd7c72d71"
+      "sha256": "2e8099aa2d416d8d5923cfb95ce0a900370e511c0993ab40a047994055d14247"
     },
     {
       "file": "src/models/task-goals.js",
@@ -134,7 +134,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "c5166000df26de3b0bc8c07dc1a4069d7298c4fcd1a1708e287a68d73f952ecf"
+      "sha256": "f9dc1d0dbffdeaeb6223720530c75127cb4685254a280eaeeba4363f06cc502a"
     },
     {
       "file": "src/runtime/automation.js",
@@ -146,7 +146,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "22cce96e0ab4e404432e6e962fd13bd8429932d6f63eeee618200dac0905483b"
+      "sha256": "c65ce7e945ba6bcd4d50140d1c189e34ee021323cbf31b31e40cfcacb8f6afdf"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -174,7 +174,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "ac7f3ebf575ac8fd233684f701a75321e6f1b0accbe1276c2804028db3df7138"
+      "sha256": "68cf5270fdd7729de7ac73aa8abf978857fb4a604f7849a4ae5e6a41a08372d9"
     }
   ]
 }

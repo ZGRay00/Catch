@@ -481,6 +481,7 @@
                     const raid = s.adv.event;
                     const remembered=cp?.activity?.raid,same=remembered?.reg===(raid.reg||currentRegion(s))&&remembered?.boss===raid.id&&(!remembered.date||remembered.date===(raid.date||parisDay()));
                     this.driver.raid = { reg: raid.reg || currentRegion(s), boss: raid.id, date: raid.date || parisDay(), started: same?clamp(remembered.started,1,Date.now(),Date.now()):Date.now(), adopted: true };
+                    this.trackDailyRaid(s,this.started);
                     if(!this.manual&&this.preparation&&this.preparation.context.kind!=='raid'){this.raidPreparation=this.preparation;this.preparation=null;}
                     this.status = `已接管当前团体战 · ${MONS.get(raid.id)?.name || raid.reg} · ${raidProgressText(s,raid)}`;
                     this.log(this.status);
@@ -779,6 +780,7 @@
             else this.resumeUIClock(now);
             if(s.adv.paused){this.status='游戏已暂停，等待你在游戏内继续';return;}
             if (this.manual && this.manualStep(s, now)) return;
+            this.trackDailyRaid(s,now);
             if(sleeping){
                 this.status='游戏进入省电界面，正在唤醒后继续原任务';
                 // The native handler restores both its internal sleep state and the active
@@ -849,6 +851,7 @@
             if(this.daily&&!inActivity&&this.driver.raid&&!this.raidProbe&&!this.raidReturn&&!this.preparation){
                 this.finishRaidReturn(now,s);
             }
+            if(!inActivity&&this.waitForDailyRaid(s,now))return;
             const reserved=this.daily?.job;
             if(reserved?.waitingForBattle&&!inActivity){
                 if(now>=reserved.until){this.returnFromDaily('日常时段已结束',now,now);return;}
@@ -961,7 +964,7 @@
                 const event=s.adv.event;
                 this.status = `团体战进行中 · ${MONS.get(event.id)?.name || event.reg} · ${raidProgressText(s,event,now)}`;
                 this.raidCheckNote=this.status;
-                if (now - raid.started > this.settings.raidMinutes * 60000) {
+                if (!this.daily?.raidPending && now - raid.started > this.settings.raidMinutes * 60000) {
                     if (this.driver.leaveRaid()) {
                         const day=raid.date||s.adv.event.date||parisDay(now);
                         this.raidCooldown[day+'|'+raid.reg]=raidRetryAt(now,day,1800000);
@@ -1665,7 +1668,48 @@
             return this.settings.mode==='progress'&&new Set(['kanto',...(s.travel?.to||[]),s.link?.to]).has(next.reg);
         }
         ensurePrepared(s,context,resume={},now=Date.now()){return this.holdWildShiny(s,now)||this.coach.ensure(s,context,resume,now);}
+        trackDailyRaid(s,now){
+            const daily=this.daily;
+            if(!daily)return;
+            const pending=daily.raidPending,event=s.adv.event;
+            if(!daily.base.raids||daily.base.dailyRaidUntilCaught===false||daily.job){
+                if(pending)delete daily.raidPending;
+                return;
+            }
+            if(!pending&&!event?.raid)return;
+            const today=parisDay(now);
+            if(event?.raid&&event.id&&(event.date||today)===today){
+                const reg=event.reg||currentRegion(s);
+                if(pending?.date!==today||pending.reg!==reg||pending.boss!==event.id){
+                    daily.raidPending={reg,date:today,boss:event.id};this.persist();
+                }
+            }else if(pending&&(pending.date!==today||raidCaptureRecorded(s,pending.reg,today,pending.boss)||
+                s.raids?.reroll?.day===today&&s.raids.reroll.to&&s.raids.reroll.to!==pending.reg)){
+                delete daily.raidPending;this.nextRaid=now;daily.checking=true;
+                if(pending.date===today&&raidCaptureRecorded(s,pending.reg,today,pending.boss))
+                    this.log('已确认今日异色团体战捕获 · '+(MONS.get(pending.boss)?.name||pending.boss));
+                this.persist();
+            }
+        }
+        waitForDailyRaid(s,now){
+            const pending=this.daily?.raidPending;
+            if(!pending||this.preparation||this.raidReturn)return false;
+            this.lastProgress=now;
+            if(!this.raidProbe){
+                if(now<this.nextRaid){
+                    this.status=(MONS.get(pending.boss)?.name||'每日异色团体战')+' · 捕获尚未确认，'+Math.ceil((this.nextRaid-now)/60000)+' 分钟内复查';
+                    return true;
+                }
+                const blocked=this.raidEntryBlock(s);
+                if(blocked){this.deferRaid(blocked,now,raidRetryAt(now,pending.date,30000));return true;}
+                this.raidProbe=true;this.raidProbeStarted=now;
+            }
+            this.probeRaid(s,now);return true;
+        }
         raidDailyStatus(s,now=Date.now()){
+            // Once entered, historical shiny ownership, other regional clears and a
+            // disabled card cannot settle this target while its capture save is pending.
+            if(this.daily?.raidPending?.date===parisDay(now))return null;
             return dailyRaidStatus(s,this.settings.skipOwnedShiny,this.account===accountId(s)?this.raidDraw:null,now,this.settings.mode==='raid'?this.settings.dailyRaidRegions:null);
         }
         rememberDraw(s,reg,boss,now){

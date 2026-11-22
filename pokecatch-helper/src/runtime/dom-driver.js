@@ -622,8 +622,9 @@
             let skippedOwned=false,skippedCooldown=false;
             const card = cards.find(card => {
                 const reg=card.dataset.rc,boss=bossOf(card);
-                const key=reg+'|'+day,finishedBoss=s.raids?.doneBoss?.[key];
-                if(s.raids?.done?.[key]>0&&(finishedBoss==null||finishedBoss===boss))return false;
+                const pending=this.e.daily?.raidPending;
+                if(pending&&(pending.reg!==reg||pending.boss!==boss))return false;
+                if(raidCaptureRecorded(s,reg,day,boss))return false;
                 if(this.e.raidReturn&&(this.e.raidReturn.date!==day||this.e.raidReturn.reg!==reg||this.e.raidReturn.boss!==boss))return false;
                 if ((this.e.raidCooldown[`${day}|${reg}`] || 0) > now){skippedCooldown=true;return false;}
                 if(this.e.settings.skipOwnedShiny&&(card.querySelector('.chip-own')||s.dex?.[boss]?.shiny)){skippedOwned=true;return false;}

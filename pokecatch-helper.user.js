@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.1.4
+// @version      6.1.5
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.1.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.5', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -257,7 +257,9 @@
                 if(!current())return null;
                 if(!results.length)throw new Error('所有更新来源均未返回有效脚本；可切换来源后重试');
                 const latest=results[0],comparison=compareUpdateVersions(latest.version,this.currentVersion);
-                if(latest.commit&&comparison<=0){
+                // Keep verified mirror responses for the same immutable commit,
+                // including an update the player has not installed yet.
+                if(latest.commit){
                     const urls=this.pinnedCache?.commit===latest.commit&&this.pinnedCache.script.text===latest.text?this.pinnedCache.urls:new Map();
                     for(const result of results)urls.set(result.sourceId,result.url);
                     this.pinnedCache={commit:latest.commit,version:latest.version,script:{...latest},urls};
@@ -6396,6 +6398,11 @@
             const n=Number(s.wb?.n)||0,day=String(s.wb?.ed)+'|'+s.wb?.day;
             if(!this.state.worldDay)this.state.worldDay=day;
             if(this.state.worldDay!==day){this.state.worldBase=0;this.state.worldDay=day;}
+            let pendingAttack=this.state.worldAttack;
+            if(pendingAttack&&(pendingAttack.day!==day||n>pendingAttack.count)){
+                delete this.state.worldAttack;
+                pendingAttack=null;
+            }
             const delta=(this.state.worldDone||0)+Math.max(0,n-(this.state.worldBase||0));
             this.state.worldDone=delta;this.state.worldBase=n;
             const skip=$('#raid-root .wb-skip'),recap=$('.wb-recap [data-wb-go]'),spill=$('#raid-root .wb-spill');
@@ -6420,11 +6427,20 @@
             }
             const capPage=$('[data-wb-cap]');
             if(daily&&enabled(capPage)){d.click(capPage,'打开世界首领捕获阶段');return;}
+            // A button can reappear before the native save reflects an accepted
+            // attack, or immediately after a failed connection. Keep checking
+            // the counter while backing off repeated submissions.
+            if(pendingAttack&&now<pendingAttack.retryAt){
+                this.wait('等待世界首领攻击确认',pendingAttack.retryAt);return;
+            }
             const attack=$('[data-wb-atk]');if(enabled(attack)&&delta<cfg.worldActions&&(!daily||!(e.dailyMarks.attack>now))){
                 if(e.ensurePrepared(s,battleContext(s,'worldAttack'),{},now))return;
                 if(d.click(attack,'使用本次世界首领攻击机会')){
+                    const attempts=Math.min(3,(pendingAttack?.attempts||0)+1);
+                    this.state.worldAttack={day,count:Math.max(n,pendingAttack?.count??n),attempts,retryAt:now+15000*2**(attempts-1)};
                     this.state.waitUntil=now+3000;this.state.waitLabel='世界首领攻击提交中';
-                    if(daily){e.dailyMarks.attack=nextParisReset(now);e.persist();}
+                    if(daily)e.dailyMarks.attack=nextParisReset(now);
+                    e.persist();
                 }return;
             }
             const banner=$('#raid-root .rh-hb.wb[data-wb-go]');if(enabled(banner)){d.click(banner,'进入世界首领');return;}
@@ -7538,7 +7554,7 @@
             this.dailyZoneExit=null;
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
-            this.roamProbeAt=this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
+            this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
             this.lastRoamAttempt=null;
             this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
             this.raidReturn=this.nextWake=this.modalWaitSince=this.modalWaitNode=null;
@@ -7649,7 +7665,8 @@
                 // Settlement and in-flight native launches keep their own confirmation timeouts.
                 if(job.kind!=='window'&&now-job.started>90000&&!job.launched&&
                     !flow.candyLaunch&&!flow.candyRun&&!flow.candyDone&&!flow.towerLaunch&&
-                    !flow.towerWasActive&&!flow.towerReached&&!(now-flow.worldResultAt<5000)&&!flow.worldCaptureStarted){
+                    !flow.towerWasActive&&!flow.towerReached&&!(now-flow.worldResultAt<5000)&&
+                    !(flow.worldAttack?.retryAt>now)&&!flow.worldCaptureStarted){
                     this.returnFromDaily('活动入口暂不可用，稍后重试',now+30*60000,now);return true;
                 }
                 return false;
@@ -8690,7 +8707,7 @@
             }
             if(goal.zone.id!==cfg.legendId){
                 this.settings={...cfg,legendId:goal.zone.id};
-                this.roamStarted=this.roamRestartAt=this.roamProbeAt=null;
+                this.roamStarted=this.roamRestartAt=null;
                 this.target=this.visit=null;
                 this.log('切换传说目标 · '+(goal.zone.monName||goal.zone.name));
             }
@@ -8722,7 +8739,9 @@
                 if(!d.nav('map'))return;
                 this.roamStarted??=now;
                 const region=$(`#map-root .rg.open[data-rg="${plan.group.reg}"]`);
-                if(region&&(!region.classList.contains('active')||!this.roamProbeAt||now-this.roamProbeAt>=5000)){if(d.click(region,'刷新原生地图中的游荡位置'))this.roamProbeAt=now;}
+                // The game refreshes roaming positions on its own. Re-selecting
+                // the active region redraws the whole map without changing the target.
+                if(region&&!region.classList.contains('active'))d.click(region,'打开游荡目标所在地区');
                 return;
             }
             const buffFamily=this.automation.buffUI?.family||this.automation.state.autoBuffTx?.family;

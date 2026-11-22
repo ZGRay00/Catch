@@ -894,6 +894,11 @@
             const n=Number(s.wb?.n)||0,day=String(s.wb?.ed)+'|'+s.wb?.day;
             if(!this.state.worldDay)this.state.worldDay=day;
             if(this.state.worldDay!==day){this.state.worldBase=0;this.state.worldDay=day;}
+            let pendingAttack=this.state.worldAttack;
+            if(pendingAttack&&(pendingAttack.day!==day||n>pendingAttack.count)){
+                delete this.state.worldAttack;
+                pendingAttack=null;
+            }
             const delta=(this.state.worldDone||0)+Math.max(0,n-(this.state.worldBase||0));
             this.state.worldDone=delta;this.state.worldBase=n;
             const skip=$('#raid-root .wb-skip'),recap=$('.wb-recap [data-wb-go]'),spill=$('#raid-root .wb-spill');
@@ -918,11 +923,20 @@
             }
             const capPage=$('[data-wb-cap]');
             if(daily&&enabled(capPage)){d.click(capPage,'打开世界首领捕获阶段');return;}
+            // A button can reappear before the native save reflects an accepted
+            // attack, or immediately after a failed connection. Keep checking
+            // the counter while backing off repeated submissions.
+            if(pendingAttack&&now<pendingAttack.retryAt){
+                this.wait('等待世界首领攻击确认',pendingAttack.retryAt);return;
+            }
             const attack=$('[data-wb-atk]');if(enabled(attack)&&delta<cfg.worldActions&&(!daily||!(e.dailyMarks.attack>now))){
                 if(e.ensurePrepared(s,battleContext(s,'worldAttack'),{},now))return;
                 if(d.click(attack,'使用本次世界首领攻击机会')){
+                    const attempts=Math.min(3,(pendingAttack?.attempts||0)+1);
+                    this.state.worldAttack={day,count:Math.max(n,pendingAttack?.count??n),attempts,retryAt:now+15000*2**(attempts-1)};
                     this.state.waitUntil=now+3000;this.state.waitLabel='世界首领攻击提交中';
-                    if(daily){e.dailyMarks.attack=nextParisReset(now);e.persist();}
+                    if(daily)e.dailyMarks.attack=nextParisReset(now);
+                    e.persist();
                 }return;
             }
             const banner=$('#raid-root .rh-hb.wb[data-wb-go]');if(enabled(banner)){d.click(banner,'进入世界首领');return;}

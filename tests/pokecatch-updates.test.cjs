@@ -67,6 +67,38 @@ test('repeat auto checks refresh HEAD, retry failed sources and invalidate cache
     await stale.check();assert.match(stale.message,/尚未核实/);assert.equal(stale.pending,null);
 });
 
+test('a newer verified commit can be rechecked without downloading its mirrors again',async()=>{
+    let commit=sha;
+    const calls=[],script=release(newer),u=new H.UpdateChecker({request:async url=>{
+        calls.push(url);
+        return url.startsWith(H.UPDATE_RELEASE.head)?{text:JSON.stringify({object:{sha:commit}})}:{text:script,url};
+    }});
+    await u.check();assert.equal(calls.length,6);
+    calls.length=0;await u.check();assert.equal(calls.length,1);
+    assert.ok(calls[0].startsWith(H.UPDATE_RELEASE.head));
+    assert.equal(u.sourceResults.filter(row=>row.cached).length,5);
+    assert.equal(u.verifiedPending().text,script);
+    commit='ef'.repeat(20);calls.length=0;await u.check();
+    assert.equal(calls.length,6);assert.equal(u.pending.commit,commit);
+});
+
+test('a new-version mirror that previously failed is retried and can invalidate the cached commit',async()=>{
+    let recovered=false;
+    const attempted=[],mirror=H.updateSourceURL('fastly',sha),u=new H.UpdateChecker({request:async url=>{
+        attempted.push(url);
+        if(url.startsWith(H.UPDATE_RELEASE.head))return head;
+        if(url===mirror&&!recovered)throw Error('temporarily unavailable');
+        return {url,text:url===mirror?release(newer).replace('const fixture','const differentFixture'):release(newer)};
+    }});
+    assert.ok(await u.check());
+    recovered=true;attempted.length=0;
+    assert.equal(await u.check(),null);
+    assert.equal(attempted.length,2);
+    assert.equal(attempted[1],mirror);
+    assert.match(u.message,/内容冲突/);
+    assert.equal(u.pending,null);
+});
+
 test('all five sources are fixed repository URLs and redirects must preserve the exact ref',()=>{
     assert.deepEqual(H.UPDATE_SOURCES.map(source=>source.id),['github','jsdelivr','fastly','gcore','contents']);
     for(const source of H.UPDATE_SOURCES)for(const ref of ['main',sha])assert.equal(H.allowedUpdateURL(H.updateSourceURL(source.id,ref)),H.updateSourceURL(source.id,ref));

@@ -182,7 +182,9 @@
                 if(!current())return null;
                 if(!results.length)throw new Error('所有更新来源均未返回有效脚本；可切换来源后重试');
                 const latest=results[0],comparison=compareUpdateVersions(latest.version,this.currentVersion);
-                if(latest.commit&&comparison<=0){
+                // Keep verified mirror responses for the same immutable commit,
+                // including an update the player has not installed yet.
+                if(latest.commit){
                     const urls=this.pinnedCache?.commit===latest.commit&&this.pinnedCache.script.text===latest.text?this.pinnedCache.urls:new Map();
                     for(const result of results)urls.set(result.sourceId,result.url);
                     this.pinnedCache={commit:latest.commit,version:latest.version,script:{...latest},urls};

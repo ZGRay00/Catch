@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.1.4",
-  "scriptSha256": "0e3e866c93d3790a8fdcee36e74e23553741ef4a0447d0804424064e2b03f229",
-  "metadataSha256": "dff90c2f3997428efecbb42ea7e8efcfd8295fcad59d2fe5255d9797479d2728",
+  "version": "6.1.5",
+  "scriptSha256": "2b4c2d615d5e24e730671b526634ef407d253ee9eaae760bb0ffb2d8b89ce403",
+  "metadataSha256": "67fe5dd7b51131ce37b747dc7b18a52d1c812e1a7e9062e5ccd65f315f4b430e",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "e528d969bbd19c42c09a897b8235b4e9a3302cdfbef116ae84ab7a5754eb747b"
+      "sha256": "81cdb5ec306dcabaef2ca719ee4f47944091d53c9a75bfde6e99ea2b52236f83"
     },
     {
       "file": "build.manifest.json",
@@ -22,7 +22,7 @@
     },
     {
       "file": "src/core/updates.js",
-      "sha256": "3b040f969bbbfef6fe3b50cb44b43f6c0cfb12b40e733afe86ed698483392da0"
+      "sha256": "a4d3297b5eae6cc6f86fd6b405a215f4bb9b5a1cbd8e71bb5cfd787d1d571fd2"
     },
     {
       "file": "data/game.json",
@@ -138,7 +138,7 @@
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "3532d168346512eddb60af7311e65756c875f3c76aa4f81ebad55ca466ab6c57"
+      "sha256": "245e60130bb8a1781733846773f3ec2c45c6dc6bb72bd292bf3362239d1fbe10"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -146,7 +146,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "c65ce7e945ba6bcd4d50140d1c189e34ee021323cbf31b31e40cfcacb8f6afdf"
+      "sha256": "53f8199f26ce427d713a1565786f46dc3d3d586ced4c5c56802fc270cb32eb75"
     },
     {
       "file": "src/runtime/node-exports.js",

@@ -37,6 +37,44 @@ test('attack-only completion uses new confirmed attacks even on a previously cau
     s.wb.n=3;e.automation.world(s,11000);assert.deepEqual(completed,['世界首领攻击次数目标已完成']);
 });
 
+test('unconfirmed world attacks are retried with bounded backoff, then a confirmed attack releases it',t=>{
+    const {s,e,show,clicks}=fixture(t);
+    show('[data-wb-atk]');
+    e.automation.world(s,10000);
+    for(const at of [11200,13600,18400,24999])e.automation.world(s,at);
+    assert.equal(clicks.length,1);
+    assert.match(e.status,/攻击确认/);
+    assert.equal(e.nextWake,25000);
+    e.automation.world(s,25000);assert.equal(clicks.length,2);
+    e.automation.world(s,54999);assert.equal(clicks.length,2);
+    e.automation.world(s,55000);assert.equal(clicks.length,3);
+    e.automation.world(s,114999);assert.equal(clicks.length,3);
+    e.automation.world(s,115000);assert.equal(clicks.length,4);
+    assert.equal(e.automation.state.worldAttack.retryAt,175000);
+
+    s.wb.n=1;e.automation.world(s,119000);
+    assert.equal(e.automation.state.worldDone,1);
+    assert.equal(clicks.length,5);
+    assert.equal(e.automation.state.worldAttack.retryAt,134000);
+    s.wb.day=1;s.wb.n=0;e.automation.world(s,123000);
+    assert.equal(clicks.length,6);
+    assert.equal(e.automation.state.worldAttack.retryAt,138000);
+});
+
+test('world attack confirmation survives task restoration without blocking an available capture',t=>{
+    const {s,e,show,clicks}=fixture(t,{worldCapture:true});
+    s.wb.caught=4;
+    show('[data-wb-atk]');
+    e.automation.world(s,10000);
+    const checkpoint=JSON.parse(JSON.stringify(e.progressSnapshot()));
+    e.beginTask(s,checkpoint,14000);
+    e.automation.world(s,14000);
+    assert.deepEqual(clicks,['使用本次世界首领攻击机会']);
+    show('[data-wbz-go]');
+    e.automation.world(s,15000);
+    assert.deepEqual(clicks,['使用本次世界首领攻击机会','进入世界首领捕获']);
+});
+
 test('the final confirmed attack finishes its animation and recap before completing the task',t=>{
     const {s,e,show,elements,clicks,completed}=fixture(t);s.wb.n=3;
     const skip=show('#raid-root .wb-skip',()=>{skip.hidden=true;});

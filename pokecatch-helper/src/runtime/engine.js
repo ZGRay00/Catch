@@ -191,7 +191,7 @@
             this.dailyZoneExit=null;
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
-            this.roamProbeAt=this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
+            this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
             this.lastRoamAttempt=null;
             this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
             this.raidReturn=this.nextWake=this.modalWaitSince=this.modalWaitNode=null;
@@ -302,7 +302,8 @@
                 // Settlement and in-flight native launches keep their own confirmation timeouts.
                 if(job.kind!=='window'&&now-job.started>90000&&!job.launched&&
                     !flow.candyLaunch&&!flow.candyRun&&!flow.candyDone&&!flow.towerLaunch&&
-                    !flow.towerWasActive&&!flow.towerReached&&!(now-flow.worldResultAt<5000)&&!flow.worldCaptureStarted){
+                    !flow.towerWasActive&&!flow.towerReached&&!(now-flow.worldResultAt<5000)&&
+                    !(flow.worldAttack?.retryAt>now)&&!flow.worldCaptureStarted){
                     this.returnFromDaily('活动入口暂不可用，稍后重试',now+30*60000,now);return true;
                 }
                 return false;
@@ -1343,7 +1344,7 @@
             }
             if(goal.zone.id!==cfg.legendId){
                 this.settings={...cfg,legendId:goal.zone.id};
-                this.roamStarted=this.roamRestartAt=this.roamProbeAt=null;
+                this.roamStarted=this.roamRestartAt=null;
                 this.target=this.visit=null;
                 this.log('切换传说目标 · '+(goal.zone.monName||goal.zone.name));
             }
@@ -1375,7 +1376,9 @@
                 if(!d.nav('map'))return;
                 this.roamStarted??=now;
                 const region=$(`#map-root .rg.open[data-rg="${plan.group.reg}"]`);
-                if(region&&(!region.classList.contains('active')||!this.roamProbeAt||now-this.roamProbeAt>=5000)){if(d.click(region,'刷新原生地图中的游荡位置'))this.roamProbeAt=now;}
+                // The game refreshes roaming positions on its own. Re-selecting
+                // the active region redraws the whole map without changing the target.
+                if(region&&!region.classList.contains('active'))d.click(region,'打开游荡目标所在地区');
                 return;
             }
             const buffFamily=this.automation.buffUI?.family||this.automation.state.autoBuffTx?.family;

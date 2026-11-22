@@ -72,8 +72,24 @@ test('inventory Master Balls require explicit authorization before active roamin
 test('valid native positions plan only the actual target chapter with a target-aware context',t=>{
     const {s,e,calls}=fixture(t);e.roaming(s,now);const travel=calls.find(call=>call[0]==='travel');assert.equal(travel[1].id,15);assert.equal(travel[2].roamId,243);assert.equal(e.roamStarted,undefined);
 });
-test('expired positions trigger a map refresh without guessing a route',t=>{
+test('expired positions open the map without guessing a route',t=>{
     const {s,e,calls}=fixture(t);s.roam.at[243].until=now-1;e.roaming(s,now);assert.match(e.status,/等待.*新游荡位置/);assert.deepEqual(calls,[['nav','map']]);assert.equal(e.lastProgress,now);
+});
+
+test('waiting for roaming selects the region once and follows the next saved position',t=>{
+    const {s,e,calls}=fixture(t);
+    s.roam.at[243].until=now-1;
+    let active=false;
+    const region={classList:{contains:()=>active}};
+    global.document.querySelector=selector=>selector==='#map-root .rg.open[data-rg="johto"]'?region:null;
+    e.driver.click=el=>{assert.equal(el,region);calls.push(['click']);active=true;return true;};
+    for(let seconds=0;seconds<=30;seconds+=6)e.roaming(s,now+seconds*1000);
+    assert.equal(calls.filter(([action])=>action==='click').length,1);
+    s.roam.at[243]={ch:16,until:now+900000};
+    e.roaming(s,now+31200);
+    const next=calls.find(([action])=>action==='travel');
+    assert.equal(next[1].id,16);
+    assert.equal(next[2].roamId,243);
 });
 test('roaming capture is confirmed before completing a task and no route is reopened',t=>{
     const {s,e,calls}=fixture(t);s.roam.caught=[243];e.roaming(s,now);assert.equal(calls.length,1);assert.equal(calls[0][0],'complete');

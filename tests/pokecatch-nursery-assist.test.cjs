@@ -22,6 +22,7 @@ test('only the consecutive next verified berry-only egg is eligible, with positi
     const s=state();
     const k=align(s,1/16,1/8);
     assert.equal(H.nextNurseryFeed(s,{build}).k,k);
+    assert.equal(H.nextNurseryFeed(s,{build,allowReferenceFeed:true}).reference,false);
     assert.equal(H.nextNurseryFeed(s,{build:'unknown'}),null);
     s.pension.bx=1;assert.equal(H.nextNurseryFeed(s,{build}),null);
     delete s.pension.bx;
@@ -29,6 +30,20 @@ test('only the consecutive next verified berry-only egg is eligible, with positi
     s.items[berry]=2;
     align(s,0,1/16);assert.equal(H.nextNurseryFeed(s,{build}),null);
     align(s,1/8,1);assert.equal(H.nextNurseryFeed(s,{build}),null);
+});
+test('reference feeding is opt-in and still requires an identifiable next egg that would only shine with a berry',()=>{
+    const s=state(),opts={build:'unverified:future',allowReferenceFeed:true};
+    const k=align(s,1/16,1/8);
+    assert.deepEqual(H.nextNurseryFeed(s,opts),{...H.nextNurseryFeed(s,{build}),k,reference:true});
+    assert.equal(H.nextNurseryFeed(s,{...opts,allowReferenceFeed:'true'}),null);
+    assert.equal(H.nextNurseryFeed(s,{...opts,build:undefined}),null);
+    s.pension.bx=1;assert.equal(H.nextNurseryFeed(s,opts),null);
+    delete s.pension.bx;
+    s.items[berry]=0;assert.equal(H.nextNurseryFeed(s,opts),null);s.items[berry]=2;
+    align(s,0,1/16);assert.equal(H.nextNurseryFeed(s,opts),null);
+    align(s,1/8,1);assert.equal(H.nextNurseryFeed(s,opts),null);
+    delete s.pension.laid;s.stats={hatched:k};
+    assert.equal(H.nextNurseryFeed(s,opts),null,'unknown builds require a saved egg number instead of inferring a legacy initializer');
 });
 test('nearly due or stale eggs are deferred until native autosave, while a full incubator can be fed',()=>{
     const s=state(),p=s.pension,now=p.tick,goal=H.NURSERY_RULES.eggMs;
@@ -43,12 +58,17 @@ test('the new permissions default off and only survive for the account that enab
     const storage={getItem:key=>data.get(key)??null,setItem:(key,value)=>data.set(key,String(value)),removeItem:key=>data.delete(key)};
     const e=new H.Engine(storage);
     e.loadAccount(s);
-    assert.deepEqual(e.nurseryAssist.prefs,{idleHatch:false,autoFeed:false});
+    assert.deepEqual(e.nurseryAssist.prefs,{idleHatch:false,autoFeed:false,allowReferenceFeed:false});
     e.nurseryAssist.set('autoFeed',true);
+    // Older installations saved the two existing permissions without this opt-in.
+    storage.setItem(e.nurseryAssist.key,JSON.stringify({idleHatch:false,autoFeed:true}));
     const reload=new H.Engine(storage);reload.loadAccount(s);
-    assert.deepEqual(reload.nurseryAssist.prefs,{idleHatch:false,autoFeed:true});
+    assert.deepEqual(reload.nurseryAssist.prefs,{idleHatch:false,autoFeed:true,allowReferenceFeed:false});
+    reload.nurseryAssist.set('allowReferenceFeed',true);
+    e.nurseryAssist.refresh();
+    assert.deepEqual(e.nurseryAssist.prefs,{idleHatch:false,autoFeed:true,allowReferenceFeed:true});
     const other={...s,trainer:{id:'other',since:1234}};
     storage.setItem('gachamon-save-v1',JSON.stringify(other));
     reload.loadAccount(other);
-    assert.deepEqual(reload.nurseryAssist.prefs,{idleHatch:false,autoFeed:false});
+    assert.deepEqual(reload.nurseryAssist.prefs,{idleHatch:false,autoFeed:false,allowReferenceFeed:false});
 });

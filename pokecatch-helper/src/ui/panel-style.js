@@ -147,6 +147,9 @@
     .nursery-predictions small { color:#b2c3d4; font-size:inherit; overflow-wrap:anywhere }
     .nursery-predictions code { color:#a9d5c9; font-variant-numeric:tabular-nums }
     .nursery-preference { margin-top:10px }
+    .nursery-feed-permission { margin:4px 0 8px 9px; padding-left:10px; border-left:2px solid #3b536b }
+    .nursery-feed-permission .setting { margin:0 }
+    .nursery-feed-permission .hint { margin:0 0 4px }
     #nursery-eggs .nursery-egg[data-ready=true] > span { color:#99e6bd }
     .metrics { gap:0; margin:6px 0 12px; padding:7px 0; background:#172637; border-radius:9px }
     .metric { background:transparent; border:0; border-radius:0; padding:2px 4px; line-height:1.45 }

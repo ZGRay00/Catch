@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.3.3",
-  "scriptSha256": "97d36bd4a1f31182bf42438e20e5b963317543aed307b23d582bc9e2953f7ca3",
-  "metadataSha256": "1a1dfa42e22024bec3f72284e2acb1174854a141037b6605017cdbab3688c5cc",
+  "version": "6.3.4",
+  "scriptSha256": "81d8dfd66ced46e51342a63aeb695440b8c1de6a794f7acbeff5f1d8372562a3",
+  "metadataSha256": "ca57b0df5e0488946deda6e1dbdcf134ead3033ca61691cdd83e0f1ccbcf8b87",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "415e960c169c6fd64bd6d84f2fea53e7ee2d4e5ced514f0a13c3dd3be677d852"
+      "sha256": "cf20f71dc93c9329ccb68a38b1ad0bafd1e72ef401d64be9538ee3192366b4d6"
     },
     {
       "file": "build.manifest.json",
@@ -86,7 +86,7 @@
     },
     {
       "file": "src/services/nursery-assist.js",
-      "sha256": "4128aff74269cbed41fee4ed8eb5839eb8d7715c01e87678ea78ac2803b2e932"
+      "sha256": "1143525bbf31a2b4077987c76a92c1f2b5e9e013f6ea3562a32fc59c5fb157f2"
     },
     {
       "file": "data/weather.json",
@@ -166,7 +166,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "059aaeedcc387b09b0cf96981897590e609ed68b6c9857d5921c39dd53c93914"
+      "sha256": "a1d949f718b5fc72779a7ce21e3dad2c0567f16583a81412ce5b6579e92992e2"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -190,7 +190,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "60189e9c030fdca31770cbcbf2d3b2358907dbcf530a71a3613629ebf651d8cc"
+      "sha256": "470f13270a74af2bf76bfc4a9d9cc6b744534fc18fb17a66ffa0c245dea586a9"
     }
   ]
 }

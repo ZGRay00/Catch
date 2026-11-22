@@ -165,7 +165,11 @@
             <h3>孵蛋自动化</h3>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="idleHatch">待命时自动领取成熟蛋</span></label>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="autoFeed">下一枚自然蛋喂果才闪时自动喂靛莓果</span></label>
-            <div class="hint">两个开关默认关闭，按账号保存。喂果只用当前背包库存，游戏规则已核对且确认下一枚蛋喂果才闪时生效。任务运行时计入道具用量；待命时也可单独使用。</div>
+            <div class="nursery-feed-permission">
+                <label class="setting"><span><input type="checkbox" data-nursery-pref="allowReferenceFeed" aria-describedby="nursery-reference-feed-hint">允许按旧规则预测自动喂果</span></label>
+                <div class="hint" id="nursery-reference-feed-hint">游戏规则待核对时也允许按预测喂果，可能消耗靛莓果而未出闪蛋。</div>
+            </div>
+            <div class="hint">开关默认关闭，按账号保存。待命时使用库存；任务运行时还会计入道具用量。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
@@ -662,9 +666,11 @@
             if(wait?.reason==='ready'&&engine.running&&!pageHidden()&&!engine.timer)engine.schedule(50);
             if(ui.folded||ui.workspace!=='activity'||tab!=='maps'||!s?.adv)engine.releaseRankingView();
             if(ui.workspace==='settings'&&!ui.folded){
+                const prefs=engine.nurseryAssist.prefs;
                 for(const input of root.querySelectorAll('[data-nursery-pref]')){
-                    input.disabled=!engine.account||!!engine.suspended;
-                    input.checked=engine.nurseryAssist.prefs[input.dataset.nurseryPref];
+                    const key=input.dataset.nurseryPref;
+                    input.disabled=!engine.account||!!engine.suspended||key==='allowReferenceFeed'&&!prefs.autoFeed;
+                    input.checked=prefs[key];
                 }
                 const note=query('#nursery-auto-note'),text=engine.nurseryAssist.note;
                 if(note.textContent!==text)note.textContent=text;

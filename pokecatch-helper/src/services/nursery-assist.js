@@ -1,13 +1,15 @@
     const NURSERY_AUTOMATION_KEY=PREFIX+'nursery-auto:';
-    const NURSERY_AUTOMATION_DEFAULTS={idleHatch:false,autoFeed:false};
+    const NURSERY_AUTOMATION_DEFAULTS={idleHatch:false,autoFeed:false,allowReferenceFeed:false};
 
     function nextNurseryFeed(s,options){
         const stock=Number(s?.items?.[NURSERY_RULES.berry])||0;
-        if(stock<1||s?.pension?.bx||!NURSERY_RULES.compatibleBuilds.includes(options?.build))return null;
-        const forecast=nurseryForecast(s,{build:options.build,limit:1});
+        const build=options?.build,verified=NURSERY_RULES.compatibleBuilds.includes(build);
+        const estimateUnverified=options?.allowReferenceFeed===true;
+        if(stock<1||s?.pension?.bx||!build||!verified&&!estimateUnverified)return null;
+        const forecast=nurseryForecast(s,{build,limit:1,estimateUnverified});
         const next=forecast.nextEgg;
-        if(!forecast.known||forecast.pendingBerry!==false||!next?.withBerryShiny||next.withoutBerryShiny)return null;
-        return{key:nurseryHash(nurserySeed(s)).toString(16)+':'+next.k,k:next.k,id:next.eggId,stock};
+        if(!forecast.active||forecast.pendingBerry!==false||!next?.withBerryShiny||next.withoutBerryShiny)return null;
+        return{key:nurseryHash(nurserySeed(s)).toString(16)+':'+next.k,k:next.k,id:next.eggId,stock,reference:!verified};
     }
     function nurseryFeedWindow(p,now){
         if(!Array.isArray(p.eggs))return false;
@@ -40,7 +42,7 @@
         refresh(){
             let record;
             try{record=JSON.parse(this.e.storage.getItem(this.key)||'{}');}catch{}
-            this.prefs={idleHatch:record?.idleHatch===true,autoFeed:record?.autoFeed===true};
+            this.prefs=Object.fromEntries(Object.keys(NURSERY_AUTOMATION_DEFAULTS).map(key=>[key,record?.[key]===true]));
         }
         set(key,value){
             if(!this.key||!Object.hasOwn(NURSERY_AUTOMATION_DEFAULTS,key)||typeof value!=='boolean')throw new Error('请先进入游戏');
@@ -118,7 +120,7 @@
             if(task&&task.idle!==idle){this.feed=null;return false;}
             const current=()=>{
                 if(!this.prefs.autoFeed||!(p?.mons?.length>=2)||p.bx||!(Number(s.items?.[NURSERY_RULES.berry])>0)||!nurseryFeedWindow(p,now))return null;
-                return nextNurseryFeed(s,nurseryRuntimeOptions());
+                return nextNurseryFeed(s,{...nurseryRuntimeOptions(),allowReferenceFeed:this.prefs.allowReferenceFeed});
             };
             let next;
             if(!task){
@@ -136,7 +138,7 @@
             const applied=p?.bx&&p.laid===task.k||p?.eggs?.some(egg=>egg.k===task.k&&egg.bx);
             if(task.at!=null&&!task.returning){
                 if(spent&&applied){
-                    this.note=`已喂靛莓果 · 目标蛋 #${task.k}`;e.log(this.note);task.returning=true;
+                    this.note=`已喂靛莓果 · 目标蛋 #${task.k}`+(task.reference?'（按旧规则预测）':'');e.log(this.note);task.returning=true;
                 }else if(now-task.at<15000){
                     this.note='正在核对靛莓果扣除及目标蛋标记';return true;
                 }else{
@@ -167,8 +169,9 @@
                         const key=this.key+':last-feed';
                         try{e.storage.setItem(key,task.key);}
                         catch{this.note='无法保存喂果记录，已跳过本次喂果';this.retryFeedAt=now+60000;task.returning=true;return true;}
-                        task.stock=next.stock;task.at=now;
-                        const clicked=idle?d.click(button,'给百变怪喂靛莓果'):e.automation.spentClick(button,s,0,1,'给百变怪喂靛莓果');
+                        task.stock=next.stock;task.at=now;task.reference=next.reference;
+                        const label=next.reference?'按旧规则预测喂靛莓果':'给百变怪喂靛莓果';
+                        const clicked=idle?d.click(button,label):e.automation.spentClick(button,s,0,1,label);
                         if(!clicked){delete task.at;e.storage.removeItem(key);task.returning=true;}
                         return true;
                     }else return true;

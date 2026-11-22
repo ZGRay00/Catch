@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.3.3
+// @version      6.3.4
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.3.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.3.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1981,15 +1981,17 @@
         }
     }
     const NURSERY_AUTOMATION_KEY=PREFIX+'nursery-auto:';
-    const NURSERY_AUTOMATION_DEFAULTS={idleHatch:false,autoFeed:false};
+    const NURSERY_AUTOMATION_DEFAULTS={idleHatch:false,autoFeed:false,allowReferenceFeed:false};
 
     function nextNurseryFeed(s,options){
         const stock=Number(s?.items?.[NURSERY_RULES.berry])||0;
-        if(stock<1||s?.pension?.bx||!NURSERY_RULES.compatibleBuilds.includes(options?.build))return null;
-        const forecast=nurseryForecast(s,{build:options.build,limit:1});
+        const build=options?.build,verified=NURSERY_RULES.compatibleBuilds.includes(build);
+        const estimateUnverified=options?.allowReferenceFeed===true;
+        if(stock<1||s?.pension?.bx||!build||!verified&&!estimateUnverified)return null;
+        const forecast=nurseryForecast(s,{build,limit:1,estimateUnverified});
         const next=forecast.nextEgg;
-        if(!forecast.known||forecast.pendingBerry!==false||!next?.withBerryShiny||next.withoutBerryShiny)return null;
-        return{key:nurseryHash(nurserySeed(s)).toString(16)+':'+next.k,k:next.k,id:next.eggId,stock};
+        if(!forecast.active||forecast.pendingBerry!==false||!next?.withBerryShiny||next.withoutBerryShiny)return null;
+        return{key:nurseryHash(nurserySeed(s)).toString(16)+':'+next.k,k:next.k,id:next.eggId,stock,reference:!verified};
     }
     function nurseryFeedWindow(p,now){
         if(!Array.isArray(p.eggs))return false;
@@ -2022,7 +2024,7 @@
         refresh(){
             let record;
             try{record=JSON.parse(this.e.storage.getItem(this.key)||'{}');}catch{}
-            this.prefs={idleHatch:record?.idleHatch===true,autoFeed:record?.autoFeed===true};
+            this.prefs=Object.fromEntries(Object.keys(NURSERY_AUTOMATION_DEFAULTS).map(key=>[key,record?.[key]===true]));
         }
         set(key,value){
             if(!this.key||!Object.hasOwn(NURSERY_AUTOMATION_DEFAULTS,key)||typeof value!=='boolean')throw new Error('请先进入游戏');
@@ -2100,7 +2102,7 @@
             if(task&&task.idle!==idle){this.feed=null;return false;}
             const current=()=>{
                 if(!this.prefs.autoFeed||!(p?.mons?.length>=2)||p.bx||!(Number(s.items?.[NURSERY_RULES.berry])>0)||!nurseryFeedWindow(p,now))return null;
-                return nextNurseryFeed(s,nurseryRuntimeOptions());
+                return nextNurseryFeed(s,{...nurseryRuntimeOptions(),allowReferenceFeed:this.prefs.allowReferenceFeed});
             };
             let next;
             if(!task){
@@ -2118,7 +2120,7 @@
             const applied=p?.bx&&p.laid===task.k||p?.eggs?.some(egg=>egg.k===task.k&&egg.bx);
             if(task.at!=null&&!task.returning){
                 if(spent&&applied){
-                    this.note=`已喂靛莓果 · 目标蛋 #${task.k}`;e.log(this.note);task.returning=true;
+                    this.note=`已喂靛莓果 · 目标蛋 #${task.k}`+(task.reference?'（按旧规则预测）':'');e.log(this.note);task.returning=true;
                 }else if(now-task.at<15000){
                     this.note='正在核对靛莓果扣除及目标蛋标记';return true;
                 }else{
@@ -2149,8 +2151,9 @@
                         const key=this.key+':last-feed';
                         try{e.storage.setItem(key,task.key);}
                         catch{this.note='无法保存喂果记录，已跳过本次喂果';this.retryFeedAt=now+60000;task.returning=true;return true;}
-                        task.stock=next.stock;task.at=now;
-                        const clicked=idle?d.click(button,'给百变怪喂靛莓果'):e.automation.spentClick(button,s,0,1,'给百变怪喂靛莓果');
+                        task.stock=next.stock;task.at=now;task.reference=next.reference;
+                        const label=next.reference?'按旧规则预测喂靛莓果':'给百变怪喂靛莓果';
+                        const clicked=idle?d.click(button,label):e.automation.spentClick(button,s,0,1,label);
                         if(!clicked){delete task.at;e.storage.removeItem(key);task.returning=true;}
                         return true;
                     }else return true;
@@ -10218,6 +10221,9 @@
     .nursery-predictions small { color:#b2c3d4; font-size:inherit; overflow-wrap:anywhere }
     .nursery-predictions code { color:#a9d5c9; font-variant-numeric:tabular-nums }
     .nursery-preference { margin-top:10px }
+    .nursery-feed-permission { margin:4px 0 8px 9px; padding-left:10px; border-left:2px solid #3b536b }
+    .nursery-feed-permission .setting { margin:0 }
+    .nursery-feed-permission .hint { margin:0 0 4px }
     #nursery-eggs .nursery-egg[data-ready=true] > span { color:#99e6bd }
     .metrics { gap:0; margin:6px 0 12px; padding:7px 0; background:#172637; border-radius:9px }
     .metric { background:transparent; border:0; border-radius:0; padding:2px 4px; line-height:1.45 }
@@ -11334,7 +11340,11 @@
             <h3>孵蛋自动化</h3>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="idleHatch">待命时自动领取成熟蛋</span></label>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="autoFeed">下一枚自然蛋喂果才闪时自动喂靛莓果</span></label>
-            <div class="hint">两个开关默认关闭，按账号保存。喂果只用当前背包库存，游戏规则已核对且确认下一枚蛋喂果才闪时生效。任务运行时计入道具用量；待命时也可单独使用。</div>
+            <div class="nursery-feed-permission">
+                <label class="setting"><span><input type="checkbox" data-nursery-pref="allowReferenceFeed" aria-describedby="nursery-reference-feed-hint">允许按旧规则预测自动喂果</span></label>
+                <div class="hint" id="nursery-reference-feed-hint">游戏规则待核对时也允许按预测喂果，可能消耗靛莓果而未出闪蛋。</div>
+            </div>
+            <div class="hint">开关默认关闭，按账号保存。待命时使用库存；任务运行时还会计入道具用量。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
@@ -11831,9 +11841,11 @@
             if(wait?.reason==='ready'&&engine.running&&!pageHidden()&&!engine.timer)engine.schedule(50);
             if(ui.folded||ui.workspace!=='activity'||tab!=='maps'||!s?.adv)engine.releaseRankingView();
             if(ui.workspace==='settings'&&!ui.folded){
+                const prefs=engine.nurseryAssist.prefs;
                 for(const input of root.querySelectorAll('[data-nursery-pref]')){
-                    input.disabled=!engine.account||!!engine.suspended;
-                    input.checked=engine.nurseryAssist.prefs[input.dataset.nurseryPref];
+                    const key=input.dataset.nurseryPref;
+                    input.disabled=!engine.account||!!engine.suspended||key==='allowReferenceFeed'&&!prefs.autoFeed;
+                    input.checked=prefs[key];
                 }
                 const note=query('#nursery-auto-note'),text=engine.nurseryAssist.note;
                 if(note.textContent!==text)note.textContent=text;

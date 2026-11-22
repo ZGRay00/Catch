@@ -436,7 +436,8 @@
         const nurseryRoot=q('#pokecatch-auto-helper').shadowRoot;
         nurseryRoot.querySelector('[data-workspace="settings"]').click();
         const idlePref=nurseryRoot.querySelector('[data-nursery-pref="idleHatch"]'),feedPref=nurseryRoot.querySelector('[data-nursery-pref="autoFeed"]');
-        assert(!idlePref.checked&&!feedPref.checked,'both nursery account settings are disabled by default');
+        const refPref=nurseryRoot.querySelector('[data-nursery-pref="allowReferenceFeed"]');
+        assert(!idlePref.checked&&!feedPref.checked&&!refPref.checked&&refPref.disabled,'nursery options are off by default and the fallback requires auto-feed');
         idle();assert(s.stats.hatched===0,'stopped helper leaves mature eggs alone by default');
         idlePref.click();for(let i=0;i<12;i++)idle();
         assert(!engine.running&&s.stats.hatched===1&&hatchClicks===1&&!!q('#screen-adventure.active'),'opt-in idle collection hatches once and restores the native page without starting a task');
@@ -448,7 +449,7 @@
             while(!(fixtureNursery.nurseryFixedRoll(s,s.pension.laid)>=1/16&&fixtureNursery.nurseryFixedRoll(s,s.pension.laid)<1/8))s.pension.laid++;
             save();feedPref.click();
             window.BUILD='future-nursery-bundle';for(let i=0;i<4;i++)idle();
-            assert(!s.pension.bx&&s.items['belue-berry']===3&&!!q('#screen-adventure.active'),'an unverified game build never feeds or opens the nursery');
+            assert(!s.pension.bx&&s.items['belue-berry']===3&&!!q('#screen-adventure.active'),'an unverified game build leaves feeding alone without the extra opt-in');
             window.BUILD=fixtureNursery.NURSERY_RULES.build;
             const berrySerial=s.pension.laid;
             idle();assert(!!q('#screen-pension.active'),'verified candidate opens the nursery');
@@ -460,12 +461,23 @@
             delete s.pension.bx;save();engine.nurseryAssist.refresh();for(let i=0;i<6;i++)idle();
             assert(s.items['belue-berry']===2,'the durable serial guard prevents re-feeding the same egg after a delayed or lost confirmation');
             do{s.pension.laid++;}while(!(fixtureNursery.nurseryFixedRoll(s,s.pension.laid)>=1/16&&fixtureNursery.nurseryFixedRoll(s,s.pension.laid)<1/8));
+            window.BUILD='future-nursery-bundle';save();
+            assert(!refPref.disabled,'enabling auto-feed exposes the optional old-rule permission');
+            refPref.click();idle();
+            assert(!!q('#screen-pension.active'),'old-rule opt-in allows preparing the unknown-build candidate');
+            refPref.click();for(let i=0;i<6;i++)idle();
+            assert(!s.pension.bx&&s.items['belue-berry']===2&&!!q('#screen-adventure.active'),'revoking permission before the click cancels the feeding and restores the previous page');
+            refPref.click();for(let i=0;i<12;i++)idle();
+            assert(!engine.running&&s.pension.bx===1&&s.items['belue-berry']===1&&/旧规则预测/.test(engine.nurseryAssist.note),'old-rule opt-in feeds exactly once while idle and labels the prediction');
+            delete s.pension.bx;
+            do{s.pension.laid++;}while(!(fixtureNursery.nurseryFixedRoll(s,s.pension.laid)>=1/16&&fixtureNursery.nurseryFixedRoll(s,s.pension.laid)<1/8));
             save();engine.settings.useBudget=0;engine.start();
             for(let i=0;i<4;i++)await tick();
-            assert(!s.pension.bx&&s.items['belue-berry']===2,'foreground feeding respects a zero use budget');
+            assert(!s.pension.bx&&s.items['belue-berry']===1,'old-rule feeding also respects a zero foreground use budget');
             engine.settings.useBudget=1;await until(()=>s.pension.bx===1&&engine.nurseryAssist.feed===null,14);
-            assert(s.items['belue-berry']===1&&engine.budget.used===1&&engine.running,'foreground feeding uses one berry and one allowance then resumes its task');
+            assert(s.items['belue-berry']===0&&engine.budget.used===1&&engine.running,'foreground feeding uses one berry and one allowance then resumes its task');
             engine.stop('fixture nursery complete');
+            refPref.click();
             feedPref.click();
         }finally{window.BUILD=savedBuild;delete s.trainer.since;save();}
         reset('underground',{underRuns:1});await until(()=>s.under.slots.length>0);assert(s.under.slots.length===1,'underground team edit and native dispatch');const dispatched=s.under.slots[0],dispatchedUIDs=[...dispatched.team];assert(dispatched.mons.length===3&&dispatchedUIDs.every(uid=>!s.mons.some(mon=>mon.uid===uid))&&s.under.sent===1&&underCollectionClicks===0&&engine.automation.state.underDone===0,'native dispatch detaches exactly three PC members and never collects a future expedition');await until(()=>!engine.running);assert(engine.automation.state.underDone===1&&s.under.slots.length===0&&underCollectionClicks===1&&dispatchedUIDs.every(uid=>s.mons.some(mon=>mon.uid===uid)),'dispatch collection completes task only after the original three UIDs return');assert(geodeOpened===1&&!q('.gd-fx')&&!q('#modal-root.open')&&engine.budget.used===1,'single-geode tap, skip, receipt and exact usage budget without an open-all button');

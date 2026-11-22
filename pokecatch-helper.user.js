@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.1.10
+// @version      6.1.12
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.1.10', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.12', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1455,7 +1455,8 @@
         '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
         'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89',
         '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c',
-        '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f','2d46018b96':'d0ed6b793f','23e94ddbef':'d0ed6b793f'
+        '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f','2d46018b96':'d0ed6b793f','23e94ddbef':'d0ed6b793f',
+        '4ca78e3d27':'d0ed6b793f','fb58ae58aa':'d0ed6b793f'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -3724,13 +3725,20 @@
         }
         return best;
     }
+    function shopCandyTier(s){
+        const reg=candyRegion(s),frontier=s.adv?.unlocked;
+        if(!Number.isInteger(frontier)||frontier<0)return null;
+        // Native shopBadges counts completed badge-awarding gym chapters in its wallet region.
+        const badges=DATA.chapters.filter(c=>c.reg===reg&&c.id<frontier&&c.badges.length).length;
+        return highestCandy(s,Object.entries(DATA.automation.candies).filter(([,candy])=>candy.badges<=badges).map(([id])=>({id})))?.id||null;
+    }
     function candyChoice(s,mon,goal,offers=[]){
         const need=candyXpGap(s,mon,goal);if(!(need>0))return null;
-        const types=DATA.automation.candies,reg=candyRegion(s);
-        const owned=Object.entries(types).filter(([id,info])=>s.items?.[id]>0&&info.xp[reg]>0).map(([id,info])=>({id,xp:info.xp[reg],cost:0,owned:true,need}));
+        const types=DATA.automation.candies,reg=candyRegion(s),headroom=candyXpGap(s,mon,100);
+        const owned=Object.entries(types).filter(([id,info])=>s.items?.[id]>0&&info.xp[reg]<=headroom).map(([id,info])=>({id,xp:info.xp[reg],cost:0,owned:true,need}));
         if(owned.length)return owned.sort((a,b)=>Math.max(0,a.xp-need)-Math.max(0,b.xp-need)||b.xp-a.xp)[0];
         const best=highestCandy(s,offers);
-        return best&&Number.isSafeInteger(best.cost)&&best.cost>0?{...best,xp:types[best.id].xp[reg],need,owned:false}:null;
+        return best&&types[best.id].xp[reg]<=headroom&&Number.isSafeInteger(best.cost)&&best.cost>0?{...best,xp:types[best.id].xp[reg],need,owned:false}:null;
     }
     function routeDescriptor(row){return Object.fromEntries(['id','key','reg','name','loop','league','members','reward','units','ace'].map(key=>[key,row[key]]));}
     // Native elite rooms reuse the story gym's roster and power, without its route trainers.
@@ -4861,9 +4869,10 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
-    function highestShopCandy(s,cards){
+    function highestShopCandy(s,cards,expected=shopCandyTier(s)){
         // An unlocked card still sets the tier if its price or button is unavailable.
-        return highestCandy(s,cards.filter(el=>!el.classList.contains('locked')).map(el=>({id:el.dataset.id,el})));
+        const shown=highestCandy(s,cards.filter(el=>!el.classList.contains('locked')).map(el=>({id:el.dataset.id,el})));
+        return shown?.id===expected?shown:null;
     }
     function shopOffer(el) {
         const id=el.dataset.id,buy=el.querySelector('.buy'),one=el.querySelector('[data-n="1"]');
@@ -5553,7 +5562,9 @@
         if(!mon)return '道具使用对象不存在，请选择成员';
         if(s.link?.side==='from'&&monRegion(mon)===s.link.to)return '当前地区的背包不能供该成员使用，请切换至成员所在地区';
         if(DATA.automation.candies[id]||id==='rare-candy'){
-            return mon.level>=trainingCap(s,mon)?'目标成员已达到当前等级上限':null;
+            if(mon.level>=trainingCap(s,mon))return '目标成员已达到当前等级上限';
+            const xp=DATA.automation.candies[id]?.xp[candyRegion(s)];
+            return xp&&!(candyXpGap(s,mon,100)>=xp)?'使用后经验会超出该成员当前等级上限':null;
         }
         if(id==='link-cable')return '连接绳进化需要在游戏内交换';
         if(!(EVOLUTION_DATA.rules[mon.id]||[]).some(rule=>rule.item===id))return '所选成员的当前形态无法使用此道具';
@@ -6662,8 +6673,6 @@
             if(blocked){this.fail(blocked);return;}
             let preview=null;
             if(!stocked){
-                const xp=DATA.automation.candies[id]?.xp[candyRegion(s)];
-                if(xp&&!(candyXpGap(s,mon,100)>=xp)){this.fail('购买后经验会超出该成员当前等级上限，已暂停补购');return;}
                 if(DATA.automation.candies[id]||id==='rare-candy')return this.buy(s,id);
                 preview=resourcePreviewKey(s,mon,id,now);
                 if(this.resourcePreview?.key===preview&&this.resourcePreview.until>=now)return this.buy(s,id);
@@ -6689,17 +6698,17 @@
                 return;
             }
             delete this.state.shopLoadTries;
+            if(DATA.automation.candies[id]){
+                const expected=shopCandyTier(s);
+                if(expected&&expected!==id){this.fail('当前商店最高档为'+(ITEMS.get(expected)?.name||expected)+'，请将采购目标改为该档');return;}
+                if(!highestShopCandy(s,cards,expected)){
+                    this.fail('金币商店尚未显示当前地区已解锁的最高档经验糖果，已暂停采购');return;
+                }
+            }
             const item=cards.find(el=>el.dataset.id===id);
             if(!item||item.classList.contains('locked')){
                 const row=EVOLUTION_SHOP.get(id);
                 this.fail(row&&evolutionShopLocked(s,row)?evolutionPurchaseReason(s,row):'目标道具未在当前金币商店解锁');return;
-            }
-            if(DATA.automation.candies[id]){
-                const highest=highestShopCandy(s,cards);
-                if(highest?.id!==id){
-                    this.fail(highest?'当前商店最高档为'+(ITEMS.get(highest.id)?.name||highest.id)+'，请将采购目标改为该档':'当前商店没有已解锁的经验糖果');
-                    return;
-                }
             }
             const {one,single,buy,cost}=shopOffer(item);
             if(!single){
@@ -6708,7 +6717,7 @@
             }
             if(cost==null){this.fail('无法确认商品单价，已暂停采购');return;}
             if(!enabled(buy)){this.fail(e.budget.check(s,cost)||'游戏商店的购买按钮暂不可用');return;}
-            this.resourceSpend(buy,s,id,'buy',cost,0,'购买目标道具');
+            this.resourceSpend(buy,s,id,'buy',cost,0,'购买 1 份'+(ITEMS.get(id)?.name||id));
         }
         resourcePending(s,now=Date.now()){
             const tx=this.state.resourceTx||this.state.resourceBuffTx;if(!tx)return false;
@@ -6777,7 +6786,7 @@
             if(usable.length>1){this.fail('该道具有多个可用进化分支，请先手动选择');return true;}
             const button=usable[0];
             if(!enabled(button)){this.fail('该道具当前不能用于所选宝可梦（可能达到等级上限或不满足进化条件）');return true;}
-            this.resourceSpend(button,s,id,'use',0,1,'使用一份目标道具');return true;
+            this.resourceSpend(button,s,id,'use',0,1,'使用库存 1 份'+(ITEMS.get(id)?.name||id));return true;
         }
         buff(s,id){
             const e=this.e,now=Date.now(),family=DATA.automation.buffs[id].family;
@@ -7043,7 +7052,7 @@
             if(why){this.candyFallback(p,why);return false;}
             const evidence=kind==='buy'?purchaseEvidence(s,id,cost):{stock:Number(s.items?.[id])||0,counter:Number(s.stats?.itemOut?.[id])||0};
             p.candyTx={uid,id,kind,...evidence,xp:experienceTotal(s,[uid]),xpMultiplier:DATA.economy.xpMultipliers[economicRegion(s)],at:now};
-            if(e.automation.spentClick(el,s,cost,uses,kind==='buy'?'购买一份主线补练经验糖果':'使用一份主线补练经验糖果'))return true;
+            if(e.automation.spentClick(el,s,cost,uses,`${kind==='buy'?'购买':'使用库存'} 1 份${ITEMS.get(id)?.name||id} · 主线补练`))return true;
             delete p.candyTx;e.persist();return false;
         }
         candy(s,p,now){
@@ -7060,12 +7069,10 @@
             if(now-p.candyAt>90000){this.candyFallback(p,'页面操作超时');return false;}
             const targets=p.targets.map(t=>({...t,mon:s.mons.find(m=>m.uid===t.uid)})).filter(t=>t.mon&&candyXpGap(s,t.mon,t.goal)>0).sort((a,b)=>a.mon.level-b.mon.level);
             let target=targets[0];if(!target)return false;
-            let choice=candyChoice(s,target.mon,target.goal);
-            if(choice&&choice.xp>candyXpGap(s,target.mon,100)){
-                for(const other of targets.slice(1)){
-                    const stock=candyChoice(s,other.mon,other.goal);
-                    if(stock&&stock.xp<=candyXpGap(s,other.mon,100)){target=other;choice=stock;break;}
-                }
+            let choice=null;
+            for(const trainee of targets){
+                choice=candyChoice(s,trainee.mon,trainee.goal);
+                if(choice){target=trainee;break;}
             }
             e.status=`主线经验糖果 · 为${MONS.get(target.mon.id)?.name}补至 Lv.${target.goal}`;
             const why=e.budget.check(s,0,1);if(why){this.candyFallback(p,why);return false;}
@@ -7078,7 +7085,7 @@
                 const cards=$$('#shop-grid .sh-item[data-id]');
                 if(!cards.length){e.status='等待金币商店载入商品';return true;}
                 const highest=highestShopCandy(s,cards);
-                if(!highest){this.candyFallback(p,'当前金币商店没有已解锁的经验糖果',{cost:null});return false;}
+                if(!highest){e.status='等待金币商店同步当前地区已解锁的最高档经验糖果';return true;}
                 const offer=shopOffer(highest.el),name=ITEMS.get(offer.id)?.name||offer.id;
                 const xp=DATA.automation.candies[offer.id].xp[candyRegion(s)];
                 const recipient=targets.find(t=>candyXpGap(s,t.mon,100)>=xp);
@@ -9382,6 +9389,7 @@
         Object.assign(module.exports,{MULTI_HIT_DATA,damageRollMean,attackTurns,chapterCombatFoes,resolveCombatWeatherNode,combatWeather,deploymentScore,matchupDetails,deployedBattle,battleSwitchCandidate,preparationCosts,preparationReadiness,rebuildPreparationContext,trainingCandidates,leagueTrainingModel});
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
+        Object.assign(module.exports,{shopCandyTier});
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution,preparationEvolutionLabel});
         Object.assign(module.exports,{regionalWeatherForecast,VERSION,UPDATE_RELEASE,UPDATE_SOURCES,updateSourceURL,allowedUpdateURL,allowedUpdateRedirect,compareUpdateVersions,parseUpdateScript,requestUpdateResource,downloadUpdateScript,UpdateChecker});
         Object.assign(module.exports,{ROAMING_DATA,roamingProgress,roamingPlan,undergroundTeamContext,undergroundStatus,undergroundStartFloor,undergroundBay,acquisitionSources,legendRequirements,prerequisiteRoutes,dexWaitAdvice,hasWildSource,WILD_SHINY_IDS});
@@ -10891,7 +10899,7 @@
             query('#evolution-hint').textContent=engine.settings.autoEvolve?'免费等级进化已开启：培养考虑后续形态，实际进化确认后重新配队；道具、分支和升阶锁定个体不自动处理。':'免费进化已关闭：按当前形态评估队伍，保留手动进化。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
-            query('#candy-hint').textContent='先用库存。自动购买只选当前金币商店已解锁的最高档，每次一份。预算不足或经验会溢出所有目标成员的等级上限时，继续地图练级。';
+            query('#candy-hint').textContent='先按经验缺口使用库存。购买档位按金币商店所属地区的徽章解锁，页面确认最高档后逐份购买。预算不足或经验会超过当前等级上限时，继续地图练级。';
         }
         const editableControls=root.querySelectorAll('[data-setting]:not([data-setting="autoPurchase"]), [data-mode], #item-search');
         const purchaseInputs=root.querySelectorAll('[data-setting="autoPurchase"]');

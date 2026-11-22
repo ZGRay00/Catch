@@ -239,7 +239,7 @@
             q('#modal-root').className='';q('#modal-root').replaceChildren();q('#evt-pick')?.remove();document.querySelectorAll('.lk-evo').forEach(fx=>fx.remove());
             evolutionClicks=[];evolutionDetails=[];evolutionDeferSave=false;evolutionCommit=null;
             Object.assign(s,{money:1000,mons:[{uid:'a',id:6,level:30},{uid:'d',id:132,level:20},{uid:'p',id:1,level:30}],team:['a'],road:['a'],buddy:{uid:null,ko:0},buffs:{},dex:{},items:{},stats:{hatched:0,itemIn:{},itemOut:{}},pension:{open:{slots:2,eggs:1},mons:[],eggs:[]},under:{slots:[],geodes:[0,0,0,0]},tower:{},eliteLeague:{},wb:{ed:5,day:0,n:0}});
-            Object.assign(s.adv,{chapter:0,unlocked:8,badges:[],pending:null,battle:null,event:null,zone:null,tower:null,league:null,loops:[],speed:4});save();window.nav('adventure');
+            Object.assign(s.adv,{chapter:0,unlocked:mode==='resource'?3:8,badges:[],pending:null,battle:null,event:null,zone:null,tower:null,league:null,loops:[],speed:4});save();window.nav('adventure');
             engine.settings={...base,mode,raids:false,autoTeam:false,autoEvolve:false,autoUnderDispatch:false,pensionService:false,manualPause:false,moneyTarget:0,spendBudget:0,moneyReserve:0,useBudget:10,trainBuddy:false,trainBuff:false,moneyBuff:false,...settings};
             engine.schedule=()=>{};engine.start();clearTimeout(engine.timer);engine.timer=null;
         };

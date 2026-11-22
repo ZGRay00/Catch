@@ -6,6 +6,20 @@ function state(chapter) {
     return {mons:[], dex:{}, items:{}, travel:{to:['unova']}, adv:{chapter, unlocked:83, node:0, nodes:[], gifts:{}, badges:[]}};
 }
 
+test('all four Unova phenomena can drive both capture and shiny hunts',()=>{
+    const examples=[['grass',66,'Route 1',531],['dust',67,'Veine Souterraine',529],
+        ['shadow',71,'Pont Yoneuve',580],['ripple',74,'Route 8',594]];
+    const now=new Date(2026,10,22,12).getTime();
+    for(const [phenom,chapter,name,id] of examples){
+        const s=state(chapter);s.adv.nodes=[{type:'wild',phenom,name}];
+        const dex=H.normalizeSettings({mode:'dex',dexSpecies:[id]}),shiny=H.normalizeSettings({mode:'shiny',shinyId:id});
+        const capture=H.dexRanking(s,dex,{},now).find(row=>row.id===chapter);
+        assert.ok(capture?.marked&&capture.targets.some(hit=>hit.id===id&&hit.kind==='phenomenon'),phenom);
+        assert.equal(H.shinyRanking(s,shiny,{},now)[0]?.id,chapter,phenom);
+        assert.ok(H.shinyRanking(s,shiny,{},now)[0]?.marked,phenom);
+    }
+});
+
 test('wild dust survives map backoff for both hunts, and a rolled non-shiny or item loses shiny priority',()=>{
     const s=state(67),now=Date.now(),cooldowns={'67':now+60000};
     const shiny=H.normalizeSettings({mode:'shiny',shinyId:529}),dex=H.normalizeSettings({mode:'dex',dexSpecies:[529]});

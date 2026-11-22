@@ -526,7 +526,7 @@
             query('#evolution-hint').textContent=engine.settings.autoEvolve?'免费等级进化已开启：培养考虑后续形态，实际进化确认后重新配队；道具、分支和升阶锁定个体不自动处理。':'免费进化已关闭：按当前形态评估队伍，保留手动进化。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
-            query('#candy-hint').textContent='先用库存。自动购买只选当前金币商店已解锁的最高档，每次一份。预算不足或经验会溢出所有目标成员的等级上限时，继续地图练级。';
+            query('#candy-hint').textContent='先按经验缺口使用库存。购买档位按金币商店所属地区的徽章解锁，页面确认最高档后逐份购买。预算不足或经验会超过当前等级上限时，继续地图练级。';
         }
         const editableControls=root.querySelectorAll('[data-setting]:not([data-setting="autoPurchase"]), [data-mode], #item-search');
         const purchaseInputs=root.querySelectorAll('[data-setting="autoPurchase"]');

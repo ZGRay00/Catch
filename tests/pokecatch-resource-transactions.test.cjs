@@ -3,8 +3,8 @@ const test=require('node:test'),assert=require('node:assert/strict'),H=require('
 function fixture(t,settings={},confirm=false){
     const previous={document:global.document,getComputedStyle:global.getComputedStyle,now:Date.now};let clock=Date.UTC(2026,10,16,12);
     Date.now=()=>clock;t.after(()=>{Date.now=previous.now;for(const key of ['document','getComputedStyle'])if(previous[key]===undefined)delete global[key];else global[key]=previous[key];});
-    const id='exp-candy-s',s={trainer:{id:'resource-transactions'},money:10000,mons:[{uid:'a',id:6,level:40,xp:0}],team:['a'],road:['a'],dex:{},items:{[id]:10},stats:{itemIn:{[id]:10},itemOut:{}},travel:{to:[]},
-        adv:{layout:H.DATA.layout,chapter:0,unlocked:8,node:0,runs:0,speed:4,loops:[],badges:[],gifts:{}}};
+    const id='exp-candy-s',s={trainer:{id:'resource-transactions'},money:10000,mons:[{uid:'a',id:6,level:20,xp:0}],team:['a'],road:['a'],dex:{},items:{[id]:10},stats:{itemIn:{[id]:10},itemOut:{}},travel:{to:[]},
+        adv:{layout:H.DATA.layout,chapter:0,unlocked:2,node:0,runs:0,speed:4,loops:[],badges:[],gifts:{}}};
     const data=new Map([['gachamon-save-v1',JSON.stringify(s)]]),storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k)};
     const node=(kind,extra={})=>({kind,isConnected:true,hidden:false,disabled:false,closest:()=>null,getAttribute:()=>null,getClientRects:()=>[{}],classList:{contains:()=>false},...extra});
     const buy=node('buy'),use=node('use',{querySelectorAll:()=>[{getAttribute:()=>`assets/items/${id}.png`}]}),close=node('close');

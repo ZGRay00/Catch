@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "6.1.10",
-  "scriptSha256": "d1abc286de3c2cce18b2231e5efd30e7cf3ddfdc9362dfd280135e02e8fe2f5d",
-  "metadataSha256": "90272c57810cea2126881691ba5be690235397b13fea310590ca767c8aa304da",
+  "version": "6.1.12",
+  "scriptSha256": "b448fcfb3817c46c984b23d89bde459bdd0c7ac77a7b3db1470115dd73505b0e",
+  "metadataSha256": "425699215a5760713bd48f5f447c8210f968705ff8577d85b9cddb4b230c8833",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "4dcf1dd50f92c396fbe3fda382808ecc9d11db6c415550302bde895a418360f6"
+      "sha256": "f0f71035dec0b32f1a8ff02ce1eb22cf7a7cf0a8c274b07c9b1ed3f7a54a69d8"
     },
     {
       "file": "build.manifest.json",
@@ -74,7 +74,7 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "8cc77dc992dc699283466a14c560a4b1bb05d05f41c71328f8337ac5b0946cf4"
+      "sha256": "02f9032a713a25f979dae92c72623e53801373a634c6355f9b675353a9f10654"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -118,7 +118,7 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "5efc8f3c0552067a3c3b4db8c5917580051236c70213f4ad1cafab6c84760a20"
+      "sha256": "3b9a225481b44416229c78e7bd6533a2254d27296f5256cf057db0cf11009be4"
     },
     {
       "file": "src/models/legend-requirements.js",
@@ -134,15 +134,15 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "f9dc1d0dbffdeaeb6223720530c75127cb4685254a280eaeeba4363f06cc502a"
+      "sha256": "ea32dacfc18398e06a14ce94ac4107e54b91bdfb6f6560aafab0a545de1432c1"
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "245e60130bb8a1781733846773f3ec2c45c6dc6bb72bd292bf3362239d1fbe10"
+      "sha256": "2fa698b88c32fcb5027d93e2ba4550111572a33af65895c039675c6d50e0f979"
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "a78461663462a6e7ba1fd86b54ac6317c02add8842d5b6104af16cb3b0864cd8"
+      "sha256": "41e14dd95a6cb0b2ac6f5e9853c77a7b9f9670ed6ba07f000391019e576d6f0e"
     },
     {
       "file": "src/runtime/engine.js",
@@ -150,7 +150,7 @@
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "27e562e5647261450d1ea0234547b4e88b37de37d9650805c7048b39654339c9"
+      "sha256": "a3e1a542d22735dde552c88db32d0bceb7382c95a9513ae8e0a9a98b48746c66"
     },
     {
       "file": "src/ui/panel-style.js",
@@ -174,7 +174,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "33b4ad4acf7f8e8af71e9f02a77d9379712c8dccd3e330de2cc7fd95ce0cc05b"
+      "sha256": "0daf87027a44205a294cad6c7404b0d59b680f9064e96769e8ecb1d02104aae4"
     }
   ]
 }

@@ -170,7 +170,7 @@
             if(why){this.candyFallback(p,why);return false;}
             const evidence=kind==='buy'?purchaseEvidence(s,id,cost):{stock:Number(s.items?.[id])||0,counter:Number(s.stats?.itemOut?.[id])||0};
             p.candyTx={uid,id,kind,...evidence,xp:experienceTotal(s,[uid]),xpMultiplier:DATA.economy.xpMultipliers[economicRegion(s)],at:now};
-            if(e.automation.spentClick(el,s,cost,uses,kind==='buy'?'购买一份主线补练经验糖果':'使用一份主线补练经验糖果'))return true;
+            if(e.automation.spentClick(el,s,cost,uses,`${kind==='buy'?'购买':'使用库存'} 1 份${ITEMS.get(id)?.name||id} · 主线补练`))return true;
             delete p.candyTx;e.persist();return false;
         }
         candy(s,p,now){
@@ -187,12 +187,10 @@
             if(now-p.candyAt>90000){this.candyFallback(p,'页面操作超时');return false;}
             const targets=p.targets.map(t=>({...t,mon:s.mons.find(m=>m.uid===t.uid)})).filter(t=>t.mon&&candyXpGap(s,t.mon,t.goal)>0).sort((a,b)=>a.mon.level-b.mon.level);
             let target=targets[0];if(!target)return false;
-            let choice=candyChoice(s,target.mon,target.goal);
-            if(choice&&choice.xp>candyXpGap(s,target.mon,100)){
-                for(const other of targets.slice(1)){
-                    const stock=candyChoice(s,other.mon,other.goal);
-                    if(stock&&stock.xp<=candyXpGap(s,other.mon,100)){target=other;choice=stock;break;}
-                }
+            let choice=null;
+            for(const trainee of targets){
+                choice=candyChoice(s,trainee.mon,trainee.goal);
+                if(choice){target=trainee;break;}
             }
             e.status=`主线经验糖果 · 为${MONS.get(target.mon.id)?.name}补至 Lv.${target.goal}`;
             const why=e.budget.check(s,0,1);if(why){this.candyFallback(p,why);return false;}
@@ -205,7 +203,7 @@
                 const cards=$$('#shop-grid .sh-item[data-id]');
                 if(!cards.length){e.status='等待金币商店载入商品';return true;}
                 const highest=highestShopCandy(s,cards);
-                if(!highest){this.candyFallback(p,'当前金币商店没有已解锁的经验糖果',{cost:null});return false;}
+                if(!highest){e.status='等待金币商店同步当前地区已解锁的最高档经验糖果';return true;}
                 const offer=shopOffer(highest.el),name=ITEMS.get(offer.id)?.name||offer.id;
                 const xp=DATA.automation.candies[offer.id].xp[candyRegion(s)];
                 const recipient=targets.find(t=>candyXpGap(s,t.mon,100)>=xp);

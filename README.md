@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **6.1.10**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **6.1.12**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v6.1.10.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v6.1.12.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+6.1.12 · 已核对两个新游戏程序包的孵化规则，并复查合众四类特殊现象的图鉴与野生刷闪路线。购买经验糖果时交叉核对地区徽章和商店页面，使用前检查等级上限。
 
 6.1.10 · 待命、收起面板和游戏重绘时，原生孵化器仍会标出已确认的闪蛋。未核对的构建只在孵化器标题旁显示一次提示。背包大师球选项仅在有库存记录时显示。
 

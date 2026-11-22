@@ -6,9 +6,10 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
-    function highestShopCandy(s,cards){
+    function highestShopCandy(s,cards,expected=shopCandyTier(s)){
         // An unlocked card still sets the tier if its price or button is unavailable.
-        return highestCandy(s,cards.filter(el=>!el.classList.contains('locked')).map(el=>({id:el.dataset.id,el})));
+        const shown=highestCandy(s,cards.filter(el=>!el.classList.contains('locked')).map(el=>({id:el.dataset.id,el})));
+        return shown?.id===expected?shown:null;
     }
     function shopOffer(el) {
         const id=el.dataset.id,buy=el.querySelector('.buy'),one=el.querySelector('[data-n="1"]');

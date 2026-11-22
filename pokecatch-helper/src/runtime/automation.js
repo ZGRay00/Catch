@@ -17,7 +17,9 @@
         if(!mon)return '道具使用对象不存在，请选择成员';
         if(s.link?.side==='from'&&monRegion(mon)===s.link.to)return '当前地区的背包不能供该成员使用，请切换至成员所在地区';
         if(DATA.automation.candies[id]||id==='rare-candy'){
-            return mon.level>=trainingCap(s,mon)?'目标成员已达到当前等级上限':null;
+            if(mon.level>=trainingCap(s,mon))return '目标成员已达到当前等级上限';
+            const xp=DATA.automation.candies[id]?.xp[candyRegion(s)];
+            return xp&&!(candyXpGap(s,mon,100)>=xp)?'使用后经验会超出该成员当前等级上限':null;
         }
         if(id==='link-cable')return '连接绳进化需要在游戏内交换';
         if(!(EVOLUTION_DATA.rules[mon.id]||[]).some(rule=>rule.item===id))return '所选成员的当前形态无法使用此道具';
@@ -1126,8 +1128,6 @@
             if(blocked){this.fail(blocked);return;}
             let preview=null;
             if(!stocked){
-                const xp=DATA.automation.candies[id]?.xp[candyRegion(s)];
-                if(xp&&!(candyXpGap(s,mon,100)>=xp)){this.fail('购买后经验会超出该成员当前等级上限，已暂停补购');return;}
                 if(DATA.automation.candies[id]||id==='rare-candy')return this.buy(s,id);
                 preview=resourcePreviewKey(s,mon,id,now);
                 if(this.resourcePreview?.key===preview&&this.resourcePreview.until>=now)return this.buy(s,id);
@@ -1153,17 +1153,17 @@
                 return;
             }
             delete this.state.shopLoadTries;
+            if(DATA.automation.candies[id]){
+                const expected=shopCandyTier(s);
+                if(expected&&expected!==id){this.fail('当前商店最高档为'+(ITEMS.get(expected)?.name||expected)+'，请将采购目标改为该档');return;}
+                if(!highestShopCandy(s,cards,expected)){
+                    this.fail('金币商店尚未显示当前地区已解锁的最高档经验糖果，已暂停采购');return;
+                }
+            }
             const item=cards.find(el=>el.dataset.id===id);
             if(!item||item.classList.contains('locked')){
                 const row=EVOLUTION_SHOP.get(id);
                 this.fail(row&&evolutionShopLocked(s,row)?evolutionPurchaseReason(s,row):'目标道具未在当前金币商店解锁');return;
-            }
-            if(DATA.automation.candies[id]){
-                const highest=highestShopCandy(s,cards);
-                if(highest?.id!==id){
-                    this.fail(highest?'当前商店最高档为'+(ITEMS.get(highest.id)?.name||highest.id)+'，请将采购目标改为该档':'当前商店没有已解锁的经验糖果');
-                    return;
-                }
             }
             const {one,single,buy,cost}=shopOffer(item);
             if(!single){
@@ -1172,7 +1172,7 @@
             }
             if(cost==null){this.fail('无法确认商品单价，已暂停采购');return;}
             if(!enabled(buy)){this.fail(e.budget.check(s,cost)||'游戏商店的购买按钮暂不可用');return;}
-            this.resourceSpend(buy,s,id,'buy',cost,0,'购买目标道具');
+            this.resourceSpend(buy,s,id,'buy',cost,0,'购买 1 份'+(ITEMS.get(id)?.name||id));
         }
         resourcePending(s,now=Date.now()){
             const tx=this.state.resourceTx||this.state.resourceBuffTx;if(!tx)return false;
@@ -1241,7 +1241,7 @@
             if(usable.length>1){this.fail('该道具有多个可用进化分支，请先手动选择');return true;}
             const button=usable[0];
             if(!enabled(button)){this.fail('该道具当前不能用于所选宝可梦（可能达到等级上限或不满足进化条件）');return true;}
-            this.resourceSpend(button,s,id,'use',0,1,'使用一份目标道具');return true;
+            this.resourceSpend(button,s,id,'use',0,1,'使用库存 1 份'+(ITEMS.get(id)?.name||id));return true;
         }
         buff(s,id){
             const e=this.e,now=Date.now(),family=DATA.automation.buffs[id].family;

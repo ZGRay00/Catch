@@ -39,3 +39,19 @@ for(const {id,tracked,expect,accepted,cost,before,after} of cases){
     assert.equal(e.automation.state.resourcePurchased,1);
 }
 console.log('PASS: 5 synthetic native shop cases cover candy, single-price stone, untracked inventory, badge locks and insufficient funds.');
+const tiers = JSON.parse(game.run(`JSON.stringify((()=>{
+    const G=__pcResearch.Game,N=__pcResearch,tiers=Object.values(N.CONFIG.SHOP).filter(row=>N.CONFIG.EXP_CANDIES[row.id]);
+    for(const region of N.STORY.REGIONS)region.open=true;
+    return N.STORY.CHAPTERS.flatMap((_,frontier)=>[null,...N.STORY.REGIONS.map(r=>r.key)].map(from=>{
+        G.S.adv.unlocked=frontier;G.S.adv.chapter=frontier;
+        G.S.link=from?{side:'from',from}:null;
+        return {frontier,from,highest:tiers.filter(G.shopUnlocked).at(-1)?.id,
+            xp:tiers.map(row=>[row.id,G.expCandyXp(row.id)])};
+    }));
+})())`));
+for(const {frontier,from,highest,xp} of tiers){
+    const s={adv:{chapter:frontier,unlocked:frontier},travel:{to:H.DATA.regions.map(region=>region.key)},link:from?{side:'from',from}:null};
+    assert.equal(H.shopCandyTier(s),highest,`tier at chapter ${frontier}, wallet ${from||'current'}`);
+    for(const [id,amount] of xp)assert.equal(H.DATA.automation.candies[id].xp[H.candyRegion(s)],amount,`XP for ${id}`);
+}
+console.log(`PASS: unlocked candy tier and XP match the native shop in ${tiers.length} regional wallet cases.`);

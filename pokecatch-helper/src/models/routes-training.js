@@ -356,13 +356,20 @@
         }
         return best;
     }
+    function shopCandyTier(s){
+        const reg=candyRegion(s),frontier=s.adv?.unlocked;
+        if(!Number.isInteger(frontier)||frontier<0)return null;
+        // Native shopBadges counts completed badge-awarding gym chapters in its wallet region.
+        const badges=DATA.chapters.filter(c=>c.reg===reg&&c.id<frontier&&c.badges.length).length;
+        return highestCandy(s,Object.entries(DATA.automation.candies).filter(([,candy])=>candy.badges<=badges).map(([id])=>({id})))?.id||null;
+    }
     function candyChoice(s,mon,goal,offers=[]){
         const need=candyXpGap(s,mon,goal);if(!(need>0))return null;
-        const types=DATA.automation.candies,reg=candyRegion(s);
-        const owned=Object.entries(types).filter(([id,info])=>s.items?.[id]>0&&info.xp[reg]>0).map(([id,info])=>({id,xp:info.xp[reg],cost:0,owned:true,need}));
+        const types=DATA.automation.candies,reg=candyRegion(s),headroom=candyXpGap(s,mon,100);
+        const owned=Object.entries(types).filter(([id,info])=>s.items?.[id]>0&&info.xp[reg]<=headroom).map(([id,info])=>({id,xp:info.xp[reg],cost:0,owned:true,need}));
         if(owned.length)return owned.sort((a,b)=>Math.max(0,a.xp-need)-Math.max(0,b.xp-need)||b.xp-a.xp)[0];
         const best=highestCandy(s,offers);
-        return best&&Number.isSafeInteger(best.cost)&&best.cost>0?{...best,xp:types[best.id].xp[reg],need,owned:false}:null;
+        return best&&types[best.id].xp[reg]<=headroom&&Number.isSafeInteger(best.cost)&&best.cost>0?{...best,xp:types[best.id].xp[reg],need,owned:false}:null;
     }
     function routeDescriptor(row){return Object.fromEntries(['id','key','reg','name','loop','league','members','reward','units','ace'].map(key=>[key,row[key]]));}
     // Native elite rooms reuse the story gym's roster and power, without its route trainers.

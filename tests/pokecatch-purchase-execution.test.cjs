@@ -5,7 +5,7 @@ const H = require('../Pokecatch自动助手.user.js');
 // The current native Johto/Sinnoh coin shop has two layouts: a quantity selector
 // with a total for candy and a single price on the button for evolution items.
 function fixture(t, {id = 'exp-candy-s', quantity = '1', action = 'buy', uses = 20} = {}) {
-    const s = {money:10300, items:{}, stats:{spent:{}}, mons:[{uid:'a',id:6,level:2}], team:['a'], adv:{chapter:0,unlocked:0}};
+    const s = {money:10300, items:{}, stats:{spent:{}}, mons:[{uid:'a',id:6,level:2}], team:['a'], adv:{chapter:0,unlocked:H.DATA.automation.candies[id]?.badges||0}};
     const data = new Map();
     const storage = {getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k)};
     const e = new H.Engine(storage, {mode:'resource',resourceItem:id,resourceQuantity:1,resourceAction:action,
@@ -49,7 +49,7 @@ function otherTier(id,locked=false){
     return {dataset:{id},classList:{contains:key=>locked&&key==='locked'},querySelector(){throw Error('Skipped tier was inspected');}};
 }
 function coaching(t,quantity='1'){
-    const f=fixture(t,{id:'exp-candy-m',quantity});f.s.adv.unlocked=8;
+    const f=fixture(t,{id:'exp-candy-m',quantity});
     f.e.driver.nav=()=>true;
     f.cards.unshift(otherTier('exp-candy-s'),otherTier('exp-candy-xl',true));
     const p={targets:[{uid:'a',goal:3}]},run=()=>f.e.coach.candy(f.s,p,f.advance());
@@ -59,6 +59,11 @@ test('coaching buys exactly one of the highest unlocked tier even with a small i
     const f=coaching(t,'100');f.run();assert.deepEqual(f.calls,['one']);f.run();
     assert.deepEqual(f.calls,['one','buy']);assert.equal(f.p.candyTx.id,'exp-candy-m');assert.equal(f.e.budget.spent,200);
     f.run();assert.deepEqual(f.calls,['one','buy'],'pending receipt prevents a second purchase');
+});
+test('a stale low-tier page cannot sell S after the third badge, and the live M offer can follow',t=>{
+    const f=coaching(t),high=f.cards.pop();
+    assert.equal(f.run(),true);assert.match(f.e.status,/同步/);assert.deepEqual(f.calls,[]);assert.equal(f.e.budget.spent,0);
+    f.cards.push(high);f.run();assert.deepEqual(f.calls,['buy']);assert.equal(f.p.candyTx.id,'exp-candy-m');
 });
 test('coaching waits for the highest-tier budget even when a lower-tier card is available',t=>{
     const f=coaching(t);f.s.money=10100;f.run();
@@ -116,7 +121,7 @@ for(const blocked of ['price','disabled','overflow']){
 }
 for(const action of ['buy','buyUse']){
     test(action+' stops an explicit low-tier order when another unlocked tier is higher',t=>{
-        const f=fixture(t,{action});f.cards.push(otherTier('exp-candy-xl'));
+        const f=fixture(t,{action});f.s.adv.unlocked=6;
         f.step();assert.deepEqual(f.calls,[]);assert.match(f.e.status,/最高档/);assert.equal(f.e.budget.spent,0);
     });
 }
@@ -133,6 +138,12 @@ test('buy-and-use skips XP overflow even before the target reaches its cap',t=>{
     const f=fixture(t,{action:'buyUse'}),mon=f.s.mons[0],cap=H.trainingCap(f.s,mon);
     mon.level=cap-1;mon.xp=H.candyXpGap(f.s,mon,cap)-1;f.step();
     assert.match(f.e.status,/经验会超出/);assert.deepEqual(f.calls,[]);assert.equal(f.e.budget.spent,0);
+});
+test('stocked candy is rechecked at the target card before it can overflow the regional cap',t=>{
+    const f=fixture(t,{action:'use'}),mon=f.s.mons[0],cap=H.trainingCap(f.s,mon);
+    mon.level=cap-1;mon.xp=H.candyXpGap(f.s,mon,cap)-1;f.s.items[f.id]=1;
+    assert.equal(f.e.automation.useFromCard(f.s,{}),true);
+    assert.match(f.e.status,/经验会超出/);assert.deepEqual(f.calls,[]);assert.equal(f.e.budget.used,0);assert.equal(f.s.items[f.id],1);
 });
 for (const quantity of ['100','max']) {
     test('coin order switches native '+quantity+' to one before reserving and verifying payment',t=>{

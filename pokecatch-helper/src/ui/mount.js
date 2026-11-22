@@ -645,6 +645,7 @@
                 if(pendingCount)query('#mini-state').textContent+=` · 待办 ${pendingCount}`;
             }else if(ui.workspace==='activity')renderExecution(s,now);
             const nursery=nurseryPanel.render(s,now);if(nursery?.counts.shiny)query('#mini-state').textContent+=` · ✦蛋${nursery.counts.shiny}`;
+            if(nursery?.counts.estimatedShiny)query('#mini-state').textContent+=` · 预计闪蛋${nursery.counts.estimatedShiny}`;
             if(lastMode!==selectedCard()||settingsViewKey!==JSON.stringify(engine.settings))syncSettings();
             if(ui.folded)return;
             renderSeason(now);

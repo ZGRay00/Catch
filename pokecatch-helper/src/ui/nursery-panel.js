@@ -1,7 +1,7 @@
     function mountNurseryPanel(root,engine,{preferences={},save=()=>{},onChange=()=>{}}={}){
         const box=document.createElement('div');box.id='nursery-info';box.className='nursery-card';
         box.innerHTML=`<div class="nursery-heading"><div class="nursery-title"><h3>孵化器</h3><small id="nursery-rule-notice" role="status" hidden></small></div><span id="nursery-summary"></span></div>
-            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
+            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋<small id="nursery-estimated"></small></div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
             <div class="nursery-section-heading"><h3>寄养亲本</h3><span id="nursery-parent-summary"></span></div>
@@ -67,8 +67,13 @@
         }
         let nativeHintStyle,nativeHintKey='';
         function hintCards(rows=[]){
-            const ids=rows.filter(row=>row.known&&row.shiny&&row.uid!=null&&String(row.uid)!=='').map(row=>String(row.uid));
-            const key=ids.length?JSON.stringify(ids):'';
+            const confirmed=[],estimated=[];
+            for(const row of rows){
+                if(row.uid==null||String(row.uid)==='')continue;
+                if(row.known&&row.shiny)confirmed.push(String(row.uid));
+                else if(row.estimatedShiny)estimated.push(String(row.uid));
+            }
+            const key=confirmed.length||estimated.length?JSON.stringify([confirmed,estimated]):'';
             if(key===nativeHintKey)return;
             nativeHintKey=key;
             if(!nativeHintStyle){
@@ -76,9 +81,13 @@
                 (document.head||document.documentElement).appendChild(nativeHintStyle);
             }
             // Keep the mark outside the game's card markup so native morphing cannot erase it.
-            const cards=ids.map(id=>`#pen-eggs .pen-egg[data-egg=${CSS.escape(id)}]`);
-            nativeHintStyle.textContent=cards.length?`${cards.join(',')}{position:relative;border-color:#e8b94e;outline:1px solid #e8b94e;outline-offset:-2px}
-                ${cards.map(card=>card+'::after').join(',')}{content:"✦ 闪蛋";position:absolute;right:4px;bottom:3px;padding:1px 4px;border-radius:4px;background:#382905;color:#fff1bb;font:600 10px/1.3 system-ui;white-space:nowrap;pointer-events:none;z-index:2}`:'';
+            const badge=(ids,text,line)=>{
+                if(!ids.length)return '';
+                const cards=ids.map(id=>`#pen-eggs .pen-egg[data-egg=${CSS.escape(id)}]`);
+                return `${cards.join(',')}{position:relative;border-color:#e8b94e;outline:1px ${line} #e8b94e;outline-offset:-2px}
+                    ${cards.map(card=>card+'::after').join(',')}{content:"${text}";position:absolute;right:4px;bottom:3px;padding:1px 4px;border-radius:4px;background:#382905;color:#fff1bb;font:600 10px/1.3 system-ui;white-space:nowrap;pointer-events:none;z-index:2}`;
+            };
+            nativeHintStyle.textContent=badge(confirmed,'✦ 闪蛋','solid')+badge(estimated,'预计闪蛋','dashed');
         }
         let forecastKey,forecast,scan,scanTimer,eggListKey,historyKey,parentKey,shownComparison;
         function renderParents(s,pool){
@@ -156,13 +165,17 @@
             const ledger=sameAccount&&detailsVisible?monitor.ledger:null;
             const markNative=hints.checked&&Array.isArray(s.pension?.eggs)&&s.pension.eggs.length>0;
             if(!detailsVisible&&!preferences.folded&&!markNative){hintCards();return null;}
-            const options={...nurseryRuntimeOptions(),now,forecast:false},snap=nurserySnapshot(s,options);
+            const options={...nurseryRuntimeOptions(),now,forecast:false,estimateUnverifiedEggs:true},snap=nurserySnapshot(s,options);
             hintCards(markNative?snap.eggRows:[]);
             if(!detailsVisible)return snap;
             const verified=NURSERY_RULES.compatibleBuilds.includes(options.build),notice=query('#nursery-rule-notice');
             if(notice.hidden!==verified)notice.hidden=verified;
             write('#nursery-rule-notice',verified?'':'规则待核对 · 预测仅供参考');
-            write('#nursery-summary',`占用 ${snap.counts.total}/${snap.capacity}${snap.counts.unknown?' · 待判 '+snap.counts.unknown:''}`);
+            const unknownBundle=/^unverified:([a-f0-9]{10})$/.exec(options.build)?.[1];
+            const noticeTitle=unknownBundle?'游戏程序包 '+unknownBundle+' 尚未核对':'';
+            if(notice.title!==noticeTitle)notice.title=noticeTitle;
+            const unknown=snap.counts.unknown-snap.counts.estimated;
+            write('#nursery-summary',`占用 ${snap.counts.total}/${snap.capacity}${unknown?' · 待判 '+unknown:''}`);
             query('#nursery-plan').disabled=engine.running||!!engine.suspended||!sameAccount;
             // In older saves the native counter is initialized only when the next egg is laid.
             const laid=s.pension?.laid,counterKey=laid==null?[snap.hatched,Array.isArray(s.pension?.eggs)?snap.counts.total:null]:laid;
@@ -174,7 +187,9 @@
                 scan=nurseryForecastSteps(s,{...options,estimateUnverified:true,compare:true});advance();
             }
             snap.forecast=forecast;
-            write('#nursery-shiny',snap.counts.unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
+            write('#nursery-shiny',unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);
+            write('#nursery-estimated',snap.counts.estimated?'另预计 '+snap.counts.estimatedShiny+' 枚':'');
+            write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             write('#nursery-prediction-state',!f?'计算中':f.active?'当前条件预测':'条件待确认');
             renderComparisons(f);
@@ -226,14 +241,15 @@
             if(f?.active)condition.push('距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。');
             if(next?.eggId===351||snap.eggRows.some(row=>row.id===351))condition.push('飘浮泡泡的形态取决于实际孵出时的培育屋天气。');
             write('#nursery-condition',condition.join(' '));
-            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.berryApplied,row.parentId,row.laidAt,row.hatchAt,eggEvidence(row),duration(row.remainingMs)]));
+            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.estimatedShiny,row.berryApplied,row.parentId,row.laidAt,row.hatchAt,eggEvidence(row),duration(row.remainingMs)]));
             if(listKey!==eggListKey){
                 eggListKey=listKey;eggs.replaceChildren();
                 if(!snap.counts.total)eggs.textContent='孵化器目前没有蛋。';
                 for(const [index,row] of snap.eggRows.entries()){
                     const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.known&&row.shiny);
                     const title=document.createElement('div'),basis=document.createElement('div'),time=document.createElement('span');
-                    title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+(row.known?row.shiny?'✦ 闪光':'普通':'待判定')+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
+                    const colour=row.known?(row.shiny?'✦ 闪光':'普通'):row.certainty==='reference'?(row.estimatedShiny?'预计闪光':'预计普通'):'待判定';
+                    title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+colour+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
                     const evidence=eggEvidence(row),berry=row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果';
                     basis.className='hint';basis.textContent=[evidence,berry,row.parentId?'亲本 '+name(row.parentId):''].filter(Boolean).join(' · ');
                     title.appendChild(basis);

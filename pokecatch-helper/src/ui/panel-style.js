@@ -90,6 +90,7 @@
     #nursery-summary, #nursery-parent-summary { color:#aac2cc; font-size:11px; font-variant-numeric:tabular-nums }
     .nursery-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin:8px 0; padding:6px 0; text-align:center; font-size:11px; color:#b7c8d7; background:#111c2d; border-radius:8px }
     .nursery-metrics b { display:block; color:#e0f1ed; font-size:16px; font-variant-numeric:tabular-nums }
+    #nursery-estimated:not(:empty) { display:block; color:#efc47c; font-size:10px }
     .nursery-metrics > div + div { border-left:1px solid #334655 }
     .nursery-egg { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; align-items:start; padding:7px 0; border-bottom:1px solid #344459 }
     .nursery-egg > div { min-width:0; overflow-wrap:anywhere }

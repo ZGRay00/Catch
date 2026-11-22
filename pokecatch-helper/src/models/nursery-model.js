@@ -5,7 +5,7 @@
         'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89',
         '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c',
         '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f','2d46018b96':'d0ed6b793f','23e94ddbef':'d0ed6b793f',
-        '4ca78e3d27':'d0ed6b793f','fb58ae58aa':'d0ed6b793f'
+        '4ca78e3d27':'d0ed6b793f','fb58ae58aa':'d0ed6b793f','0a5492aada':'d0ed6b793f'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -78,7 +78,7 @@
             return{certainty:'saved',known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,rateVerified,source:'saved',key};
         }
         if(rate===null)return unknown('存档的异色亲本或靛莓果标记无法识别');
-        if(unverified)return unknown(NURSERY_UNVERIFIED_REASON);
+        if(unverified&&!options.estimateUnverifiedEggs)return unknown(NURSERY_UNVERIFIED_REASON);
         let roll,source;
         if(Number.isInteger(egg.k)){
             roll=nurseryFixedRoll(s,egg.k);source='counter';
@@ -88,6 +88,7 @@
             if(legacy==null||String(legacy)==='')return unknown('旧蛋缺少可核对的 UID 或产蛋时间');
             roll=nurseryHash(String(legacy));source='legacy';
         }
+        if(unverified)return{...unknown(NURSERY_UNVERIFIED_REASON),certainty:'reference',estimatedShiny:roll<rate};
         return{certainty:'deterministic',known:true,shiny:roll<rate,rate,rateVerified:true,roll,source,key};
     }
     function breedableOffspring(s, mon) {
@@ -212,8 +213,10 @@
             berryApplied:egg?.bx===undefined?false:nurseryFlag(egg.bx)?!!egg.bx:null,
             readyKnown,ready:readyKnown&&now>=egg.hatchAt,remainingMs:readyKnown?Math.max(0,egg.hatchAt-now):null,...outcome};});
         const total=eggRows.length,known=eggRows.filter(row=>row.known).length,shiny=eggRows.filter(row=>row.known&&row.shiny).length;
+        const estimates=eggRows.filter(row=>row.certainty==='reference');
         const capacity=Math.min(NURSERY_RULES.maxEggs,Math.max(1,total,Number(s?.pension?.open?.eggs)||1));
-        return{eggRows,counts:{total,known,shiny,unknown:total-known,ready:eggRows.filter(row=>row.ready).length},capacity,
+        return{eggRows,counts:{total,known,shiny,unknown:total-known,estimated:estimates.length,
+            estimatedShiny:estimates.filter(row=>row.estimatedShiny).length,ready:eggRows.filter(row=>row.ready).length},capacity,
             hatched:Number.isSafeInteger(s?.stats?.hatched)&&s.stats.hatched>=0?s.stats.hatched:null,
             counter:Number.isSafeInteger(s?.pension?.laid)&&s.pension.laid>=0?s.pension.laid:null,
             forecast:options.forecast===false?null:nurseryForecast(s,options)};

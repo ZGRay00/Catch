@@ -127,7 +127,7 @@ async function main(){
         const reference=await nurseryText();assert.match(reference.next,/预计 · 下一枚自然蛋 #\d+/);assert.match(reference.forecast,/预计.*第 \d+ 枚自然蛋/);assert.match(reference.basis,/已产蛋优先读存档标记/);
         const referenceComparison=await comparison();assert.match(referenceComparison.note,/实际抽中的亲代/);assert.equal(referenceComparison.groups.length,2);
         assert.equal((await berryText())[0],'');
-        assert.match(reference.eggs,/存档已记录/);assert.match(reference.eggs,/待判定/);assert.doesNotMatch(reference.eggs,/按蛋序号确定|旧规则|参考闪率|构建尚未核对/);
+        assert.match(reference.eggs,/存档已记录/);assert.match(reference.eggs,/预计(?:普通|闪光)/);assert.doesNotMatch(reference.eggs,/按蛋序号确定|旧规则|参考闪率|构建尚未核对/);
         const notice=await evaluate(`(()=>{const r=${root},tag=r.querySelector('.nursery-title #nursery-rule-notice');return {text:tag.textContent,hidden:tag.hidden,body:r.querySelector('#nursery-info').textContent}})()`);
         assert.equal(notice.text,'规则待核对 · 预测仅供参考');assert.equal(notice.hidden,false);
         assert.equal(notice.body.split(notice.text).length,2);assert.doesNotMatch(notice.body,/旧规则|构建尚未核对/);
@@ -200,11 +200,22 @@ async function main(){
         await click('[data-workspace="eggs"]');await click('#nursery-hints');
         const markedUid='egg" with ] and \\';
         let deterministicK=0;while(!H.eggOutcome(game,{k:deterministicK,sp:2}).shiny)deterministicK++;
-        await evaluate(`fixtureState.pension.eggs=[{uid:${JSON.stringify(markedUid)},id:4,k:${deterministicK},sp:2,hatchAt:Date.now()+600000},{uid:'explicit-shiny',id:4,shiny:true,hatchAt:Date.now()+600000}];commitNursery()`);
+        let ordinaryK=0;while(H.eggOutcome(game,{k:ordinaryK,sp:2}).shiny)ordinaryK++;
+        await evaluate(`window.BUILD='unverified-original';fixtureState.pension.eggs=[{uid:${JSON.stringify(markedUid)},id:4,k:${deterministicK},sp:2,hatchAt:Date.now()+600000},{uid:'explicit-shiny',id:4,shiny:true,hatchAt:Date.now()+600000},{uid:'estimated-plain',id:4,k:${ordinaryK},sp:2,hatchAt:Date.now()+600000}];commitNursery();drawNativeEggs()`);
         assert.deepEqual((await state()).marked,[markedUid,'explicit-shiny']);
-        await evaluate("window.BUILD='unverified-original';commitNursery();drawNativeEggs()");
-        assert.deepEqual((await state()).marked,['explicit-shiny']);
-        checks.push('native badges attach by exact UID and an unknown build leaves only explicit saved shiny marks');
+        assert.equal((await state()).running,false);assert.equal((await state()).ledger.current.shiny,1);
+        assert.match((await nurseryText()).eggs,/预计闪光/);assert.match((await nurseryText()).eggs,/预计普通/);
+        const badges=()=>evaluate(`[...document.querySelectorAll('#pen-eggs .pen-egg')].map(card=>getComputedStyle(card,'::after').content)`);
+        assert.deepEqual(await badges(),['"预计闪蛋"','"✦ 闪蛋"','none']);
+        assert.equal(await evaluate(`${root}.querySelector('#nursery-estimated').textContent`),'另预计 1 枚');
+        await click('#fold');await evaluate('drawNativeEggs()');assert.deepEqual(await badges(),['"预计闪蛋"','"✦ 闪蛋"','none']);await click('.mini');
+        await evaluate(`(()=>{window.BUILD='d0ed6b793f';const marker=document.createElement('script');marker.type='application/json';
+            marker.src='/bundle/app.0a5492aada.js';document.head.append(marker);commitNursery();})()`);
+        assert.equal(await evaluate(`${root}.querySelector('#nursery-rule-notice').hidden`),true);
+        assert.match((await nurseryText()).eggs,/按蛋序号确定/);
+        assert.deepEqual((await state()).marked,[markedUid,'explicit-shiny']);
+        assert.deepEqual(await badges(),['"✦ 闪蛋"','"✦ 闪蛋"','none']);
+        checks.push('unknown builds mark estimated eggs at idle without counting them as confirmed, and a verified bundle restores solid badges');
         console.log('PASS: '+checks.length+' nursery browser checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

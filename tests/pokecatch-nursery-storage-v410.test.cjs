@@ -125,7 +125,7 @@ test('browser prediction requires a recognized game build while saved legacy fla
         }
         global.window.BUILD='d0ed6b793f';srcs=[];
         assert.equal(H.nurseryRuntimeOptions().build,'unverified:missing-bundle');
-        for(const bundle of ['3b7bf428b6','0e9662f5f8','2d46018b96','23e94ddbef','4ca78e3d27','fb58ae58aa']){
+        for(const bundle of ['3b7bf428b6','0e9662f5f8','2d46018b96','23e94ddbef','4ca78e3d27','fb58ae58aa','0a5492aada']){
             srcs=[`/bundle/app.${bundle}.js`];
             assert.equal(H.nurseryRuntimeOptions().build,'d0ed6b793f');
         }

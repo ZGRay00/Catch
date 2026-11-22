@@ -18,6 +18,28 @@ test('incomplete seeds, unsafe counter values and unsupported builds never produ
  assert.equal(N.eggOutcome(state(),{k:1},{build:'unverified'}).known,false);assert.equal(N.eggOutcome(state(),{shiny:false},{build:'unverified'}).known,true);
  assert.equal(N.eggOutcome(s,{}).known,false);
 });
+test('unknown builds can estimate existing eggs without treating the estimates as confirmed',()=>{
+ const s=state(),options={build:'future',estimateUnverifiedEggs:true,forecast:false};
+ const flags=[{sp:2,bx:1},{sp:0,bx:0}];
+ const [hit,miss]=flags.map((flag,index)=>{
+  let k=0;while(N.eggOutcome(s,{k,...flag}).shiny!==!index)k++;
+  return{k,...flag};
+ });
+ for(const [egg,shiny] of [[hit,true],[miss,false]]){
+  const outcome=N.eggOutcome(s,egg,options);
+  assert.equal(outcome.certainty,'reference');assert.equal(outcome.estimatedShiny,shiny);
+  assert.equal(outcome.known,false);assert.equal(outcome.shiny,null);assert.equal(outcome.rateVerified,false);
+ }
+ assert.equal(N.eggOutcome(s,{...hit,shiny:false},options).shiny,false);
+ assert.equal(N.eggOutcome(s,{...hit,shiny:'bad'},options).estimatedShiny,undefined);
+ assert.equal(N.eggOutcome(s,{...hit,bx:'bad'},options).estimatedShiny,undefined);
+ assert.equal(N.eggOutcome({},hit,options).estimatedShiny,undefined);
+ assert.equal(N.eggOutcome(s,{k:-1,uid:'still-invalid'},options).estimatedShiny,undefined);
+ s.pension.eggs=[hit,miss,{...hit,shiny:true},{}];
+ const estimate=N.nurserySnapshot(s,options),strict=N.nurserySnapshot(s,{...options,estimateUnverifiedEggs:false});
+ assert.equal(estimate.counts.estimated,2);assert.equal(estimate.counts.estimatedShiny,1);
+ assert.equal(estimate.counts.shiny,1);assert.equal(strict.counts.shiny,1);assert.equal(strict.counts.estimated,0);
+});
 test('egg 49 has a labelled projection on a future build without confirming incubator colours',()=>{
  const s=state();s.pension.laid=49;
  const options={build:'future',estimateUnverified:true}, projected=N.nurseryForecast(s,options),current=N.nurseryForecast(s);

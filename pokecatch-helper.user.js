@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.1.12
+// @version      6.1.14
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.1.12', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.14', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1456,7 +1456,7 @@
         'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89',
         '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c',
         '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f','2d46018b96':'d0ed6b793f','23e94ddbef':'d0ed6b793f',
-        '4ca78e3d27':'d0ed6b793f','fb58ae58aa':'d0ed6b793f'
+        '4ca78e3d27':'d0ed6b793f','fb58ae58aa':'d0ed6b793f','0a5492aada':'d0ed6b793f'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -1529,7 +1529,7 @@
             return{certainty:'saved',known:true,shiny:!!egg.shiny,rate:egg.shiny?1:0,mechanismRate:rate,rateVerified,source:'saved',key};
         }
         if(rate===null)return unknown('存档的异色亲本或靛莓果标记无法识别');
-        if(unverified)return unknown(NURSERY_UNVERIFIED_REASON);
+        if(unverified&&!options.estimateUnverifiedEggs)return unknown(NURSERY_UNVERIFIED_REASON);
         let roll,source;
         if(Number.isInteger(egg.k)){
             roll=nurseryFixedRoll(s,egg.k);source='counter';
@@ -1539,6 +1539,7 @@
             if(legacy==null||String(legacy)==='')return unknown('旧蛋缺少可核对的 UID 或产蛋时间');
             roll=nurseryHash(String(legacy));source='legacy';
         }
+        if(unverified)return{...unknown(NURSERY_UNVERIFIED_REASON),certainty:'reference',estimatedShiny:roll<rate};
         return{certainty:'deterministic',known:true,shiny:roll<rate,rate,rateVerified:true,roll,source,key};
     }
     function breedableOffspring(s, mon) {
@@ -1663,8 +1664,10 @@
             berryApplied:egg?.bx===undefined?false:nurseryFlag(egg.bx)?!!egg.bx:null,
             readyKnown,ready:readyKnown&&now>=egg.hatchAt,remainingMs:readyKnown?Math.max(0,egg.hatchAt-now):null,...outcome};});
         const total=eggRows.length,known=eggRows.filter(row=>row.known).length,shiny=eggRows.filter(row=>row.known&&row.shiny).length;
+        const estimates=eggRows.filter(row=>row.certainty==='reference');
         const capacity=Math.min(NURSERY_RULES.maxEggs,Math.max(1,total,Number(s?.pension?.open?.eggs)||1));
-        return{eggRows,counts:{total,known,shiny,unknown:total-known,ready:eggRows.filter(row=>row.ready).length},capacity,
+        return{eggRows,counts:{total,known,shiny,unknown:total-known,estimated:estimates.length,
+            estimatedShiny:estimates.filter(row=>row.estimatedShiny).length,ready:eggRows.filter(row=>row.ready).length},capacity,
             hatched:Number.isSafeInteger(s?.stats?.hatched)&&s.stats.hatched>=0?s.stats.hatched:null,
             counter:Number.isSafeInteger(s?.pension?.laid)&&s.pension.laid>=0?s.pension.laid:null,
             forecast:options.forecast===false?null:nurseryForecast(s,options)};
@@ -9489,6 +9492,7 @@
     #nursery-summary, #nursery-parent-summary { color:#aac2cc; font-size:11px; font-variant-numeric:tabular-nums }
     .nursery-metrics { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; margin:8px 0; padding:6px 0; text-align:center; font-size:11px; color:#b7c8d7; background:#111c2d; border-radius:8px }
     .nursery-metrics b { display:block; color:#e0f1ed; font-size:16px; font-variant-numeric:tabular-nums }
+    #nursery-estimated:not(:empty) { display:block; color:#efc47c; font-size:10px }
     .nursery-metrics > div + div { border-left:1px solid #334655 }
     .nursery-egg { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:7px; align-items:start; padding:7px 0; border-bottom:1px solid #344459 }
     .nursery-egg > div { min-width:0; overflow-wrap:anywhere }
@@ -9977,7 +9981,7 @@
     function mountNurseryPanel(root,engine,{preferences={},save=()=>{},onChange=()=>{}}={}){
         const box=document.createElement('div');box.id='nursery-info';box.className='nursery-card';
         box.innerHTML=`<div class="nursery-heading"><div class="nursery-title"><h3>孵化器</h3><small id="nursery-rule-notice" role="status" hidden></small></div><span id="nursery-summary"></span></div>
-            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋</div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
+            <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋<small id="nursery-estimated"></small></div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
             <div class="nursery-section-heading"><h3>寄养亲本</h3><span id="nursery-parent-summary"></span></div>
@@ -10043,8 +10047,13 @@
         }
         let nativeHintStyle,nativeHintKey='';
         function hintCards(rows=[]){
-            const ids=rows.filter(row=>row.known&&row.shiny&&row.uid!=null&&String(row.uid)!=='').map(row=>String(row.uid));
-            const key=ids.length?JSON.stringify(ids):'';
+            const confirmed=[],estimated=[];
+            for(const row of rows){
+                if(row.uid==null||String(row.uid)==='')continue;
+                if(row.known&&row.shiny)confirmed.push(String(row.uid));
+                else if(row.estimatedShiny)estimated.push(String(row.uid));
+            }
+            const key=confirmed.length||estimated.length?JSON.stringify([confirmed,estimated]):'';
             if(key===nativeHintKey)return;
             nativeHintKey=key;
             if(!nativeHintStyle){
@@ -10052,9 +10061,13 @@
                 (document.head||document.documentElement).appendChild(nativeHintStyle);
             }
             // Keep the mark outside the game's card markup so native morphing cannot erase it.
-            const cards=ids.map(id=>`#pen-eggs .pen-egg[data-egg=${CSS.escape(id)}]`);
-            nativeHintStyle.textContent=cards.length?`${cards.join(',')}{position:relative;border-color:#e8b94e;outline:1px solid #e8b94e;outline-offset:-2px}
-                ${cards.map(card=>card+'::after').join(',')}{content:"✦ 闪蛋";position:absolute;right:4px;bottom:3px;padding:1px 4px;border-radius:4px;background:#382905;color:#fff1bb;font:600 10px/1.3 system-ui;white-space:nowrap;pointer-events:none;z-index:2}`:'';
+            const badge=(ids,text,line)=>{
+                if(!ids.length)return '';
+                const cards=ids.map(id=>`#pen-eggs .pen-egg[data-egg=${CSS.escape(id)}]`);
+                return `${cards.join(',')}{position:relative;border-color:#e8b94e;outline:1px ${line} #e8b94e;outline-offset:-2px}
+                    ${cards.map(card=>card+'::after').join(',')}{content:"${text}";position:absolute;right:4px;bottom:3px;padding:1px 4px;border-radius:4px;background:#382905;color:#fff1bb;font:600 10px/1.3 system-ui;white-space:nowrap;pointer-events:none;z-index:2}`;
+            };
+            nativeHintStyle.textContent=badge(confirmed,'✦ 闪蛋','solid')+badge(estimated,'预计闪蛋','dashed');
         }
         let forecastKey,forecast,scan,scanTimer,eggListKey,historyKey,parentKey,shownComparison;
         function renderParents(s,pool){
@@ -10132,13 +10145,17 @@
             const ledger=sameAccount&&detailsVisible?monitor.ledger:null;
             const markNative=hints.checked&&Array.isArray(s.pension?.eggs)&&s.pension.eggs.length>0;
             if(!detailsVisible&&!preferences.folded&&!markNative){hintCards();return null;}
-            const options={...nurseryRuntimeOptions(),now,forecast:false},snap=nurserySnapshot(s,options);
+            const options={...nurseryRuntimeOptions(),now,forecast:false,estimateUnverifiedEggs:true},snap=nurserySnapshot(s,options);
             hintCards(markNative?snap.eggRows:[]);
             if(!detailsVisible)return snap;
             const verified=NURSERY_RULES.compatibleBuilds.includes(options.build),notice=query('#nursery-rule-notice');
             if(notice.hidden!==verified)notice.hidden=verified;
             write('#nursery-rule-notice',verified?'':'规则待核对 · 预测仅供参考');
-            write('#nursery-summary',`占用 ${snap.counts.total}/${snap.capacity}${snap.counts.unknown?' · 待判 '+snap.counts.unknown:''}`);
+            const unknownBundle=/^unverified:([a-f0-9]{10})$/.exec(options.build)?.[1];
+            const noticeTitle=unknownBundle?'游戏程序包 '+unknownBundle+' 尚未核对':'';
+            if(notice.title!==noticeTitle)notice.title=noticeTitle;
+            const unknown=snap.counts.unknown-snap.counts.estimated;
+            write('#nursery-summary',`占用 ${snap.counts.total}/${snap.capacity}${unknown?' · 待判 '+unknown:''}`);
             query('#nursery-plan').disabled=engine.running||!!engine.suspended||!sameAccount;
             // In older saves the native counter is initialized only when the next egg is laid.
             const laid=s.pension?.laid,counterKey=laid==null?[snap.hatched,Array.isArray(s.pension?.eggs)?snap.counts.total:null]:laid;
@@ -10150,7 +10167,9 @@
                 scan=nurseryForecastSteps(s,{...options,estimateUnverified:true,compare:true});advance();
             }
             snap.forecast=forecast;
-            write('#nursery-shiny',snap.counts.unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
+            write('#nursery-shiny',unknown&&!snap.counts.shiny?'待判':snap.counts.shiny);
+            write('#nursery-estimated',snap.counts.estimated?'另预计 '+snap.counts.estimatedShiny+' 枚':'');
+            write('#nursery-ready',snap.counts.ready);write('#nursery-native',snap.hatched??'—');
             const f=snap.forecast,next=f?.nextEgg,flash=f?.nextShiny;
             write('#nursery-prediction-state',!f?'计算中':f.active?'当前条件预测':'条件待确认');
             renderComparisons(f);
@@ -10202,14 +10221,15 @@
             if(f?.active)condition.push('距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。');
             if(next?.eggId===351||snap.eggRows.some(row=>row.id===351))condition.push('飘浮泡泡的形态取决于实际孵出时的培育屋天气。');
             write('#nursery-condition',condition.join(' '));
-            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.berryApplied,row.parentId,row.laidAt,row.hatchAt,eggEvidence(row),duration(row.remainingMs)]));
+            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.estimatedShiny,row.berryApplied,row.parentId,row.laidAt,row.hatchAt,eggEvidence(row),duration(row.remainingMs)]));
             if(listKey!==eggListKey){
                 eggListKey=listKey;eggs.replaceChildren();
                 if(!snap.counts.total)eggs.textContent='孵化器目前没有蛋。';
                 for(const [index,row] of snap.eggRows.entries()){
                     const item=document.createElement('div');item.className='nursery-egg';item.dataset.shiny=String(row.known&&row.shiny);
                     const title=document.createElement('div'),basis=document.createElement('div'),time=document.createElement('span');
-                    title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+(row.known?row.shiny?'✦ 闪光':'普通':'待判定')+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
+                    const colour=row.known?(row.shiny?'✦ 闪光':'普通'):row.certainty==='reference'?(row.estimatedShiny?'预计闪光':'预计普通'):'待判定';
+                    title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+colour+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
                     const evidence=eggEvidence(row),berry=row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果';
                     basis.className='hint';basis.textContent=[evidence,berry,row.parentId?'亲本 '+name(row.parentId):''].filter(Boolean).join(' · ');
                     title.appendChild(basis);
@@ -11018,6 +11038,7 @@
                 if(pendingCount)query('#mini-state').textContent+=` · 待办 ${pendingCount}`;
             }else if(ui.workspace==='activity')renderExecution(s,now);
             const nursery=nurseryPanel.render(s,now);if(nursery?.counts.shiny)query('#mini-state').textContent+=` · ✦蛋${nursery.counts.shiny}`;
+            if(nursery?.counts.estimatedShiny)query('#mini-state').textContent+=` · 预计闪蛋${nursery.counts.estimatedShiny}`;
             if(lastMode!==selectedCard()||settingsViewKey!==JSON.stringify(engine.settings))syncSettings();
             if(ui.folded)return;
             renderSeason(now);

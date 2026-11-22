@@ -50,24 +50,37 @@ test('ordinary and shiny-parent hypotheses remain separate from actual predictio
  assert.equal(f.scenarios.plainParents.nextShiny.rate,1/512);assert.equal(f.scenarios.shinyParents.nextShiny.rate,1/16);
  const bx=f.scenarios.berryNext.nextShiny;assert.equal(bx.rate,N.nurseryEggRate({sp:bx.parent.shiny?2:0,bx:bx.offset===0}));
 });
-test('four comparison groups reuse native draws and preserve the current forecast',()=>{
+test('mixed parent groups follow the parent drawn and only list newly shiny berry-only eggs',()=>{
  const s=state(),before=JSON.stringify(s),actual=N.nurseryForecast(s),f=N.nurseryForecast(s,{compare:true});
  assert.deepEqual(f.nextEgg,actual.nextEgg);assert.deepEqual(f.hits,actual.hits);assert.deepEqual(plain(actual.comparisons),[]);
  assert.deepEqual(plain(f.comparisons.map(rule=>[rule.key,rule.rate])),[['plain',1/512],['plain-berry',1/256],['shiny',1/16],['shiny-berry',1/8]]);
  for(const rule of f.comparisons){
   const expected=[];
   for(let k=s.pension.laid;k<s.pension.laid+f.limit&&expected.length<3;k++){
-   if(N.nurseryFixedRoll(s,k)>=rule.rate)continue;
+   const roll=N.nurseryFixedRoll(s,k);
    const parent=f.pool[Math.floor(N.nurseryFixedRoll(s,k,1)*f.pool.length)];
+   const min=rule.berry?rule.baseRate:0;
+   if(parent.shiny!==rule.shiny||roll<min||roll>=rule.rate)continue;
    expected.push([k,k-s.pension.laid+1,parent.slot,parent.eggId]);
   }
   assert.equal(expected.length,3);
   assert.deepEqual(plain(rule.hits.map(hit=>[hit.k,hit.position,hit.parent.slot,hit.eggId])),expected);
  }
+ const keys=f.comparisons.flatMap(rule=>rule.hits.map(hit=>hit.k));assert.equal(keys.length,new Set(keys).size);
+ assert.equal(Math.min(...f.comparisons.filter(rule=>rule.berry).map(rule=>rule.hits[0].k)),f.firstBerryOnly.k);
  const brief=N.nurseryForecast(s,{compare:true,limit:1});assert.equal(brief.scanned,1);assert.ok(brief.comparisons.every(rule=>rule.hits.length<=1));
  const reference=N.nurseryForecast(s,{compare:true,build:'future',estimateUnverified:true});
  assert.equal(reference.certainty,'reference');assert.equal(reference.known,false);assert.deepEqual(reference.comparisons,f.comparisons);
  assert.equal(JSON.stringify(s),before);
+});
+test('single-colour groups exclude ineligible residents and never use Ditto to assign a group',()=>{
+ const s=state();s.pension.mons[2].mon.noEgg=true;
+ const groups=()=>plain(N.nurseryForecast(s,{compare:true}).comparisons.map(rule=>rule.key));
+ assert.deepEqual(groups(),['plain','plain-berry']);
+ s.pension.mons[0].mon.shiny=true;s.pension.mons[1].mon.shiny=false;
+ assert.deepEqual(groups(),['shiny','shiny-berry']);
+ s.pension.mons[0].mon.noEgg=true;
+ assert.deepEqual(groups(),[]);
 });
 test('legacy initialization follows the native counter rule only with both operands on an audited build',()=>{
  const s=state();delete s.pension.laid;s.stats.hatched=999;s.pension.eggs=[{uid:'x'}];const f=N.nurseryForecast(s,{build:N.NURSERY_RULES.build});assert.equal(f.known,true);assert.equal(f.counter,1000);assert.equal(f.counterSource,'native-initializer');

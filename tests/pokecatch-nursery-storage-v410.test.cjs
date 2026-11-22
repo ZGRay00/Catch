@@ -123,6 +123,12 @@ test('browser prediction requires a recognized game build while saved legacy fla
             srcs=['/bundle/app.'+bundle+'.js'];
             assert.equal(H.nurseryRuntimeOptions().build,'7d13a92510');
         }
+        global.window.BUILD='d0ed6b793f';srcs=[];
+        assert.equal(H.nurseryRuntimeOptions().build,'unverified:missing-bundle');
+        for(const bundle of ['3b7bf428b6','0e9662f5f8']){
+            srcs=[`/bundle/app.${bundle}.js`];
+            assert.equal(H.nurseryRuntimeOptions().build,'d0ed6b793f');
+        }
         srcs=['/bundle/app.fffffffffe.js'];
         assert.equal(H.nurseryRuntimeOptions().build,'unverified:fffffffffe');
     }finally{if(previousDocument===undefined)delete global.document;else global.document=previousDocument;if(previousWindow===undefined)delete global.window;else global.window=previousWindow;}

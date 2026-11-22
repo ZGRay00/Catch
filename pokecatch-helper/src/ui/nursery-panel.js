@@ -15,9 +15,9 @@
                 <strong id="nursery-next"></strong><div id="nursery-forecast" class="sub"></div>
                 <div id="nursery-feed" class="sub"></div>
             </div>
-            <dl id="nursery-berry-plan" hidden><dt>首枚无果闪蛋</dt><dd id="nursery-natural"></dd><dt>最近的用果窗口</dt><dd id="nursery-berry-only"></dd></dl>
+            <dl id="nursery-berry-plan" hidden><dt>最近一枚自然闪蛋</dt><dd id="nursery-natural"></dd><dt>最近一枚喂果才闪</dt><dd id="nursery-berry-only"></dd></dl>
             <details id="nursery-comparison" open>
-                <summary>四种条件对照</summary>
+                <summary>闪蛋清单</summary>
                 <p class="hint" id="nursery-comparison-note"></p>
                 <div id="nursery-comparison-grid"></div>
             </details>
@@ -102,16 +102,15 @@
             if(shownComparison===f)return;
             shownComparison=f;grid.replaceChildren();
             if(!f?.active)return;
-            const mixed=f.pool.some(parent=>parent.shiny)&&f.pool.some(parent=>!parent.shiny);
             write('#nursery-comparison-note',(f.known?'':'旧规则参考。')+
-                '沿用当前槽位。用果行假设为每枚候选蛋单独提前喂果。'+(mixed?'混合亲本请以上方当前预测为准。':''));
+                '按实际抽中的亲代分组。喂果才闪的蛋，须在该蛋产出前喂靛莓果。');
             for(const rule of f.comparisons){
                 const group=label('section','','nursery-scenario');
                 group.dataset.berry=String(rule.berry);
-                const current=f.known&&!mixed&&rule.shiny===f.pool[0].shiny;
                 const heading=label('div','','nursery-scenario-heading');
-                heading.append(label('strong',rule.label),label('span','1/'+Math.round(1/rule.rate),'nursery-rate'));
-                if(current)heading.append(label('span','当前亲本','nursery-current'));
+                const shownRate='1/'+Math.round(1/rule.rate);
+                const rate=rule.berry?'1/'+Math.round(1/rule.baseRate)+' → '+shownRate:shownRate;
+                heading.append(label('strong',rule.label),label('span',rate,'nursery-rate'));
                 const list=label('ol','','nursery-predictions');
                 for(const hit of rule.hits){
                     const entry=label('li','');

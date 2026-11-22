@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.1.7
+// @version      6.1.8
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.1.7', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.8', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -1454,7 +1454,8 @@
     const NURSERY_BUILDS=Object.freeze({
         '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
         'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89',
-        '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c'
+        '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c',
+        '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -1559,11 +1560,12 @@
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
     const NURSERY_COMPARISONS=[
-        {key:'plain',label:'普通亲本',shiny:false,berry:false},
-        {key:'plain-berry',label:'普通亲本 · 用果',shiny:false,berry:true},
-        {key:'shiny',label:'异色亲本',shiny:true,berry:false},
-        {key:'shiny-berry',label:'异色亲本 · 用果',shiny:true,berry:true},
-    ].map(rule=>({...rule,rate:nurseryEggRate({sp:rule.shiny?2:0,bx:rule.berry})}));
+        {key:'plain',label:'普通亲代 · 自然闪',shiny:false,berry:false},
+        {key:'plain-berry',label:'普通亲代 · 喂果才闪',shiny:false,berry:true},
+        {key:'shiny',label:'闪光亲代 · 自然闪',shiny:true,berry:false},
+        {key:'shiny-berry',label:'闪光亲代 · 喂果才闪',shiny:true,berry:true},
+    ].map(rule=>({...rule,baseRate:nurseryEggRate({sp:rule.shiny?2:0}),
+        rate:nurseryEggRate({sp:rule.shiny?2:0,bx:rule.berry})}));
     function nurseryForecast(s,options={}){
         const scan=nurseryForecastSteps(s,options);
         let step;
@@ -1591,7 +1593,8 @@
             nextRate,rateVerified:!unverified,
             limit,scanned:0,pool:pool.parents,hasDitto:pool.hasDitto,pendingBerry,nextEgg:null,nextShiny:null,hits:[],
             firstWithoutBerry:null,firstBerryOnly:null,
-            comparisons:options.compare?NURSERY_COMPARISONS.map(rule=>({...rule,hits:[]})):[],
+            comparisons:options.compare?NURSERY_COMPARISONS.filter(rule=>pool.parents.some(parent=>parent.shiny===rule.shiny))
+                .map(rule=>({...rule,hits:[]})):[],
             assumptions:['亲本顺序与异色状态保持不变','期间没有赠送蛋等其他来源占用蛋序号','只计现有待用靛莓果，不假设后续自动喂果','距离指自然产蛋次数，不是孵化次数或保底进度'],
             scenarios:{plainParents:{hypothetical:true,nextShiny:null},shinyParents:{hypothetical:true,nextShiny:null},berryNext:{hypothetical:true,nextShiny:null}}};
         const reject=reason=>({...result,reason});
@@ -1617,27 +1620,26 @@
             const parentIndex=pool.parents.length===1?0:Math.floor(nurseryHash(drawPrefix+'1')*pool.parents.length);
             const parent=pool.parents[parentIndex],bx=offset===0&&pendingBerry;
             const rate=nurseryEggRate({sp:parent.shiny?2:0,bx}),row={k,offset,position:offset+1,eggId:parent.eggId,parent:{...parent},rate,roll,bx,shiny:roll<rate};
-            const withoutBerry=parent.shiny?NURSERY_RULES.parentRate:NURSERY_RULES.baseRate;
+            const withoutBerry=parent.shiny?NURSERY_RULES.parentRate:NURSERY_RULES.baseRate,withBerry=withoutBerry*NURSERY_RULES.berryMultiplier;
+            const berryOnly=roll>=withoutBerry&&roll<withBerry;
             if(!result.firstWithoutBerry&&roll<withoutBerry)result.firstWithoutBerry={k,position:offset+1,eggId:parent.eggId};
-            if(!result.firstBerryOnly&&roll>=withoutBerry&&roll<withoutBerry*NURSERY_RULES.berryMultiplier){
+            if(!result.firstBerryOnly&&berryOnly){
                 result.firstBerryOnly={k,position:offset+1,eggId:parent.eggId};
             }
             if(offset===0){
                 // Hold the egg number and the pending berry fixed while changing
                 // only the selected parent's shiny status.
                 const plainRate=nurseryEggRate({bx}),shinyRate=nurseryEggRate({sp:2,bx});
-                const withBerry=withoutBerry*NURSERY_RULES.berryMultiplier;
                 result.nextEgg={...row,withoutBerryShiny:roll<withoutBerry,withBerryShiny:roll<withBerry,
                     parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
             }
             if(row.shiny&&result.hits.length<keep)result.hits.push(row);
-            // Each comparison tests this egg on its own. A berry used for one
-            // candidate does not carry over to any later natural egg.
-            if(comparisonsPending){
-                for(const rule of result.comparisons){
-                    if(rule.hits.length>=keep||roll>=rule.rate)continue;
-                    rule.hits.push({k,position:offset+1,eggId:parent.eggId,parent});
-                    if(rule.hits.length===keep)comparisonsPending--;
+            // Group by the parent actually drawn and list each egg only once.
+            if(comparisonsPending&&(roll<withoutBerry||berryOnly)){
+                const group=result.comparisons.find(rule=>rule.shiny===parent.shiny&&rule.berry===berryOnly);
+                if(group.hits.length<keep){
+                    group.hits.push({k,position:offset+1,eggId:parent.eggId,parent});
+                    if(group.hits.length===keep)comparisonsPending--;
                 }
             }
             for(const key of Object.keys(scenarios)){
@@ -9486,7 +9488,7 @@
     #nursery-parents { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(130px,100%),1fr)); gap:5px }
     .nursery-parent { display:grid; grid-template-columns:auto minmax(0,1fr); align-content:start; gap:1px 5px; padding:5px 6px; border:1px solid #344459; border-radius:7px; background:#111c2d; overflow-wrap:anywhere }
     .nursery-parent small { grid-column:2; color:#aebed2; font-size:11px }
-    .nursery-slot, .nursery-current, #nursery-prediction-state { align-self:start; border-radius:4px; padding:1px 4px; color:#b1e6d6; background:#24433f; font-size:10px }
+    .nursery-slot, #nursery-prediction-state { align-self:start; border-radius:4px; padding:1px 4px; color:#b1e6d6; background:#24433f; font-size:10px }
     #nursery-prediction-state[data-certainty=reference] { color:#ffdc91; background:#443725 }
     .nursery-laying { padding-top:7px }
     .nursery-laying > div { display:flex; justify-content:space-between; flex-wrap:wrap; gap:2px 8px; color:#b7c8d7; font-size:11px }
@@ -9979,9 +9981,9 @@
                 <strong id="nursery-next"></strong><div id="nursery-forecast" class="sub"></div>
                 <div id="nursery-feed" class="sub"></div>
             </div>
-            <dl id="nursery-berry-plan" hidden><dt>首枚无果闪蛋</dt><dd id="nursery-natural"></dd><dt>最近的用果窗口</dt><dd id="nursery-berry-only"></dd></dl>
+            <dl id="nursery-berry-plan" hidden><dt>最近一枚自然闪蛋</dt><dd id="nursery-natural"></dd><dt>最近一枚喂果才闪</dt><dd id="nursery-berry-only"></dd></dl>
             <details id="nursery-comparison" open>
-                <summary>四种条件对照</summary>
+                <summary>闪蛋清单</summary>
                 <p class="hint" id="nursery-comparison-note"></p>
                 <div id="nursery-comparison-grid"></div>
             </details>
@@ -10066,16 +10068,15 @@
             if(shownComparison===f)return;
             shownComparison=f;grid.replaceChildren();
             if(!f?.active)return;
-            const mixed=f.pool.some(parent=>parent.shiny)&&f.pool.some(parent=>!parent.shiny);
             write('#nursery-comparison-note',(f.known?'':'旧规则参考。')+
-                '沿用当前槽位。用果行假设为每枚候选蛋单独提前喂果。'+(mixed?'混合亲本请以上方当前预测为准。':''));
+                '按实际抽中的亲代分组。喂果才闪的蛋，须在该蛋产出前喂靛莓果。');
             for(const rule of f.comparisons){
                 const group=label('section','','nursery-scenario');
                 group.dataset.berry=String(rule.berry);
-                const current=f.known&&!mixed&&rule.shiny===f.pool[0].shiny;
                 const heading=label('div','','nursery-scenario-heading');
-                heading.append(label('strong',rule.label),label('span','1/'+Math.round(1/rule.rate),'nursery-rate'));
-                if(current)heading.append(label('span','当前亲本','nursery-current'));
+                const shownRate='1/'+Math.round(1/rule.rate);
+                const rate=rule.berry?'1/'+Math.round(1/rule.baseRate)+' → '+shownRate:shownRate;
+                heading.append(label('strong',rule.label),label('span',rate,'nursery-rate'));
                 const list=label('ol','','nursery-predictions');
                 for(const hit of rule.hits){
                     const entry=label('li','');

@@ -98,7 +98,7 @@
     #nursery-parents { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(130px,100%),1fr)); gap:5px }
     .nursery-parent { display:grid; grid-template-columns:auto minmax(0,1fr); align-content:start; gap:1px 5px; padding:5px 6px; border:1px solid #344459; border-radius:7px; background:#111c2d; overflow-wrap:anywhere }
     .nursery-parent small { grid-column:2; color:#aebed2; font-size:11px }
-    .nursery-slot, .nursery-current, #nursery-prediction-state { align-self:start; border-radius:4px; padding:1px 4px; color:#b1e6d6; background:#24433f; font-size:10px }
+    .nursery-slot, #nursery-prediction-state { align-self:start; border-radius:4px; padding:1px 4px; color:#b1e6d6; background:#24433f; font-size:10px }
     #nursery-prediction-state[data-certainty=reference] { color:#ffdc91; background:#443725 }
     .nursery-laying { padding-top:7px }
     .nursery-laying > div { display:flex; justify-content:space-between; flex-wrap:wrap; gap:2px 8px; color:#b7c8d7; font-size:11px }

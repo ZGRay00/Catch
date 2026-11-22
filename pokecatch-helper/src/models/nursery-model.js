@@ -3,7 +3,8 @@
     const NURSERY_BUILDS=Object.freeze({
         '6e45170313':'0a26d39c19','84beed0145':'c9b850cf68','ac708615ae':'a5299b1690',
         'c742526349':'c8fb8b2e96','0a7dcb2280':'1125894b9a','3bdd8140e1':'b221fce46b','f01c6dd773':'aa84889c89',
-        '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c'
+        '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c',
+        '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -108,11 +109,12 @@
         return{known:true,parents,hasDitto,reason:!hasDitto?'需要百变怪才能自然产蛋':!parents.length?'没有可繁殖亲本':null};
     }
     const NURSERY_COMPARISONS=[
-        {key:'plain',label:'普通亲本',shiny:false,berry:false},
-        {key:'plain-berry',label:'普通亲本 · 用果',shiny:false,berry:true},
-        {key:'shiny',label:'异色亲本',shiny:true,berry:false},
-        {key:'shiny-berry',label:'异色亲本 · 用果',shiny:true,berry:true},
-    ].map(rule=>({...rule,rate:nurseryEggRate({sp:rule.shiny?2:0,bx:rule.berry})}));
+        {key:'plain',label:'普通亲代 · 自然闪',shiny:false,berry:false},
+        {key:'plain-berry',label:'普通亲代 · 喂果才闪',shiny:false,berry:true},
+        {key:'shiny',label:'闪光亲代 · 自然闪',shiny:true,berry:false},
+        {key:'shiny-berry',label:'闪光亲代 · 喂果才闪',shiny:true,berry:true},
+    ].map(rule=>({...rule,baseRate:nurseryEggRate({sp:rule.shiny?2:0}),
+        rate:nurseryEggRate({sp:rule.shiny?2:0,bx:rule.berry})}));
     function nurseryForecast(s,options={}){
         const scan=nurseryForecastSteps(s,options);
         let step;
@@ -140,7 +142,8 @@
             nextRate,rateVerified:!unverified,
             limit,scanned:0,pool:pool.parents,hasDitto:pool.hasDitto,pendingBerry,nextEgg:null,nextShiny:null,hits:[],
             firstWithoutBerry:null,firstBerryOnly:null,
-            comparisons:options.compare?NURSERY_COMPARISONS.map(rule=>({...rule,hits:[]})):[],
+            comparisons:options.compare?NURSERY_COMPARISONS.filter(rule=>pool.parents.some(parent=>parent.shiny===rule.shiny))
+                .map(rule=>({...rule,hits:[]})):[],
             assumptions:['亲本顺序与异色状态保持不变','期间没有赠送蛋等其他来源占用蛋序号','只计现有待用靛莓果，不假设后续自动喂果','距离指自然产蛋次数，不是孵化次数或保底进度'],
             scenarios:{plainParents:{hypothetical:true,nextShiny:null},shinyParents:{hypothetical:true,nextShiny:null},berryNext:{hypothetical:true,nextShiny:null}}};
         const reject=reason=>({...result,reason});
@@ -166,27 +169,26 @@
             const parentIndex=pool.parents.length===1?0:Math.floor(nurseryHash(drawPrefix+'1')*pool.parents.length);
             const parent=pool.parents[parentIndex],bx=offset===0&&pendingBerry;
             const rate=nurseryEggRate({sp:parent.shiny?2:0,bx}),row={k,offset,position:offset+1,eggId:parent.eggId,parent:{...parent},rate,roll,bx,shiny:roll<rate};
-            const withoutBerry=parent.shiny?NURSERY_RULES.parentRate:NURSERY_RULES.baseRate;
+            const withoutBerry=parent.shiny?NURSERY_RULES.parentRate:NURSERY_RULES.baseRate,withBerry=withoutBerry*NURSERY_RULES.berryMultiplier;
+            const berryOnly=roll>=withoutBerry&&roll<withBerry;
             if(!result.firstWithoutBerry&&roll<withoutBerry)result.firstWithoutBerry={k,position:offset+1,eggId:parent.eggId};
-            if(!result.firstBerryOnly&&roll>=withoutBerry&&roll<withoutBerry*NURSERY_RULES.berryMultiplier){
+            if(!result.firstBerryOnly&&berryOnly){
                 result.firstBerryOnly={k,position:offset+1,eggId:parent.eggId};
             }
             if(offset===0){
                 // Hold the egg number and the pending berry fixed while changing
                 // only the selected parent's shiny status.
                 const plainRate=nurseryEggRate({bx}),shinyRate=nurseryEggRate({sp:2,bx});
-                const withBerry=withoutBerry*NURSERY_RULES.berryMultiplier;
                 result.nextEgg={...row,withoutBerryShiny:roll<withoutBerry,withBerryShiny:roll<withBerry,
                     parentEffect:roll<plainRate?'always-shiny':roll<shinyRate?'depends':'always-plain'};
             }
             if(row.shiny&&result.hits.length<keep)result.hits.push(row);
-            // Each comparison tests this egg on its own. A berry used for one
-            // candidate does not carry over to any later natural egg.
-            if(comparisonsPending){
-                for(const rule of result.comparisons){
-                    if(rule.hits.length>=keep||roll>=rule.rate)continue;
-                    rule.hits.push({k,position:offset+1,eggId:parent.eggId,parent});
-                    if(rule.hits.length===keep)comparisonsPending--;
+            // Group by the parent actually drawn and list each egg only once.
+            if(comparisonsPending&&(roll<withoutBerry||berryOnly)){
+                const group=result.comparisons.find(rule=>rule.shiny===parent.shiny&&rule.berry===berryOnly);
+                if(group.hits.length<keep){
+                    group.hits.push({k,position:offset+1,eggId:parent.eggId,parent});
+                    if(group.hits.length===keep)comparisonsPending--;
                 }
             }
             for(const key of Object.keys(scenarios)){

@@ -104,7 +104,7 @@ for(const shinyParent of [false,true]){
     for(const [min,max] of [[0,base],[base,2*base],[2*base,1]]){
         let k=0;while(k<50000){const roll=M.nurseryFixedRoll(input,k);if(roll>=min&&roll<max)break;k++;}
         assert.ok(k<50000);input.pension.laid=k;
-        const next=M.nurseryForecast(input,{limit:1}).nextEgg;
+        const forecast=M.nurseryForecast(input,{limit:1,compare:true}),next=forecast.nextEgg,nativeColours=[];
         for(const before of [false,true]){
             const native=JSON.parse(R.run(`JSON.stringify((()=>{
                 const s={...structuredClone(BASE),...${JSON.stringify(input)},items:{'belue-berry':1}};
@@ -119,8 +119,13 @@ for(const shinyParent of [false,true]){
                 });
             })())`));
             assert.deepEqual(native,{fed:true,k,id:633,bx:before,pending:!before,shiny:before?next.withBerryShiny:next.withoutBerryShiny});
+            nativeColours.push(native.shiny);
             comparisons++;
         }
+        const [natural,withBerry]=nativeColours;
+        assert.deepEqual(Array.from(forecast.comparisons,rule=>[rule.shiny,rule.berry,rule.hits.some(hit=>hit.k===k)]),
+            [[shinyParent,false,natural],[shinyParent,true,withBerry&&!natural]]);
+        comparisons++;
     }
 }
 // Castform's species is fixed when the egg is laid, but its form is resolved

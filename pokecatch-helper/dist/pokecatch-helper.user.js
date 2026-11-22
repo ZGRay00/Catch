@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.1.14
+// @version      6.1.15
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.1.14', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.1.15', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -4437,7 +4437,7 @@
             const plan=pensionPlan(s,id);
             const parentNames=[...new Set(parents.map(mon=>MONS.get(mon.id)?.name||mon.id))];
             result.push({kind:'breed',chapter:null,place:'培育屋',available:!plan.missing&&!full,
-                detail:parentNames.join('、')+' 可与百变怪培育此物种的蛋'+(plan.missing?' · '+plan.missing:full?' · 孵化器已满':' · 可使用繁殖任务')});
+                detail:parentNames.join('、')+' 可与百变怪培育此物种的蛋'+(plan.missing?' · '+plan.missing:full?' · 孵化器已满':' · 手动寄养后可使用繁殖任务收蛋')});
         }
         for(const zone of DATA.zones.filter(z=>!z.eliteOnly&&(z.forms||[z.id]).includes(id))){
             result.push({kind:'legend',chapter:null,place:zone.name,available:false,detail:(zone.condition||'传说战')+' · 开放状态以游戏地图为准'});
@@ -5274,7 +5274,7 @@
             if(row.league){const ordinary=$('#map-root [data-lg-view="league"]:not(.on)');if(enabled(ordinary)){this.click(ordinary,'切回普通联盟');return false;}}
             if(options.leaveZone){
                 const go=$(`#map-root .mp-go[data-go="${row.league?'L':row.id}"]`);
-                return this.click(go,s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常');
+                return this.click(go,options.leaveLabel||(s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常'));
             }
             if(options.restart){
                 if(s.adv.chapter!==row.id||!Number(s.adv.node))return false;
@@ -5536,10 +5536,10 @@
             }
             return false;
         }
-        leaveRaid() {
+        leaveRaid(label='达到时限，退出团体战') {
             if (!this.nav('raid')) return false;
             const leave = $('#raid-root [data-raid-leave]');
-            if (enabled(leave)) return this.click(leave, '达到时限，退出团体战');
+            if (enabled(leave)) return this.click(leave, label);
             const page = $('#raid-root [data-raid-page="chroma"]');
             if (enabled(page)) this.click(page, '打开当前团体战，准备退出');
             return false;
@@ -6079,25 +6079,13 @@
             if(egg){this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
-            const plan=pensionPlan(s,cfg.breedId,cfg.breedShiny);
-            if(targetEggs.length&&(plan.missing||covered)){
+            const parents=p.mons?.map(slot=>slot?.mon).filter(Boolean)||[];
+            const hasParents=parents.some(mon=>mon.id===132)&&parents.some(mon=>breedableOffspring(s,mon)===cfg.breedId);
+            if(targetEggs.length&&(!hasParents||covered)){
                 const next=Math.min(...eggs.map(egg=>Number(egg.hatchAt)||now+60000));
                 this.wait(waitLabel,Math.max(now+1200,next));return;
             }
-            if(plan.missing){
-                const all=s.mons||[];
-                const parent=plan.parents.length ? null : all.find(m=>breedableOffspring(s,m)===cfg.breedId);
-                const ditto=plan.ditto ? null : all.find(m=>m.id===132);
-                const remove=[parent?.uid,ditto?.uid].filter(uid=>s.team?.includes(uid));
-                if(remove.length&&!cfg.autoTeam){this.wait('繁殖亲本在手动冒险队伍中，请先手动移出亲本后继续');return;}
-                if(remove.length){const rest=s.team.filter(uid=>!remove.includes(uid)),bench=all.filter(m=>!remove.includes(m.uid)&&!rest.includes(m.uid)&&teamEligible(s,m)).sort((a,b)=>b.level-a.level);while(rest.length<Math.min(6,s.team.length)&&bench.length)rest.push(bench.shift().uid);
-                    if(rest.length){d.teamTask={chapter:s.adv.chapter,members:[s.adv.chapter],uids:rest,started:now,attempts:0};this.wait('先将繁殖亲本移回PC');return;}}
-                if([parent?.uid,ditto?.uid].some(uid=>uid&&s.road?.includes(uid)&&!s.team?.includes(uid))){this.wait('亲本已移出计划队伍，等待下个治疗点更新行进队伍');return;}
-                this.fail(plan.missing);return;
-            }
-            const open=slots,desired=plan.desired.slice(0,Math.max(2,open));
-            if(open<2){
-                if(!cfg.pensionExpand){this.fail('繁殖需要至少两个寄养位；请解锁寄养位，或开启自动扩容并设置预算');return;}
+            if(!hasParents&&slots<2&&cfg.pensionExpand){
                 const blocked=e.budget.purchaseBlock();if(blocked){this.fail('寄养位扩容需要金币：'+blocked);return;}
                 const tab=$('#pen-tabs [data-pen-tab="res"]');if(enabled(tab)&&!tab.classList.contains('on')){d.click(tab,'打开寄养位');return;}
                 const buy=$('#pen-res .buy button');if(!visible(buy)){this.fail('当前寄养位尚未开放购买');return;}
@@ -6108,20 +6096,11 @@
                 if(!this.spentClick(buy,s,cost,0,'扩容寄养位')){delete this.state.pensionPurchase;e.persist();}
                 return;
             }
-            const missing=desired.find(m=>!plan.residents.some(r=>r.uid===m.uid));
-            if(missing){
-                const tab=$('#pen-tabs [data-pen-tab="res"]');if(enabled(tab)&&!tab.classList.contains('on')){d.click(tab,'打开寄养管理');return;}
-                const cards=this.pcSearch(missing.id,'#pen-grid');if(!cards)return;const card=cards.find(el=>el.dataset.uid===missing.uid);
-                if(!card){this.wait('等待亲本出现在寄养PC');return;}
-                if(plan.residents.length>=open){const out=plan.residents.find(m=>!desired.some(x=>x.uid===m.uid));
-                    if(!out){this.fail('寄养位不足，无法放入目标亲本');return;}
-                    if(!card.classList.contains('picked')){d.click(card,'选择待寄养的亲本');return;}
-                    d.click($$('#pen-res [data-uid]').find(el=>el.dataset.uid===out.uid),'替换非目标亲本');return;
-                }
-                d.click(card,missing.id===132?'寄养百变怪':'寄养目标亲本');return;
+            if(!hasParents){
+                const target=MONS.get(cfg.breedId)?.name||'目标物种';
+                this.wait(slots<2?'请解锁第二个寄养位，再手动寄养亲本':`请在培育屋手动寄养百变怪和可产${target}蛋的亲本`,now+15000);
+                return;
             }
-            const unwanted=plan.residents.find(m=>m.id!==132&&breedableOffspring(s,m)!==cfg.breedId);
-            if(unwanted){const el=$$('#pen-res [data-uid]').find(el=>el.dataset.uid===unwanted.uid);if(d.click(el,'取回不参与目标繁殖的成员'))this.own('confirm','.modal',{match:/(取回|取出|回到|返回|Récupérer|Retrieve|Return)/i});return;}
             const until=eggs.length?Math.min(...eggs.map(x=>x.hatchAt||now+60000)):now+60000;
             this.wait(`繁殖中 · 已孵化 ${this.state.hatched||0}/${cfg.breedShiny?'目标异色':cfg.breedGoal} · 孵化器 ${eggs.length} 枚`,until);
         }
@@ -7540,7 +7519,8 @@
             const special=this.driver.ownedDialog;
             const flowOwner=this.services.underground&&this.automation.owner?.kind==='receipt'&&this.automation.owner.selector==='.ug-back'?null:this.automation.snapshotOwner();
             return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...['factoryTeam','eliteTeam','underTeam'].includes(special.type)?{bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
-                activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null},
+                activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null,
+                    exit:this.startActivityExit?{kind:this.startActivityExit.kind,key:this.startActivityExit.key}:null},
                 budget:{spent:this.budget.spent,used:this.budget.used}};
         }
         saveJobProgress(snapshot=this.progressSnapshot()){
@@ -7594,6 +7574,7 @@
             this.zoneId=this.zoneStarted=this.legendProbe=this.farmWait=this.weatherWindow=null;
             this.gateSignature=this.lockedLegend=null;
             this.dailyZoneExit=null;
+            this.startActivityExit=null;
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
             this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
@@ -7635,7 +7616,8 @@
             if(Array.isArray(cp.preparationReady?.targets))this.coach.ready=cp.preparationReady;
             this.raidReturn=cp.raidReturn||null;
             if(this.manual)return;
-            this.automation.restoreOwner(cp.flowOwner);
+            // Older breeding runs could leave a pending confirmation to withdraw a parent.
+            if(!(cfg.mode==='breed'&&cp.flowOwner?.kind==='confirm'&&cp.flowOwner.match?.includes('取回')))this.automation.restoreOwner(cp.flowOwner);
             if(['team','ally','factoryTeam','eliteTeam','underTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
             if((cp.raidProbe||this.raidReturn)&&!s.adv.event?.raid){
                 this.raidProbe=true;
@@ -7829,6 +7811,74 @@
             const key = PREFIX + 'lease:' + this.account;
             try { if (JSON.parse(this.storage.getItem(key) || '{}').token === this.lease) this.storage.removeItem(key); } catch {}
         }
+        activityToLeave(s,cfg=this.settings,cp=null,daily=false){
+            const {event,zone,tower,league}=s.adv,mode=cfg.mode;
+            if(event?.raid){
+                const remembered=cp?.activity?.raid;
+                const same=remembered?.reg===(event.reg||currentRegion(s))&&remembered.boss===event.id&&
+                    (!remembered.date||remembered.date===(event.date||parisDay()));
+                return mode==='raid'||same||daily&&cfg.raids||(!FLOW_MODES.has(mode)&&mode!=='legend')?null:'raid';
+            }
+            if(event)return 'event';
+            if(tower?.kind==='candy')return mode==='candy'?null:'candy';
+            if(tower)return mode==='tower'?null:'tower';
+            if(league)return mode==='elite'&&(cfg.eliteRegion==='current'||cfg.eliteRegion===league.reg)&&league.tier<=cfg.eliteTier?null:'elite';
+            if(!zone)return null;
+            if(mode==='world'&&zone.id===493)return null;
+            const ids=mode==='legend'?selectedLegendIds(cfg):mode==='dex'?cfg.dexSpecies:[];
+            if(ids.includes(zone.id)&&(mode==='dex'?!zone.elite:zone.elite?cfg.legendTier>=zone.elite:!cfg.legendTier))return null;
+            if(ids.length&&cp?.activity?.zone?.id===zone.id){
+                const gates=legendRequirements(s,ids);
+                if(zone.elite?gates?.elites.has(zone.id):gates?.zones.has(zone.id)||gates?.doors.has(zone.id))return null;
+            }
+            if(mode==='dex'&&!ids.length&&!zone.elite)return null;
+            return 'zone';
+        }
+        startActivityKey(s,kind){
+            const {event,zone,tower,league}=s.adv;
+            if(kind==='raid'||kind==='event')return JSON.stringify([event?.id,event?.reg,event?.date,event?.started]);
+            if(kind==='zone')return JSON.stringify([zone?.id,zone?.elite,zone?.back]);
+            if(kind==='elite')return JSON.stringify([league?.reg,league?.tier,league?.back]);
+            return JSON.stringify([tower?.kind,s.candy?.run?.at,s.tower?.run?.at]);
+        }
+        leaveStartActivity(s,now){
+            const exit=this.startActivityExit;
+            if(!exit)return false;
+            const a=s.adv,active={raid:a.event?.raid,event:a.event&&!a.event.raid,zone:a.zone,elite:a.league,tower:a.tower&&a.tower.kind!=='candy',candy:a.tower?.kind==='candy'}[exit.kind];
+            if(!active){
+                this.startActivityExit=null;this.lastProgress=now;
+                this.log('上一项活动已退出，开始'+MODE_NAMES[this.settings.mode]);return false;
+            }
+            if(exit.key!==this.startActivityKey(s,exit.kind)){this.failTask('当前活动在切换期间发生变化，请重新开始所选任务');return true;}
+            if(now-exit.started>60000){this.failTask('游戏未确认退出上一项活动，请检查退出控件后重新开始');return true;}
+            this.lastProgress=now;this.telemetry.sample=null;
+            this.status='正在退出当前活动，准备'+MODE_NAMES[this.settings.mode];
+            if(exit.clicked)return true;
+            const d=this.driver,f=this.automation;
+            if(exit.kind==='raid')exit.clicked=d.leaveRaid('退出当前团体战，切换任务');
+            else if(exit.kind==='tower'||exit.kind==='candy'){
+                const candy=exit.kind==='candy';
+                if(f.raidPage(exit.kind)&&d.click($(candy?'#candy-root [data-cr-stop]':'#tower-root [data-tw-quit]'),'结束当前'+MODE_NAMES[exit.kind])){
+                    exit.clicked=true;
+                    f.own('confirm','.modal',{match:/(停止|结束|放弃|放棄|Arrêter|Stop|Quit|Terminer|Abandon|Give up)/i});
+                }
+            }else if(exit.kind==='event'){
+                if(d.nav('event')&&d.click($('#event-root [data-ev-leave]'),'退出当前活动')){
+                    exit.clicked=true;
+                    f.own('confirm','.modal',{match:/(退出|离开|離開|Quitter|Leave)/i});
+                }
+            }else{
+                if(a.pending?.type==='riddle'){
+                    if(d.nav('adventure'))d.click($('#arena [data-rd="pass"]'),'离开当前铭文');
+                    return true;
+                }
+                const back=CHAPTERS.get((a.zone||a.league).back??a.chapter);
+                const usable=c=>c&&!c.league&&c.id<=a.unlocked&&(exit.kind!=='elite'||c.id!==a.chapter);
+                const row=usable(back)?back:DATA.chapters.find(c=>c.reg===(back?.reg||currentRegion(s))&&usable(c));
+                if(row)exit.clicked=d.map(row,s,{leaveZone:true,leaveLabel:'返回'+row.name+'，切换任务'});
+            }
+            return true;
+        }
         start(resume=false,daily=false) {
             if (this.running) return;
             this.suspended=null;
@@ -7851,17 +7901,9 @@
                     if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');
                     if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
                 }
-                const resumeZone=cp?.activity?.zone?.id;
-                const resumeGates=resumeZone&&s.adv.zone?.id===resumeZone&&['dex','legend'].includes(mode)
-                    ?legendRequirements(s,mode==='dex'?this.settings.dexSpecies:selectedLegendIds(this.settings)):null;
-                const resumePrerequisite=resumeGates&&(s.adv.zone.elite?resumeGates.elites.has(resumeZone):resumeGates.zones.has(resumeZone)||resumeGates.doors.has(resumeZone));
-                const ownedFlow=mode==='tower'&&!!s.adv.tower&&s.adv.tower.kind!=='candy'||mode==='candy'&&s.adv.tower?.kind==='candy'||mode==='elite'&&!!s.adv.league||mode==='world'&&s.adv.zone?.id===493;
-                if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend'&&!resumePrerequisite)&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
-                const rememberedRaid=cp?.activity?.raid;
-                const resumingRaid=s.adv.event?.raid&&rememberedRaid&&rememberedRaid.reg===(s.adv.event.reg||currentRegion(s))&&rememberedRaid.boss===s.adv.event.id&&(!rememberedRaid.date||rememberedRaid.date===(s.adv.event.date||parisDay()));
-                if(FLOW_MODES.has(mode)&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&!ownedFlow&&!cp?.manual&&!resumingRaid)throw new Error('请先结束当前战斗，再启动所选独立流程');
-                if (mode === 'legend' && s.adv.zone && !resumePrerequisite && !selectedLegendIds(this.settings).includes(s.adv.zone.id)) throw new Error('当前传说战与所选目标不同，请先结束当前战斗或调整目标');
-                if (mode === 'legend' && s.adv.zone?.elite && !resumePrerequisite && !this.settings.legendTier) throw new Error('当前为精英传说战，请先选择目标精英阶级');
+                const leave=this.activityToLeave(s,{...this.settings,mode},cp,daily||!!cp?.daily);
+                const exitKey=leave?this.startActivityKey(s,leave):null;
+                if(resume&&leave&&(cp?.activity?.exit?.kind!==leave||cp.activity.exit.key!==exitKey))throw new Error('发现上次任务以外的活动，请点击开始确认切换');
                 if (!(s.team || []).length && !s.adv.event?.raid && !s.adv.zone && !FLOW_MODES.has(mode) && !['legend','raid'].includes(mode) && (!this.settings.autoTeam || !(s.mons||[]).length)) {
                     const gift=this.driver.giftChoice?.(s);
                     if(!pendingRegionalStarter(s)&&!(gift?.reg&&gift.authorized))throw new Error('冒险队伍为空，请先配置队伍');
@@ -7880,10 +7922,11 @@
                 if(daily)this.settings=this.taskSettings(this.daily.base);
                 this.dailyCheckAt=this.dailyWindowCheckAt=0;
                 this.beginTask(s,cp,this.started);
-                if(mode==='legend'&&s.adv.zone)this.settings={...this.settings,legendId:s.adv.zone.id};
-                if(!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
+                if(leave)this.startActivityExit={kind:leave,key:exitKey,started:this.started};
+                if(!leave&&!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
                 this.log(this.daily?'开始通关日常 · '+(this.daily.job?MODE_NAMES[this.settings.mode]:'检查待办'):`开始${MODE_NAMES[this.settings.mode]}`);
-                if (s.adv.event?.raid) {
+                if(leave)this.status='已启动'+MODE_NAMES[this.settings.mode]+'，准备退出当前活动';
+                else if (s.adv.event?.raid) {
                     const raid = s.adv.event;
                     const remembered=cp?.activity?.raid,same=remembered?.reg===(raid.reg||currentRegion(s))&&remembered?.boss===raid.id&&(!remembered.date||remembered.date===(raid.date||parisDay()));
                     this.driver.raid = { reg: raid.reg || currentRegion(s), boss: raid.id, date: raid.date || parisDay(), started: same?clamp(remembered.started,1,Date.now(),Date.now()):Date.now(), adopted: true };
@@ -8040,7 +8083,7 @@
             this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
             this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
             this.driver.teamTask=null;this.teamCheck=null;
-            if(!this.adoptManualPreparation(s,now,true))return true;
+            if(!this.startActivityExit&&!this.adoptManualPreparation(s,now,true))return true;
             if(this.preparation?.phase==='train'){this.preparation.routeCheck=0;this.preparation.routeProfile=null;}
             if(this.raidReturn&&!raid?.raid){this.raidProbe=true;this.raidProbeStarted=now;}
             if (!raid?.raid) this.driver.raid = null;
@@ -8125,6 +8168,7 @@
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;
             if(this.daily?.job&&this.daily.job.kind!=='window')this.daily.job.started+=duration;
             if(this.dailyZoneExit?.started!=null)this.dailyZoneExit.started+=duration;
+            if(this.startActivityExit?.started!=null)this.startActivityExit.started+=duration;
             if(this.weatherFarm?.started!=null)this.weatherFarm.started+=duration;
             this.lastProgress=delayed?Math.min(now,this.lastProgress+duration):now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
@@ -8237,6 +8281,9 @@
             // FX can cover an owned item card; finish the top overlay before using the card again.
             if ((this.automation.rankUI||this.automation.state.rankReceipt)&&this.automation.advanceTrainingRank(s,now))return;
             if (this.automation.evolutionUI(s,now) || this.automation.eggUI(s,now) || this.driver.animations(s) || this.driver.dismissInformation?.(s) || this.driver.receipt() || this.automation.finishDeparture(s,now) || this.automation.dialog(s) || this.driver.dialog(s)) return;
+            if(this.startActivityExit?.kind==='zone'&&s.adv.pending?.type==='riddle'&&visible($('#modal-root.open .rd-dlg'))){
+                this.driver.click($('#modal-root.open .rd-dlg .dc-x'),'关闭当前铭文，切换任务');return;
+            }
             if (this.driver.ownedDialog) return;
             if (visible($('#modal-root.open')) || visible($('#evt-pick'))) {
                 const blocker=$('#modal-root.open .modal')||$('#evt-pick')||$('#modal-root.open');
@@ -8246,6 +8293,7 @@
                 if (now - this.modalWaitSince > 120000) this.failTask('弹窗等待超时，请处理后重新开始'); return;
             }
             this.modalWaitSince=null;this.modalWaitNode=null;
+            if(this.leaveStartActivity(s,now))return;
             if(this.settings.mode==='elite'&&this.automation.exitDefeatedLeague(s,now))return;
             if(!s.team?.length&&pendingRegionalStarter(s)){
                 this.lastProgress=now;this.telemetry.sample=null;
@@ -9984,6 +10032,7 @@
             <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋<small id="nursery-estimated"></small></div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
+            <p class="hint">自动收蛋只领取成熟蛋，寄养亲本由你在游戏中管理。</p>
             <div class="nursery-section-heading"><h3>寄养亲本</h3><span id="nursery-parent-summary"></span></div>
             <div id="nursery-parents"></div>
             <div id="nursery-laying" class="nursery-laying" hidden>
@@ -11075,7 +11124,8 @@
                 !DAILY_BASE_MODES.has(baseMode)?'请选择每日主线，或先选择一个挂机任务。':
                 (dailyPhase?'当前日常：'+dailyPhase+'。完成日常后继续':engine.daily?.checking?'正在检查待办，完成后继续':engine.daily?'正在执行每日主线：':'先处理可执行的日常、周常，再开始')+MODE_NAMES[baseMode]+(goal?' · '+goal:'');
             if(engine.daily&&!wait&&!nativePaused)query('#run-state').textContent='通关日常 · '+(dailyPhase||(s?.adv?.zone?'传说战进行中':engine.daily.checking?'检查待办':'挂机 · '+activeLabel));
-            query('#start').textContent = dailyCard?'开始通关日常':s?.adv?.event?.raid ? '接管当前团体战' : s?.adv?.zone ? '接管当前传说战' : '开始当前任务';
+            const leaving=s?.adv&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&engine.activityToLeave(s,engine.settings);
+            query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
             query('#queue-count').textContent=engine.queue.filter(queueJobPending).length;
             query('#add-job').disabled=locked||dailyCard;query('#start-queue').disabled=locked||!engine.queue.some(queueJobPending);
             renderPurchases(s);
@@ -11181,11 +11231,11 @@
             } else if (mode === 'money') { goalLabel = '金币目标'; goalValue = settings.moneyTarget ? `${s.money.toLocaleString()} / ${settings.moneyTarget.toLocaleString()}` : '持续刷钱'; percent = settings.moneyTarget ? s.money/settings.moneyTarget*100 : 0; }
             else if(mode==='shiny'){const goals=shinyGoals(settings),left=missingShinies(s,settings).length;primary=(goals.length-left)+'/'+goals.length;primaryLabel='目标异色';goalLabel=goals.slice(0,3).map(id=>MONS.get(id).name).join('、')+(goals.length>3?' 等':'');goalValue=`${shinyRoutes?.length||0} 张可刷地图`;percent=(goals.length-left)/goals.length*100;hint='按当前野生遭遇表、轮换与特殊现象选图。运行实况显示各地图每轮预计遇到目标物种的次数，捕获目标异色后完成。';}
             else if(mode==='breed'){
-                const flow=engine.automation.state,plan=pensionPlan(s,settings.breedId,settings.breedShiny);
+                const flow=engine.automation.state;
                 primary=`${flow.hatched||0}/${settings.breedShiny?'✦':settings.breedGoal}`;primaryLabel='目标孵化';goalLabel=MONS.get(settings.breedId)?.name;
                 goalValue=`寄养 ${s.pension?.mons?.length||0} · 蛋 ${s.pension?.eggs?.length||0}`;
                 percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;
-                hint=plan.missing||(settings.breedShiny?'优先寄养可产目标蛋的异色亲本。已有确认的目标闪蛋时，等它成熟后优先孵化。':'配置百变怪和目标亲本，按游戏确认的孵化数量计入目标。');
+                hint='请在游戏中手动寄养百变怪和目标亲本。'+(settings.breedShiny?'助手会优先孵化已确认的目标闪蛋。':'助手会按游戏确认的孵化数量记录进度。');
             }
             else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按派遣位的主题配队，领取归队奖励后更新纪录。`;}
             else if(mode==='tower'){const p=towerProgress(s,now),reached=Math.max(p.best,p.cleared);primary=`${reached}/${settings.towerFloor}`;primaryLabel='本周已过楼层';goalLabel='已结束尝试';goalValue=`${engine.automation.state.towerWeek===p.week?engine.automation.state.towerAttempts||0:0}/${settings.towerRuns}`;percent=reached/settings.towerFloor*100;hint='按原生收藏排序、同种族限制和休息等级核对实际前六名，只为真正会上场的成员补练。暂停场次继续，不计失败；周记录与尝试次数按 UTC 周一重置，奖励结算后再结束任务。';}

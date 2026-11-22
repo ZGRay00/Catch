@@ -123,10 +123,12 @@ test('manual special selection leaves unselected free-evolution Box candidates a
     assert.equal(e.automation.evolution(s,Date.now()),false);assert.equal(e.automation.state.evolution,undefined);assert.equal(s.mons.at(-1).id,2);e.stop();
 });
 
-test('automatic breeding waits for a manually selected parent instead of changing the adventure party',t=>{
+test('breeding waits for manual daycare setup even with adventure team automation enabled',t=>{
     dom(t);const s=state();s.mons=[{uid:'parent',id:1,level:30,reg:'kanto'},{uid:'ditto',id:132,level:30,reg:'kanto'}];s.team=['parent'];s.road=['parent'];s.pension={mons:[],eggs:[],open:{slots:2}};
-    const e=engine(s,{mode:'breed',breedId:1});e.driver.nav=()=>true;e.automation.breed(s,Date.now());
-    assert.deepEqual(s.team,['parent']);assert.equal(e.driver.teamTask,null);assert.match(e.status,/亲本.*手动/);assert.equal(e.running,true);e.stop();
+    const e=engine(s,{mode:'breed',breedId:1,autoTeam:true});e.driver.nav=()=>true;
+    e.driver.click=()=>assert.fail('breeding must not change the saved party or deposit a parent');
+    e.automation.breed(s,Date.now());
+    assert.deepEqual(s.team,['parent']);assert.deepEqual(s.pension.mons,[]);assert.equal(e.driver.teamTask,null);assert.match(e.status,/手动寄养.*亲本/);assert.equal(e.running,true);e.stop();
 });
 
 test('manual preparation also adopts a changed selection when manual pause is disabled',t=>{

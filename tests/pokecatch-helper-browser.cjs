@@ -311,7 +311,13 @@ async function main() {
         for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();
         assert.equal(await evaluate('mock.state.adv.zone?.elite'),2,'only next elite tier is selected');
         await evaluate('mock.state.elite[145].t=2;mock.state.adv.zone=null;mock.save()');await tick();assert.equal(await evaluate('__pcTest.engine.running'),false);
-        await setUI({legendId:144,legendTier:0});await evaluate('window.zoneLocked=true');await begin();
+        await setUI({legendId:144,legendTier:0});
+        await evaluate('window.zoneLocked=true;mock.state.adv.zone={id:145,foe:145,elite:2,back:0};mock.save();__pcTest.engine.onChange()');
+        assert.match(await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector("#start").textContent'),/切换活动/);
+        await begin();
+        for(let n=0;n<15&&await evaluate('!!mock.state.adv.zone');n++)await tick();
+        assert.equal(await evaluate('mock.state.adv.zone'),null,'the native chapter button exits the previous elite legendary battle');
+        assert.equal(await evaluate('__pcTest.engine.settings.legendId'),144);
         for(let n=0;n<15&&await evaluate('__pcTest.engine.running');n++)await tick();
         assert.match(await evaluate('__pcTest.engine.status'),/等待.*开放.*条件未满足/);
         assert.equal(await evaluate('__pcTest.engine.running'),true,'native closed conditions keep the target waiting');

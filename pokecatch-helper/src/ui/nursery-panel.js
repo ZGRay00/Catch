@@ -4,6 +4,7 @@
             <div class="nursery-metrics"><div><b id="nursery-shiny">0</b>已确认在栏闪蛋<small id="nursery-estimated"></small></div><div><b id="nursery-ready">0</b>成熟待领</div><div><b id="nursery-native">—</b>累计孵化</div></div>
             <div id="nursery-eggs"></div>
             <div class="nursery-tools"><label><input type="checkbox" data-setting="autoEggs">自动收成熟蛋</label><button id="nursery-plan">配置繁殖任务</button></div>
+            <p class="hint">自动收蛋只领取成熟蛋，寄养亲本由你在游戏中管理。</p>
             <div class="nursery-section-heading"><h3>寄养亲本</h3><span id="nursery-parent-summary"></span></div>
             <div id="nursery-parents"></div>
             <div id="nursery-laying" class="nursery-laying" hidden>

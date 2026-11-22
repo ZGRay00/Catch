@@ -408,7 +408,7 @@
             if(row.league){const ordinary=$('#map-root [data-lg-view="league"]:not(.on)');if(enabled(ordinary)){this.click(ordinary,'切回普通联盟');return false;}}
             if(options.leaveZone){
                 const go=$(`#map-root .mp-go[data-go="${row.league?'L':row.id}"]`);
-                return this.click(go,s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常');
+                return this.click(go,options.leaveLabel||(s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常'));
             }
             if(options.restart){
                 if(s.adv.chapter!==row.id||!Number(s.adv.node))return false;
@@ -670,10 +670,10 @@
             }
             return false;
         }
-        leaveRaid() {
+        leaveRaid(label='达到时限，退出团体战') {
             if (!this.nav('raid')) return false;
             const leave = $('#raid-root [data-raid-leave]');
-            if (enabled(leave)) return this.click(leave, '达到时限，退出团体战');
+            if (enabled(leave)) return this.click(leave, label);
             const page = $('#raid-root [data-raid-page="chroma"]');
             if (enabled(page)) this.click(page, '打开当前团体战，准备退出');
             return false;

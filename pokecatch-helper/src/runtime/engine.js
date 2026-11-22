@@ -135,7 +135,8 @@
             const special=this.driver.ownedDialog;
             const flowOwner=this.services.underground&&this.automation.owner?.kind==='receipt'&&this.automation.owner.selector==='.ug-back'?null:this.automation.snapshotOwner();
             return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...['factoryTeam','eliteTeam','underTeam'].includes(special.type)?{bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
-                activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null},
+                activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null,
+                    exit:this.startActivityExit?{kind:this.startActivityExit.kind,key:this.startActivityExit.key}:null},
                 budget:{spent:this.budget.spent,used:this.budget.used}};
         }
         saveJobProgress(snapshot=this.progressSnapshot()){
@@ -189,6 +190,7 @@
             this.zoneId=this.zoneStarted=this.legendProbe=this.farmWait=this.weatherWindow=null;
             this.gateSignature=this.lockedLegend=null;
             this.dailyZoneExit=null;
+            this.startActivityExit=null;
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
             this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
@@ -230,7 +232,8 @@
             if(Array.isArray(cp.preparationReady?.targets))this.coach.ready=cp.preparationReady;
             this.raidReturn=cp.raidReturn||null;
             if(this.manual)return;
-            this.automation.restoreOwner(cp.flowOwner);
+            // Older breeding runs could leave a pending confirmation to withdraw a parent.
+            if(!(cfg.mode==='breed'&&cp.flowOwner?.kind==='confirm'&&cp.flowOwner.match?.includes('取回')))this.automation.restoreOwner(cp.flowOwner);
             if(['team','ally','factoryTeam','eliteTeam','underTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
             if((cp.raidProbe||this.raidReturn)&&!s.adv.event?.raid){
                 this.raidProbe=true;
@@ -424,6 +427,74 @@
             const key = PREFIX + 'lease:' + this.account;
             try { if (JSON.parse(this.storage.getItem(key) || '{}').token === this.lease) this.storage.removeItem(key); } catch {}
         }
+        activityToLeave(s,cfg=this.settings,cp=null,daily=false){
+            const {event,zone,tower,league}=s.adv,mode=cfg.mode;
+            if(event?.raid){
+                const remembered=cp?.activity?.raid;
+                const same=remembered?.reg===(event.reg||currentRegion(s))&&remembered.boss===event.id&&
+                    (!remembered.date||remembered.date===(event.date||parisDay()));
+                return mode==='raid'||same||daily&&cfg.raids||(!FLOW_MODES.has(mode)&&mode!=='legend')?null:'raid';
+            }
+            if(event)return 'event';
+            if(tower?.kind==='candy')return mode==='candy'?null:'candy';
+            if(tower)return mode==='tower'?null:'tower';
+            if(league)return mode==='elite'&&(cfg.eliteRegion==='current'||cfg.eliteRegion===league.reg)&&league.tier<=cfg.eliteTier?null:'elite';
+            if(!zone)return null;
+            if(mode==='world'&&zone.id===493)return null;
+            const ids=mode==='legend'?selectedLegendIds(cfg):mode==='dex'?cfg.dexSpecies:[];
+            if(ids.includes(zone.id)&&(mode==='dex'?!zone.elite:zone.elite?cfg.legendTier>=zone.elite:!cfg.legendTier))return null;
+            if(ids.length&&cp?.activity?.zone?.id===zone.id){
+                const gates=legendRequirements(s,ids);
+                if(zone.elite?gates?.elites.has(zone.id):gates?.zones.has(zone.id)||gates?.doors.has(zone.id))return null;
+            }
+            if(mode==='dex'&&!ids.length&&!zone.elite)return null;
+            return 'zone';
+        }
+        startActivityKey(s,kind){
+            const {event,zone,tower,league}=s.adv;
+            if(kind==='raid'||kind==='event')return JSON.stringify([event?.id,event?.reg,event?.date,event?.started]);
+            if(kind==='zone')return JSON.stringify([zone?.id,zone?.elite,zone?.back]);
+            if(kind==='elite')return JSON.stringify([league?.reg,league?.tier,league?.back]);
+            return JSON.stringify([tower?.kind,s.candy?.run?.at,s.tower?.run?.at]);
+        }
+        leaveStartActivity(s,now){
+            const exit=this.startActivityExit;
+            if(!exit)return false;
+            const a=s.adv,active={raid:a.event?.raid,event:a.event&&!a.event.raid,zone:a.zone,elite:a.league,tower:a.tower&&a.tower.kind!=='candy',candy:a.tower?.kind==='candy'}[exit.kind];
+            if(!active){
+                this.startActivityExit=null;this.lastProgress=now;
+                this.log('上一项活动已退出，开始'+MODE_NAMES[this.settings.mode]);return false;
+            }
+            if(exit.key!==this.startActivityKey(s,exit.kind)){this.failTask('当前活动在切换期间发生变化，请重新开始所选任务');return true;}
+            if(now-exit.started>60000){this.failTask('游戏未确认退出上一项活动，请检查退出控件后重新开始');return true;}
+            this.lastProgress=now;this.telemetry.sample=null;
+            this.status='正在退出当前活动，准备'+MODE_NAMES[this.settings.mode];
+            if(exit.clicked)return true;
+            const d=this.driver,f=this.automation;
+            if(exit.kind==='raid')exit.clicked=d.leaveRaid('退出当前团体战，切换任务');
+            else if(exit.kind==='tower'||exit.kind==='candy'){
+                const candy=exit.kind==='candy';
+                if(f.raidPage(exit.kind)&&d.click($(candy?'#candy-root [data-cr-stop]':'#tower-root [data-tw-quit]'),'结束当前'+MODE_NAMES[exit.kind])){
+                    exit.clicked=true;
+                    f.own('confirm','.modal',{match:/(停止|结束|放弃|放棄|Arrêter|Stop|Quit|Terminer|Abandon|Give up)/i});
+                }
+            }else if(exit.kind==='event'){
+                if(d.nav('event')&&d.click($('#event-root [data-ev-leave]'),'退出当前活动')){
+                    exit.clicked=true;
+                    f.own('confirm','.modal',{match:/(退出|离开|離開|Quitter|Leave)/i});
+                }
+            }else{
+                if(a.pending?.type==='riddle'){
+                    if(d.nav('adventure'))d.click($('#arena [data-rd="pass"]'),'离开当前铭文');
+                    return true;
+                }
+                const back=CHAPTERS.get((a.zone||a.league).back??a.chapter);
+                const usable=c=>c&&!c.league&&c.id<=a.unlocked&&(exit.kind!=='elite'||c.id!==a.chapter);
+                const row=usable(back)?back:DATA.chapters.find(c=>c.reg===(back?.reg||currentRegion(s))&&usable(c));
+                if(row)exit.clicked=d.map(row,s,{leaveZone:true,leaveLabel:'返回'+row.name+'，切换任务'});
+            }
+            return true;
+        }
         start(resume=false,daily=false) {
             if (this.running) return;
             this.suspended=null;
@@ -446,17 +517,9 @@
                     if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');
                     if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
                 }
-                const resumeZone=cp?.activity?.zone?.id;
-                const resumeGates=resumeZone&&s.adv.zone?.id===resumeZone&&['dex','legend'].includes(mode)
-                    ?legendRequirements(s,mode==='dex'?this.settings.dexSpecies:selectedLegendIds(this.settings)):null;
-                const resumePrerequisite=resumeGates&&(s.adv.zone.elite?resumeGates.elites.has(resumeZone):resumeGates.zones.has(resumeZone)||resumeGates.doors.has(resumeZone));
-                const ownedFlow=mode==='tower'&&!!s.adv.tower&&s.adv.tower.kind!=='candy'||mode==='candy'&&s.adv.tower?.kind==='candy'||mode==='elite'&&!!s.adv.league||mode==='world'&&s.adv.zone?.id===493;
-                if(!cp?.manual&&((s.adv.event&&!s.adv.event.raid||s.adv.tower||s.adv.league||s.adv.zone?.elite&&mode!=='legend'&&!resumePrerequisite)&&!ownedFlow))throw new Error('当前活动与任务不匹配，请先结束该活动');
-                const rememberedRaid=cp?.activity?.raid;
-                const resumingRaid=s.adv.event?.raid&&rememberedRaid&&rememberedRaid.reg===(s.adv.event.reg||currentRegion(s))&&rememberedRaid.boss===s.adv.event.id&&(!rememberedRaid.date||rememberedRaid.date===(s.adv.event.date||parisDay()));
-                if(FLOW_MODES.has(mode)&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&!ownedFlow&&!cp?.manual&&!resumingRaid)throw new Error('请先结束当前战斗，再启动所选独立流程');
-                if (mode === 'legend' && s.adv.zone && !resumePrerequisite && !selectedLegendIds(this.settings).includes(s.adv.zone.id)) throw new Error('当前传说战与所选目标不同，请先结束当前战斗或调整目标');
-                if (mode === 'legend' && s.adv.zone?.elite && !resumePrerequisite && !this.settings.legendTier) throw new Error('当前为精英传说战，请先选择目标精英阶级');
+                const leave=this.activityToLeave(s,{...this.settings,mode},cp,daily||!!cp?.daily);
+                const exitKey=leave?this.startActivityKey(s,leave):null;
+                if(resume&&leave&&(cp?.activity?.exit?.kind!==leave||cp.activity.exit.key!==exitKey))throw new Error('发现上次任务以外的活动，请点击开始确认切换');
                 if (!(s.team || []).length && !s.adv.event?.raid && !s.adv.zone && !FLOW_MODES.has(mode) && !['legend','raid'].includes(mode) && (!this.settings.autoTeam || !(s.mons||[]).length)) {
                     const gift=this.driver.giftChoice?.(s);
                     if(!pendingRegionalStarter(s)&&!(gift?.reg&&gift.authorized))throw new Error('冒险队伍为空，请先配置队伍');
@@ -475,10 +538,11 @@
                 if(daily)this.settings=this.taskSettings(this.daily.base);
                 this.dailyCheckAt=this.dailyWindowCheckAt=0;
                 this.beginTask(s,cp,this.started);
-                if(mode==='legend'&&s.adv.zone)this.settings={...this.settings,legendId:s.adv.zone.id};
-                if(!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
+                if(leave)this.startActivityExit={kind:leave,key:exitKey,started:this.started};
+                if(!leave&&!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
                 this.log(this.daily?'开始通关日常 · '+(this.daily.job?MODE_NAMES[this.settings.mode]:'检查待办'):`开始${MODE_NAMES[this.settings.mode]}`);
-                if (s.adv.event?.raid) {
+                if(leave)this.status='已启动'+MODE_NAMES[this.settings.mode]+'，准备退出当前活动';
+                else if (s.adv.event?.raid) {
                     const raid = s.adv.event;
                     const remembered=cp?.activity?.raid,same=remembered?.reg===(raid.reg||currentRegion(s))&&remembered?.boss===raid.id&&(!remembered.date||remembered.date===(raid.date||parisDay()));
                     this.driver.raid = { reg: raid.reg || currentRegion(s), boss: raid.id, date: raid.date || parisDay(), started: same?clamp(remembered.started,1,Date.now(),Date.now()):Date.now(), adopted: true };
@@ -635,7 +699,7 @@
             this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
             this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
             this.driver.teamTask=null;this.teamCheck=null;
-            if(!this.adoptManualPreparation(s,now,true))return true;
+            if(!this.startActivityExit&&!this.adoptManualPreparation(s,now,true))return true;
             if(this.preparation?.phase==='train'){this.preparation.routeCheck=0;this.preparation.routeProfile=null;}
             if(this.raidReturn&&!raid?.raid){this.raidProbe=true;this.raidProbeStarted=now;}
             if (!raid?.raid) this.driver.raid = null;
@@ -720,6 +784,7 @@
             const duration=Math.max(0,now-this.hiddenAt);this.hiddenAt=null;
             if(this.daily?.job&&this.daily.job.kind!=='window')this.daily.job.started+=duration;
             if(this.dailyZoneExit?.started!=null)this.dailyZoneExit.started+=duration;
+            if(this.startActivityExit?.started!=null)this.startActivityExit.started+=duration;
             if(this.weatherFarm?.started!=null)this.weatherFarm.started+=duration;
             this.lastProgress=delayed?Math.min(now,this.lastProgress+duration):now;
             if(this.roamStarted!=null)this.roamStarted+=duration;
@@ -832,6 +897,9 @@
             // FX can cover an owned item card; finish the top overlay before using the card again.
             if ((this.automation.rankUI||this.automation.state.rankReceipt)&&this.automation.advanceTrainingRank(s,now))return;
             if (this.automation.evolutionUI(s,now) || this.automation.eggUI(s,now) || this.driver.animations(s) || this.driver.dismissInformation?.(s) || this.driver.receipt() || this.automation.finishDeparture(s,now) || this.automation.dialog(s) || this.driver.dialog(s)) return;
+            if(this.startActivityExit?.kind==='zone'&&s.adv.pending?.type==='riddle'&&visible($('#modal-root.open .rd-dlg'))){
+                this.driver.click($('#modal-root.open .rd-dlg .dc-x'),'关闭当前铭文，切换任务');return;
+            }
             if (this.driver.ownedDialog) return;
             if (visible($('#modal-root.open')) || visible($('#evt-pick'))) {
                 const blocker=$('#modal-root.open .modal')||$('#evt-pick')||$('#modal-root.open');
@@ -841,6 +909,7 @@
                 if (now - this.modalWaitSince > 120000) this.failTask('弹窗等待超时，请处理后重新开始'); return;
             }
             this.modalWaitSince=null;this.modalWaitNode=null;
+            if(this.leaveStartActivity(s,now))return;
             if(this.settings.mode==='elite'&&this.automation.exitDefeatedLeague(s,now))return;
             if(!s.team?.length&&pendingRegionalStarter(s)){
                 this.lastProgress=now;this.telemetry.sample=null;

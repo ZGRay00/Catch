@@ -531,25 +531,13 @@
             if(egg){this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
-            const plan=pensionPlan(s,cfg.breedId,cfg.breedShiny);
-            if(targetEggs.length&&(plan.missing||covered)){
+            const parents=p.mons?.map(slot=>slot?.mon).filter(Boolean)||[];
+            const hasParents=parents.some(mon=>mon.id===132)&&parents.some(mon=>breedableOffspring(s,mon)===cfg.breedId);
+            if(targetEggs.length&&(!hasParents||covered)){
                 const next=Math.min(...eggs.map(egg=>Number(egg.hatchAt)||now+60000));
                 this.wait(waitLabel,Math.max(now+1200,next));return;
             }
-            if(plan.missing){
-                const all=s.mons||[];
-                const parent=plan.parents.length ? null : all.find(m=>breedableOffspring(s,m)===cfg.breedId);
-                const ditto=plan.ditto ? null : all.find(m=>m.id===132);
-                const remove=[parent?.uid,ditto?.uid].filter(uid=>s.team?.includes(uid));
-                if(remove.length&&!cfg.autoTeam){this.wait('繁殖亲本在手动冒险队伍中，请先手动移出亲本后继续');return;}
-                if(remove.length){const rest=s.team.filter(uid=>!remove.includes(uid)),bench=all.filter(m=>!remove.includes(m.uid)&&!rest.includes(m.uid)&&teamEligible(s,m)).sort((a,b)=>b.level-a.level);while(rest.length<Math.min(6,s.team.length)&&bench.length)rest.push(bench.shift().uid);
-                    if(rest.length){d.teamTask={chapter:s.adv.chapter,members:[s.adv.chapter],uids:rest,started:now,attempts:0};this.wait('先将繁殖亲本移回PC');return;}}
-                if([parent?.uid,ditto?.uid].some(uid=>uid&&s.road?.includes(uid)&&!s.team?.includes(uid))){this.wait('亲本已移出计划队伍，等待下个治疗点更新行进队伍');return;}
-                this.fail(plan.missing);return;
-            }
-            const open=slots,desired=plan.desired.slice(0,Math.max(2,open));
-            if(open<2){
-                if(!cfg.pensionExpand){this.fail('繁殖需要至少两个寄养位；请解锁寄养位，或开启自动扩容并设置预算');return;}
+            if(!hasParents&&slots<2&&cfg.pensionExpand){
                 const blocked=e.budget.purchaseBlock();if(blocked){this.fail('寄养位扩容需要金币：'+blocked);return;}
                 const tab=$('#pen-tabs [data-pen-tab="res"]');if(enabled(tab)&&!tab.classList.contains('on')){d.click(tab,'打开寄养位');return;}
                 const buy=$('#pen-res .buy button');if(!visible(buy)){this.fail('当前寄养位尚未开放购买');return;}
@@ -560,20 +548,11 @@
                 if(!this.spentClick(buy,s,cost,0,'扩容寄养位')){delete this.state.pensionPurchase;e.persist();}
                 return;
             }
-            const missing=desired.find(m=>!plan.residents.some(r=>r.uid===m.uid));
-            if(missing){
-                const tab=$('#pen-tabs [data-pen-tab="res"]');if(enabled(tab)&&!tab.classList.contains('on')){d.click(tab,'打开寄养管理');return;}
-                const cards=this.pcSearch(missing.id,'#pen-grid');if(!cards)return;const card=cards.find(el=>el.dataset.uid===missing.uid);
-                if(!card){this.wait('等待亲本出现在寄养PC');return;}
-                if(plan.residents.length>=open){const out=plan.residents.find(m=>!desired.some(x=>x.uid===m.uid));
-                    if(!out){this.fail('寄养位不足，无法放入目标亲本');return;}
-                    if(!card.classList.contains('picked')){d.click(card,'选择待寄养的亲本');return;}
-                    d.click($$('#pen-res [data-uid]').find(el=>el.dataset.uid===out.uid),'替换非目标亲本');return;
-                }
-                d.click(card,missing.id===132?'寄养百变怪':'寄养目标亲本');return;
+            if(!hasParents){
+                const target=MONS.get(cfg.breedId)?.name||'目标物种';
+                this.wait(slots<2?'请解锁第二个寄养位，再手动寄养亲本':`请在培育屋手动寄养百变怪和可产${target}蛋的亲本`,now+15000);
+                return;
             }
-            const unwanted=plan.residents.find(m=>m.id!==132&&breedableOffspring(s,m)!==cfg.breedId);
-            if(unwanted){const el=$$('#pen-res [data-uid]').find(el=>el.dataset.uid===unwanted.uid);if(d.click(el,'取回不参与目标繁殖的成员'))this.own('confirm','.modal',{match:/(取回|取出|回到|返回|Récupérer|Retrieve|Return)/i});return;}
             const until=eggs.length?Math.min(...eggs.map(x=>x.hatchAt||now+60000)):now+60000;
             this.wait(`繁殖中 · 已孵化 ${this.state.hatched||0}/${cfg.breedShiny?'目标异色':cfg.breedGoal} · 孵化器 ${eggs.length} 枚`,until);
         }

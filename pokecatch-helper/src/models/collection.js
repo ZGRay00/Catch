@@ -207,7 +207,7 @@
             const plan=pensionPlan(s,id);
             const parentNames=[...new Set(parents.map(mon=>MONS.get(mon.id)?.name||mon.id))];
             result.push({kind:'breed',chapter:null,place:'培育屋',available:!plan.missing&&!full,
-                detail:parentNames.join('、')+' 可与百变怪培育此物种的蛋'+(plan.missing?' · '+plan.missing:full?' · 孵化器已满':' · 可使用繁殖任务')});
+                detail:parentNames.join('、')+' 可与百变怪培育此物种的蛋'+(plan.missing?' · '+plan.missing:full?' · 孵化器已满':' · 手动寄养后可使用繁殖任务收蛋')});
         }
         for(const zone of DATA.zones.filter(z=>!z.eliteOnly&&(z.forms||[z.id]).includes(id))){
             result.push({kind:'legend',chapter:null,place:zone.name,available:false,detail:(zone.condition||'传说战')+' · 开放状态以游戏地图为准'});

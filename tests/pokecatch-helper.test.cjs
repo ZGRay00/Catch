@@ -757,7 +757,7 @@ test('refresh preserves a previously adopted raid during an independent task but
     const next=new H.Engine(e.storage);next.loadAccount(s);next.schedule=()=>{};next.start(true);
     assert.equal(next.running,true,next.status);assert.equal(next.driver.raid.boss,14);assert.equal(next.settings.mode,'breed');assert.equal(next.manual,null);
     next.suspend();s.adv.event.id=35;e.storage.setItem('gachamon-save-v1',JSON.stringify(s));
-    const other=new H.Engine(e.storage);other.loadAccount(s);other.schedule=()=>{};other.start(true);assert.equal(other.running,false);assert.match(other.status,/结束当前战斗/);other.stop();
+    const other=new H.Engine(e.storage);other.loadAccount(s);other.schedule=()=>{};other.start(true);assert.equal(other.running,false);assert.match(other.status,/点击开始确认切换/);other.stop();
 });
 
 test('explicit stop cancels auto resume; stop-only and disabled handoff preferences are respected', async t => {
@@ -1095,12 +1095,35 @@ test('adopted raid works with an empty adventure party and exits cleanly at comp
     await e.step(); assert.equal(e.running, false); assert.match(e.status, /队伍为空/);
 });
 
-test('unsupported tower runs still stop before navigation and keep the save intact', t => {
+test('starting another task requests a native tower exit without changing the save', async t => {
     const s = state(); s.adv.tower = { kind: 'tower' };
-    const { e, actions } = runtime(t, s); e.running = false; e.schedule = () => {};
+    const { e, actions } = runtime(t, s,{mode:'money',raids:false});e.running=false;e.schedule=()=>{};
+    const quit={};document.querySelector=selector=>selector==='#tower-root [data-tw-quit]'?quit:null;
+    e.automation.raidPage=page=>{assert.equal(page,'tower');return true;};
+    e.driver.click=(button,label)=>{assert.equal(button,quit);assert.match(label,/结束当前对战塔/);actions.push('quit');return true;};
     const original = e.storage.getItem('gachamon-save-v1'); e.start();
-    assert.equal(e.running, false); assert.equal(actions.length, 0);
+    assert.equal(e.running,true,e.status);assert.deepEqual(actions,[]);
+    await e.step(e.started+1000);await e.step(e.started+2200);
+    assert.deepEqual(actions,['quit']);assert.equal(e.automation.owner.kind,'confirm');
     assert.equal(e.storage.getItem('gachamon-save-v1'), original);
+    e.stop();
+});
+
+test('starting a different legendary battle exits the old encounter once and preserves the selected target across reload',async t=>{
+    const s=state();s.adv.zone={id:145,elite:1,back:0};s.adv.battle={enemies:[{id:145,hp:100}]};
+    const {e,actions}=runtime(t,s,{mode:'legend',legendId:385,legendTier:0,raids:false});
+    e.running=false;e.schedule=()=>{};e.start();
+    assert.equal(e.running,true,e.status);assert.equal(e.settings.legendId,385);
+    assert.equal(e.progressSnapshot().activity.exit.kind,'zone');
+    e.suspend();
+    const resume=new H.Engine(e.storage);resume.loadAccount(s);resume.driver=e.driver;resume.schedule=()=>{};
+    resume.driver.map=(row,save,options)=>{assert.equal(row.id,0);assert.equal(options.leaveZone,true);actions.push('leave');return true;};
+    resume.start(true);assert.equal(resume.running,true,resume.status);
+    await resume.step(resume.started+1000);await resume.step(resume.started+2200);
+    assert.deepEqual(actions,['leave']);assert.equal(resume.settings.legendId,385);
+    s.adv.zone=null;s.adv.battle=null;resume.storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    assert.equal(resume.leaveStartActivity(resume.read(),resume.started+3000),false);
+    assert.equal(resume.startActivityExit,null);assert.equal(resume.settings.legendId,385);resume.stop();
 });
 
 test('data validation catches an empty export instead of silently excluding wild targets', () => {

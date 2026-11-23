@@ -86,6 +86,28 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
+        const boxDownload=await evaluate(`(async()=>{
+            const root=document.querySelector('#pokecatch-auto-helper').shadowRoot;
+            root.querySelector('[data-workspace="settings"]').click();
+            const button=root.querySelector('#export-box'),actions=mock.actions;
+            const before=localStorage.getItem('gachamon-save-v1');
+            const originalCreate=URL.createObjectURL,originalClick=HTMLAnchorElement.prototype.click;
+            let blob,filename;
+            try{
+                URL.createObjectURL=value=>{blob=value;return originalCreate.call(URL,value);};
+                HTMLAnchorElement.prototype.click=function(){filename=this.download;};
+                button.click();
+            }finally{URL.createObjectURL=originalCreate;HTMLAnchorElement.prototype.click=originalClick;}
+            return {filename,box:blob?JSON.parse(await blob.text()):null,disabled:button.disabled,
+                sameSave:before===localStorage.getItem('gachamon-save-v1'),sameActions:actions===mock.actions};
+        })()`);
+        assert.equal(boxDownload.disabled,false);
+        assert.equal(boxDownload.filename,'pokecatch-box.json');
+        assert.equal(boxDownload.box.format,'pokecatch-box');
+        assert.equal(boxDownload.box.members.length,2);
+        assert.deepEqual(boxDownload.box.activeTeam,['box-1','box-2']);
+        assert.equal(boxDownload.sameSave,true);
+        assert.equal(boxDownload.sameActions,true);
         const dexGuide=await evaluate(`(async()=>{
             const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,e=__pcTest.engine;
             const workspace=id=>root.querySelector('[data-workspace="'+id+'"]').click();

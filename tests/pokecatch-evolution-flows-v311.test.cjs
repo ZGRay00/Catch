@@ -76,6 +76,42 @@ test('disabled evolution support never opens or evolves an eligible member',t=>{
     const f=fixture(t,{autoEvolve:false});assert.equal(f.service(),false);assert.deepEqual(f.actions,[]);assert.equal(f.s.mons[0].id,2);
 });
 
+test('shiny party and reserve members never start automatic evolution',t=>{
+    const f=fixture(t);
+    f.s.mons[0].shiny=true;
+    f.s.mons.push({uid:'shiny-reserve',id:10,level:60,reg:'kanto',shiny:true});
+    f.save();
+    assert.equal(f.service(),false);assert.deepEqual(f.actions,[]);
+    assert.equal(f.e.evolutionSearch,undefined);
+});
+
+test('an open automatic card is closed without clicking evolution if the member is shiny',async t=>{
+    const f=fixture(t);
+    await f.until(()=>f.e.automation.owner?.kind==='evolution');
+    assert.equal(f.e.automation.owner?.uid,'leaf');
+    f.s.mons[0].shiny=true;f.save();
+    await f.tick();assert.equal(f.evolveClicks().length,0);assert.equal(f.ui.modal,null);
+    await f.until(()=>!f.e.automation.state.evolution);
+    assert.equal(f.s.mons[0].id,2);
+});
+
+test('an inherited pending shiny evolution never gets automatic animation clicks',async t=>{
+    const f=fixture(t,{}, {deferCommit:true});
+    await f.until(()=>f.evolveClicks().length===1);
+    f.s.mons[0].shiny=true;f.save();
+    const overlay={isConnected:true,hidden:false,closest:()=>null,getClientRects:()=>[{}]};
+    const click=f.e.driver.click;
+    f.e.driver.click=()=>assert.fail('clicked a protected evolution animation');
+    f.e.driver.animations=s=>H.DOMDriver.prototype.animations.call(f.e.driver,s);
+    const query=document.querySelector,queryAll=document.querySelectorAll;
+    document.querySelector=selector=>selector==='.lk-fx.lk-evo'?overlay:query(selector);
+    document.querySelectorAll=selector=>selector==='.lk-fx.lk-evo'?[overlay]:queryAll(selector);
+    await f.tick();assert.match(f.e.status,/手动处理进化动画/);
+    document.querySelector=query;document.querySelectorAll=queryAll;f.e.driver.click=click;
+    await f.until(()=>!f.e.automation.state.evolution);
+    assert.equal(f.evolveClicks().length,1);assert.equal(f.s.mons[0].id,2);
+});
+
 function reserveFixture(t){
     const f=fixture(t);
     f.s.mons=Array.from({length:30},(_,i)=>({uid:'pc'+i,id:18,level:5,reg:'kanto'}));

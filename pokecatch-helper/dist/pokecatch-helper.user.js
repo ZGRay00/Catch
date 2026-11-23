@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      6.3.7
+// @version      6.3.10
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '6.3.7', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '6.3.10', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -2722,10 +2722,50 @@
         if (!MONS.has(mon.id) || !mon.uid || String(mon.uid).startsWith('t:') || String(mon.uid).startsWith('c:')) return false;
         return !s.link || (reg === s.link.to) === (monRegion(mon) === s.link.to);
     }
+
+    function boxSnapshot(s,settings=DEFAULTS,now=Date.now(),gameBuild){
+        if(!s?.adv||!Array.isArray(s.mons))throw new Error('请先进入游戏并加载盒子');
+        const stats=['atk','def','spa','spd','spe'],number=value=>Number.isFinite(value)?value:undefined;
+        const refs=new Map(),members=[];
+        for(const mon of s.mons){
+            if(!mon||typeof mon.uid!=='string'||!mon.uid||!Number.isSafeInteger(mon.id)||mon.id<1||refs.has(mon.uid))continue;
+            const uid='box-'+(members.length+1),model=MONS.get(mon.id);
+            refs.set(mon.uid,uid);
+            const up=Object.fromEntries(stats.filter(key=>Number.isFinite(mon.taste?.up?.[key])).map(key=>[key,mon.taste.up[key]]));
+            const favoriteStat=stats.includes(mon.taste?.h)?mon.taste.h:undefined;
+            members.push({
+                uid,id:mon.id,name:model?.name,types:model?.types||[],reg:monRegion(mon),
+                level:number(mon.level),xp:number(mon.xp),rank:number(mon.rank)??0,shiny:!!mon.shiny,favorite:!!mon.fav,
+                statMult:number(mon.statMult),hpMult:number(mon.hpMult),damageMult:number(mon.damageMult),
+                taste:favoriteStat||Object.keys(up).length?{h:favoriteStat,up}:undefined,
+                bannedMoves:Array.isArray(mon.ban)?[...new Set(mon.ban.filter(key=>typeof key==='string'&&Object.hasOwn(DATA.combat.moves,key)))]:[],
+                levelCap:trainingCap(s,mon),
+            });
+        }
+        const region=key=>DATA.regions.find(entry=>entry.key===key)?.key;
+        const open=new Set(['kanto',currentRegion(s),...(Array.isArray(s.travel?.to)?s.travel.to:[])]);
+        const lookup=uids=>Array.isArray(uids)?uids.map(uid=>refs.get(uid)).filter(Boolean):[];
+        const team=lookup(s.team),road=lookup(s.road);
+        const map=id=>{const chapter=CHAPTERS.get(id);return chapter?{id:chapter.id,name:chapter.name,region:chapter.reg}:null;};
+        const link=s.link,to=region(link?.to),side=['from','to'].includes(link?.side)?link.side:undefined;
+        const cfg=normalizeSettings(settings);
+        return {
+            format:'pokecatch-box',schema:1,helperVersion:VERSION,dataBuild:DATA.build,
+            gameBuild:typeof gameBuild==='string'&&/^[a-f0-9]{10}$/i.test(gameBuild)?gameBuild:undefined,
+            exportedAt:new Date(now).toISOString(),
+            progress:{chapter:map(s.adv.chapter),unlocked:map(s.adv.unlocked),
+                regions:DATA.regions.filter(entry=>open.has(entry.key)).map(entry=>entry.key),walletRegion:economicRegion(s)},
+            rules:{nativeAutoSwitch:s.autoSwitch!==false,mode:cfg.mode,autoTeam:cfg.autoTeam,activeSwitch:cfg.activeSwitch,
+                regionScope:cfg.region,gameSpeed:number(s.adv.speed),helperSpeed:cfg.speed},
+            rosterLink:to&&side?{from:region(link.from),to,side,storedTeam:lookup(link.stash?.team)}:null,
+            team,activeTeam:road.length?road:team,buddy:refs.get(s.buddy?.uid)??null,members,
+        };
+    }
     const EVOLUTION_DATA = {"build":"4b690e533c","checked":"2026-11-22","rules":{"1":[{"to":2,"level":16}],"2":[{"to":3,"level":32}],"4":[{"to":5,"level":16}],"5":[{"to":6,"level":36}],"7":[{"to":8,"level":16}],"8":[{"to":9,"level":36}],"10":[{"to":11,"level":7}],"11":[{"to":12,"level":10}],"13":[{"to":14,"level":7}],"14":[{"to":15,"level":10}],"16":[{"to":17,"level":18}],"17":[{"to":18,"level":36}],"19":[{"to":20,"level":20}],"21":[{"to":22,"level":20}],"23":[{"to":24,"level":22}],"25":[{"to":26,"item":"thunder-stone"}],"27":[{"to":28,"level":22}],"29":[{"to":30,"level":16}],"30":[{"to":31,"item":"moon-stone"}],"32":[{"to":33,"level":16}],"33":[{"to":34,"item":"moon-stone"}],"35":[{"to":36,"item":"moon-stone"}],"37":[{"to":38,"item":"fire-stone"}],"39":[{"to":40,"item":"moon-stone"}],"41":[{"to":42,"level":22}],"42":[{"to":169,"item":"soothe-bell"}],"43":[{"to":44,"level":21}],"44":[{"to":45,"item":"leaf-stone"},{"to":182,"item":"sun-stone"}],"46":[{"to":47,"level":24}],"48":[{"to":49,"level":31}],"50":[{"to":51,"level":26}],"52":[{"to":53,"level":28}],"54":[{"to":55,"level":33}],"56":[{"to":57,"level":28}],"58":[{"to":59,"item":"fire-stone"}],"60":[{"to":61,"level":25}],"61":[{"to":62,"item":"water-stone"},{"to":186,"item":"kings-rock"}],"63":[{"to":64,"level":16}],"64":[{"to":65,"item":"link-cable"}],"66":[{"to":67,"level":28}],"67":[{"to":68,"item":"link-cable"}],"69":[{"to":70,"level":21}],"70":[{"to":71,"item":"leaf-stone"}],"72":[{"to":73,"level":30}],"74":[{"to":75,"level":25}],"75":[{"to":76,"item":"link-cable"}],"77":[{"to":78,"level":40}],"79":[{"to":80,"level":37},{"to":199,"item":"kings-rock"}],"81":[{"to":82,"level":30}],"82":[{"to":462,"item":"thunder-stone"}],"84":[{"to":85,"level":31}],"86":[{"to":87,"level":34}],"88":[{"to":89,"level":38}],"90":[{"to":91,"item":"water-stone"}],"92":[{"to":93,"level":25}],"93":[{"to":94,"item":"link-cable"}],"95":[{"to":208,"item":"metal-coat"}],"96":[{"to":97,"level":26}],"98":[{"to":99,"level":28}],"100":[{"to":101,"level":30}],"102":[{"to":103,"item":"leaf-stone"}],"104":[{"to":105,"level":28}],"108":[{"to":463,"level":33}],"109":[{"to":110,"level":35}],"111":[{"to":112,"level":42}],"112":[{"to":464,"item":"protector"}],"113":[{"to":242,"item":"soothe-bell"}],"114":[{"to":465,"level":33}],"116":[{"to":117,"level":32}],"117":[{"to":230,"item":"dragon-scale"}],"118":[{"to":119,"level":33}],"120":[{"to":121,"item":"water-stone"}],"123":[{"to":212,"item":"metal-coat"}],"125":[{"to":466,"item":"electirizer"}],"126":[{"to":467,"item":"magmarizer"}],"129":[{"to":130,"level":20}],"133":[{"to":134,"item":"water-stone"},{"to":135,"item":"thunder-stone"},{"to":136,"item":"fire-stone"},{"to":196,"item":"soothe-bell"},{"to":197,"item":"soothe-bell"},{"to":470,"item":"leaf-stone"},{"to":471,"item":"ice-stone"}],"138":[{"to":139,"level":40}],"140":[{"to":141,"level":40}],"147":[{"to":148,"level":30}],"148":[{"to":149,"level":55}],"152":[{"to":153,"level":16}],"153":[{"to":154,"level":32}],"155":[{"to":156,"level":14}],"156":[{"to":157,"level":36}],"158":[{"to":159,"level":18}],"159":[{"to":160,"level":30}],"161":[{"to":162,"level":15}],"163":[{"to":164,"level":20}],"165":[{"to":166,"level":18}],"167":[{"to":168,"level":22}],"170":[{"to":171,"level":27}],"172":[{"to":25,"item":"soothe-bell"}],"173":[{"to":35,"item":"soothe-bell"}],"174":[{"to":39,"item":"soothe-bell"}],"175":[{"to":176,"item":"soothe-bell"}],"176":[{"to":468,"item":"shiny-stone"}],"177":[{"to":178,"level":25}],"179":[{"to":180,"level":15}],"180":[{"to":181,"level":30}],"183":[{"to":184,"level":18}],"187":[{"to":188,"level":18}],"188":[{"to":189,"level":27}],"190":[{"to":424,"level":32}],"191":[{"to":192,"item":"sun-stone"}],"193":[{"to":469,"level":33}],"194":[{"to":195,"level":20}],"198":[{"to":430,"item":"dusk-stone"}],"200":[{"to":429,"item":"dusk-stone"}],"204":[{"to":205,"level":31}],"207":[{"to":472,"item":"razor-fang"}],"209":[{"to":210,"level":23}],"215":[{"to":461,"item":"razor-claw"}],"216":[{"to":217,"level":30}],"218":[{"to":219,"level":38}],"220":[{"to":221,"level":33}],"221":[{"to":473,"level":40}],"223":[{"to":224,"level":25}],"228":[{"to":229,"level":24}],"231":[{"to":232,"level":25}],"236":[{"to":106,"level":20},{"to":107,"level":20},{"to":237,"level":20}],"238":[{"to":124,"level":30}],"239":[{"to":125,"level":30}],"240":[{"to":126,"level":30}],"246":[{"to":247,"level":30}],"247":[{"to":248,"level":55}],"252":[{"to":253,"level":16}],"253":[{"to":254,"level":36}],"255":[{"to":256,"level":16}],"256":[{"to":257,"level":36}],"258":[{"to":259,"level":16}],"259":[{"to":260,"level":36}],"261":[{"to":262,"level":18}],"263":[{"to":264,"level":20}],"265":[{"to":266,"level":7},{"to":268,"level":7}],"266":[{"to":267,"level":10}],"268":[{"to":269,"level":10}],"270":[{"to":271,"level":14}],"271":[{"to":272,"item":"water-stone"}],"273":[{"to":274,"level":14}],"274":[{"to":275,"item":"leaf-stone"}],"276":[{"to":277,"level":22}],"278":[{"to":279,"level":25}],"280":[{"to":281,"level":20}],"281":[{"to":282,"level":30},{"to":475,"item":"dawn-stone"}],"283":[{"to":284,"level":22}],"285":[{"to":286,"level":23}],"287":[{"to":288,"level":18}],"288":[{"to":289,"level":36}],"290":[{"to":291,"level":20},{"to":292,"item":"shed-shell"}],"293":[{"to":294,"level":20}],"294":[{"to":295,"level":40}],"296":[{"to":297,"level":24}],"298":[{"to":183,"item":"soothe-bell"}],"299":[{"to":476,"item":"thunder-stone"}],"300":[{"to":301,"item":"moon-stone"}],"304":[{"to":305,"level":32}],"305":[{"to":306,"level":42}],"307":[{"to":308,"level":37}],"309":[{"to":310,"level":26}],"315":[{"to":407,"item":"shiny-stone"}],"316":[{"to":317,"level":26}],"318":[{"to":319,"level":30}],"320":[{"to":321,"level":40}],"322":[{"to":323,"level":33}],"325":[{"to":326,"level":32}],"328":[{"to":329,"level":35}],"329":[{"to":330,"level":45}],"331":[{"to":332,"level":32}],"333":[{"to":334,"level":35}],"339":[{"to":340,"level":30}],"341":[{"to":342,"level":30}],"343":[{"to":344,"level":36}],"345":[{"to":346,"level":40}],"347":[{"to":348,"level":40}],"349":[{"to":350,"item":"prism-scale"}],"353":[{"to":354,"level":37}],"355":[{"to":356,"level":37}],"356":[{"to":477,"item":"reaper-cloth"}],"360":[{"to":202,"level":15}],"361":[{"to":362,"level":42},{"to":478,"item":"dawn-stone"}],"363":[{"to":364,"level":32}],"364":[{"to":365,"level":44}],"366":[{"to":367,"item":"deep-sea-tooth"},{"to":368,"item":"deep-sea-scale"}],"371":[{"to":372,"level":30}],"372":[{"to":373,"level":50}],"374":[{"to":375,"level":20}],"375":[{"to":376,"level":45}],"387":[{"to":388,"level":18}],"388":[{"to":389,"level":32}],"390":[{"to":391,"level":14}],"391":[{"to":392,"level":36}],"393":[{"to":394,"level":16}],"394":[{"to":395,"level":36}],"396":[{"to":397,"level":14}],"397":[{"to":398,"level":34}],"399":[{"to":400,"level":15}],"401":[{"to":402,"level":10}],"403":[{"to":404,"level":15}],"404":[{"to":405,"level":30}],"406":[{"to":315,"item":"soothe-bell"}],"408":[{"to":409,"level":30}],"410":[{"to":411,"level":30}],"412":[{"to":413,"level":20},{"to":414,"level":20}],"415":[{"to":416,"level":21}],"418":[{"to":419,"level":26}],"420":[{"to":421,"level":25}],"422":[{"to":423,"level":30}],"425":[{"to":426,"level":28}],"427":[{"to":428,"item":"soothe-bell"}],"431":[{"to":432,"level":38}],"433":[{"to":358,"item":"soothe-bell"}],"434":[{"to":435,"level":34}],"436":[{"to":437,"level":33}],"438":[{"to":185,"level":17}],"439":[{"to":122,"level":18}],"440":[{"to":113,"item":"oval-stone"}],"443":[{"to":444,"level":24}],"444":[{"to":445,"level":48}],"446":[{"to":143,"item":"soothe-bell"}],"447":[{"to":448,"item":"soothe-bell"}],"449":[{"to":450,"level":34}],"451":[{"to":452,"level":40}],"453":[{"to":454,"level":37}],"456":[{"to":457,"level":31}],"458":[{"to":226,"level":1,"party":223}],"459":[{"to":460,"level":40}],"495":[{"to":496,"level":17}],"496":[{"to":497,"level":36}],"498":[{"to":499,"level":17}],"499":[{"to":500,"level":36}],"501":[{"to":502,"level":17}],"502":[{"to":503,"level":36}],"504":[{"to":505,"level":20}],"506":[{"to":507,"level":16}],"507":[{"to":508,"level":32}],"509":[{"to":510,"level":20}],"511":[{"to":512,"item":"leaf-stone"}],"513":[{"to":514,"item":"fire-stone"}],"515":[{"to":516,"item":"water-stone"}],"517":[{"to":518,"item":"moon-stone"}],"519":[{"to":520,"level":21}],"520":[{"to":521,"level":32}],"522":[{"to":523,"level":27}],"524":[{"to":525,"level":25}],"525":[{"to":526,"item":"link-cable"}],"527":[{"to":528,"item":"soothe-bell"}],"529":[{"to":530,"level":31}],"532":[{"to":533,"level":25}],"533":[{"to":534,"item":"link-cable"}],"535":[{"to":536,"level":25}],"536":[{"to":537,"level":36}],"540":[{"to":541,"level":20}],"541":[{"to":542,"item":"soothe-bell"}],"543":[{"to":544,"level":22}],"544":[{"to":545,"level":30}],"546":[{"to":547,"item":"sun-stone"}],"548":[{"to":549,"item":"sun-stone"}],"551":[{"to":552,"level":29}],"552":[{"to":553,"level":40}],"554":[{"to":555,"level":35}],"557":[{"to":558,"level":34}],"559":[{"to":560,"level":39}],"562":[{"to":563,"level":34}],"564":[{"to":565,"level":37}],"566":[{"to":567,"level":37}],"568":[{"to":569,"level":36}],"570":[{"to":571,"level":30}],"572":[{"to":573,"item":"shiny-stone"}],"574":[{"to":575,"level":32}],"575":[{"to":576,"level":41}],"577":[{"to":578,"level":32}],"578":[{"to":579,"level":41}],"580":[{"to":581,"level":35}],"582":[{"to":583,"level":35}],"583":[{"to":584,"level":47}],"585":[{"to":586,"level":34}],"588":[{"to":589,"level":1,"party":616}],"590":[{"to":591,"level":39}],"592":[{"to":593,"level":40}],"595":[{"to":596,"level":36}],"597":[{"to":598,"level":40}],"599":[{"to":600,"level":38}],"600":[{"to":601,"level":49}],"602":[{"to":603,"level":39}],"603":[{"to":604,"item":"thunder-stone"}],"605":[{"to":606,"level":42}],"607":[{"to":608,"level":41}],"608":[{"to":609,"item":"dusk-stone"}],"610":[{"to":611,"level":38}],"611":[{"to":612,"level":48}],"613":[{"to":614,"level":37}],"616":[{"to":617,"level":1,"party":588}],"619":[{"to":620,"level":50}],"622":[{"to":623,"level":43}],"624":[{"to":625,"level":52}],"627":[{"to":628,"level":54}],"629":[{"to":630,"level":54}],"633":[{"to":634,"level":50}],"634":[{"to":635,"level":64}],"636":[{"to":637,"level":59}],"41201":[{"to":41301,"level":20},{"to":414,"level":20}],"41202":[{"to":41302,"level":20},{"to":414,"level":20}],"42201":[{"to":42301,"level":30}],"58501":[{"to":58601,"level":34}],"58502":[{"to":58602,"level":34}],"58503":[{"to":58603,"level":34}]},"time":{"113":"day","196":"day","197":"night","315":"day","358":"night","413":"day","414":"night","448":"day","461":"night","472":"night","41301":"day","41302":"day"}};
 
     const EVOLUTION_ITEMS = new Set(Object.values(EVOLUTION_DATA.rules).flat().map(rule => rule.item).filter(Boolean));
     const EVOLUTION_SHOP = new Map(DATA.automation.shop.filter(row => EVOLUTION_ITEMS.has(row.id)).map(row => [row.id, row]));
+    const SHINY_EVOLUTION_MANUAL = '异色成员仅可手动进化';
 
     function evolutionShopLocked(s, row) {
         if (row.once && !s.adv?.gifts?.[row.once]) return true;
@@ -2772,6 +2812,7 @@
         const reject=reason=>({rule:null,reason,level});
         if(!mon||!MONS.has(mon.id)||!mon.uid)return reject('成员数据不可用');
         if(String(mon.uid).startsWith('t:')||String(mon.uid).startsWith('c:'))return reject('活动克隆保持入场时形态');
+        if(mon.shiny&&!requestedRule)return reject(SHINY_EVOLUTION_MANUAL);
         if(Math.floor(Number(mon.rank)||0)>0)return reject('已升阶成员不能进化');
         const rules=EVOLUTION_DATA.rules[mon.id]||[];
         let rule=requestedRule;
@@ -2833,6 +2874,7 @@
         const label=MONS.get(mon.id)?.name||String(mon.id);
         const levels=mon.level+'/'+target.goal;
         const edges=EVOLUTION_DATA.rules[mon.id]||[];
+        if(mon.shiny&&edges.length)return label+' '+levels+'（'+SHINY_EVOLUTION_MANUAL+'）';
         if(!edges.some(edge=>edge.level>0&&!edge.item&&mon.level>=edge.level)){
             const next=engine.settings.autoEvolve&&edges.length?projectEvolution(s,mon,target.goal,now):null;
             const detail=next?.evolutionItemDetail||(!next&&evolutionStatus(s,mon,{now}).itemDetail);
@@ -2958,6 +3000,15 @@
             speciesOffense.set(model,entries);
         }
         return entries;
+    }
+    function reserveStrength(mon){
+        const stats=effectiveStats(mon);
+        let offense=0;
+        for(const {level,move,stab} of damagingMoves(MONS.get(mon.id))){
+            if(level>mon.level)continue;
+            offense=Math.max(offense,stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab/100);
+        }
+        return Math.sqrt(offense*stats.hp*Math.sqrt(stats.def*stats.spd));
     }
     function defensiveTypes(model){
         let table=speciesDefense.get(model);
@@ -3454,9 +3505,16 @@
         }
         const chosen = [], used = new Set();
         const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
+        const reserveScores=new Map();
+        const reserveScore=mon=>{
+            if(!reserveScores.has(mon.uid))reserveScores.set(mon.uid,reserveStrength(mon));
+            return reserveScores.get(mon.uid);
+        };
+        const reserveTotal=team=>team.reduce((sum,mon)=>sum+reserveScore(mon),0);
         // Only training projections carry this flag. Resolve equal combat scores
         // before falling back to the existing party order and stable UID.
         const prefer=(a,b)=>Number(!!a.evolutionItemLocked)-Number(!!b.evolutionItemLocked)||
+            (objective==='money'?reserveScore(b)-reserveScore(a):0)||
             (partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
         for (const uid of pinned) { const mon=pool.find(m=>m.uid===uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
         // Copies with the same healed combat profile and training cost occupy the
@@ -3495,7 +3553,9 @@
             if(candidates.length>64&&fallback.length===size){
                 for(const mon of fallback)yield* computeValues(mon,true);
                 const base=utility(fallback);let best=base;
-                for(const mon of candidates.filter(m=>!seen.has(identity(m))).slice(0,6)){
+                const extras=candidates.filter(m=>!seen.has(identity(m)));
+                if(objective==='money')extras.sort(prefer);
+                for(const mon of extras.slice(0,6)){
                     yield* computeValues(mon,true);
                     for(let i=0;i<size;i++){
                         if(protectedUids.has(fallback[i].uid))continue;
@@ -3581,7 +3641,8 @@
                 for(const mon of candidates){
                     if(taken.has(identity(mon))||underground&&rest.some(other=>undergroundApart(mon,other)))continue;
                     const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
-                    if(value>score+1e-8||Math.abs(value-score)<1e-8&&best.evolutionItemLocked&&!mon.evolutionItemLocked){best=mon;score=value;}
+                    if(value>score+1e-8||Math.abs(value-score)<1e-8&&
+                        (best.evolutionItemLocked&&!mon.evolutionItemLocked||objective==='money'&&prefer(mon,best)<0)){best=mon;score=value;}
                     if(sliced)yield;
                 }
                 if(best.uid!==chosen[slot].uid){chosen[slot]=best;improved=true;if(context.progressive)yield checkpoint();}
@@ -3625,7 +3686,9 @@
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
         const fewerWipes=farming&&proposed.wipes===0&&previous.wipes>0&&next>=now;
         const fasterFarm=farming&&next>now*1.035+.005&&proposed.turns<previous.turns*.95&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths;
-        const improve = next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm;
+        const strongerReserves=objective==='money'&&changed&&next>=now-1e-8&&proposed.turns<=previous.turns+1e-8&&
+            proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths&&reserveTotal(chosen)>reserveTotal(party)*1.15;
+        const improve = next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm||strongerReserves;
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
         const fasterFarmOrder=farming&&next>now*1.0125+.001&&proposed.turns<previous.turns&&proposed.wipes<=previous.wipes;
@@ -3638,7 +3701,7 @@
             const delta=base>0?Math.round((base-without)/base*100):0;
             backup=`同属性队员${MONS.get(sharedType.id).name} · 移除后模型分${delta>0?'降低 '+delta+'%':delta<0?'提高 '+(-delta)+'%':'接近不变'}`;
         }
-        return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
+        return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':strongerReserves?'保留刷钱效率并增强替补':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
     }
     const LEGEND_ELITE = {"bundle":"0a5492aada","size":6,"level":100,"legendLimit":1,"apart":[[643,[646,64602]],[644,[646,64601]]],"enemyHp":4.5,"enemyDamage":1,"rage":8,"counter":0.3,"burst":1,"resist":[0.92,0.84,0.76,0.68,0.6],"hurt":[44,48,52,56,60],"dotTurns":4,"dot":{"ember":["burn",0.1],"fire-punch":["burn",0.1],"flamethrower":["burn",0.1],"fire-blast":["burn",0.1],"flame-wheel":["burn",0.1],"sacred-fire":["burn",0.5],"fire-fang":["burn",0.1],"lava-plume":["burn",0.3],"heat-wave":["burn",0.1],"flare-blitz":["burn",0.1],"blaze-kick":["burn",0.1],"inferno":["burn",1],"scald":["burn",0.3],"searing-shot":["burn",0.3],"scorching-sands":["burn",0.3],"ice-burn":["burn",0.3],"blue-flare":["burn",0.2],"sandsear-storm":["burn",0.2],"poison-jab":["poison",0.3],"poison-fang":["poison",0.3],"cross-poison":["poison",0.1],"gunk-shot":["poison",0.3],"sludge-wave":["poison",0.1],"poison-tail":["poison",0.1],"poison-sting":["poison",0.3],"sludge":["poison",0.3],"sludge-bomb":["poison",0.3],"smog":["poison",0.3],"twineedle":["poison",0.2]},"setupChance":0.3,"statusMoves":{"will-o-wisp":["burn",0.7,"fire"],"toxic":["poison",0.7,"poison"],"sleep-powder":["sleep",0.7,"grass"],"spore":["sleep",1,"grass"],"hypnosis":["sleep",0.6,"psychic"],"sing":["sleep",0.55,"normal"],"lovely-kiss":["sleep",0.7,"normal"],"stun-spore":["paralysis",0.7,"grass"],"thunder-wave":["paralysis",0.7,"electric"],"glare":["paralysis",0.7,"normal"],"poison-powder":["poison",0.7,"poison"],"poison-gas":["poison",0.7,"poison"],"confuse-ray":["confusion",0.7,"ghost"],"supersonic":["confusion",0.55,"normal"],"sweet-kiss":["confusion",0.7,"fairy"]},"statusLearn":{"1":[[30,"poison-powder"],[34,"sleep-powder"]],"2":[[30,"poison-powder"],[35,"sleep-powder"]],"3":[[30,"poison-powder"],[35,"sleep-powder"]],"12":[[5,"supersonic"],[18,"poison-powder"],[22,"stun-spore"],[27,"sleep-powder"]],"23":[[14,"glare"],[38,"toxic"]],"24":[[15,"glare"],[43,"toxic"]],"29":[[43,"toxic"]],"30":[[50,"toxic"]],"31":[[79,"toxic"]],"32":[[40,"toxic"]],"33":[[50,"toxic"]],"34":[[69,"toxic"]],"37":[[29,"confuse-ray"],[38,"will-o-wisp"]],"38":[[29,"confuse-ray"],[37,"will-o-wisp"]],"41":[[5,"supersonic"],[28,"toxic"],[53,"confuse-ray"]],"42":[[6,"supersonic"],[28,"toxic"],[55,"confuse-ray"]],"43":[[16,"poison-powder"],[30,"stun-spore"],[34,"sleep-powder"],[44,"toxic"]],"44":[[17,"poison-powder"],[31,"stun-spore"],[35,"sleep-powder"],[44,"toxic"]],"45":[[17,"poison-powder"],[30,"stun-spore"],[39,"sleep-powder"],[48,"toxic"]],"46":[[5,"sleep-powder"],[9,"poison-powder"],[14,"stun-spore"],[45,"spore"]],"47":[[6,"sleep-powder"],[10,"poison-powder"],[14,"stun-spore"],[46,"spore"]],"48":[[11,"supersonic"],[19,"poison-powder"],[47,"stun-spore"],[60,"sleep-powder"]],"49":[[10,"supersonic"],[19,"poison-powder"],[42,"stun-spore"],[55,"sleep-powder"]],"69":[[15,"sleep-powder"],[42,"poison-powder"],[46,"stun-spore"]],"70":[[15,"sleep-powder"],[42,"poison-powder"],[46,"stun-spore"]],"71":[[15,"sleep-powder"],[42,"poison-powder"],[47,"stun-spore"]],"88":[[5,"poison-gas"],[33,"toxic"]],"89":[[6,"poison-gas"],[34,"toxic"]],"92":[[10,"confuse-ray"],[15,"hypnosis"],[19,"poison-gas"],[28,"will-o-wisp"],[41,"toxic"]],"93":[[9,"confuse-ray"],[14,"hypnosis"],[19,"poison-gas"],[32,"will-o-wisp"],[45,"toxic"]],"94":[[10,"confuse-ray"],[14,"hypnosis"],[19,"poison-gas"],[32,"will-o-wisp"],[46,"toxic"]],"96":[[5,"hypnosis"],[19,"poison-gas"]],"97":[[5,"hypnosis"],[19,"poison-gas"]],"102":[[9,"hypnosis"],[34,"stun-spore"],[38,"poison-powder"],[47,"sleep-powder"]],"103":[[9,"hypnosis"],[35,"stun-spore"],[39,"poison-powder"],[43,"sleep-powder"]],"109":[[6,"poison-gas"],[38,"toxic"]],"110":[[6,"poison-gas"],[42,"toxic"]],"114":[[11,"stun-spore"],[29,"poison-powder"],[46,"sleep-powder"]],"152":[[11,"poison-powder"]],"153":[[11,"poison-powder"]],"154":[[10,"poison-powder"]],"169":[[5,"supersonic"],[28,"toxic"],[59,"confuse-ray"]],"182":[[17,"poison-powder"],[30,"stun-spore"],[35,"sleep-powder"],[43,"toxic"]],"187":[[15,"poison-powder"],[19,"stun-spore"],[23,"sleep-powder"]],"188":[[19,"poison-powder"],[24,"stun-spore"],[28,"sleep-powder"]],"189":[[19,"poison-powder"],[24,"stun-spore"],[29,"sleep-powder"]],"194":[[47,"toxic"]],"195":[[46,"toxic"]],"211":[[55,"toxic"]],"269":[[24,"poison-powder"],[42,"toxic"]],"285":[[11,"stun-spore"],[29,"poison-powder"],[42,"toxic"],[51,"spore"]],"286":[[10,"stun-spore"],[41,"poison-powder"],[59,"toxic"],[69,"spore"]],"315":[[5,"stun-spore"],[40,"toxic"]],"316":[[8,"poison-gas"],[25,"toxic"]],"317":[[10,"poison-gas"],[25,"toxic"]],"353":[[16,"will-o-wisp"]],"354":[[16,"will-o-wisp"]],"355":[[13,"confuse-ray"],[26,"will-o-wisp"]],"356":[[13,"confuse-ray"],[26,"will-o-wisp"]],"407":[[6,"stun-spore"],[40,"toxic"]],"414":[[37,"poison-powder"]],"416":[[19,"confuse-ray"],[64,"toxic"]],"434":[[5,"poison-gas"],[41,"toxic"]],"435":[[6,"poison-gas"],[42,"toxic"]],"451":[[39,"toxic"]],"452":[[43,"toxic"]],"453":[[69,"toxic"]],"454":[[74,"toxic"]],"465":[[10,"stun-spore"],[32,"poison-powder"],[59,"sleep-powder"]],"477":[[12,"confuse-ray"],[26,"will-o-wisp"]],"478":[[52,"confuse-ray"],[62,"will-o-wisp"]],"543":[[47,"toxic"]],"544":[[48,"toxic"]],"545":[[52,"toxic"]],"546":[[10,"stun-spore"],[28,"poison-powder"]],"547":[[9,"stun-spore"],[32,"poison-powder"]],"562":[[16,"will-o-wisp"]],"563":[[17,"will-o-wisp"]],"568":[[6,"poison-gas"],[38,"toxic"]],"569":[[5,"poison-gas"],[47,"toxic"]],"590":[[9,"stun-spore"],[45,"toxic"],[55,"spore"]],"591":[[10,"stun-spore"],[46,"toxic"],[55,"spore"]],"607":[[15,"confuse-ray"],[32,"will-o-wisp"]],"608":[[14,"confuse-ray"],[32,"will-o-wisp"]],"609":[[14,"confuse-ray"],[37,"will-o-wisp"]],"617":[[52,"toxic"]]},"zones":{"144":{"foes":{"144":[[9.11,0.747054],[9.11,0.747054],[9.11,0.747054],[9.11,0.747054],[9.11,0.747054]]}},"145":{"foes":{"145":[[6.32,0.606375],[6.32,0.606375],[6.32,0.606375],[6.32,0.606375],[6.32,0.606375]]}},"146":{"foes":{"146":[[11.84,0.499686],[11.84,0.499686],[11.84,0.499686],[11.84,0.499686],[11.84,0.499686]]}},"150":{"foes":{"150":[[4.87,1.492755],[4.87,1.492755],[4.87,1.492755],[4.87,1.492755],[4.87,1.492755]]},"counter":"confusion","burst":"psystrike"},"151":{"foes":{"151":[[4.59,0.83985],[4.59,0.83985],[4.59,0.83985],[4.59,0.83985],[4.59,0.83985]]}},"243":{"foes":{"243":[[10,0.99],[10,0.99],[10,0.99],[10,0.99],[10,0.99]]}},"244":{"foes":{"244":[[10,0.5247],[10,0.5247],[10,0.5247],[10,0.5247],[10,0.5247]]}},"245":{"foes":{"245":[[10,0.4554],[10,0.4554],[10,0.4554],[10,0.4554],[10,0.4554]]}},"249":{"foes":{"249":[[4.25,0.83655],[4.25,0.83655],[4.25,0.83655],[4.25,0.83655],[4.25,0.83655]]},"burst":"aeroblast"},"250":{"foes":{"250":[[11.2,0.92565],[11.2,0.92565],[11.2,0.92565],[11.2,0.92565],[11.2,0.92565]]},"burst":"sacred-fire"},"251":{"foes":{"251":[[6.76,1.0725],[6.76,1.0725],[6.76,1.0725],[6.76,1.0725],[6.76,1.0725]]}},"377":{"foes":{"377":[[5.07,1.112496],[5.07,1.112496],[5.07,1.112496],[5.07,1.112496],[5.07,1.112496]]},"burst":"rock-slide"},"378":{"foes":{"378":[[7.79,0.830775],[7.79,0.830775],[7.79,0.830775],[7.79,0.830775],[7.79,0.830775]]},"burst":"blizzard"},"379":{"foes":{"379":[[5.59,1.3398],[5.59,1.3398],[5.59,1.3398],[5.59,1.3398],[5.59,1.3398]]},"burst":"iron-head"},"380":{"foes":{"380":[[10,0.5445],[10,0.5445],[10,0.5445],[10,0.5445],[10,0.5445]]}},"381":{"foes":{"381":[[10,0.5049],[10,0.5049],[10,0.5049],[10,0.5049],[10,0.5049]]}},"382":{"foes":{"382":[[5.7,0.80256],[5.7,0.80256],[5.7,0.80256],[5.7,0.80256],[5.7,0.80256]]},"burst":"origin-pulse"},"383":{"foes":{"383":[[6.41,0.79101],[6.41,0.79101],[6.41,0.79101],[6.41,0.79101],[6.41,0.79101]]},"burst":"precipice-blades"},"384":{"foes":{"384":[[10.13,0.289641],[10.13,0.289641],[10.13,0.289641],[10.13,0.289641],[10.13,0.289641]]},"burst":"dragon-ascent"},"385":{"foes":{"385":[[6.86,0.848925],[6.86,0.848925],[6.86,0.848925],[6.86,0.848925],[6.86,0.848925]]},"burst":"doom-desire"},"386":{"foes":{"386":[[14.43,2.44035],[14.43,2.44035],[14.43,2.44035],[14.43,2.44035],[14.43,2.44035]],"38601":[[17.61,2.81061],[17.61,2.81061],[17.61,2.81061],[17.61,2.81061],[17.61,2.81061]],"38602":[[4.96,3.75309],[4.96,3.75309],[4.96,3.75309],[4.96,3.75309],[4.96,3.75309]],"38603":[[6.16,3.68577],[6.16,3.68577],[6.16,3.68577],[6.16,3.68577],[6.16,3.68577]]},"burst":"psycho-boost"},"480":{"foes":{"480":[[4.46,5.145525],[4.46,5.145525],[4.46,5.145525],[4.46,5.145525],[4.46,5.145525]]},"burst":"mystical-power"},"481":{"foes":{"481":[[5,1.815],[5,1.815],[5,1.815],[5,1.815],[5,1.815]]}},"482":{"foes":{"482":[[7.87,2.178],[7.87,2.178],[7.87,2.178],[7.87,2.178],[7.87,2.178]]},"burst":"mystical-power"},"483":{"foes":{"483":[[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875]]},"burst":"roar-of-time"},"484":{"foes":{"484":[[5,0.616704],[5,0.616704],[5,0.616704],[5,0.616704],[5,0.616704]]},"burst":"spacial-rend"},"485":{"foes":{"485":[[7.22,0.8316],[7.22,0.8316],[7.22,0.8316],[7.22,0.8316],[7.22,0.8316]]},"burst":"magma-storm"},"486":{"foes":{"486":[[6.81,0.583605],[6.81,0.583605],[6.81,0.583605],[6.81,0.583605],[6.81,0.583605]]},"burst":"giga-impact"},"487":{"foes":{"487":[[3.03,0.858],[3.03,0.858],[3.03,0.858],[3.03,0.858],[3.03,0.858]]},"burst":"shadow-force"},"488":{"foes":{"488":[[4.41,1.32066],[4.41,1.32066],[4.41,1.32066],[4.41,1.32066],[4.41,1.32066]]},"burst":"moonblast"},"491":{"foes":{"491":[[8.68,0.91476],[8.68,0.91476],[8.68,0.91476],[8.68,0.91476],[8.68,0.91476]]},"burst":"dark-pulse"},"492":{"foes":{"492":[[6.13,2.873475],[6.13,2.873475],[6.13,2.873475],[6.13,2.873475],[6.13,2.873475]]},"burst":"seed-flare"},"494":{"foes":{"494":[[4.5,0.91377],[4.5,0.91377],[4.5,0.91377],[4.5,0.91377],[4.5,0.91377]]}},"638":{"foes":{"638":[[6.72,1.49787],[6.72,1.49787],[6.72,1.49787],[6.72,1.49787],[6.72,1.49787]]}},"639":{"foes":{"639":[[8.19,0.59598],[8.19,0.59598],[8.19,0.59598],[8.19,0.59598],[8.19,0.59598]]}},"640":{"foes":{"640":[[12.81,1.269675],[12.81,1.269675],[12.81,1.269675],[12.81,1.269675],[12.81,1.269675]]}},"641":{"foes":{"641":[[10,0.4851],[10,0.4851],[10,0.4851],[10,0.4851],[10,0.4851]]}},"642":{"foes":{"642":[[10,0.5544],[10,0.5544],[10,0.5544],[10,0.5544],[10,0.5544]]}},"643":{"foes":{"643":[[5.89,0.33957],[5.89,0.33957],[5.89,0.33957],[5.89,0.33957],[5.89,0.33957]]}},"644":{"foes":{"644":[[5.18,0.614196],[5.18,0.614196],[5.18,0.614196],[5.18,0.614196],[5.18,0.614196]]}},"645":{"foes":{"645":[[9.87,0.45045],[9.87,0.45045],[9.87,0.45045],[9.87,0.45045],[9.87,0.45045]]}},"646":{"foes":{"646":[[4.95,0.5808],[4.95,0.5808],[4.95,0.5808],[4.95,0.5808],[4.95,0.5808]]}},"647":{"foes":{"647":[[6.78,0.93357],[6.78,0.93357],[6.78,0.93357],[6.78,0.93357],[6.78,0.93357]]}},"648":{"foes":{"648":[[5.15,0.814275],[5.15,0.814275],[5.15,0.814275],[5.15,0.814275],[5.15,0.814275]]}},"649":{"foes":{"649":[[16.59,0.7425],[16.59,0.7425],[16.59,0.7425],[16.59,0.7425],[16.59,0.7425]]}},"48701":{"foes":{"48701":[[4.06,0.63954],[4.06,0.63954],[4.06,0.63954],[4.06,0.63954],[4.06,0.63954]]},"burst":"shadow-force"},"49201":{"foes":{"49201":[[8.77,1.04181],[8.77,1.04181],[8.77,1.04181],[8.77,1.04181],[8.77,1.04181]]},"burst":"seed-flare"},"64101":{"foes":{"64101":[[7.7,0.81774],[7.7,0.81774],[7.7,0.81774],[7.7,0.81774],[7.7,0.81774]]}},"64201":{"foes":{"64201":[[9.22,0.5643],[9.22,0.5643],[9.22,0.5643],[9.22,0.5643],[9.22,0.5643]]}},"64501":{"foes":{"64501":[[10.73,0.372834],[10.73,0.372834],[10.73,0.372834],[10.73,0.372834],[10.73,0.372834]]}},"64601":{"foes":{"64601":[[4.39,0.528],[4.39,0.528],[4.39,0.528],[4.39,0.528],[4.39,0.528]]}},"64602":{"foes":{"64602":[[6.12,0.17985],[6.12,0.17985],[6.12,0.17985],[6.12,0.17985],[6.12,0.17985]]}},"64801":{"foes":{"64801":[[6.69,1.25235],[6.69,1.25235],[6.69,1.25235],[6.69,1.25235],[6.69,1.25235]]}},"64901":{"foes":{"64901":[[17.58,0.35145],[17.58,0.35145],[17.58,0.35145],[17.58,0.35145],[17.58,0.35145]]}},"64902":{"foes":{"64902":[[16.41,0.759],[16.41,0.759],[16.41,0.759],[16.41,0.759],[16.41,0.759]]}},"64903":{"foes":{"64903":[[16.15,0.759],[16.15,0.759],[16.15,0.759],[16.15,0.759],[16.15,0.759]]}},"64904":{"foes":{"64904":[[16.72,0.7095],[16.72,0.7095],[16.72,0.7095],[16.72,0.7095],[16.72,0.7095]]}}}};    function legendEliteContext(s,id,tier,now=Date.now()){
         const zone=DATA.zones.find(entry=>entry.id===id),rules=LEGEND_ELITE.zones[id];
@@ -4078,13 +4141,15 @@
             if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
         });
         const otherInputs=otherWallet&&yieldRankingInputs(otherWallet,settings,[],now);
-        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples]);
+        const previewMoney=!xp&&settings.mode==='money'&&settings.autoTeam&&s.mons.length>s.team.length;
+        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples,
+            previewMoney?rosterFingerprint(s):null]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
-            : maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
+            : previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
         return {kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states)};
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney)};
     }
-    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states){
+    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney){
         let rows=[];
         const walletParties=new Map();
         let projection;
@@ -4102,6 +4167,41 @@
                 rows.push(moneyRouteScore(state,row,samples[i],fit,now,settings.speed));
             }
             if(sliced)yield;
+        }
+        if(previewMoney){
+            // Compare a single legal backup party on at most three promising maps.
+            // A preview can nominate a trial. Real income still belongs to the deployed party.
+            const trials=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}))
+                .filter(({row})=>!row.measured&&row.battleFit.turns!=null&&row.battleFit.factor*(row.battleFit.coverage??1)<.97)
+                .sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id).slice(0,3);
+            const backups=new Map();
+            for(const {row,state} of trials){
+                const side=state.link?row.reg===state.link.to:false;
+                if(!backups.has(side)){
+                    const roster=[];
+                    for(const mon of state.mons){
+                        if(!teamEligible(state,mon,row.reg))continue;
+                        roster.push({mon,power:reserveStrength(mon)});
+                        if(sliced&&roster.length%16===0)yield;
+                    }
+                    roster.sort((a,b)=>b.power-a.power||String(a.mon.uid).localeCompare(String(b.mon.uid)));
+                    const party=[],used=new Set();
+                    for(const {mon} of roster){
+                        const id=DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
+                        if(used.has(id))continue;
+                        used.add(id);party.push(mon);if(party.length===6)break;
+                    }
+                    backups.set(side,party);
+                }
+                const party=backups.get(side);
+                if(!party.some(mon=>!state.team.includes(mon.uid)))continue;
+                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced);
+                const estimate=moneyRouteScore(state,row,null,fit,now,settings.speed).rate;
+                if(fit.coverage>=.99&&fit.minCoverage>=row.battleFit.minCoverage&&estimate>row.rate*1.08){
+                    row.projectedMoneyRate=estimate;
+                    row.projectedMoneyTurns=fit.turns;
+                }
+            }
         }
         return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
     }
@@ -4638,7 +4738,7 @@
         if(fixed.length)return fixed.map(row=>({...row,gateRoute:true,prepNote:note+' · '+row.prepNote}));
         if(settings.autoEvolve&&wild.size){
             const parents=gateAncestors(wild);
-            for(const mon of s.mons||[])parents.delete(mon.id);
+            for(const mon of s.mons||[])if(!mon.shiny)parents.delete(mon.id);
             for(const egg of s.pension?.eggs||[])parents.delete(egg.id);
             if(parents.size&&!gateTrainee(s,settings,plan,now)){
                 const base=rankDexTargets(s,settings,parents,now);
@@ -5525,6 +5625,10 @@
             this.rememberTeam(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
         }
         animations(s) {
+            if(visible($('.lk-fx.lk-evo'))){
+                this.e.status='等待在游戏中手动处理进化动画';
+                this.e.lastProgress=Date.now();return true;
+            }
             if (!this.e.settings.animations) return false;
             const skip = $$('.fx-skip:not([data-gone])').find(enabled);
             if (skip) return this.click(skip, '跳过过场动画', true);
@@ -6175,6 +6279,7 @@
             if(!task?.clickedAt||!this.e.running||this.e.manual||pageHidden()||this.owner)return false;
             const fx=$$('.lk-fx.lk-evo').find(visible);
             if(fx){
+                if((s.mons||[]).some(mon=>mon.uid===task.uid&&mon.shiny))return false;
                 if(this.evolutionFX&&this.evolutionFX.node!==fx){this.e.stop('进化动画发生变化，请确认后继续');return true;}
                 this.evolutionFX??={node:fx,started:now};
                 if(now-this.evolutionFX.started>120000){this.e.stop('进化动画长时间未结束，请检查游戏后继续');return true;}
@@ -6204,7 +6309,7 @@
                     this.state.eggService||this.state.hatch||this.state.resourceTx||this.state.autoBuffTx||this.state.resourceBuffTx||
                     this.state.towerLaunch||this.state.candyLaunch||this.state.underLaunch||this.state.underCollect||this.state.candyRun&&!s.candy?.run||e.preparation?.candyTx||
                     visible($('#modal-root.open'))||visible($('#evt-pick'))||$$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
-                const possible=(s.mons||[]).filter(mon=>!(mon.rank>=1)&&EVOLUTION_DATA.rules[mon.id]?.some(rule=>rule.level>0&&!rule.item&&rule.level<=mon.level));
+                const possible=(s.mons||[]).filter(mon=>!mon.shiny&&!(mon.rank>=1)&&EVOLUTION_DATA.rules[mon.id]?.some(rule=>rule.level>0&&!rule.item&&rule.level<=mon.level));
                 if(!possible.length)return false;
                 const context=e.preparation?.context?rebuildPreparationContext(s,e.preparation.context):e.coach.adventure(s)?.context||battleContext(s,'map');
                 const reg=context.reg||currentRegion(s),candidates=possible.filter(mon=>teamEligible(s,mon,reg));
@@ -6252,6 +6357,9 @@
             e.lastProgress=now;e.status=`自动免费进化 · ${MONS.get(task.fromId)?.name} → ${MONS.get(task.toId)?.name}`;
             const mon=(s.mons||[]).find(mon=>mon.uid===task.uid);
             const defer=reason=>{task.stage='return';this.state.evolutionRetryAt=now+60000;e.log('免费进化暂缓：'+reason);};
+            if(mon?.shiny&&task.stage!=='return'){
+                task.stage='return';delete task.clickedAt;e.log(SHINY_EVOLUTION_MANUAL);e.persist();
+            }
             if(task.stage==='confirm'){
                 if(mon?.id===task.toId){task.stage='return';this.state.evolved=(this.state.evolved||0)+1;e.teamCheck=null;e.coach.checked=null;e.coach.planReview=null;e.coach.preparationReview=null;d.recent?.clear();this.evolutionChoiceCache=null;e.log('进化存档已确认，按真实新形态重新配队');e.persist();}
                 else if(!mon||mon.id!==task.fromId)defer('个体或形态已变化，重新检查实际存档');
@@ -6283,6 +6391,7 @@
             const task=this.state.evolution,now=Date.now(),d=this.e.driver,mon=(s.mons||[]).find(mon=>mon.uid===owner?.uid);
             const close=()=>{if(d.click(card.querySelector('.dc-x'),'关闭免费进化详情'))this.owner=null;return true;};
             if(!task||task.stage!=='open'||!mon||task.uid!==owner?.uid||mon.id!==task.fromId||!this.e.settings.autoEvolve)return close();
+            if(mon.shiny){task.stage='return';this.e.log(SHINY_EVOLUTION_MANUAL);this.e.persist();return close();}
             const rule=levelEvolution(s,mon,{now}),buttons=[...card.querySelectorAll('.item-actions .evo-btn')].filter(enabled);
             if(rule?.to!==task.toId||monIdFrom(card.querySelector('.dc-hero')||card)!==task.fromId||buttons.length!==1){task.stage='return';this.state.evolutionRetryAt=now+60000;this.e.log('进化按钮或对象不符，保留手动操作');return close();}
             task.stage='confirm';task.at=now;task.clickedAt=now;this.e.persist();
@@ -9997,11 +10106,14 @@
                 this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
             }
             if (!this.canStartRoute(s)) {this.driver.nav('adventure');return;}
-            // Rotate all eligible maps over time, reserving most visits for the current winner.
-            const unsampled = rows.filter(row => !row.measured && row.key !== current?.key);
+            // A legal backup party can nominate a trial without replacing confirmed yields.
+            const unsampled = rows.filter(row => !row.measured && row.key !== current?.key)
+                .sort((a,b)=>(b.projectedMoneyRate??b.rate)-(a.projectedMoneyRate??a.rate)||a.id-b.id);
             const next = unsampled.length && (!this.lastExplore || now - this.lastExplore > 2 * this.settings.sampleMinutes * 60000) ? unsampled[0] : rows[0];
             if (!next.measured) this.lastExplore = now;
             if (next.key === current?.key && this.visit && current.members.includes(s.adv.chapter)) { this.visit.started = now; this.status = `继续收益最高地图 · ${next.name} · ${Math.round(next.rate)} ₽/分钟`; this.driver.nav('adventure'); return; }
+            if(next.projectedMoneyRate!=null&&next===unsampled[0])
+                this.log(`试跑 ${next.name} · 可用替补阵容估算 ${Math.round(next.projectedMoneyRate)} ₽/分钟，等待整轮实测`);
             this.travel(next, now);
         }
         waitForFarm(reason,now){
@@ -10128,6 +10240,7 @@
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
         Object.assign(module.exports,{shopCandyTier});
+        Object.assign(module.exports,{boxSnapshot});
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution,preparationEvolutionLabel});
         Object.assign(module.exports,{regionalWeatherForecast,VERSION,UPDATE_RELEASE,UPDATE_SOURCES,updateSourceURL,allowedUpdateURL,allowedUpdateRedirect,compareUpdateVersions,parseUpdateScript,requestUpdateResource,downloadUpdateScript,UpdateChecker});
         Object.assign(module.exports,{ROAMING_DATA,roamingProgress,roamingPlan,undergroundTeamContext,undergroundStatus,undergroundStartFloor,undergroundBay,acquisitionSources,legendRequirements,prerequisiteRoutes,dexWaitAdvice,hasWildSource,WILD_SHINY_IDS});
@@ -11412,7 +11525,7 @@
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
-            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">培养规划考虑可达免费进化形态；实际进化并确认存档后再按新形态配队。道具与分支进化留待手动。</div>
+            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
             <div class="row"><button id="start" class="primary">开始当前任务</button><button id="start-queue" class="primary">运行任务队列</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
             <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="open-queue" aria-controls="pane-queue">任务队列 <span id="queue-count">0</span></button><button id="cancel-job" class="hidden">取消编辑</button></div>
@@ -11441,7 +11554,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const roamingStock=[...root.querySelectorAll('[data-roam-ball-stock]')];
@@ -11829,7 +11942,7 @@
             query('[data-setting="optimizeRaid"]').closest('label').classList.toggle('hidden',['breed','resource','tower'].includes(mode));
             query('#team-policy-hint').textContent=mode==='tower'?'对战塔由游戏从收藏中自动选人；这里不提供原生不存在的手动塔队选择。':mode==='world'?'世界首领攻击由游戏选择成员；捕获队伍按特殊战配队选项执行。':independent?engine.settings.optimizeRaid?'特殊战按目标自动配置独立队伍。':'使用你在游戏内设置的专属队伍；未配置时等待你选择，不自动替换成员。':engine.settings.autoTeam?'冒险按目标自动选人、排序与补练；特殊战可单独设置。':'保留当前冒险成员和出场顺序，不自动加人或换人；补练也使用你选择的队伍。';
             query('#team-hint').classList.toggle('hidden',independent);
-            query('#evolution-hint').textContent=engine.settings.autoEvolve?'免费等级进化已开启：培养考虑后续形态，实际进化确认后重新配队；道具、分支和升阶锁定个体不自动处理。':'免费进化已关闭：按当前形态评估队伍，保留手动进化。';
+            query('#evolution-hint').textContent=engine.settings.autoEvolve?'普通色免费等级进化已开启，进化确认后重新配队。异色、道具、分支和升阶锁定个体保留当前形态。':'免费进化已关闭，按当前形态评估队伍。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
             query('#candy-hint').textContent='先按经验缺口使用库存。购买档位按金币商店所属地区的徽章解锁，页面确认最高档后逐份购买。预算不足或经验会超过当前等级上限时，继续地图练级。';
@@ -11898,6 +12011,7 @@
                 engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
+            query('#export-box').disabled=!s?.adv;
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             paintedTask=taskState();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
@@ -12200,7 +12314,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason])]);
+                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -12238,6 +12352,11 @@
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
                         else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
                         textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        if(mode==='money'&&row.projectedMoneyRate!=null){
+                            const detail=table.tBodies[0].insertRow().insertCell();
+                            detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
+                            detail.textContent=`替补阵容估算 ${Math.round(row.projectedMoneyRate).toLocaleString()} ₽/分钟 · 预计 ${row.projectedMoneyTurns.toFixed(1)} 回合/对手 · 可试跑`;
+                        }
                         if(mode==='train'&&row.leagueTraining?.failedAt!=null&&row.samples<2){
                             const detail=table.tBodies[0].insertRow().insertCell();
                             detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
@@ -12455,15 +12574,31 @@
         query('#stop').onclick=()=>{engine.stop();syncSettings();render();};
         query('#resume').onclick=()=>{engine.resumeManual();render();};
         query('#reset').onclick=()=>{if(engine.running||engine.suspended)return;engine.metrics={};engine.telemetry=new Telemetry(engine.metrics);engine.persist();engine.log('已清除金币、经验与道具采样');render();};
+        function downloadJson(data,filename){
+            const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});
+            const url=URL.createObjectURL(blob),link=document.createElement('a');
+            link.href=url;link.download=filename;
+            document.body.appendChild(link);
+            try{link.click();}
+            finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+        }
+        query('#export-box').onclick=()=>{
+            const result=query('#box-export-result');
+            try{
+                const s=engine.read(),settings=s&&accountId(s)===engine.account?engine.settings:DEFAULTS;
+                const box=boxSnapshot(s,settings,Date.now(),window.BUILD),name='pokecatch-box.json';
+                downloadJson(box,name);
+                result.textContent=`已导出 ${box.members.length} 只 · ${name}`;
+            }catch(error){result.textContent='盒子导出失败 · '+error.message;}
+        };
         query('#export').onclick=()=>{
             const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logs};
-            const blob=new Blob([JSON.stringify(diagnostic,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pokecatch-helper-diagnostic.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+            downloadJson(diagnostic,'pokecatch-helper-diagnostic.json');
         };
         query('#probability-info').addEventListener('toggle',()=>{if(query('#probability-info').open)render();});
         query('#export-profile').onclick=()=>{
             const profile=configurationProfile({settings:engine.idleTaskSettings(),queue:engine.queue});
-            const blob=new Blob([JSON.stringify(profile,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-            link.href=url;link.download=`pokecatch-settings-${VERSION}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+            downloadJson(profile,`pokecatch-settings-${VERSION}.json`);
         };
         query('#import-profile').onclick=()=>query('#profile-file').click();
         query('#profile-file').onchange=async event=>{

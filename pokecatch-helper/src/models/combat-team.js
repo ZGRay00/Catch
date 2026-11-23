@@ -74,6 +74,15 @@
         }
         return entries;
     }
+    function reserveStrength(mon){
+        const stats=effectiveStats(mon);
+        let offense=0;
+        for(const {level,move,stab} of damagingMoves(MONS.get(mon.id))){
+            if(level>mon.level)continue;
+            offense=Math.max(offense,stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab/100);
+        }
+        return Math.sqrt(offense*stats.hp*Math.sqrt(stats.def*stats.spd));
+    }
     function defensiveTypes(model){
         let table=speciesDefense.get(model);
         if(!table){
@@ -569,9 +578,16 @@
         }
         const chosen = [], used = new Set();
         const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
+        const reserveScores=new Map();
+        const reserveScore=mon=>{
+            if(!reserveScores.has(mon.uid))reserveScores.set(mon.uid,reserveStrength(mon));
+            return reserveScores.get(mon.uid);
+        };
+        const reserveTotal=team=>team.reduce((sum,mon)=>sum+reserveScore(mon),0);
         // Only training projections carry this flag. Resolve equal combat scores
         // before falling back to the existing party order and stable UID.
         const prefer=(a,b)=>Number(!!a.evolutionItemLocked)-Number(!!b.evolutionItemLocked)||
+            (objective==='money'?reserveScore(b)-reserveScore(a):0)||
             (partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
         for (const uid of pinned) { const mon=pool.find(m=>m.uid===uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
         // Copies with the same healed combat profile and training cost occupy the
@@ -610,7 +626,9 @@
             if(candidates.length>64&&fallback.length===size){
                 for(const mon of fallback)yield* computeValues(mon,true);
                 const base=utility(fallback);let best=base;
-                for(const mon of candidates.filter(m=>!seen.has(identity(m))).slice(0,6)){
+                const extras=candidates.filter(m=>!seen.has(identity(m)));
+                if(objective==='money')extras.sort(prefer);
+                for(const mon of extras.slice(0,6)){
                     yield* computeValues(mon,true);
                     for(let i=0;i<size;i++){
                         if(protectedUids.has(fallback[i].uid))continue;
@@ -696,7 +714,8 @@
                 for(const mon of candidates){
                     if(taken.has(identity(mon))||underground&&rest.some(other=>undergroundApart(mon,other)))continue;
                     const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
-                    if(value>score+1e-8||Math.abs(value-score)<1e-8&&best.evolutionItemLocked&&!mon.evolutionItemLocked){best=mon;score=value;}
+                    if(value>score+1e-8||Math.abs(value-score)<1e-8&&
+                        (best.evolutionItemLocked&&!mon.evolutionItemLocked||objective==='money'&&prefer(mon,best)<0)){best=mon;score=value;}
                     if(sliced)yield;
                 }
                 if(best.uid!==chosen[slot].uid){chosen[slot]=best;improved=true;if(context.progressive)yield checkpoint();}
@@ -740,7 +759,9 @@
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
         const fewerWipes=farming&&proposed.wipes===0&&previous.wipes>0&&next>=now;
         const fasterFarm=farming&&next>now*1.035+.005&&proposed.turns<previous.turns*.95&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths;
-        const improve = next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm;
+        const strongerReserves=objective==='money'&&changed&&next>=now-1e-8&&proposed.turns<=previous.turns+1e-8&&
+            proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths&&reserveTotal(chosen)>reserveTotal(party)*1.15;
+        const improve = next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm||strongerReserves;
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
         const fasterFarmOrder=farming&&next>now*1.0125+.001&&proposed.turns<previous.turns&&proposed.wipes<=previous.wipes;
@@ -753,5 +774,5 @@
             const delta=base>0?Math.round((base-without)/base*100):0;
             backup=`同属性队员${MONS.get(sharedType.id).name} · 移除后模型分${delta>0?'降低 '+delta+'%':delta<0?'提高 '+(-delta)+'%':'接近不变'}`;
         }
-        return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
+        return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':strongerReserves?'保留刷钱效率并增强替补':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
     }

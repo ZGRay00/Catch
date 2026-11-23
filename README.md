@@ -1,8 +1,14 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **6.3.7**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **6.3.10**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v6.3.7.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v6.3.10.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+6.3.10 · 异色宝可梦仅手动进化。自动配队和补练按异色成员的当前形态评估，普通色沿用免费等级进化开关。
+
+6.3.9 · 「设置」底部新增「导出盒子 JSON」，使用临时编号关联成员、计划队伍和实际出场顺序。
+
+6.3.8 · 刷钱收益表可额外显示替补阵容估算，帮助选择试跑地图。配队在路线模型打平时优先更强的替补。
 
 6.3.7 · 通关日常每天最多安排一场对战塔。接续进行中或暂停的场次，等游戏结算后继续其他日常。跨周或页面与存档不同步时，等待游戏确认后再操作。
 

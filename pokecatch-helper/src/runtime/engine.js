@@ -2097,11 +2097,14 @@
                 this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
             }
             if (!this.canStartRoute(s)) {this.driver.nav('adventure');return;}
-            // Rotate all eligible maps over time, reserving most visits for the current winner.
-            const unsampled = rows.filter(row => !row.measured && row.key !== current?.key);
+            // A legal backup party can nominate a trial without replacing confirmed yields.
+            const unsampled = rows.filter(row => !row.measured && row.key !== current?.key)
+                .sort((a,b)=>(b.projectedMoneyRate??b.rate)-(a.projectedMoneyRate??a.rate)||a.id-b.id);
             const next = unsampled.length && (!this.lastExplore || now - this.lastExplore > 2 * this.settings.sampleMinutes * 60000) ? unsampled[0] : rows[0];
             if (!next.measured) this.lastExplore = now;
             if (next.key === current?.key && this.visit && current.members.includes(s.adv.chapter)) { this.visit.started = now; this.status = `继续收益最高地图 · ${next.name} · ${Math.round(next.rate)} ₽/分钟`; this.driver.nav('adventure'); return; }
+            if(next.projectedMoneyRate!=null&&next===unsampled[0])
+                this.log(`试跑 ${next.name} · 可用替补阵容估算 ${Math.round(next.projectedMoneyRate)} ₽/分钟，等待整轮实测`);
             this.travel(next, now);
         }
         waitForFarm(reason,now){

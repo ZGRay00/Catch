@@ -160,7 +160,7 @@
         if(fixed.length)return fixed.map(row=>({...row,gateRoute:true,prepNote:note+' · '+row.prepNote}));
         if(settings.autoEvolve&&wild.size){
             const parents=gateAncestors(wild);
-            for(const mon of s.mons||[])parents.delete(mon.id);
+            for(const mon of s.mons||[])if(!mon.shiny)parents.delete(mon.id);
             for(const egg of s.pension?.eggs||[])parents.delete(egg.id);
             if(parents.size&&!gateTrainee(s,settings,plan,now)){
                 const base=rankDexTargets(s,settings,parents,now);

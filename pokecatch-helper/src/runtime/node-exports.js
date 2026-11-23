@@ -6,6 +6,7 @@
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
         Object.assign(module.exports,{shopCandyTier});
+        Object.assign(module.exports,{boxSnapshot});
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution,preparationEvolutionLabel});
         Object.assign(module.exports,{regionalWeatherForecast,VERSION,UPDATE_RELEASE,UPDATE_SOURCES,updateSourceURL,allowedUpdateURL,allowedUpdateRedirect,compareUpdateVersions,parseUpdateScript,requestUpdateResource,downloadUpdateScript,UpdateChecker});
         Object.assign(module.exports,{ROAMING_DATA,roamingProgress,roamingPlan,undergroundTeamContext,undergroundStatus,undergroundStartFloor,undergroundBay,acquisitionSources,legendRequirements,prerequisiteRoutes,dexWaitAdvice,hasWildSource,WILD_SHINY_IDS});

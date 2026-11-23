@@ -225,6 +225,10 @@
             this.rememberTeam(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
         }
         animations(s) {
+            if(visible($('.lk-fx.lk-evo'))){
+                this.e.status='等待在游戏中手动处理进化动画';
+                this.e.lastProgress=Date.now();return true;
+            }
             if (!this.e.settings.animations) return false;
             const skip = $$('.fx-skip:not([data-gone])').find(enabled);
             if (skip) return this.click(skip, '跳过过场动画', true);

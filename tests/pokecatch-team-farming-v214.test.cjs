@@ -54,6 +54,51 @@ test('a strong member in the PC cannot inflate unmeasured money efficiency until
     s.team=['bench'];assert.ok(H.moneyRanking(s,H.DEFAULTS)[0].rate>before[0][1]);
 });
 
+test('money replaces weak reserves with real box members without lowering estimated route efficiency',()=>{
+    const s=state(100);s.autoSwitch=false;
+    const weak=[10,13,16,19,21].map((id,i)=>({id,uid:'w'+i,level:5}));
+    const strong=[9,65,149,534,609].map((id,i)=>({id,uid:'s'+i,level:100}));
+    s.mons.push(...weak,...strong);s.team.push(...weak.map(mon=>mon.uid));
+    const plan=H.planAdventureTeam(s,{...H.DEFAULTS,mode:'money'},[],{row:route(0),now:1732000000000});
+    assert.equal(plan.changed,true);
+    assert.deepEqual(new Set(plan.uids),new Set(['a',...strong.map(mon=>mon.uid)]));
+    assert.ok(plan.score>=plan.currentScore);
+    assert.match(plan.reason,/增强替补/);
+});
+
+test('Giant Chasm compares an eligible backup party separately from the deployed party and measurements',()=>{
+    const now=Date.parse('2026-11-23T12:00:00+08:00');
+    const roster=[[370,97],[277,100],[465,100],[10,99],[289,100],[13,75],[635,100],[612,100],[534,100],[609,100],[598,100],[530,100],[637,100]];
+    const mons=roster.map(([id,level],i)=>({id,level,uid:'m'+i,reg:'unova'}));
+    const s={...state(),mons,team:mons.slice(0,6).map(mon=>mon.uid),autoSwitch:true,travel:{to:['unova']},
+        adv:{chapter:83,unlocked:83,badges:[]}};
+    const cfg={...H.DEFAULTS,mode:'money',region:'current',speed:4};
+    const rankings=(settings=cfg,metrics={})=>H.moneyRanking(s,settings,metrics,{},now);
+    const rows=rankings(),giant=rows.find(row=>row.id===83),badge=rows.find(row=>row.id===75);
+    assert.ok(badge.rate>giant.rate);
+    assert.ok(giant.projectedMoneyRate>giant.rate);assert.ok(giant.projectedMoneyTurns<giant.battleFit.turns);
+    assert.equal(giant.measured,false);
+    assert.equal(rankings({...cfg,autoTeam:false}).find(row=>row.id===83).projectedMoneyRate,undefined);
+    const measured={net:80000,seconds:520,runs:1};
+    const fresh=rankings(cfg,{[H.metricsKey(s,giant,cfg,now)]:measured}).find(row=>row.id===83);
+    assert.equal(fresh.rate,measured.net/measured.seconds*60);assert.equal(fresh.projectedMoneyRate,undefined);
+    s.link={to:'unova',side:'to',from:'sinnoh'};
+    for(const mon of mons.slice(6))mon.reg='sinnoh';
+    assert.equal(rankings().find(row=>row.id===83).projectedMoneyRate,undefined);
+});
+
+test('money trial ordering can prioritize an unmeasured route with a credible backup party',t=>{
+    const {s,e,now}=fixture(t);
+    const current={...route(0),rate:150,measured:true};
+    const promising={...route(6),rate:10,projectedMoneyRate:140};
+    const ordinary={...route(3),rate:100};
+    e.target=current;e.visit={started:now-60*60000};e.automation.autoBuff=()=>false;e.canStartRoute=()=>true;
+    e.rankedYieldRoutes=()=>[current,ordinary,promising];
+    let selected;e.travel=row=>{selected=row;};
+    e.money(s,now);
+    assert.equal(selected,promising);assert.match(e.logs[0].text,/试跑/);
+});
+
 test('completed money measurements retain their real net rate even on a modelled difficult route',()=>{
     const s=state(),r=route(6),metrics={[H.metricsKey(s,r,H.DEFAULTS)]:{net:12345,seconds:60,runs:2}},ranked=H.moneyRanking(s,H.DEFAULTS,metrics),measured=ranked.find(row=>row.id===6);
     assert.equal(measured.rate,12345);assert.equal(measured.measured,true);assert.ok(measured.battleFit.factor<.1);assert.equal(ranked[0].id,6);

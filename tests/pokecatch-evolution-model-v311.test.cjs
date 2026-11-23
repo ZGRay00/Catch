@@ -28,9 +28,19 @@ test('ready free evolutions preserve the real UID and do not require items',()=>
 });
 
 test('projection traverses multiple ready levels but never mutates the source save',()=>{
-    const m=mon(10,5,{rank:0,shiny:true,taste:{h:'atk',up:{spa:3}}}),s=state([m]),before=JSON.stringify(s);
-    const p=H.projectEvolution(s,m,22,noon);assert.equal(p.id,12);assert.equal(p.level,22);assert.equal(p.uid,m.uid);assert.equal(p.shiny,true);assert.deepEqual(p.taste,m.taste);
+    const m=mon(10,5,{rank:0,taste:{h:'atk',up:{spa:3}}}),s=state([m]),before=JSON.stringify(s);
+    const p=H.projectEvolution(s,m,22,noon);assert.equal(p.id,12);assert.equal(p.level,22);assert.equal(p.uid,m.uid);assert.equal(p.shiny,false);assert.deepEqual(p.taste,m.taste);
     assert.deepEqual(p.evolutionPath.map(step=>[step.from,step.to]),[[10,11],[11,12]]);assert.equal(JSON.stringify(s),before);
+});
+
+test('shiny members can gain projected levels but retain their species and manual evolution options',()=>{
+    const m=mon(10,15,{shiny:true}),s=state([m]);
+    assert.equal(H.levelEvolution(s,m,{now:noon}),null);
+    const projected=H.projectEvolution(s,m,100,noon);
+    assert.equal(projected.id,10);assert.equal(projected.level,100);assert.deepEqual(projected.evolutionPath,[]);
+    assert.match(projected.evolutionBlockedReason,/异色.*手动/);
+    const manual=H.evolutionStatus(s,m,{now:noon},H.EVOLUTION_DATA.rules[10][0]);
+    assert.equal(manual.rule?.to,11);
 });
 
 test('current form and projected form remain distinct until native save confirmation',()=>{

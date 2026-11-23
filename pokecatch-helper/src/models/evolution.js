@@ -1,5 +1,6 @@
     const EVOLUTION_ITEMS = new Set(Object.values(EVOLUTION_DATA.rules).flat().map(rule => rule.item).filter(Boolean));
     const EVOLUTION_SHOP = new Map(DATA.automation.shop.filter(row => EVOLUTION_ITEMS.has(row.id)).map(row => [row.id, row]));
+    const SHINY_EVOLUTION_MANUAL = '异色成员仅可手动进化';
 
     function evolutionShopLocked(s, row) {
         if (row.once && !s.adv?.gifts?.[row.once]) return true;
@@ -46,6 +47,7 @@
         const reject=reason=>({rule:null,reason,level});
         if(!mon||!MONS.has(mon.id)||!mon.uid)return reject('成员数据不可用');
         if(String(mon.uid).startsWith('t:')||String(mon.uid).startsWith('c:'))return reject('活动克隆保持入场时形态');
+        if(mon.shiny&&!requestedRule)return reject(SHINY_EVOLUTION_MANUAL);
         if(Math.floor(Number(mon.rank)||0)>0)return reject('已升阶成员不能进化');
         const rules=EVOLUTION_DATA.rules[mon.id]||[];
         let rule=requestedRule;
@@ -107,6 +109,7 @@
         const label=MONS.get(mon.id)?.name||String(mon.id);
         const levels=mon.level+'/'+target.goal;
         const edges=EVOLUTION_DATA.rules[mon.id]||[];
+        if(mon.shiny&&edges.length)return label+' '+levels+'（'+SHINY_EVOLUTION_MANUAL+'）';
         if(!edges.some(edge=>edge.level>0&&!edge.item&&mon.level>=edge.level)){
             const next=engine.settings.autoEvolve&&edges.length?projectEvolution(s,mon,target.goal,now):null;
             const detail=next?.evolutionItemDetail||(!next&&evolutionStatus(s,mon,{now}).itemDetail);

@@ -276,13 +276,15 @@
             if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
         });
         const otherInputs=otherWallet&&yieldRankingInputs(otherWallet,settings,[],now);
-        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples]);
+        const previewMoney=!xp&&settings.mode==='money'&&settings.autoTeam&&s.mons.length>s.team.length;
+        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples,
+            previewMoney?rosterFingerprint(s):null]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
-            : maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
+            : previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
         return {kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states)};
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney)};
     }
-    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states){
+    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney){
         let rows=[];
         const walletParties=new Map();
         let projection;
@@ -300,6 +302,41 @@
                 rows.push(moneyRouteScore(state,row,samples[i],fit,now,settings.speed));
             }
             if(sliced)yield;
+        }
+        if(previewMoney){
+            // Compare a single legal backup party on at most three promising maps.
+            // A preview can nominate a trial. Real income still belongs to the deployed party.
+            const trials=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}))
+                .filter(({row})=>!row.measured&&row.battleFit.turns!=null&&row.battleFit.factor*(row.battleFit.coverage??1)<.97)
+                .sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id).slice(0,3);
+            const backups=new Map();
+            for(const {row,state} of trials){
+                const side=state.link?row.reg===state.link.to:false;
+                if(!backups.has(side)){
+                    const roster=[];
+                    for(const mon of state.mons){
+                        if(!teamEligible(state,mon,row.reg))continue;
+                        roster.push({mon,power:reserveStrength(mon)});
+                        if(sliced&&roster.length%16===0)yield;
+                    }
+                    roster.sort((a,b)=>b.power-a.power||String(a.mon.uid).localeCompare(String(b.mon.uid)));
+                    const party=[],used=new Set();
+                    for(const {mon} of roster){
+                        const id=DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
+                        if(used.has(id))continue;
+                        used.add(id);party.push(mon);if(party.length===6)break;
+                    }
+                    backups.set(side,party);
+                }
+                const party=backups.get(side);
+                if(!party.some(mon=>!state.team.includes(mon.uid)))continue;
+                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced);
+                const estimate=moneyRouteScore(state,row,null,fit,now,settings.speed).rate;
+                if(fit.coverage>=.99&&fit.minCoverage>=row.battleFit.minCoverage&&estimate>row.rate*1.08){
+                    row.projectedMoneyRate=estimate;
+                    row.projectedMoneyTurns=fit.turns;
+                }
+            }
         }
         return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
     }

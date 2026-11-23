@@ -132,6 +132,7 @@
             if(!task?.clickedAt||!this.e.running||this.e.manual||pageHidden()||this.owner)return false;
             const fx=$$('.lk-fx.lk-evo').find(visible);
             if(fx){
+                if((s.mons||[]).some(mon=>mon.uid===task.uid&&mon.shiny))return false;
                 if(this.evolutionFX&&this.evolutionFX.node!==fx){this.e.stop('进化动画发生变化，请确认后继续');return true;}
                 this.evolutionFX??={node:fx,started:now};
                 if(now-this.evolutionFX.started>120000){this.e.stop('进化动画长时间未结束，请检查游戏后继续');return true;}
@@ -161,7 +162,7 @@
                     this.state.eggService||this.state.hatch||this.state.resourceTx||this.state.autoBuffTx||this.state.resourceBuffTx||
                     this.state.towerLaunch||this.state.candyLaunch||this.state.underLaunch||this.state.underCollect||this.state.candyRun&&!s.candy?.run||e.preparation?.candyTx||
                     visible($('#modal-root.open'))||visible($('#evt-pick'))||$$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
-                const possible=(s.mons||[]).filter(mon=>!(mon.rank>=1)&&EVOLUTION_DATA.rules[mon.id]?.some(rule=>rule.level>0&&!rule.item&&rule.level<=mon.level));
+                const possible=(s.mons||[]).filter(mon=>!mon.shiny&&!(mon.rank>=1)&&EVOLUTION_DATA.rules[mon.id]?.some(rule=>rule.level>0&&!rule.item&&rule.level<=mon.level));
                 if(!possible.length)return false;
                 const context=e.preparation?.context?rebuildPreparationContext(s,e.preparation.context):e.coach.adventure(s)?.context||battleContext(s,'map');
                 const reg=context.reg||currentRegion(s),candidates=possible.filter(mon=>teamEligible(s,mon,reg));
@@ -209,6 +210,9 @@
             e.lastProgress=now;e.status=`自动免费进化 · ${MONS.get(task.fromId)?.name} → ${MONS.get(task.toId)?.name}`;
             const mon=(s.mons||[]).find(mon=>mon.uid===task.uid);
             const defer=reason=>{task.stage='return';this.state.evolutionRetryAt=now+60000;e.log('免费进化暂缓：'+reason);};
+            if(mon?.shiny&&task.stage!=='return'){
+                task.stage='return';delete task.clickedAt;e.log(SHINY_EVOLUTION_MANUAL);e.persist();
+            }
             if(task.stage==='confirm'){
                 if(mon?.id===task.toId){task.stage='return';this.state.evolved=(this.state.evolved||0)+1;e.teamCheck=null;e.coach.checked=null;e.coach.planReview=null;e.coach.preparationReview=null;d.recent?.clear();this.evolutionChoiceCache=null;e.log('进化存档已确认，按真实新形态重新配队');e.persist();}
                 else if(!mon||mon.id!==task.fromId)defer('个体或形态已变化，重新检查实际存档');
@@ -240,6 +244,7 @@
             const task=this.state.evolution,now=Date.now(),d=this.e.driver,mon=(s.mons||[]).find(mon=>mon.uid===owner?.uid);
             const close=()=>{if(d.click(card.querySelector('.dc-x'),'关闭免费进化详情'))this.owner=null;return true;};
             if(!task||task.stage!=='open'||!mon||task.uid!==owner?.uid||mon.id!==task.fromId||!this.e.settings.autoEvolve)return close();
+            if(mon.shiny){task.stage='return';this.e.log(SHINY_EVOLUTION_MANUAL);this.e.persist();return close();}
             const rule=levelEvolution(s,mon,{now}),buttons=[...card.querySelectorAll('.item-actions .evo-btn')].filter(enabled);
             if(rule?.to!==task.toId||monIdFrom(card.querySelector('.dc-hero')||card)!==task.fromId||buttons.length!==1){task.stage='return';this.state.evolutionRetryAt=now+60000;this.e.log('进化按钮或对象不符，保留手动操作');return close();}
             task.stage='confirm';task.at=now;task.clickedAt=now;this.e.persist();

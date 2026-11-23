@@ -174,7 +174,7 @@
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
-            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">培养规划考虑可达免费进化形态；实际进化并确认存档后再按新形态配队。道具与分支进化留待手动。</div>
+            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
             <div class="row"><button id="start" class="primary">开始当前任务</button><button id="start-queue" class="primary">运行任务队列</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
             <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="open-queue" aria-controls="pane-queue">任务队列 <span id="queue-count">0</span></button><button id="cancel-job" class="hidden">取消编辑</button></div>
@@ -203,7 +203,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const roamingStock=[...root.querySelectorAll('[data-roam-ball-stock]')];
@@ -591,7 +591,7 @@
             query('[data-setting="optimizeRaid"]').closest('label').classList.toggle('hidden',['breed','resource','tower'].includes(mode));
             query('#team-policy-hint').textContent=mode==='tower'?'对战塔由游戏从收藏中自动选人；这里不提供原生不存在的手动塔队选择。':mode==='world'?'世界首领攻击由游戏选择成员；捕获队伍按特殊战配队选项执行。':independent?engine.settings.optimizeRaid?'特殊战按目标自动配置独立队伍。':'使用你在游戏内设置的专属队伍；未配置时等待你选择，不自动替换成员。':engine.settings.autoTeam?'冒险按目标自动选人、排序与补练；特殊战可单独设置。':'保留当前冒险成员和出场顺序，不自动加人或换人；补练也使用你选择的队伍。';
             query('#team-hint').classList.toggle('hidden',independent);
-            query('#evolution-hint').textContent=engine.settings.autoEvolve?'免费等级进化已开启：培养考虑后续形态，实际进化确认后重新配队；道具、分支和升阶锁定个体不自动处理。':'免费进化已关闭：按当前形态评估队伍，保留手动进化。';
+            query('#evolution-hint').textContent=engine.settings.autoEvolve?'普通色免费等级进化已开启，进化确认后重新配队。异色、道具、分支和升阶锁定个体保留当前形态。':'免费进化已关闭，按当前形态评估队伍。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
             query('#candy-hint').textContent='先按经验缺口使用库存。购买档位按金币商店所属地区的徽章解锁，页面确认最高档后逐份购买。预算不足或经验会超过当前等级上限时，继续地图练级。';
@@ -660,6 +660,7 @@
                 engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
+            query('#export-box').disabled=!s?.adv;
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             paintedTask=taskState();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
@@ -962,7 +963,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason])]);
+                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -1000,6 +1001,11 @@
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
                         else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
                         textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        if(mode==='money'&&row.projectedMoneyRate!=null){
+                            const detail=table.tBodies[0].insertRow().insertCell();
+                            detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
+                            detail.textContent=`替补阵容估算 ${Math.round(row.projectedMoneyRate).toLocaleString()} ₽/分钟 · 预计 ${row.projectedMoneyTurns.toFixed(1)} 回合/对手 · 可试跑`;
+                        }
                         if(mode==='train'&&row.leagueTraining?.failedAt!=null&&row.samples<2){
                             const detail=table.tBodies[0].insertRow().insertCell();
                             detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
@@ -1217,15 +1223,31 @@
         query('#stop').onclick=()=>{engine.stop();syncSettings();render();};
         query('#resume').onclick=()=>{engine.resumeManual();render();};
         query('#reset').onclick=()=>{if(engine.running||engine.suspended)return;engine.metrics={};engine.telemetry=new Telemetry(engine.metrics);engine.persist();engine.log('已清除金币、经验与道具采样');render();};
+        function downloadJson(data,filename){
+            const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json;charset=utf-8'});
+            const url=URL.createObjectURL(blob),link=document.createElement('a');
+            link.href=url;link.download=filename;
+            document.body.appendChild(link);
+            try{link.click();}
+            finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+        }
+        query('#export-box').onclick=()=>{
+            const result=query('#box-export-result');
+            try{
+                const s=engine.read(),settings=s&&accountId(s)===engine.account?engine.settings:DEFAULTS;
+                const box=boxSnapshot(s,settings,Date.now(),window.BUILD),name='pokecatch-box.json';
+                downloadJson(box,name);
+                result.textContent=`已导出 ${box.members.length} 只 · ${name}`;
+            }catch(error){result.textContent='盒子导出失败 · '+error.message;}
+        };
         query('#export').onclick=()=>{
             const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logs};
-            const blob=new Blob([JSON.stringify(diagnostic,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='pokecatch-helper-diagnostic.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+            downloadJson(diagnostic,'pokecatch-helper-diagnostic.json');
         };
         query('#probability-info').addEventListener('toggle',()=>{if(query('#probability-info').open)render();});
         query('#export-profile').onclick=()=>{
             const profile=configurationProfile({settings:engine.idleTaskSettings(),queue:engine.queue});
-            const blob=new Blob([JSON.stringify(profile,null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-            link.href=url;link.download=`pokecatch-settings-${VERSION}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+            downloadJson(profile,`pokecatch-settings-${VERSION}.json`);
         };
         query('#import-profile').onclick=()=>query('#profile-file').click();
         query('#profile-file').onchange=async event=>{

@@ -40,3 +40,34 @@ test('box export accepts packed saves and empty boxes and rejects missing game d
     assert.deepEqual(H.boxSnapshot({mons:[],adv:{chapter:0,unlocked:0}}).members,[]);
     assert.throws(()=>H.boxSnapshot(null),/进入游戏/);
 });
+
+test('box export identifies both dispatched and returned-but-unclaimed teams via temporary aliases',()=>{
+    const now=Date.parse('2026-11-23T12:00:00+08:00');
+    const member=(uid,id,props={})=>({uid,id,level:100,reg:'sinnoh',...props});
+    const active=[member('secret-in-flight-one',483,{rank:2,ban:['dragon-claw']}),member('secret-in-flight-two',484),member('secret-in-flight-three',48701)];
+    const returned=[member('secret-returned-one',464),member('secret-returned-two',248),member('secret-returned-three',130)];
+    const s={mons:[member('secret-main',395),member('secret-used-in-box',445)],team:['secret-main'],adv:{chapter:65,unlocked:65},
+        under:{day:H.parisDay(now),best:129,extra:1,sent:5,next:['volcanic','private-theme'],used:{'secret-used-in-box':1,[active[0].uid]:1,[returned[0].uid]:1,'secret-other-day':1},slots:[
+            {id:'secret-return-id',bay:1,from:50,theme:'crystal',end:now-1000,team:returned.map(mon=>mon.uid),mons:returned,res:{coins:7654321},
+                start:9876543210987},
+            {id:'secret-active-id',bay:0,from:100,theme:'flooded',end:now+123456,team:active.map(mon=>mon.uid),mons:active},
+        ]}};
+    const original=JSON.stringify(s),file=JSON.stringify(H.boxSnapshot(s,{underGoal:'money',underAutoStart:false,underFrom:75},now)),box=JSON.parse(file);
+    assert.equal(JSON.stringify(s),original);
+    assert.equal(box.schema,1);
+    assert.deepEqual(box.members.map(mon=>[mon.uid,mon.id]),[['box-1',395],['box-2',445]]);
+    assert.deepEqual(box.team,['box-1']);
+    const {slots,...availability}=box.underground;
+    assert.deepEqual(availability,{best:129,capacity:2,sent:5,perDay:9,startFloors:[1,25,50,75,100],nextThemes:['volcanic',null],goal:'money',preferredStartFloor:75,used:['box-2','under-1','under-4']});
+    assert.deepEqual(slots.map(({members,...slot})=>slot),[
+        {bay:0,theme:'flooded',from:100,state:'active',returnInSeconds:124,team:['under-1','under-2','under-3']},
+        {bay:1,theme:'crystal',from:50,state:'ready',returnInSeconds:0,team:['under-4','under-5','under-6']},
+    ]);
+    assert.deepEqual(slots.flatMap(slot=>slot.members.map(mon=>[mon.uid,mon.id])),[['under-1',483],['under-2',484],['under-3',48701],['under-4',464],['under-5',248],['under-6',130]]);
+    assert.equal(slots[0].members[0].rank,2);
+    assert.deepEqual(slots[0].members[0].bannedMoves,['dragon-claw']);
+    assert.doesNotMatch(file,/secret-|private-theme|7654321|9876543210987/);
+    const afterMidnight=H.boxSnapshot(s,{},now+86400000).underground;
+    assert.equal(afterMidnight.sent,0);assert.deepEqual(afterMidnight.used,[]);
+    assert.ok(afterMidnight.slots.every(slot=>slot.state==='ready'));
+});

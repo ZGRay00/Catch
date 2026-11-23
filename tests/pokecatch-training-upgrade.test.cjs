@@ -11,7 +11,7 @@ function fixture(t,settings={},unlocked=38){
     const data=new Map(),storage={getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,String(v)),removeItem:k=>data.delete(k)};
     const save=()=>storage.setItem('gachamon-save-v1',JSON.stringify(s));save();
     const e=new H.Engine(storage,{mode:'train',trainUid:'team',trainLevel:52,autoTeam:false,autoPrepare:false,raids:false,trainBuddy:false,trainBuff:false,progressCandy:false,...settings});e.loadAccount(s);e.running=true;e.started=now;e.tabToken=storage.getItem('pokecatch-tab');e.schedule=()=>{};e.read();e.automation.begin(s);
-    const mapped=[];e.driver.nav=()=>true;e.driver.map=row=>{mapped.push(row);s.adv.chapter=row.id;save();return true;};
+    const mapped=[];e.driver.nav=()=>true;e.driver.map=row=>{mapped.push(row);s.adv.chapter=row.id;s.adv.loops=[row.key];save();return true;};
     const low=()=>({...H.DATA.chapters[35],key:'35',members:[35]});
     function farming(age=0){e.target=low();e.visit={started:now-age,deaths:0};}
     function preparation(){
@@ -63,7 +63,7 @@ test('small XP-rate differences do not cause repeated training map switches',t=>
     }
     e.farm(s,now,'train');assert.equal(e.driver.pendingMap,null);assert.equal(e.target.key,'35');e.stop();
 });
-for(const [runs,gain,upgrade]of [[3,5,false],[3,6,true],[2,7,false],[2,8,false],[2,9,true]])test(`training compares a measured +${gain}% route after ${runs} loops`,async t=>{
+for(const [runs,gain,upgrade]of [[3,5,false],[3,6,false],[3,7,true],[2,7,false],[2,8,false],[2,10,true]])test(`training compares a measured +${gain}% route after ${runs} loops`,async t=>{
     const {s,e,now,farming,save}=fixture(t);farming(31000);
     for(const row of H.xpRanking(s,e.settings,{}, {},now)){
         const rate=row.key==='35'?100000:row.key==='36'?100000+1000*gain:1000;
@@ -72,7 +72,8 @@ for(const [runs,gain,upgrade]of [[3,5,false],[3,6,true],[2,7,false],[2,8,false],
     e.farm(s,now,'train');
     assert.equal(e.driver.pendingMap?.row.key,upgrade?'36':undefined);
     if(upgrade){
-        await e.step(now+1200);assert.equal(e.target.key,'36');assert.equal(s.adv.chapter,36);
+        await e.step(now+1200);assert.equal(e.target.key,'35');assert.equal(s.adv.chapter,36);
+        await e.step(now+2400);assert.equal(e.target.key,'36');
         // Flipped sampling noise below the 5% margin cannot immediately undo the switch.
         const old=e.metrics[H.metricsKey(s,{...H.DATA.chapters[35],key:'35'},e.settings,now)];
         old.xp=(100000+1000*gain)*1.02*runs;save();e.farm(s,now+33000,'train');assert.equal(e.driver.pendingMap,null);
@@ -81,9 +82,10 @@ for(const [runs,gain,upgrade]of [[3,5,false],[3,6,true],[2,7,false],[2,8,false],
 });
 test('mainline preparation follows the same measured switching rule and retains its frontier goal',async t=>{
     const {s,e,now,preparation,mapped}=fixture(t),p=preparation();
+    const suffix=H.trainingXpSuffix(H.trainingXpTargets(s,e.settings,p.targets));
     for(const row of H.preparationRoutes(s,e.settings,p,{},now)){
         const rate=row.key==='35'?100000:row.key==='36'?108000:1000;
-        e.metrics[H.metricsKey(s,row,e.settings,now)]={xp:rate*3,xpSeconds:180,xpRuns:3};
+        e.metrics[H.metricsKey(s,row,e.settings,now)+suffix]={xp:rate*3,xpSeconds:180,xpRuns:3};
     }
     await preparationTick(e,()=>e.coach.step(s,now));assert.equal(p.phase,'travel');
     await preparationTick(e,()=>e.coach.step(s,now+1200));assert.equal(mapped.at(-1).key,'36');

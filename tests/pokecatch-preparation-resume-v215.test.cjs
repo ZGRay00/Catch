@@ -78,6 +78,18 @@ test('a ready roster in the PC is configured and actually applied before skippin
     s.road=[...s.team];assert.equal(e.ensurePrepared(s,context,{},now+3600),false);assert.equal(e.coach.ready.trial,true);assert.equal(e.preparation,null);
 });
 
+test('strict readiness skips levelling without queuing an uncertified immediate PC swap',t=>{
+    const {s,e,context,now}=fixture(t,species.map(()=>5));
+    e.preparation=null;e.strictPlanning=true;
+    s.mons.push(...species.map((id,i)=>({uid:'ready'+i,id,level:95,reg:'hoenn'})));
+    assert.equal(e.ensurePrepared(s,context,{},now),false);
+    assert.ok(e.coach.planReview.plan.uids.every(uid=>uid.startsWith('ready')));
+    assert.equal(e.driver.teamTask,null);
+    assert.equal(e.preparation,null);
+    assert.equal(e.ensurePrepared(s,context,{},now+1200),false);
+    assert.equal(e.driver.teamTask,null);
+});
+
 test('legacy all-pinned preparation can switch to a ready new roster without resetting its original task or budget',t=>{
     const {s,e,p,now}=fixture(t,[91,88,93,83,83,73]),targets=p.targets,resume=p.resume,original=p.originalTeam;
     s.mons.push(...species.map((id,i)=>({uid:'ready'+i,id,level:95,reg:'hoenn'})));

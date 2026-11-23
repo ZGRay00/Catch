@@ -587,20 +587,21 @@ async function main() {
         assert.equal(await evaluate('__pcTest.engine.teamCheck.key'),'1','automatic chapter advance re-evaluates its enemy profile');
         await evaluate(`(()=>{const e=__pcTest.engine;e.stop();const s=mock.state;s.adv.chapter=0;s.adv.unlocked=8;s.team=['weak0','strong6'];s.road=[...s.team];mock.save();e.onChange()})()`);
         await setUI({mode:'train',trainUid:'weak0',trainLevel:50,autoTeam:true});await begin();await tick();
-        for(let n=0;n<40&&await evaluate('!!__pcTest.engine.driver.teamTask');n++){
+        for(let n=0;n<55&&!await evaluate('mock.state.team.length===6&&!__pcTest.engine.driver.teamTask');n++){
             await tick();
             assert.ok(await evaluate('mock.state.team.includes("weak0")'),'each PC swap keeps the selected trainee on the team');
         }
-        assert.ok(await evaluate('mock.state.team.includes("weak0")&&mock.state.team.length===6'),'single trainee is retained while supports are optimized');
+        const trainResult=await evaluate('({team:mock.state.team,status:__pcTest.engine.status,target:__pcTest.engine.target?.key,pending:__pcTest.engine.driver.pendingMap?.row.key,verification:__pcTest.engine.teamSearch?.verification})');
+        assert.ok(trainResult.team.includes('weak0')&&trainResult.team.length===6,'single trainee is retained while supports are optimized · '+JSON.stringify(trainResult));
         assert.notEqual(await evaluate('mock.state.team[0]'),'weak0','a protected trainee does not displace its carrier from the lead');
         await evaluate(`(()=>{const e=__pcTest.engine;e.stop();const s=mock.state;s.autoSwitch=false;s.mons=s.mons.filter(m=>['weak0','strong6'].includes(m.uid));s.team=['weak0','strong6'];s.road=[...s.team];mock.save();e.onChange()})()`);
         await setUI({mode:'money',autoTeam:true});await begin();await tick();
-        for(let n=0;n<12&&await evaluate('!!__pcTest.engine.driver.teamTask');n++)await tick();
+        for(let n=0;n<32&&!await evaluate('mock.state.team[0]==="strong6"&&!__pcTest.engine.driver.teamTask');n++)await tick();
         assert.deepEqual(await evaluate('mock.state.team'),['strong6','weak0'],'native PC drag applies a lead-only reorder');
         await evaluate('mock.state.autoSwitch=true;mock.save()');
         await evaluate(`(()=>{const e=__pcTest.engine;e.stop();const s=mock.state;s.adv.chapter=14;s.adv.unlocked=14;s.link={to:'johto',side:'to'};s.mons=[{uid:'old-legend',id:150,reg:'kanto',level:100},{uid:'new0',id:155,reg:'johto',level:10},{uid:'new1',id:158,reg:'johto',level:10},{uid:'new2',id:152,reg:'johto',level:10}];s.team=['new0'];s.road=['new0'];mock.save();e.onChange()})()`);
         await setUI({mode:'progress',autoTeam:true});await begin();await tick();
-        for(let n=0;n<25&&await evaluate('!!__pcTest.engine.driver.teamTask');n++)await tick();
+        for(let n=0;n<36&&!await evaluate('mock.state.team.length===3&&!__pcTest.engine.driver.teamTask');n++)await tick();
         assert.ok(await evaluate('mock.state.team.length===3&&!mock.state.team.includes("old-legend")'),'new region uses only eligible native-region members');
         await evaluate(`(()=>{const e=__pcTest.engine;e.stop();mock.state.adv.event={raid:true,reg:'kanto',id:68,loops:23};mock.save();e.onChange()})()`);
         await setUI({mode:'money',autoTeam:false,optimizeRaid:true});const beforeOptimize=await evaluate('window.teamOptimizations||0');await begin();

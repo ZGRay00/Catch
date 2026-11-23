@@ -163,15 +163,34 @@
     }
     function experienceTotal(s, uids = s.team || []) {
         const tables = DATA.xpThresholds?.[economicRegion(s)];
+        const index=pokemonByUid(s);
         let total = 0;
         for (const uid of uids) {
-            const mon = (s.mons || []).find(m => m.uid === uid); if (!mon) return null;
+            const mon=index.get(uid); if(!mon)return null;
             const table = rankedXpTable(tables, mon);
             if (!table) return null;
-            for (let level = 1; level < mon.level; level++) total += table[level] || 0;
-            total += Number(mon.xp) || 0;
+            total+=xpAtLevel(table,mon.level)+(Number(mon.xp)||0);
         }
         return total;
+    }
+    function xpAtLevel(table,level){
+        let total=0;
+        for(let lv=1;lv<level;lv++)total+=table[lv]||0;
+        return total;
+    }
+    function trainingXpTargets(s,settings,goals){
+        const named=goals??(settings.mode==='train'&&settings.trainUid!=='team'?trainingUids(s,settings).map(uid=>({uid,goal:settings.trainLevel})):null);
+        if(!named)return null;
+        const party=partyMons(s),tables=DATA.xpThresholds?.[economicRegion(s)];
+        return party.filter(mon=>named.some(t=>t.uid===mon.uid)&&teamEligible(s,mon)).map(mon=>{
+            const goal=Math.min(trainingCap(s,mon),named.find(t=>t.uid===mon.uid).goal);
+            const table=rankedXpTable(tables,mon);
+            const xp=table?xpAtLevel(table,mon.level)+(Number(mon.xp)||0):null;
+            return {uid:mon.uid,identity:[mon.id,mon.rank||0],goal,xp,remaining:table?Math.max(0,xpAtLevel(table,goal)-xp):0};
+        });
+    }
+    function trainingXpSuffix(targets){
+        return targets?'|xp1:'+JSON.stringify(targets.map(t=>[t.uid,t.goal]).sort((a,b)=>String(a[0]).localeCompare(String(b[0])))):'';
     }
     function trainingCandidates(s,settings){
         const rows=candidates(s,settings,true),known=new Set(rows.map(row=>row.key));
@@ -198,12 +217,14 @@
         return fit.minCoverage>=.999&&fit.turns<=limits.turns&&fit.worstTurns<=limits.worst&&fit.deaths<=limits.deaths&&fit.worstDeaths<=limits.knockouts;
     }
     function* xpRouteSearch(s,settings,row,m,now,sliced,projection){
-        const {party,yieldMembers,xpMult}=projection;
+        const {party,yieldMembers,xpMult,targets}=projection;
         const measured=m?.xpSeconds>0,samples=m?.xpRuns||0;
-        const battleFit=yield* battleRouteFitSearch(s,row,party,now,sliced);
-        const experience=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0)*yieldMembers*xpMult;
+        const battleFit=yield* battleRouteFitSearch(s,row,party,now,sliced,settings);
+        const base=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0);
         const leagueTraining=row.league?yield* leagueTrainingSearch(s,settings,row,battleFit,now,sliced,party):null;
-        const model=leagueTraining?leagueTraining.xpPerMember*yieldMembers*xpMult/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
+        const perMember=(leagueTraining?.xpPerMember??base)*xpMult;
+        const experience=targets?targets.reduce((sum,t)=>sum+Math.min(t.remaining,perMember*(t.uid===s.buddy?.uid?1.3:1)),0):perMember*yieldMembers;
+        const model=leagueTraining?experience/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
         const estimate=estimateWithHistory(model,m?.historicalRate);
         const actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
         const levels=party.filter(mon=>teamEligible(s,mon,row.reg)).map(mon=>mon.level).sort((a,b)=>b-a);
@@ -221,7 +242,7 @@
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
     }
     function yieldRankingRequest(kind,s,settings,metrics,now){
-        if(settings.mode==='dex')settings={...settings,mode:kind==='xp'?'train':'money'};
+        if(settings.mode==='dex')settings={...settings,mode:kind==='xp'?'train':'money',autoTeam:false};
         let maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
         let otherWallet=null;
         if(s.link){
@@ -256,20 +277,22 @@
         const options={...settings,region:'all'},reg=preparation.context.reg;
         const maps=trainingCandidates(s,options).filter(row=>row.reg===reg);
         const training={...s,team:[...(preparation.uids||[])]};
-        const request=makeYieldRankingRequest('preparation',training,options,metrics,now,maps,reg);
+        const request=makeYieldRankingRequest('preparation',training,options,metrics,now,maps,reg,null,preparation.targets);
         request.ceiling=preparation.routeCeiling;
         return request;
     }
-    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null){
+    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null,goals){
         const xp=kind!=='money';
+        const targets=xp?trainingXpTargets(s,settings,goals):null,suffix=trainingXpSuffix(targets);
         const metricKey=routeMetricKey(s,settings,now);
         const otherKey=otherWallet&&routeMetricKey(otherWallet,settings,now);
         const states=maps.map(row=>otherWallet&&(row.reg===s.link.to)===(otherWallet.link.side==='to')?otherWallet:s);
         // The telemetry object mutates in place. Pin precisely the fields read by
         // this search so a sample crossing two slices cannot mix measurements.
         const samples=maps.map((row,i)=>{
-            const key=states[i]===s?metricKey:otherKey,exact=key(row),m=metrics[exact];
+            const key=states[i]===s?metricKey:otherKey,exact=key(row),m=metrics[exact+suffix];
             if(xp?m?.xpSeconds>0:m?.seconds>0)return xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs};
+            if(suffix)return;
             const legacy=key(row,false);
             if(exact===legacy)return;
             const mixed=metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
@@ -277,66 +300,62 @@
         });
         const otherInputs=otherWallet&&yieldRankingInputs(otherWallet,settings,[],now);
         const previewMoney=!xp&&settings.mode==='money'&&settings.autoTeam&&s.mons.length>s.team.length;
-        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples,
+        const maxCycleXp=targets?Math.max(0,...maps.map(row=>row.members.reduce((sum,id)=>sum+(CHAPTERS.get(id)?.xpEstimate||0),0)))*1.3*(activeYieldBuff(s,'xp',now)?.mult||1):0;
+        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)]),
             previewMoney?rosterFingerprint(s):null]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
             : previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
         return {kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney)};
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets)};
     }
-    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney){
+    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets){
         let rows=[];
         const walletParties=new Map();
         let projection;
         if(kind!=='money'){
             const party=partyMons(s),growing=party.filter(mon=>mon.level<trainingCap(s,mon));
             const buddyShare=growing.some(mon=>mon.uid===s.buddy?.uid) ? .3 : 0;
-            projection={party,yieldMembers:growing.length+buddyShare,xpMult:activeYieldBuff(s,'xp',now)?.mult||1};
+            projection={party,yieldMembers:growing.length+buddyShare,xpMult:activeYieldBuff(s,'xp',now)?.mult||1,targets};
         }
         for(const [i,row] of maps.entries()){
             if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,samples[i],now,sliced,projection));
             else{
                 const state=states[i];
                 if(!walletParties.has(state))walletParties.set(state,partyMons(state));
-                const fit=yield* battleRouteFitSearch(state,row,walletParties.get(state),now,sliced);
+                const fit=yield* battleRouteFitSearch(state,row,walletParties.get(state),now,sliced,settings);
                 rows.push(moneyRouteScore(state,row,samples[i],fit,now,settings.speed));
             }
             if(sliced)yield;
         }
         if(previewMoney){
-            // Compare a single legal backup party on at most three promising maps.
-            // A preview can nominate a trial. Real income still belongs to the deployed party.
-            const trials=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}))
-                .filter(({row})=>!row.measured&&row.battleFit.turns!=null&&row.battleFit.factor*(row.battleFit.coverage??1)<.97)
-                .sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id).slice(0,3);
-            const backups=new Map();
-            for(const {row,state} of trials){
-                const side=state.link?row.reg===state.link.to:false;
-                if(!backups.has(side)){
-                    const roster=[];
-                    for(const mon of state.mons){
-                        if(!teamEligible(state,mon,row.reg))continue;
-                        roster.push({mon,power:reserveStrength(mon)});
-                        if(sliced&&roster.length%16===0)yield;
-                    }
-                    roster.sort((a,b)=>b.power-a.power||String(a.mon.uid).localeCompare(String(b.mon.uid)));
-                    const party=[],used=new Set();
-                    for(const {mon} of roster){
-                        const id=DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
-                        if(used.has(id))continue;
-                        used.add(id);party.push(mon);if(party.length===6)break;
-                    }
-                    backups.set(side,party);
-                }
-                const party=backups.get(side);
-                if(!party.some(mon=>!state.team.includes(mon.uid)))continue;
-                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced);
+            // Screen every available map, then do route-specific legal party
+            // comparison on a bounded set. The resulting rate belongs only to
+            // that exact party. Coverage does not assert a global optimum.
+            const rated=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}));
+            const high=rated.slice().sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id);
+            const active=rated.find(entry=>entry.row.members.includes(s.adv.chapter));
+            const different=high.find(entry=>entry.row.league!==high[0]?.row.league);
+            const candidates=new Set([...high.slice(0,4),...[active,different].filter(Boolean)]);
+            const evaluated=new Set();
+            for(const {row,state} of candidates){
+                if(row.measured&&row.samples>=2)continue;
+                const plan=yield* adventureTeamSearch(state,settings,[],{row,objective:'money',now,lowBudget:true},sliced);
+                evaluated.add(row.key);
+                if(!plan.changed||!plan.uids.length)continue;
+                const party=partyMons(state,plan.uids);
+                if(party.length!==plan.uids.length)continue;
+                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced,settings);
                 const estimate=moneyRouteScore(state,row,null,fit,now,settings.speed).rate;
                 if(fit.coverage>=.99&&fit.minCoverage>=row.battleFit.minCoverage&&estimate>row.rate*1.08){
                     row.projectedMoneyRate=estimate;
                     row.projectedMoneyTurns=fit.turns;
+                    row.routePlan={objective:'money',identity:routeIdentity(row),party:plan.uids,entryParty:[...state.team],
+                        scope:state.link?.side??null,setting:routePlanSettings(settings),key:routeMetricKey({...state,team:plan.uids},settings,now)(row),
+                        roster:rosterFingerprint(state),evidence:'estimate',minimumRate:row.rate*1.08};
                 }
+                if(sliced)yield;
             }
+            for(const {row} of rated)row.planCoverage={evaluated:evaluated.size,total:rated.length,matched:evaluated.has(row.key)};
         }
         return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
     }
@@ -409,6 +428,12 @@
         return best&&types[best.id].xp[reg]<=headroom&&Number.isSafeInteger(best.cost)&&best.cost>0?{...best,xp:types[best.id].xp[reg],need,owned:false}:null;
     }
     function routeDescriptor(row){return Object.fromEntries(['id','key','reg','name','loop','league','members','reward','units','ace'].map(key=>[key,row[key]]));}
+    function routeIdentity(row,options={}){
+        return JSON.stringify([row.reg,options.zone?'zone':row.league?'league':'chapter',row.id,String(row.key),options.tier||0,options.roamId||0,row.members||[]]);
+    }
+    function routePlanSettings(settings){
+        return JSON.stringify([settings.mode,settings.autoTeam,settings.speed,settings.activeSwitch,settings.region,settings.moneyTarget]);
+    }
     // Native elite rooms reuse the story gym's roster and power, without its route trainers.
     const ELITE_GYM_POWER={9:.36,10:.48,11:.73,12:.57,13:1.72,25:.4,26:.57,27:.75,28:.82,29:1.2,
         43:.42,44:.47,45:.63,46:.52,47:1.11,60:.48,61:.72,62:.8,63:.85,64:1.15,77:.89,78:1,79:.86,80:.86,81:.78,82:.83};
@@ -493,25 +518,25 @@
     }
     function* preparationSearch(s,settings,context,sliced){
         const desired=Math.min(100,context.level+settings.prepareMargin),available=new Map((s.mons||[]).map(m=>[m.uid,m])),now=context.now??Date.now();
-        if(context.kind==='tower'){
-            const progress=towerProgress(s,now),actual=towerParty(s,{snapshot:!!progress.run,floor:progress.run?progress.floor:1,now});
+        if(context.kind==='tower'||context.kind==='worldAttack'){
+            const tower=context.kind==='tower',progress=tower?towerProgress(s,now):null;
+            const actual=tower?towerParty(s,{snapshot:!!progress.run,floor:progress.run?progress.floor:1,now}):worldAttackParty(s,context.size);
             const under=(s.under?.slots||[]).flatMap(slot=>slot.mons||[]),index=new Map([...under,...(s.mons||[])].map(mon=>[mon.uid,mon]));
-            // The native tower owns selection and order. Train its actual leading survivors,
-            // rather than a hypothetical matchup team which the tower will never deploy.
-            const members=actual.map(mon=>index.get(mon.src)||mon).map(mon=>({uid:mon.uid,id:mon.id,level:mon.level,goal:Math.min(desired,trainingCap(s,mon)),trainable:available.has(mon.uid)}));
+            // Both activities have their own native default selection and ignore a hypothetical adventure party.
+            const members=actual.map(mon=>index.get(mon.src)||mon).map(mon=>({uid:mon.uid,id:mon.id,level:mon.level,
+                goal:Math.min(desired,trainingCap(s,mon)),trainable:available.has(mon.uid)&&(tower||teamEligible(s,mon,context.reg))}));
             const targets=members.filter(mon=>mon.trainable&&mon.level<mon.goal),needed=targets.some(mon=>mon.goal-mon.level>settings.prepareGap);
             const uids=settings.autoTeam===false?[...(s.team||[])]:members.filter(mon=>mon.trainable).map(mon=>mon.uid),used=new Set(members.filter(mon=>mon.trainable).map(mon=>DATA.combat.singles[mon.id]||mon.id));
             if(settings.autoTeam!==false)for(const mon of [...(s.mons||[])].filter(mon=>teamEligible(s,mon,context.reg)).sort((a,b)=>b.level-a.level)){
                 const identity=DATA.combat.singles[mon.id]||mon.id;if(uids.length>=6)break;
                 if(!used.has(identity)){used.add(identity);uids.push(mon.uid);}
             }
-            return{needed,members,targets,uids,desired,selection:{source:'native-tower'},capLimited:members.some(mon=>mon.goal<desired)};
+            return{needed,members,targets,uids,desired,selection:{source:tower?'native-tower':'native-world-attack'},capLimited:members.some(mon=>mon.goal<desired)};
         }
         let pool=context.kind==='under'?undergroundMembers(s,now):(s.mons||[]).filter(m=>teamEligible(s,m,context.reg));
-        if(context.kind==='worldAttack')pool=pool.filter(m=>!s.wb?.used?.[m.uid]);
         const forecastIdentity=m=>DATA.combat.singles[m.id]||(context.speciesUnique?`sp:${m.id}`:`${m.id}:${+!!m.shiny}`);
         const ordinary=['map','progress'].includes(context.kind),configured=ordinary?[]:configuredBattleTeam(s,context);
-        const choose=ordinary?settings.autoTeam:settings.optimizeRaid||['tower','worldAttack'].includes(context.kind);
+        const choose=ordinary?settings.autoTeam:settings.optimizeRaid;
         const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true,now};
         const chapter=CHAPTERS.get(context.id);
         const dexReplay=context.kind==='map'&&!context.roamId&&!context.forcePreparation&&isDexReplay(s,settings,chapter)?chapter:null;
@@ -587,11 +612,12 @@
         else if(choose)uids=(yield* adventureTeamSearch(s,settings,uids,{reg:context.reg,pool:team,foes:context.foes,objective:'train',force:true,now},sliced)).uids;
         return{needed,members,targets,uids,desired,selection,capLimited:!ready&&members.some(m=>m.goal<desired)};
     }
-    function battleRouteFit(s,row,uids=s.team||[],now=Date.now()){
-        return battleRouteFitSearch(s,row,partyMons(s,uids),now,false).next().value;
+    function battleRouteFit(s,row,uids=s.team||[],now=Date.now(),settings=DEFAULTS){
+        return battleRouteFitSearch(s,row,partyMons(s,uids),now,false,settings).next().value;
     }
-    function* battleRouteFitSearch(s,row,party,now,sliced){
+    function* battleRouteFitSearch(s,row,party,now,sliced,settings=DEFAULTS){
         const team=party.filter(m=>teamEligible(s,m,row.reg)).map(m=>({...m,status:null}));
+        const nativeSwitch=s.autoSwitch!==false,rescue=team.length>1&&!row.league&&helperSwitchEnabled(s,settings);
         const foes=(row.members?.length?row.members.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter)):chapterCombatFoes(s,row)).filter(m=>MONS.has(m.id)&&m.weight>0);
         if(!team.length||!foes.length)return{factor:1,turns:null,coverage:null};
         // Aggregate encounters on the same chapter share their weather. Explicit
@@ -606,13 +632,23 @@
             return sky;
         });
         const weatherKey=JSON.stringify(signatures);
-        const key=JSON.stringify([row.reg,s.autoSwitch!==false,foes,team.map(combatProfile),weatherKey]),cached=ROUTE_FITS.get(key);
+        const key=JSON.stringify([row.reg,nativeSwitch,rescue,foes,team.map(combatProfile),weatherKey]),cached=ROUTE_FITS.get(key);
         if(cached)return{...cached};
         const allies=team.map(mon=>({mon,stats:effectiveStats(mon)}));let weight=0,cost=0,covered=0,deaths=0,minCoverage=1,worstTurns=0,worstDeaths=0;
-        for(const [i,foe]of foes.entries()){
-            const defense=effectiveStats(foe),battle=deployedBattle(allies.map(({mon,stats})=>matchupDetails(mon,foe,stats,defense,weatherRows[i])),s.autoSwitch!==false);
-            weight+=foe.weight;cost+=foe.weight*battle.turns;covered+=foe.weight*battle.coverage;deaths+=foe.weight*battle.deaths;
+        const record=(battle,share)=>{
+            weight+=share;cost+=share*battle.turns;covered+=share*battle.coverage;deaths+=share*battle.deaths;
             minCoverage=Math.min(minCoverage,battle.coverage);worstTurns=Math.max(worstTurns,battle.turns);worstDeaths=Math.max(worstDeaths,battle.deaths);
+        };
+        for(const [i,foe]of foes.entries()){
+            const defense=effectiveStats(foe),details=allies.map(({mon,stats})=>matchupDetails(mon,foe,stats,defense,weatherRows[i]));
+            // The route export separates wild occurrences from paid fights. Keep
+            // the conservative native order for trainer waves and special foes.
+            const wild=rescue&&!foe.shiny&&!foe.veiled?Math.min(foe.weight,foe.singleWild?foe.weight:foe.wildWeight||0):0;
+            const lead=wild?rescueLead(details.length,j=>rescueProfile(details[j],details[j].foeHp,details[j].hp)):0;
+            if(lead){
+                record(deployedBattle([details[lead],...details.filter((_,j)=>j!==lead)],false),wild);
+                if(wild<foe.weight)record(deployedBattle(details,nativeSwitch),foe.weight-wild);
+            }else record(deployedBattle(details,nativeSwitch),foe.weight);
             if(sliced)yield;
         }
         // Static route time assumes a short fight; allow three expected attack turns per foe.

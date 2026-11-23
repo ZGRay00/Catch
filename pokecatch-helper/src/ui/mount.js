@@ -171,7 +171,7 @@
             </div>
             <div class="hint">开关默认关闭，按账号保存。待命时使用库存；任务运行时还会计入道具用量。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
-            <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare">等级不足时先补练，再继续原任务</span></label>
+            <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
             <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
             <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
@@ -307,6 +307,17 @@
             const model=taskExecutionState(s,engine,now),states={unconfigured:'未配置',disabled:'自动关闭',timing:'计时中',ready:'待领取',waiting:'等待安全点',running:'处理中',blocked:'需处理'};
             query('#foreground-task').textContent=model.foreground.label;query('#foreground-detail').textContent=model.foreground.detail;query('#ui-owner').textContent='页面：'+model.uiOwner;query('#concurrency-note').textContent=model.summary;
             query('#execution-route').textContent=model.decision.route;query('#execution-team').textContent=model.decision.team;query('#execution-reason').textContent=model.decision.reason;
+            if(query('#decision-info').open){
+                let review=query('#execution-review');
+                if(!review){review=document.createElement('div');review.id='execution-review';review.className='sub';query('#execution-reason').after(review);}
+                const members=model.decision.verification?.members||[],name=id=>MONS.get(id)?.name||String(id);
+                const text=members.map(member=>{
+                    const role={pinned:'固定成员',learner:'学员',combat:'出战'}[member.role];
+                    const matchups=member.favorable?.map(name).join('、');
+                    return `${member.slot+1}. ${name(member.id)} Lv.${member.level} · ${role}${matchups?' · 打点 '+matchups:''}${member.alternative?' · 备选 '+name(member.alternative.id):''}`;
+                }).join('\n');
+                review.style.whiteSpace='pre-line';if(review.textContent!==text)review.textContent=text;
+            }
             if(query('#probability-info').open){
                 const odds=shinyOdds(s||{}, {},now),eggs=s?.pension?.eggs||[],format=rate=>!Number.isFinite(rate)?'标记待核对':rate===1?'已保存异色标记':rate===0?'已保存普通色标记':`${(rate*100).toFixed(4)}%（约1/${Math.round(1/rate)}）`;
                 query('#probability-wild').textContent=`野外：${format(odds.rate)} · ${odds.complete?'地区完整图鉴×2已生效':'地区完整图鉴加成未生效'}${odds.multiplier>1?` · 野外树果×${odds.multiplier}`:''}；地下化石按对应地区计算，当前地区示例：${format(shinyOdds(s||{},{kind:'underground'},now).rate)}`;
@@ -589,10 +600,12 @@
             query('#raid-check').classList.toggle('hidden',!raidMode||!engine.settings.raids);
             query('[data-setting="gifts"]').closest('label').classList.toggle('hidden',independent);
             query('[data-setting="optimizeRaid"]').closest('label').classList.toggle('hidden',['breed','resource','tower'].includes(mode));
-            query('#team-policy-hint').textContent=mode==='tower'?'对战塔由游戏从收藏中自动选人；这里不提供原生不存在的手动塔队选择。':mode==='world'?'世界首领攻击由游戏选择成员；捕获队伍按特殊战配队选项执行。':independent?engine.settings.optimizeRaid?'特殊战按目标自动配置独立队伍。':'使用你在游戏内设置的专属队伍；未配置时等待你选择，不自动替换成员。':engine.settings.autoTeam?'冒险按目标自动选人、排序与补练；特殊战可单独设置。':'保留当前冒险成员和出场顺序，不自动加人或换人；补练也使用你选择的队伍。';
+            const collection=mode==='dex'||mode==='shiny';
+            query('#team-policy-hint').textContent=mode==='tower'?'对战塔由游戏从收藏中自动选人；这里不提供原生不存在的手动塔队选择。':mode==='world'?'世界首领攻击由游戏选择成员；捕获队伍按特殊战配队选项执行。':independent?engine.settings.optimizeRaid?'特殊战按目标自动配置独立队伍。':'使用你在游戏内设置的专属队伍；未配置时等待你选择，不自动替换成员。':collection?engine.settings.autoTeam?'普通搜寻直接用现有成员配队。':'普通搜寻使用你设置的队伍。':engine.settings.autoTeam?'冒险按目标自动选人、排序与补练；特殊战可单独设置。':'保留当前冒险成员和出场顺序，不自动加人或换人；补练也使用你选择的队伍。';
             query('#team-hint').classList.toggle('hidden',independent);
             query('#evolution-hint').textContent=engine.settings.autoEvolve?'普通色免费等级进化已开启，进化确认后重新配队。异色、道具、分支和升阶锁定个体保留当前形态。':'免费进化已关闭，按当前形态评估队伍。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
+            query('#prepare-toggle-text').textContent=collection?'主线和独立挑战等级不足时先补练':'等级不足时先补练，再继续原任务';
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
             query('#candy-hint').textContent='先按经验缺口使用库存。购买档位按金币商店所属地区的徽章解锁，页面确认最高档后逐份购买。预算不足或经验会超过当前等级上限时，继续地图练级。';
         }
@@ -651,12 +664,12 @@
         let lastLockState=null,lastPaint=0,guideState=null,guideId=null,guidePlan=null,paintedTask='';
         const taskState=()=>[engine.runId,engine.running,!!engine.manual,!!engine.suspended,engine.queueIndex,engine.settings.mode].join('|');
         const paintDue=()=>taskState()!==paintedTask||performance.now()-lastPaint>=2000;
-        function render() {
+        function render(reuseLocalSnapshot=false) {
             lastPaint=performance.now();
             if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(Date.now());
             if(document.hidden){engine.releaseRankingView();return;}
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
-            let s; try { s = engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
+            let s; try { s = reuseLocalSnapshot===true?engine.readForView():engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
                 engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
@@ -963,7 +976,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason])]);
+                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -983,6 +996,12 @@
                 } else {
                     if(mode==='train'&&rows.length){
                         const note=document.createElement('div');note.className='hint';note.textContent=preview?'按当前队伍比较各地图的每分钟经验。':trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
+                    }
+                    const coverage=mode==='money'&&rows[0]?.planCoverage;
+                    if(coverage){
+                        const note=document.createElement('div');note.className='hint';
+                        note.textContent=`按当前队伍比较 ${coverage.total} 张图，另估算 ${coverage.evaluated} 张图的专用阵容。`;
+                        view.appendChild(note);
                     }
                     const table = document.createElement('table');
                     table.innerHTML = `<thead><tr><th>地图</th><th>${mode === 'item' ? '平滑 / 实测' : '来源 / 整轮'}</th><th>${mode === 'item' ? '个/分钟' : mode === 'train' ? 'EXP/分钟' : '₽/分钟'}</th></tr></thead><tbody></tbody>`;
@@ -1004,7 +1023,12 @@
                         if(mode==='money'&&row.projectedMoneyRate!=null){
                             const detail=table.tBodies[0].insertRow().insertCell();
                             detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
-                            detail.textContent=`替补阵容估算 ${Math.round(row.projectedMoneyRate).toLocaleString()} ₽/分钟 · 预计 ${row.projectedMoneyTurns.toFixed(1)} 回合/对手 · 可试跑`;
+                            detail.textContent=`专用阵容估算 ${Math.round(row.projectedMoneyRate).toLocaleString()} ₽/分钟 · 预计 ${row.projectedMoneyTurns.toFixed(1)} 回合/对手`;
+                        }
+                        if(mode==='money'&&selected&&!row.measured&&Number.isFinite(row.estimatedSeconds)&&Number.isFinite(row.estimatedReward)){
+                            const detail=table.tBodies[0].insertRow().insertCell();
+                            detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';
+                            detail.textContent=`每轮预计 ${Math.round(row.estimatedReward).toLocaleString()} ₽ · ${Math.round(row.estimatedSeconds)} 秒`;
                         }
                         if(mode==='train'&&row.leagueTraining?.failedAt!=null&&row.samples<2){
                             const detail=table.tBodies[0].insertRow().insertCell();
@@ -1237,7 +1261,8 @@
                 const s=engine.read(),settings=s&&accountId(s)===engine.account?engine.settings:DEFAULTS;
                 const box=boxSnapshot(s,settings,Date.now(),window.BUILD),name='pokecatch-box.json';
                 downloadJson(box,name);
-                result.textContent=`已导出 ${box.members.length} 只 · ${name}`;
+                const expeditions=box.underground?.slots.length||0;
+                result.textContent=`已导出盒中 ${box.members.length} 只${expeditions?`及地下 ${expeditions} 队`:''} · ${name}`;
             }catch(error){result.textContent='盒子导出失败 · '+error.message;}
         };
         query('#export').onclick=()=>{
@@ -1291,6 +1316,7 @@
                 engine.releaseRankingView();commitBudgetDrafts();
                 return;
             }
+            engine.markLocalDirty();
             if(engine.suspended)engine.resumeSuspended();
             else if(engine.running&&!engine.restoring)engine.schedule(50);
             engine.notifyView(true);place();
@@ -1311,6 +1337,7 @@
             finally{engine.releaseRankingView();engine.nurseryAssist.cancelIdle();engine.suspend();}
         });
         window.addEventListener('storage',event=>{
+            if((event.key===SAVE_KEY||event.key===null)&&event.storageArea===engine.storage)engine.markLocalDirty();
             if(engine.nurseryAssist.key&&event.key===engine.nurseryAssist.key){
                 engine.nurseryAssist.refresh();render();return;
             }
@@ -1319,7 +1346,7 @@
             syncSettings();render();
         });
         window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();engine.notifyView(true);}});
-        engine.onChange = (force=true) => {if(force||paintDue())render();};
+        engine.onChange = (force=true) => {if(force||paintDue())render(!force);};
         itemOptions(); syncSettings(); render(); fold(!!ui.folded);
         setInterval(()=>{
             if(!document.hidden&&engine.settings.resumeOnReload&&engine.suspended?.retryAt<=Date.now())engine.resumeSuspended();

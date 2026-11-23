@@ -3,13 +3,38 @@
         return `under:${day}|${slot}|${used}|${rosterFingerprint(s)}`;
     }
     function undergroundMembers(s,now=Date.now()){
-        const used=s.under?.day===parisDay(now)?s.under.used||{}:{},candy=new Set((s.candy?.run?.mons||[]).map(m=>m.src));
-        return(s.mons||[]).filter(m=>teamEligible(s,m,'sinnoh')&&!used[m.uid]&&!candy.has(m.uid));
+        const used=s.under?.day===parisDay(now)?s.under.used||{}:{};
+        const away=new Set((s.candy?.run?.mons||[]).map(m=>m.src));
+        for(const slot of s.under?.slots||[]){
+            for(const uid of slot.team||[])away.add(uid);
+            for(const mon of slot.mons||[])away.add(mon.uid);
+        }
+        return(s.mons||[]).filter(m=>teamEligible(s,m,'sinnoh')&&!used[m.uid]&&!away.has(m.uid));
     }
     // Native event-team editor keeps one combat identity and separates the Tao fusions.
     function undergroundApart(a,b){
         const conflicts=(id,other)=>id===643&&(other===646||other===64602)||id===644&&(other===646||other===64601);
         return conflicts(a.id,b.id)||conflicts(b.id,a.id);
+    }
+    function canFillUndergroundTeam(pool){
+        const seen=new Set(),candidates=[];
+        const compatible=(a,b)=>a.key!==b.key&&!undergroundApart(a.mon,b.mon);
+        for(const mon of pool){
+            const form=`${mon.id}:${+!!mon.shiny}`;
+            if(seen.has(form))continue;
+            seen.add(form);
+            const entry={mon,key:DATA.combat.singles[mon.id]||form};
+            for(let i=0;i<candidates.length-1;i++){
+                const first=candidates[i];
+                if(!compatible(entry,first))continue;
+                for(let j=i+1;j<candidates.length;j++){
+                    const second=candidates[j];
+                    if(compatible(entry,second)&&compatible(first,second))return true;
+                }
+            }
+            candidates.push(entry);
+        }
+        return false;
     }
     function undergroundBayMembers(s,bay,now){
         const reserved=new Set();
@@ -17,7 +42,10 @@
             if(key.startsWith('under:')&&key!=='under:'+bay&&!undergroundBay(s,Number(key.slice(6))))
                 for(const uid of uids||[])reserved.add(uid);
         }
-        return undergroundMembers(s,now).filter(m=>!reserved.has(m.uid));
+        const available=undergroundMembers(s,now).filter(m=>!reserved.has(m.uid));
+        const adventure=new Set([...(s.team||[]),...(s.road||[]),s.buddy?.uid]);
+        const reserves=available.filter(mon=>!adventure.has(mon.uid));
+        return canFillUndergroundTeam(reserves)?reserves:available;
     }
     function undergroundBackgroundUnlocked(s){
         if(!s?.adv)return false;
@@ -71,7 +99,7 @@
         const wait=adventureDispatchWait(s,e,now);
         if(wait)return wait;
         const idle=undergroundIdleMembers(s,e,now);
-        if(idle.length<DATA.automation.under.team||new Set(idle.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size<DATA.automation.under.team)return '空闲成员不足三只可同时出战的宝可梦，保留主队、Buddy及任务阵容';
+        if(!canFillUndergroundTeam(idle))return '空闲成员不足三只可同时出战的宝可梦，保留主队、Buddy及任务阵容';
         const tab=typeof document==='undefined'?null:$('#tabs [data-screen="underground"]');
         if(tab&&(tab.classList.contains('locked')||tab.classList.contains('hold')))return tab.dataset.why||'地下通道入口尚未开放';
         return '';
@@ -249,7 +277,7 @@
         if(p?.context?.label)route+=`；补练后返回：${p.context.label}`;
         if(d.navigation)route+=`；正在打开${d.navigation.name||d.navigation.screen}（已尝试 ${d.navigation.attempts||0} 次）`;
         if(active)return{route,team:'独立战斗使用游戏对应的专属队伍',reason:c.optimizeRaid?'特殊队伍按对应活动单独优化':'特殊队伍由你手动配置'};
-        const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon]));
+        const index=pokemonByUid(s);
         const describe=uids=>uids.map(uid=>{const mon=index.get(uid);return mon?`${MONS.get(mon.id)?.name||mon.id} Lv.${mon.level}`:'成员已离开PC';}).join('、')||'未配置';
         const task=d.teamTask,road=Array.isArray(s.road)&&s.road.length?s.road:s.team||[],pending=road.length!==(s.team||[]).length||road.some((uid,i)=>uid!==s.team[i]);
         const stage=task?.pending?'等待拖放存档确认':task?'正在调整队伍':pending?'等待治疗点应用新队伍':c.autoTeam===false?'保留手动队伍':'当前冒险队伍';
@@ -257,11 +285,15 @@
         if(pending)team+=`；当前行进阵容：${describe(road)}`;
         let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':e.manual?'当前由你控制；最近的配队操作可在运行日志中查看':'按当前路线评估打点、回合数和生存能力';
         const check=e.teamCheck,key=String(destination?.key??current?.loop);
+        let verification=null;
         if(!p&&c.autoTeam!==false&&check?.mode===c.mode&&check.key===key&&check.reason){
             reason=check.reason+(check.opponents?` · 覆盖 ${check.opponents} 组对手`: '');
             if(task&&check.gain>0)reason+=` · 模型评分 +${Math.round(check.gain*100)}%`;
+            verification=check.verification||null;
+            if(verification?.total)reason+=` · ${check.suggestion?'建议阵容':'所选阵容'}已复核 ${verification.checked}/${verification.total} 只候选`;
         }
-        return{route,team,reason};
+        if(!p&&c.autoTeam!==false&&e.teamValidationNote&&!e.manual)reason=e.teamValidationNote;
+        return{route,team,reason,verification};
     }
     const UNDER_START_FLOORS=[1,25,50,75,100];
     function undergroundStartFloor(settings,floors){
@@ -269,27 +301,42 @@
         return floors.reduce((best,floor)=>Number.isInteger(floor)&&floor>0&&floor<=cap?Math.max(best,floor):best,0);
     }
     const UNDER_THEMES={flooded:['water','grass','electric'],volcanic:['fire','rock','ground'],crystal:['ice','psychic','steel'],dark:['ghost','dark','poison'],ancient:['dragon','fighting'],galleries:['normal','bug','flying']};
-    // Cheap seed for the bounded search. Score learned damaging moves and bulk
-    // against the theme; the detailed search still uses actual dual-type foes and guards.
-    function* expeditionSeedOrder(pool,types,identity,sliced){
+    // Screen by dual-type opponents and keep distinct specialists alongside the
+    // best generalists. Only the shortlist needs full per-move matchup rows.
+    function* expeditionSeedOrder(pool,foes,identity,sliced,lowBudget){
+        const groups=new Map();
+        for(const foe of foes){
+            const model=MONS.get(foe.id),key=model.types.join('/');
+            let group=groups.get(key);
+            if(!group){group={model,weight:0};groups.set(key,group);}
+            group.weight+=foe.weight*(foe.guard?3:1);
+        }
+        const targets=[...groups.values()].sort((a,b)=>b.weight-a.weight).slice(0,lowBudget?8:12);
         const entries=[];
         for(const mon of pool){
             const model=MONS.get(mon.id),stats=effectiveStats(mon),defense=defensiveTypes(model);
-            const moves=damagingMoves(model).filter(entry=>entry.level<=mon.level);
+            const learned=damagingMoves(model),banned=activeMoveBans(mon,learned);
+            const offense={};
+            for(const {level,key,move,stab} of learned){
+                if(level>mon.level||banned?.includes(key))continue;
+                const value=stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab/100;
+                offense[move.type]=Math.max(offense[move.type]||0,value);
+            }
+            const attacks=Object.entries(offense);
             const bulk=Math.sqrt(stats.hp*Math.sqrt(stats.def*stats.spd));
-            const scores=types.map(type=>{
+            const scores=targets.map(({model,weight})=>{
+                const targetDefense=defensiveTypes(model),incoming=Math.max(.25,...model.types.map(type=>defense[type]??1));
                 let attack=0;
-                for(const {move,stab} of moves){
-                    const effect=DATA.chart[move.type]?.[type]??1;
-                    attack=Math.max(attack,stats[move.cat==='phys'?'atk':'spa']*move.power*(move.acc/100)*stab*effect);
-                }
-                return Math.sqrt(attack)*Math.sqrt(bulk/Math.max(.25,defense[type]??1))*Math.sqrt(mon.level);
+                for(const [type,power] of attacks)attack=Math.max(attack,power*(targetDefense[type]??1));
+                return Math.sqrt(attack*bulk*mon.level/incoming)*weight;
             });
-            entries.push({mon,scores,total:scores.reduce((sum,n)=>sum+n,0)});
-            if(sliced&&entries.length%8===0)yield;
+            entries.push({mon,group:identity(mon),scores,total:scores.reduce((sum,n)=>sum+n,0),
+                physical:bulk*stats.atk,special:bulk*stats.spa,speed:bulk*stats.spe});
+            if(sliced&&entries.length%4===0)yield;
         }
-        entries.sort((a,b)=>b.total-a.total||String(a.mon.uid).localeCompare(String(b.mon.uid)));
-        const bestByType=types.map(()=>0),selected=[],taken=new Set();
+        const tie=(a,b)=>String(a.mon.uid).localeCompare(String(b.mon.uid));
+        entries.sort((a,b)=>b.total-a.total||tie(a,b));
+        const bestByType=targets.map(()=>0),selected=[],taken=new Set();
         while(selected.length<3){
             let best,gain=-Infinity;
             for(const entry of entries){
@@ -302,7 +349,40 @@
             best.scores.forEach((score,i)=>{bestByType[i]=Math.max(bestByType[i],score);});
             if(sliced)yield;
         }
-        return [...selected,...entries.map(entry=>entry.mon).filter(mon=>!selected.includes(mon))];
+        if(entries.length<=64)return [...selected,...entries.map(entry=>entry.mon).filter(mon=>!selected.includes(mon))];
+        const shortlist=new Set(selected);
+        const addDistinct=(ordered,count)=>{
+            const seen=new Set();
+            for(const {mon} of ordered){
+                const key=identity(mon);
+                if(seen.has(key))continue;
+                seen.add(key);shortlist.add(mon);
+                if(seen.size>=count)break;
+            }
+        };
+        addDistinct(entries,lowBudget?20:32);
+        // Theme resistance alone can hide high-stat members with strong off-type
+        // attacks. Keep a few of these for the full move-by-move comparison.
+        for(const key of ['physical','special','speed']){
+            addDistinct([...entries].sort((a,b)=>b[key]-a[key]||b.total-a.total||tie(a,b)),lowBudget?4:7);
+            if(sliced)yield;
+        }
+        for(const i of targets.keys()){
+            const limit=lowBudget?2:3,best=[];
+            for(const [j,entry] of entries.entries()){
+                const at=best.findIndex(other=>other.group===entry.group);
+                if(at<0||entry.scores[i]>best[at].scores[i]){
+                    if(at>=0)best.splice(at,1);
+                    if(best.length<limit||entry.scores[i]>best.at(-1).scores[i]){
+                        best.push(entry);best.sort((a,b)=>b.scores[i]-a.scores[i]||b.total-a.total||tie(a,b));
+                        if(best.length>limit)best.pop();
+                    }
+                }
+                if(sliced&&j%128===127)yield;
+            }
+            for(const entry of best)shortlist.add(entry.mon);
+        }
+        return [...shortlist];
     }
     const UNDER_FOE_POOLS=new Map();
     function undergroundFoes(s,theme,floor){
@@ -338,8 +418,12 @@
         const later=Math.min(300,Math.max(floor+10,Math.round(1+((levels[2]||30)-30)/.7)));
         // Stress-test a guard checkpoint for depth. For income, weight later guards by their regular cadence.
         const money=settings.underGoal==='money',probe=money?later:Math.ceil(later/10)*10;
+        // A high-start depth team should also be able to face a harder guard
+        // near a checkpoint the player has already reached.
+        const reached=Math.min(300,floor+60,Math.floor((s.under?.best||0)/10)*10);
+        const stages=!money&&floor>=75&&levels[2]>=95&&reached>probe?[[floor,.5],[probe,.3],[reached,.2]]:[[floor,.55],[probe,.45]];
         const theme=s.under?.next?.[bay],foes=[];
-        for(const [start,share] of [[floor,.55],[probe,.45]]){
+        for(const [start,share] of stages){
             const group=start===floor?context.foes:undergroundFoes(s,theme,start).foes;
             const guards=group.filter(f=>f.statMult===2).length;
             const wild=group.length-guards;

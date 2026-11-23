@@ -136,19 +136,22 @@
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
             if(task.fitBasis){
-                const b=task.fitBasis,e=this.e,pins=e.settings.mode==='train'?trainingUids(s,e.settings,e.trainProtected):[];
+                const b=task.fitBasis,e=this.e,pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
-                if(!e.settings.autoTeam||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
+                const current=pokemonByUid(s),region=CHAPTERS.get(task.chapter)?.reg;
+                if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
                     e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(e.settings).roamId)||
                     !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==rosterFingerprint(s)||
-                    b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)){
+                    b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
+                    task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
                     this.teamTask=null;e.teamCheck=null;return false;
                 }
             }
             const fail=reason=>{this.e.log(`自动配队暂缓：${reason}`);this.e.teamRetryAt=now+5*60000;this.e.teamCheck=null;this.teamTask=null;this.nav('adventure');};
             if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){this.teamTask=null;this.e.teamCheck=null;return false;}
             if(now-task.started>90000){fail('队伍页面操作超时，继续当前任务');return false;}
-            if(task.uids.some(uid=>!(s.mons||[]).some(m=>m.uid===uid))){this.teamTask=null;this.e.teamCheck=null;return false;}
+            const roster=pokemonByUid(s);
+            if(task.uids.some(uid=>!roster.has(uid))){this.teamTask=null;this.e.teamCheck=null;return false;}
             const signature=s.team.join('|');
             if(task.pending){
                 if(signature===task.pending.before&&now-task.pending.at<10000){this.e.status='冒险配队 · 等待游戏确认上一次拖放';this.e.lastProgress=now;return true;}
@@ -159,9 +162,9 @@
                 const search=$('#screen-team.active #pc-search');
                 if(search&&task.searchBefore!==undefined&&search.value!==task.searchBefore){this.input(search,task.searchBefore,'恢复PC搜索');return true;}
                 this.teamTask=null;this.e.telemetry.sample=null;
-                if(this.e.target)this.e.visit={started:now,deaths:totalDeaths(s,this.e.target),caught:dexStatus(s,this.e.settings).complete};
+                if(this.e.target&&!task.routePlan)this.e.visit={started:now,deaths:totalDeaths(s,this.e.target),caught:dexStatus(s,this.e.settings).complete};
                 this.e.status='冒险队伍已适配，等待游戏治疗点应用';
-                this.e.log(`冒险队伍已适配${CHAPTERS.get(task.chapter)?.name}：${task.uids.map(uid=>MONS.get(s.mons.find(m=>m.uid===uid).id)?.name).join('、')}`);
+                this.e.log(`冒险队伍已适配${CHAPTERS.get(task.chapter)?.name}：${task.uids.map(uid=>MONS.get(roster.get(uid)?.id)?.name).join('、')}`);
                 this.nav('adventure');return true;
             }
             if(!this.nav('team'))return true;
@@ -176,7 +179,7 @@
             const slotNodes=()=>{const mini=$('#team-mini.show');return [...(mini?.children||$('#team-slots')?.children||[])];};
             const mismatch=task.uids.findIndex((uid,i)=>s.team[i]!==uid);
             if(mismatch>=0){
-                const uid=task.uids[mismatch],oldIndex=s.team.indexOf(uid),mon=s.mons.find(m=>m.uid===uid);
+                const uid=task.uids[mismatch],oldIndex=s.team.indexOf(uid),mon=roster.get(uid);
                 if(oldIndex>=0){const slots=slotNodes();return move(slots[oldIndex],slots[mismatch],'调整冒险队伍顺序');}
                 const filters=$$('#pc-active [data-clear]').filter(enabled),other=filters.find(el=>el.dataset.clear!=='q');
                 if(other){this.click(filters.find(el=>el.dataset.clear==='all')||other,'清除PC筛选以配置队伍');return true;}

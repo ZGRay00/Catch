@@ -62,11 +62,15 @@ test('a visible disabled native legendary control waits past both UI and progres
 });
 
 test('an unlocked native legendary control starts the saved target and starts the battle timer then',async t=>{
-    const {e,dom,now,clicks}=fixture(t);await e.step(now);await e.step(now+360000);
+    const {e,s,dom,now,clicks,storage}=fixture(t);await e.step(now);await e.step(now+360000);
     dom.go.disabled=false;dom.row.classList={contains:name=>['sel','lz-open'].includes(name)};
     await e.step(now+361200);
+    assert.ok(e.driver.pendingMap?.arrival);assert.equal(e.zoneId,undefined);
+    s.adv.zone={id:145,foe:145,elite:1};storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    await e.step(now+362400);assert.ok(e.driver.pendingMap?.arrival,'a different tier is not this receipt');
+    s.adv.zone={id:145,foe:145,loops:0};storage.setItem('gachamon-save-v1',JSON.stringify(s));await e.step(now+363600);
     assert.equal(e.running,true);assert.equal(e.driver.pendingMap,null);assert.equal(e.zoneId,145);
-    assert.equal(e.zoneStarted,now+361200);assert.deepEqual(clicks,['挑战闪电鸟']);e.stop();
+    assert.equal(e.zoneStarted,now+363600);assert.deepEqual(clicks,['挑战闪电鸟']);e.stop();
 });
 
 test('a missing native challenge control retains the ordinary 60 second map timeout',async t=>{

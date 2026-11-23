@@ -15,7 +15,8 @@ test('replaying older regions applies native 75%, 60%, 50% money multipliers',()
     const s=state();assert.deepEqual(H.DATA.regions.map(r=>H.moneyFactor(s,{reg:r.key})),[.5,.6,.75,1,1]);
     s.link={from:'johto',to:'sinnoh',side:'from'};assert.deepEqual(H.DATA.regions.map(r=>H.moneyFactor(s,{reg:r.key})),[.75,1,1,1,1]);
     const settings={...H.DEFAULTS,region:'all'},row=H.moneyRanking(s,settings).find(r=>r.id===8);
-    assert.equal(row.rate,H.estimateRate(row)*.75*row.battleFit.factor*(row.battleFit.coverage??1));
+    assert.equal(row.estimatedReward,row.reward*.75*(row.battleFit.coverage??1));
+    assert.equal(row.rate,row.estimatedReward/row.estimatedSeconds*60);
 });
 
 test('XP thresholds use the economic region rather than the member origin',()=>{

@@ -79,24 +79,26 @@ test('Giant Chasm compares an eligible backup party separately from the deployed
     assert.ok(giant.projectedMoneyRate>giant.rate);assert.ok(giant.projectedMoneyTurns<giant.battleFit.turns);
     assert.equal(giant.measured,false);
     assert.equal(rankings({...cfg,autoTeam:false}).find(row=>row.id===83).projectedMoneyRate,undefined);
-    const measured={net:80000,seconds:520,runs:1};
+    const measured={net:80000,seconds:520,runs:2};
     const fresh=rankings(cfg,{[H.metricsKey(s,giant,cfg,now)]:measured}).find(row=>row.id===83);
     assert.equal(fresh.rate,measured.net/measured.seconds*60);assert.equal(fresh.projectedMoneyRate,undefined);
     s.link={to:'unova',side:'to',from:'sinnoh'};
     for(const mon of mons.slice(6))mon.reg='sinnoh';
-    assert.equal(rankings().find(row=>row.id===83).projectedMoneyRate,undefined);
+    const restricted=rankings().find(row=>row.id===83);
+    if(restricted.routePlan)assert.ok(restricted.routePlan.party.every(uid=>mons.find(mon=>mon.uid===uid).reg==='unova'));
 });
 
-test('money trial ordering can prioritize an unmeasured route with a credible backup party',t=>{
+test('an unmatched estimate does not trigger a switch to an unmeasured trial route',t=>{
     const {s,e,now}=fixture(t);
     const current={...route(0),rate:150,measured:true};
     const promising={...route(6),rate:10,projectedMoneyRate:140};
     const ordinary={...route(3),rate:100};
     e.target=current;e.visit={started:now-60*60000};e.automation.autoBuff=()=>false;e.canStartRoute=()=>true;
+    e.driver.nav=()=>true;
     e.rankedYieldRoutes=()=>[current,ordinary,promising];
     let selected;e.travel=row=>{selected=row;};
     e.money(s,now);
-    assert.equal(selected,promising);assert.match(e.logs[0].text,/试跑/);
+    assert.equal(selected,undefined);assert.match(e.status,/刷钱/);
 });
 
 test('completed money measurements retain their real net rate even on a modelled difficult route',()=>{
@@ -118,6 +120,18 @@ test('changing native auto-switch invalidates old money and XP samples',()=>{
     assert.equal(H.moneyRanking(s,H.DEFAULTS,metrics).find(row=>row.id===6).measured,true);s.autoSwitch=false;
     assert.notEqual(H.metricsKey(s,r,H.DEFAULTS),key);assert.equal(H.moneyRanking(s,H.DEFAULTS,metrics).find(row=>row.id===6).measured,false);
     assert.equal(H.xpRanking(s,H.DEFAULTS,metrics).find(row=>row.id===6)?.measured,false);
+});
+
+test('disabled moves change combat and invalidate old team yield profiles while respecting native fallback',()=>{
+    const s=state(100),mon=s.mons[0],foe={id:3,level:100};
+    const stats=H.effectiveStats(mon),defense=H.effectiveStats(foe),details={details:true};
+    const initial=H.expectedDamage(mon,foe,stats,defense,details),before=H.metricsKey(s,route(6),H.DEFAULTS);
+    mon.ban=[initial.key];
+    const revised=H.expectedDamage(mon,foe,stats,defense,details);
+    assert.ok(initial.key&&revised.key);assert.notEqual(revised.key,initial.key);
+    assert.notEqual(H.metricsKey(s,route(6),H.DEFAULTS),before);
+    mon.ban=H.MONS.get(mon.id).learn.map(([,key])=>key);
+    assert.equal(H.expectedDamage(mon,foe,stats,defense,details).key,initial.key);
 });
 
 test('money fitting uses its entire selected route instead of a transient enemy',async t=>{
@@ -148,6 +162,49 @@ test('item farming keeps its route-speed objective instead of optimizing trainer
     const {s,e,now}=fixture(t,'item');e.target=route(0);
     assert.equal(await fit(e,s,now),true);
     assert.equal(e.teamCheck.objective,'route');
+});
+
+test('an item route retains its required member through the live team transaction',async t=>{
+    const {s,e,now}=fixture(t,'item');
+    const source=H.ITEMS.get('gracidea').sources.find(source=>source.team?.length);
+    s.adv.chapter=source.ch;s.adv.unlocked=83;s.adv.badges=['Maître Sinnoh'];
+    s.travel.to=['sinnoh'];s.mons[0].id=source.team[0];
+    e.settings.itemId='gracidea';e.target=route(source.ch);
+    assert.equal(await fit(e,s,now),true);
+    const task=e.driver.teamTask;
+    assert.ok(task.uids.includes(s.team[0]));
+    e.driver.nav=()=>false;
+    assert.equal(e.driver.adventureTeam(s,now+1),true);
+    assert.equal(e.driver.teamTask,task);
+    e.settings.itemId='other';
+    assert.equal(e.driver.adventureTeam(s,now+2),false);
+    assert.equal(e.driver.teamTask,null);
+});
+
+test('upgraded late-game parties can earn a faster estimate inside the three-turn range',()=>{
+    const roster=[[464,100],[392,100],[94,100],[130,100],[579,62],[248,100],[484,100],[145,100],[146,100]];
+    const mons=roster.map(([id,level])=>({uid:String(id),id,level,reg:'unova'}));
+    const s={...state(),mons,team:mons.slice(0,6).map(mon=>mon.uid),autoSwitch:true,travel:{to:['unova']},adv:{chapter:83,unlocked:83,badges:[]}};
+    const cfg={...H.DEFAULTS,mode:'money',region:'current',speed:4},now=Date.parse('2026-11-23T12:00:00+08:00');
+    const get=(team,metrics={})=>H.moneyRanking({...s,team},cfg,metrics,{},now).find(row=>row.id===83);
+    const before=get(s.team),team=['392','484','145','464','248','146'],after=get(team);
+    assert.equal(before.estimatedReward,after.estimatedReward);
+    assert.ok(after.battleFit.turns<before.battleFit.turns&&before.battleFit.turns<3);
+    assert.ok(after.estimatedSeconds<before.estimatedSeconds&&after.rate>before.rate);
+    const measured={[H.metricsKey({...s,team},after,cfg,now)]:{net:25000,seconds:150,runs:1}};
+    assert.equal(get(team,measured).rate,10000);
+    assert.equal(get(s.team,measured).measured,false);
+});
+
+test('money estimates re-evaluate single wild encounters on switching policy changes',()=>{
+    const s=state(60);s.mons=[{id:6,uid:'fire',level:60},{id:145,uid:'electric',level:65}];s.team=['fire','electric'];s.autoSwitch=false;
+    s.adv.unlocked=83;s.travel.to=['unova'];
+    const cfg={...H.DEFAULTS,mode:'money',autoTeam:true,region:'all'};
+    const evaluate=activeSwitch=>H.moneyRanking(s,{...cfg,activeSwitch}, {},{},1732000000000);
+    const disabled=evaluate(false),enabled=evaluate(true);
+    assert.ok(enabled.some(row=>!row.league&&row.battleFit.turns<disabled.find(old=>old.key===row.key).battleFit.turns));
+    for(const row of enabled.filter(row=>row.league))assert.deepEqual(row.battleFit,disabled.find(old=>old.key===row.key).battleFit);
+    assert.deepEqual(evaluate(false),disabled);
 });
 
 test('mainline fitting does not optimize a replay map before returning to its frontier',async t=>{

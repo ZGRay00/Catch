@@ -313,7 +313,7 @@
     }
     function captured(s, id, ownedIds) {
         // Historical captures survive evolution, trading, daycare and release.
-        return Number(s.dex?.[id]?.caught) > 0 || (ownedIds ? ownedIds.has(id) : collectionMembers(s).some(m=>m.id===id));
+        return Number(s.dex?.[id]?.caught) > 0 || (ownedIds ? ownedIds.has(id) : ownsRosterSpecies(s,id));
     }
     function regionOfMon(id) {
         const mon=MONS.get(id),base=mon?.num??mon?.root??id;
@@ -375,12 +375,14 @@
         return bands[level]??bucket;
     }
     function teamFingerprint(s) {
-        const index = new Map((s.mons || []).map(m => [m.uid, m]));
         // Coarse level buckets allow useful history while rejecting a different party.
-        return (s.team || []).map(uid => index.get(uid)).filter(Boolean).map(m => `${m.id}:${yieldLevelBand(m)}:${m.rank || 0}:${+!!m.shiny}:${m.statMult||1}:${m.hpMult||1}:${+!!(m.level>=trainingCap(s,m))}:${tasteProfile(m)}`).join(',');
+        return partyMons(s).map(m => {
+            const ban=moveBanKey(m);
+            return `${m.id}:${yieldLevelBand(m)}:${m.rank || 0}:${+!!m.shiny}:${m.statMult||1}:${m.hpMult||1}:${+!!(m.level>=trainingCap(s,m))}:${tasteProfile(m)}${ban?':ban='+ban:''}${m.damageMult&&m.damageMult!==1?':dmg='+m.damageMult:''}${m.rageMax!=null?':rage':''}`;
+        }).join(',');
     }
     function trainingRouteFingerprint(s,uids=s.team||[]){
-        const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon]));
+        const index=pokemonByUid(s);
         // Route choice reacts to each level and evolution; XP ticks and temporary HP do not.
         return JSON.stringify([s.adv.unlocked,s.link?.side||'',s.autoSwitch!==false,uids.map(uid=>{
             const mon=index.get(uid);return mon?[uid,...combatProfile({...mon,status:null}),trainingCap(s,mon)]:[uid];
@@ -506,7 +508,7 @@
         const starters=rows.flatMap(row=>row.members.map(id=>CHAPTERS.get(id).foesByStarter)).filter(Boolean)
             .map(branch=>starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number)));
         const party=partyMons(s).map(m=>[m.uid,monRegion(m),trainingCap(s,m),...combatProfile({...m,status:null})]);
-        return [rankingEnvironment(s,settings,now),settings.speed,s.team,party,starters,s.autoSwitch!==false,s.link?.to,s.link?.side,
+        return [rankingEnvironment(s,settings,now),settings.speed,s.team,party,starters,s.autoSwitch!==false,helperSwitchEnabled(s,settings),s.link?.to,s.link?.side,
             economicRegion(s),yieldFingerprint(s,now),s.buddy?.uid];
     }
     function estimatedRouteSeconds(row,speed=4){
@@ -526,7 +528,11 @@
     function moneyRouteScore(s,row,m,battleFit,now,speed){
         const measured=m?.seconds>0&&m?.runs>0;
         const coverage=battleFit.coverage==null?1:Math.min(1,Math.max(0,battleFit.coverage));
-        // Slow victories and an inability to finish encounters are separate costs.
-        const rate=measured?m.net/m.seconds*60:estimateWithHistory(estimateRate(row,speed)*moneyFactor(s,row)*(activeYieldBuff(s,'money',now)?.mult||1)*battleFit.factor*coverage,m?.historicalRate);
-        return {...row,rate,battleFit,measured,samples:m?.runs||0,seconds:m?.seconds||0};
+        // Let better sub-three-turn teams affect the estimate without treating
+        // movement, dialogs and animation time as proportional to attack turns.
+        const tempo=coverage===1&&battleFit.turns!=null?1+.05*Math.max(0,3-battleFit.turns):1;
+        const estimatedSeconds=estimatedRouteSeconds(row,speed)/(battleFit.factor*tempo);
+        const estimatedReward=row.reward*moneyFactor(s,row)*(activeYieldBuff(s,'money',now)?.mult||1)*coverage;
+        const rate=measured?m.net/m.seconds*60:estimateWithHistory(estimatedReward/estimatedSeconds*60,m?.historicalRate);
+        return {...row,rate,battleFit,estimatedSeconds,estimatedReward,measured,samples:m?.runs||0,seconds:m?.seconds||0};
     }

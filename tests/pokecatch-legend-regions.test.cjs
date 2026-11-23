@@ -3,6 +3,7 @@ function fixture(t,region='all'){
     const previous=global.document,now=Date.now(),s={mons:[],team:[],dex:{},travel:{to:['hoenn','johto']},adv:{chapter:0,unlocked:83,gifts:{}}};
     let active='kanto',switches=[];const visible={kanto:[],hoenn:[377],johto:[]},controls=new Set(Object.keys(visible));
     const e=new H.Engine({getItem:()=>null,setItem:()=>{},removeItem:()=>{}},{region});
+    e.read=()=>s;
     e.driver.nav=()=>true;e.driver.click=el=>{switches.push(el.reg);active=el.reg;return true;};
     global.document={querySelector:sel=>{const reg=/data-rg="([^"]+)"/.exec(sel)?.[1];return controls.has(reg)?{reg,classList:{contains:()=>active===reg}}:null;},
         querySelectorAll:()=>visible[active].map(id=>({dataset:{ch:'Z'+id}}))};

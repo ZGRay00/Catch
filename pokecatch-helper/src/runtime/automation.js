@@ -386,10 +386,10 @@
         }
         undergroundPlanKey(s,bay,floor,pool){
             return JSON.stringify([accountId(s),Number(bay),s.under?.next?.[bay],floor,this.e.settings.underGoal,
-                s.adv.unlocked,s.adv.badges,rosterFingerprint({...s,mons:pool})]);
+                this.e.settings.underGoal==='depth'?Math.floor((s.under?.best||0)/10):null,s.adv.unlocked,s.adv.badges,rosterSubsetFingerprint(s,pool)]);
         }
         undergroundPlan(s,bay,floor,pool,now){
-            const e=this.e,key=this.undergroundPlanKey(s,bay,floor,pool);
+            const e=this.e,key=this.undergroundPlanKey(s,bay,floor,pool),strict=!!e.strictPlanning;
             if(this.lastUnderPlan?.key===key)return this.lastUnderPlan;
             const availability=()=>{
                 const countLegend=mons=>mons.reduce((n,mon)=>n+Number(!!MONS.get(mon.id)?.legend),0);
@@ -405,10 +405,19 @@
             if(e.teamSearch?.signature!==key){
                 const context=undergroundTeamContext(s,e.settings,bay,floor,pool);
                 context.progressive=true;context.now=now;
+                context.lowBudget=globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4;
+                context.verifyAll=strict;
                 search=adventureTeamSearch({...s,team:[],road:[]},e.settings,[],context,true);
             }
-            const plan=e.evaluateTeamSearch(key,search);
-            if(!plan){e.status='地下探险 · 正在比较'+(e.settings.underGoal==='money'?'金币时薪':'冲层续航');return null;}
+            const plan=e.evaluateTeamSearch(key,search,'teamSearch',strict);
+            if(!plan){
+                const review=e.teamSearch?.verification;
+                e.status='地下探险 · 正在比较'+(e.settings.underGoal==='money'?'金币时薪':'冲层续航')+(review?.total?` · 复核 ${review.checked}/${review.total}`:'');
+                return null;
+            }
+            if(strict&&(!['verified','exhaustive'].includes(plan.verification?.status)||plan.verification.uids?.join('|')!==plan.uids.join('|'))){
+                return this.lastUnderPlan={key,uids:[]};
+            }
             if(plan.uids.length===3){
                 const byUid=new Map(pool.map(m=>[m.uid,m]));
                 const names=plan.uids.map(uid=>MONS.get(byUid.get(uid)?.id)?.name||uid);

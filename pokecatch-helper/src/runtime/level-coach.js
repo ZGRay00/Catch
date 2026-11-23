@@ -5,10 +5,13 @@
         if(!next||next.key===current?.key)return false;
         return !current||next.rate-current.rate>current.rate*trainingSwitchMargin(current,next)/100;
     }
+    function isCollectionMap(mode,kind){
+        return kind==='map'&&(mode==='dex'||mode==='shiny');
+    }
     class LevelCoach {
         constructor(engine){this.e=engine;this.checked=null;this.combat=null;this.ready=null;this.planReview=null;}
         partyProfile(s,uids=s.team||[]){
-            const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon]));
+            const index=pokemonByUid(s);
             return JSON.stringify([s.autoSwitch!==false,uids.map(uid=>{const mon=index.get(uid);return mon?[uid,...combatProfile({...mon,status:null})]:[uid];})]);
         }
         trialFloor(s,uids=s.team||[]){
@@ -38,7 +41,7 @@
         }
         manualTrainingWait(s,targets,reg,now){
             if(this.e.settings.autoTeam!==false)return false;
-            const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon])),chosen=s.team||[];
+            const index=pokemonByUid(s),chosen=s.team||[];
             const missing=targets.filter(target=>index.has(target.uid)&&index.get(target.uid).level<target.goal&&!chosen.includes(target.uid));
             const invalid=!chosen.length||chosen.some(uid=>!index.has(uid)||!teamEligible(s,index.get(uid),reg));
             if(!missing.length&&!invalid)return false;
@@ -50,10 +53,11 @@
         }
         ensure(s,context,resume={},now=Date.now()){
             const e=this.e;if(!e.settings.autoPrepare||e.preparation||['train','breed','resource'].includes(e.settings.mode))return false;
+            if(isCollectionMap(e.settings.mode,context.kind))return false;
             if(e.settings.mode==='money'&&e.settings.moneyTarget&&s.money>=e.settings.moneyTarget)return false;
             const ordinary=['map','progress'].includes(context.kind),chapter=CHAPTERS.get(context.id);
             if(ordinary&&!e.settings.autoTeam&&!e.driver.teamTask){
-                const index=new Map((s.mons||[]).map(mon=>[mon.uid,mon])),chosen=s.team||[];
+                const index=pokemonByUid(s),chosen=s.team||[];
                 if(!chosen.length||chosen.some(uid=>!index.has(uid)||!teamEligible(s,index.get(uid),context.reg))){e.failTask('手动队伍为空、成员已离开PC或不符合目标地区，请手动配置后继续');return true;}
             }
             const deaths=ordinary?totalDeaths(s,{members:chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[context.id]}):0;
@@ -98,6 +102,12 @@
                 if(assessment.ready){
                     const same=plan.uids.length===(s.team||[]).length&&plan.uids.every((uid,i)=>s.team[i]===uid),roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid));
                     if(!same){
+                        if(e.strictPlanning){
+                            // Readiness only decides whether a training detour is
+                            // needed. Destination fitting owns the PC transaction.
+                            this.checked=fingerprint;
+                            return false;
+                        }
                         e.telemetry.sample=null;e.lastProgress=now;
                         if((s.adv.battle||s.adv.pending)&&!e.canStartRoute?.(s)){e.status='当前队伍无需额外补练，等待安全节点安排出战';e.driver.nav('adventure');return true;}
                         if(now<e.teamRetryAt){e.status='可直接挑战的队伍等待原生配队重试';e.driver.nav('adventure');return true;}
@@ -129,6 +139,7 @@
             const e=this.e,mode=e.settings.mode,a=s.adv;
             if(outcome||a.event||a.zone||a.tower||a.league||e.raidProbe||e.raidReturn||FLOW_MODES.has(mode)||['legend','train'].includes(mode))return null;
             let row;
+            if(isCollectionMap(mode,'map'))return null;
             if(mode==='progress'){
                 if(!e.canProgress(s))return null;
                 const c=CHAPTERS.get(a.unlocked);row={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(x=>x.loop===c.loop).map(x=>x.id):[c.id]};
@@ -247,7 +258,7 @@
             this.e.driver.teamTask={chapter:s.adv.chapter,members:[s.adv.chapter],uids,started:now,attempts:0};return true;
         }
         reconcile(s,p,now=Date.now()){
-            const index=new Map(s.mons.map(m=>[m.uid,m])),identity=m=>DATA.combat.singles[m.id]||`${m.id}:${+!!m.shiny}`;
+            const index=pokemonByUid(s),identity=m=>DATA.combat.singles[m.id]||`${m.id}:${+!!m.shiny}`;
             if(!this.e.settings.autoTeam){
                 const planned=p.uids.map(uid=>index.get(uid)),invalid=planned.some(mon=>!mon||!teamEligible(s,mon,p.context.reg))||new Set(planned.filter(Boolean).map(identity)).size!==p.uids.length;
                 if(invalid)this.e.failTask('手动队伍成员不可用，请配置有效阵容后继续');
@@ -382,7 +393,7 @@
             const gap=now-(p.lastTick??now);
             if(gap>5000)p.phaseAt=Math.min(now,p.phaseAt+gap-1200);
             if(gap>60000){p.lastGrowth=now;if(p.candyAt)p.candyAt=now;if(p.roadWait)p.roadWait.at=now;}p.lastTick=now;
-            const index=new Map((s.mons||[]).map(m=>[m.uid,m]));
+            const index=pokemonByUid(s);
             if(!p.terminalGoal)for(const target of p.targets){
                 const mon=index.get(target.uid);
                 if(!mon){e.failTask('补练目标已离开PC，请取回成员或重新规划任务');return;}
@@ -488,8 +499,8 @@
             }
             else{
                 p.roadWait=null;p.roadRepairs=0;
-                if(!e.telemetry.sample)e.telemetry.begin(s,p.route,e.settings,now);
-                const sample=e.telemetry.observe(s,p.route,e.settings,now);if(sample?.valid)e.persist();
+                if(!e.telemetry.sample)e.telemetry.begin(s,p.route,e.settings,now,p.targets);
+                const sample=e.telemetry.observe(s,p.route,e.settings,now,p.targets);if(sample?.valid)e.persist();
             }
             const safe=!s.adv.battle&&!s.adv.pending;
             if(safe&&totalDeaths(s,p.route)-(p.visit?.deaths||0)>=Math.min(2,e.settings.lossLimit)){

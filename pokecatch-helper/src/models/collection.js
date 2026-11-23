@@ -480,7 +480,7 @@
             const transformed=mon.id===132&&target.id!==132;
             const model=MONS.get(transformed?target.id:mon.id);
             if(transformed)attackStats=effectiveStats({...mon,id:target.id});
-            const moves=damagingMoves(model),resistances=defensiveTypes(MONS.get(target.id));
+            const moves=damagingMoves(model),banned=activeMoveBans(mon,moves),resistances=defensiveTypes(MONS.get(target.id));
             const gap=DATA.combat.levelGap**(mon.level-target.level);
             function damage({move,stab}){
                 const physical=move.cat==='phys';
@@ -488,7 +488,7 @@
             }
             let best=null,bestDamage=0;
             for(const entry of moves){
-                if(entry.level>mon.level||entry.move.power<=0)continue;
+                if(entry.level>mon.level||entry.move.power<=0||banned?.includes(entry.key))continue;
                 const value=damage(entry);
                 if(!best||value>bestDamage){best=entry;bestDamage=value;}
             }
@@ -496,12 +496,12 @@
             if(includeCounter&&best){
                 for(const entry of moves){
                     const {move}=entry;
-                    if(entry.level>mon.level||move.power<=0||entry.key===best.key||resistances[move.type]===0)continue;
+                    if(entry.level>mon.level||move.power<=0||banned?.includes(entry.key)||entry.key===best.key||resistances[move.type]===0)continue;
                     if(!counter||move.power<counter.move.power)counter=entry;
                     if(!types.includes(move.type)&&(!coverage||move.power<coverage.move.power))coverage=entry;
                 }
             }
-            return {best,damage:bestDamage,counter:counter?damage(coverage||counter):bestDamage};
+            return {best,damage:bestDamage,counter:counter?damage(coverage||counter):bestDamage,banned};
         }
         const hpFactor=RAID_ALLY.raid.HP*(RAID_ALLY.raid.BST_REF/Object.values(foe.stats).reduce((a,b)=>a+b,0))**RAID_ALLY.raid.HP_EXP*(RAID_ALLY.raid.ADJ[boss]??1);
         const dotUnit=defense.hp*(1+RAID_ALLY.enemyHp*(RAID_ALLY.team-1))*hpFactor/RAID_ALLY.bossStatus.HURT;
@@ -512,7 +512,7 @@
             const survival=stats.hp/Math.max(1,incoming),chance={poison:0,burn:0,paralysis:0};
             let statusMove=null;
             const statusSpecies=mon.id;
-            for(const [level,key] of RAID_ALLY.learn[statusSpecies]||[]){const move=RAID_ALLY.moves[key];if(level<=mon.level&&!immune(move.status)&&(bossResistances[move.type]??1)>0)statusMove=move;}
+            for(const [level,key] of RAID_ALLY.learn[statusSpecies]||[]){const move=RAID_ALLY.moves[key];if(level<=mon.level&&!attack.banned?.includes(key)&&!immune(move.status)&&(bossResistances[move.type]??1)>0)statusMove=move;}
             const statusShare=statusMove?RAID_ALLY.statusChance:0;
             if(statusMove&&statusMove.status in chance)chance[statusMove.status]+=statusShare*Math.min(statusMove.acc,statusMove.cap)/100;
             const effect=RAID_ALLY.moves[attack.best?.key];

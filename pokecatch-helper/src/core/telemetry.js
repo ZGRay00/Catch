@@ -49,16 +49,21 @@
     }
     class Telemetry {
         constructor(metrics = {}) { this.metrics = metrics; this.sample = null; }
-        begin(s, row, settings, now) {
+        begin(s, row, settings, now, goals) {
             if(s.adv.speed!=null&&s.adv.speed!==settings.speed){this.sample=null;return;}
             const ledger=itemLedger(s);
+            const targets=trainingXpTargets(s,settings,goals);
             this.sample = { key: metricsKey(s, row, settings,now), route: row.key, wallet: Number(s.money) || 0,
                 run: s.adv.runs || 0, startNode: s.adv.node, started: now, advanced: false, deaths: totalDeaths(s, row),
-                xp: experienceTotal(s), party: JSON.stringify(s.team || []), ledger: !!ledger, items: itemSnapshot(s,ledger) };
+                xp: targets?null:experienceTotal(s), targets, xpSuffix:trainingXpSuffix(targets),
+                expenses:routeExpenseSignature(s), party: JSON.stringify(s.team || []), ledger: !!ledger, items: itemSnapshot(s,ledger) };
         }
-        observe(s, row, settings, now) {
+        observe(s, row, settings, now, goals) {
             const old = this.sample;
             if (!old || !row || old.route !== row.key || old.key !== metricsKey(s, row, settings,now) || old.party !== JSON.stringify(s.team || []) || s.adv.speed!=null&&s.adv.speed!==settings.speed || s.adv.event || s.adv.zone || s.adv.tower || s.adv.league || !row.members.includes(s.adv.chapter)) { this.sample = null; return null; }
+            if(old.expenses!==routeExpenseSignature(s)){this.sample=null;return null;}
+            // A multi-cycle jump lacks individual boundary evidence.
+            if((s.adv.runs||0)-old.run>(row.league?row.members.length:1)){this.sample=null;return null;}
             if ((s.adv.runs || 0) < old.run) { this.sample = null; return null; }
             const ledger=itemLedger(s);
             // Older saves start with inventory balances and may acquire lifetime intake counters mid-run.
@@ -69,17 +74,30 @@
             const seconds = (now - old.started) / 1000, net = (Number(s.money) || 0) - old.wallet;
             const valid = seconds >= 10 && seconds < 6 * 3600 && old.advanced;
             // The first partial cycle is a warm-up, so entry near a gym can't inflate income.
-            const currentXp = experienceTotal(s);
+            const targets=trainingXpTargets(s,settings,goals),currentXp=targets?null:experienceTotal(s);
+            let xp=null;
+            if(old.targets&&targets&&trainingXpSuffix(targets)===old.xpSuffix&&targets.length===old.targets.length){
+                const gains=old.targets.map((before,i)=>{
+                    const after=targets[i];
+                    return before.uid===after.uid&&before.identity.every((key,j)=>key===after.identity[j])&&before.xp!=null&&after.xp!=null&&after.xp>=before.xp?Math.min(after.xp-before.xp,before.remaining):null;
+                });
+                if(gains.every(gain=>gain!=null))xp=gains.reduce((a,b)=>a+b,0);
+            }else if(!targets&&!old.targets&&old.xp!=null&&currentXp!=null&&currentXp>=old.xp)xp=currentXp-old.xp;
             // Ordinary leagues increment runs once per chapter. A return to the
             // first room alone is not evidence that all league chapters were cleared.
             const completeLoop=!row.league||(s.adv.runs||0)-old.run>=row.members.length;
-            const result = { valid: valid && !!old.full && completeLoop, seconds, net, deaths: Math.max(0, totalDeaths(s, row) - old.deaths), xp: old.xp != null && currentXp != null && currentXp>=old.xp ? currentXp-old.xp : null };
+            const result = { valid: valid && !!old.full && completeLoop, seconds, net, deaths: Math.max(0, totalDeaths(s, row) - old.deaths), xp };
             if (result.valid) {
                 const m = this.metrics[old.key] || { net: 0, seconds: 0, runs: 0 };
                 m.deaths ??= 0;
                 if (m.runs >= 8) { m.net *= .75; m.seconds *= .75; m.runs *= .75; m.deaths *= .75; if (m.xpSeconds) { m.xp *= .75; m.xpSeconds *= .75; m.xpRuns *= .75; } if (m.itemSeconds) { m.itemSeconds *= .75; m.itemRuns *= .75; for (const id of Object.keys(m.itemCounts)) m.itemCounts[id] *= .75; } }
                 m.net += net; m.seconds += seconds; m.runs += 1; m.deaths += result.deaths; m.at = now;
-                if (result.xp != null) { m.xp = (m.xp || 0) + result.xp; m.xpSeconds = (m.xpSeconds || 0) + seconds; m.xpRuns = (m.xpRuns || 0) + 1; m.xpMultiplier = DATA.economy.xpMultipliers[economicRegion(s)]; }
+                if(result.xp!=null){
+                    const key=old.key+old.xpSuffix,record=old.xpSuffix?this.metrics[key]||{net:0,seconds:0,runs:0}:m;
+                    if(old.xpSuffix&&record.xpRuns>=8){record.xp*=.75;record.xpSeconds*=.75;record.xpRuns*=.75;}
+                    record.xp=(record.xp||0)+result.xp;record.xpSeconds=(record.xpSeconds||0)+seconds;record.xpRuns=(record.xpRuns||0)+1;
+                    record.xpMultiplier=DATA.economy.xpMultipliers[economicRegion(s)];record.at=now;this.metrics[key]=record;
+                }
                 if(old.items && (!ledger || Object.entries(old.items).every(([id,count])=>itemCounter(s,id)>=count))){
                     m.itemCounts ||= {}; m.itemSeconds = (m.itemSeconds || 0) + seconds; m.itemRuns = (m.itemRuns || 0) + 1;
                     for(const [id,count] of Object.entries(itemSnapshot(s,ledger))){
@@ -89,9 +107,12 @@
                 }
                 this.metrics[old.key] = m;
             }
-            this.begin(s, row, settings, now); this.sample.full = true;
+            this.begin(s, row, settings, now,goals); if(this.sample)this.sample.full = true;
             return result;
         }
+    }
+    function routeExpenseSignature(s){
+        return JSON.stringify(['shop','candy','pension'].map(key=>Number(s.stats?.spent?.[key])||0));
     }
     function totalDeaths(s, row) { return row.members.reduce((n, id) => n + (Number(s.adv.deaths?.[id]) || 0), 0); }
 

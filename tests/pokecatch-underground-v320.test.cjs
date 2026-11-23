@@ -218,6 +218,29 @@ test('dedicated dispatch fills a disabled bay by exact UID, respects another bay
     f.e.read=()=>s;f.e.ensurePrepared=()=>false;f.tick();f.tick();
     assert.equal(f.clicks.filter(c=>c.el===go).length,1);
 });
+test('dedicated dispatch keeps the planned team, current road and Buddy when a reserve trio is available',t=>{
+    const f=fixture(t,{optimizeRaid:true}),s=f.s;
+    const member=(uid,id)=>({uid,id,level:75,reg:'sinnoh'});
+    s.mons.push(member('buddy',25),member('road',94),member('other-bay',483),member('used',248));
+    s.road=['road',...s.team];s.buddy={uid:'buddy'};s.under.extra=1;s.under.used={used:1};
+    s.eventTeams={'under:0':[],'under:1':['other-bay']};
+    const edit=f.show('[data-ug-slot]',{ugSlot:'0.0'});f.show('#ug-root [data-ug-go]',{ugGo:'0'},{disabled:true});
+    f.save();f.tick();
+    assert.equal(f.clicks[0].el,edit);
+    assert.deepEqual(f.e.driver.ownedDialog?.uids,['m0','m1','m2']);
+    assert.deepEqual(s.team,['m3','m4','m5']);assert.equal(s.buddy.uid,'buddy');
+});
+test('dedicated dispatch can use party members when three apparent reserves cannot enter together',t=>{
+    const f=fixture(t,{optimizeRaid:true}),s=f.s;
+    [s.mons[0].id,s.mons[1].id,s.mons[2].id]=[643,646,25];
+    s.eventTeams={'under:0':[]};
+    f.show('[data-ug-slot]',{ugSlot:'0.0'});f.show('#ug-root [data-ug-go]',{ugGo:'0'},{disabled:true});
+    let initial;
+    f.e.automation.undergroundPlan=(_s,_slot,_floor,pool)=>{initial=pool.map(mon=>mon.uid);return {key:'fixture',uids:['m0','m2','m3']};};
+    f.save();f.tick();
+    assert.deepEqual(initial,['m0','m1','m2','m3','m4','m5']);
+    assert.deepEqual(f.e.driver.ownedDialog?.uids,['m0','m2','m3']);
+});
 test('underground plans honor picker identities and mutually exclusive forms even on the three-member fast path',t=>{
     const f=fixture(t),ids=[643,646,25],pool=ids.map((id,i)=>({...f.s.mons[i],id}));
     assert.deepEqual(f.e.automation.undergroundPlan(f.s,0,1,pool,f.now()).uids,[]);
@@ -244,6 +267,29 @@ test('completed small-box search matches all twenty trios on both objectives',t=
         assert.ok(Math.abs(chosen.score-best)<1e-8);
         assert.equal(chosen.uids.length,3);
     }
+});
+
+test('two expeditions reserve active and unclaimed members across the daily reset',t=>{
+    const {s,now}=fixture(t),time=now(),sample=s.mons.slice(0,4);
+    s.under.day=H.parisDay(time-86400000);s.under.used={[sample[3].uid]:1};
+    s.under.slots=[{bay:0,team:[sample[0].uid],end:time+60000},{bay:1,mons:[sample[1]],end:time-1000}];
+    const eligible=()=>H.undergroundMembers(s,time).map(mon=>mon.uid);
+    assert.ok(!eligible().includes(sample[0].uid)&&!eligible().includes(sample[1].uid));
+    assert.ok(eligible().includes(sample[2].uid)&&eligible().includes(sample[3].uid));
+    s.under.slots.pop();s.under.day=H.parisDay(time);s.under.used={[sample[1].uid]:1};
+    assert.ok(!eligible().includes(sample[1].uid));
+    assert.ok(s.mons.includes(sample[1]),'an already used and returned Pokémon remains eligible for adventure');
+});
+
+test('depth selection uses a deeper demonstrated guard while income keeps the same probes',t=>{
+    const {s}=fixture(t),pool=s.mons.map(mon=>({...mon,level:100}));s.under.next=['crystal'];
+    const build=underGoal=>H.undergroundTeamContext(s,{underGoal},0,100,pool);
+    const original=build('depth'),income=build('money');
+    s.under.best=150;
+    const deep=build('depth');
+    const strongestGuard=ctx=>Math.max(...ctx.foes.filter(foe=>foe.guard).map(foe=>foe.statMult));
+    assert.ok(strongestGuard(deep)>strongestGuard(original));
+    assert.deepEqual(build('money').foes,income.foes);
 });
 
 for(const goal of ['depth','money']){

@@ -152,4 +152,4 @@
         return state;
     }
     function accountId(s) { return String(s?.trainer?.id || s?.trainer?.tag || 'guest'); }
-    function shinyOwned(s,id){return !!s.dex?.[id]?.shiny||collectionMembers(s).some(m=>m.id===id&&m.shiny);}
+    function shinyOwned(s,id){return !!s.dex?.[id]?.shiny||ownsRosterSpecies(s,id,true);}

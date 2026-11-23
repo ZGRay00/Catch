@@ -46,6 +46,32 @@ test('normal adventure ticks discard stale results before applying a team change
     assert.ok(e.teamCheck);
     assert.deepEqual(e.driver.teamTask?.uids||s.team,fresh.result.uids);
 });
+
+test('adventure fills a slot after dispatch even while the road still names the absent member',async()=>{
+    const s=fixture(),e=engine();e.settings.mode='money';
+    const dispatched=s.team.pop();s.mons=s.mons.filter(mon=>mon.uid!==dispatched);s.road=[...s.team,dispatched];
+    s.adv.battle={id:'active'};assert.equal(e.fitTeam(s,now),false);
+    delete s.adv.battle;assert.equal(e.fitTeam(s,now),true);await finish(e.teamSearch);
+    e.fitTeam(s,now+1);
+    assert.equal(e.driver.teamTask.uids.length,6);
+    assert.ok(!e.driver.teamTask.uids.includes(dispatched));
+    e.driver.teamTask=null;
+    s.road=[s.mons.at(-1).uid,...s.team];
+    assert.equal(e.fitTeam(s,now+2),false,'a live road member in a genuinely pending swap still waits');
+});
+
+test('combat boosts and raid-only profiles invalidate pending party work and yield history',async()=>{
+    const s=fixture(),e=engine(),row={...H.DATA.chapters[3],key:'3',members:[3]};
+    const member=s.mons[0],key=H.metricsKey(s,row,e.settings,now);
+    e.fitTeam(s,now);const old=e.teamSearch;await finish(old);
+    member.damageMult=1.2;
+    assert.notEqual(H.metricsKey(s,row,e.settings,now),key);
+    e.fitTeam(s,now+1);const revised=e.teamSearch;assert.notEqual(revised,old);await finish(revised);
+    const boosted=H.rosterFingerprint(s);member.rageMax=3;
+    assert.notEqual(H.rosterFingerprint(s),boosted);
+    e.fitTeam(s,now+2);const raidProfile=e.teamSearch;assert.notEqual(raidProfile,revised);await finish(raidProfile);
+    e.fitTeam(s,now+3);assert.ok(e.teamCheck);
+});
 test('preparation compares mature and projected squads in slices and rechecks the roster before consuming the result',async()=>{
     const s=fixture(),e=engine();
     const context=H.battleContext(s,'progress',{row:H.DATA.chapters[3]});
@@ -75,6 +101,7 @@ test('world preflight invalidates a completed projection when a fighter is spent
     const spent=first.result.members[0].uid;s.wb.used[spent]=1;
     ensure();const fresh=e.teamSearch;assert.notEqual(fresh,first);await finish(fresh);
     assert.deepEqual(fresh.result,H.preparationPlan(s,e.settings,{...context,now}));
+    assert.deepEqual(fresh.result.members.map(mon=>mon.uid),H.worldAttackParty(s).map(mon=>mon.uid));
     assert.ok(fresh.result.members.every(mon=>mon.uid!==spent));
     assert.equal(e.driver.teamTask,null);
 });
@@ -97,6 +124,23 @@ test('budget expiry returns the legal checkpoint and resumes the same iterator o
     e.evaluateTeamSearch('two',search());assert.notEqual(e.teamSearch,first);await finish(e.teamSearch);
     assert.deepEqual(e.evaluateTeamSearch('two',search()).uids,['best']);assert.equal(starts,2);
     assert.equal(e.teamContinuation,null);
+});
+
+test('strict jobs share the compute queue and expose only a completed result for deployment',async()=>{
+    const e=engine(),trace=[];
+    function* review(label){
+        trace.push(label);yield {uids:['untested'],checkpointScore:100,verification:{status:'checking',checked:1,total:2}};
+        for(let i=0;i<1200;i++)yield;
+        return {uids:['checked'],score:1,changed:true,verification:{status:'verified',uids:['checked']}};
+    }
+    e.evaluateTeamSearch('live',review('live'),'teamSearch',true);
+    e.evaluateTeamSearch('cancelled',review('cancelled'),'evolutionSearch');
+    assert.equal(e.computePending.size,2);e.cancelTeamSearch('evolutionSearch');
+    const job=e.teamSearch;job.limit=0;
+    await finish(job);
+    assert.deepEqual(trace,['live']);assert.deepEqual(job.result.uids,['checked']);assert.equal(job.result.limited,undefined);
+    assert.deepEqual(e.evaluateTeamSearch('live',review('unused'),'teamSearch',true).uids,['checked']);
+    assert.equal(e.computePending.size,0);assert.equal(e.computeTimer,null);
 });
 
 test('changes to a training lock replace pending work; a switch setting change cancels queued PC work',async()=>{

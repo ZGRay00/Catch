@@ -63,6 +63,22 @@
         return{week,run,best,floor,cleared:Math.max(best,run?floor-1:0),
             paused:!!run&&(!s.adv?.tower||s.adv.tower.kind==='candy'),expired:!!saved&&!run};
     }
+    function worldAttackParty(s,size=6){
+        const available=(s.mons||[]).filter(mon=>mon.uid&&MONS.has(mon.id)&&!s.wb?.used?.[mon.uid]);
+        const attack=mon=>{
+            const {atk,spa}=MONS.get(mon.id).stats,scale=(mon.shiny?1.1:1)*DATA.combat.rankStat**(mon.rank||0);
+            return Math.floor((Math.floor(2*Math.max(atk,spa)*mon.level/100)+5)*scale);
+        };
+        const pool=available.map(mon=>({mon,power:attack(mon)})).sort((a,b)=>b.power-a.power);
+        const used=new Set(),party=[];
+        for(const {mon} of pool){
+            const id=DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
+            if(used.has(id)||party.some(other=>undergroundApart(mon,other)))continue;
+            used.add(id);party.push(mon);
+            if(party.length>=size)break;
+        }
+        return party;
+    }
     function towerParty(s,options={}){
         const progress=towerProgress(s,options.now),snapshot=!!options.snapshot;
         const floor=Math.max(1,Number(options.floor??(snapshot?progress.floor:1))||1);

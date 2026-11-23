@@ -74,14 +74,76 @@
         }
         return entries;
     }
+    function activeMoveBans(mon,entries){
+        const banned=mon.ban;
+        // The native game restores its learned move list if all available attacks are disabled.
+        return Array.isArray(banned)&&banned.length&&entries.some(entry=>entry.level<=mon.level&&!banned.includes(entry.key))?banned:null;
+    }
+    function moveBanKey(mon){
+        return Array.isArray(mon.ban)&&mon.ban.length?[...new Set(mon.ban)].sort().join('.'):null;
+    }
     function reserveStrength(mon){
         const stats=effectiveStats(mon);
-        let offense=0;
-        for(const {level,move,stab} of damagingMoves(MONS.get(mon.id))){
-            if(level>mon.level)continue;
-            offense=Math.max(offense,stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab/100);
-        }
+        const entries=damagingMoves(MONS.get(mon.id)),banned=activeMoveBans(mon,entries);
+        const offense=entries.reduce((best,{level,key,move,stab})=>level>mon.level||banned?.includes(key)?best:
+            Math.max(best,stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab/100),0);
         return Math.sqrt(offense*stats.hp*Math.sqrt(stats.def*stats.spd));
+    }
+    function* combatShortlist(candidates,party,foes,identity,lowBudget,sliced,roles=false){
+        const matchups=new Map();
+        for(const foe of foes){
+            const model=MONS.get(foe.id),key=model.types.join('/'),existing=matchups.get(key);
+            const weight=foe.weight*(foe.gymCount||foe.guard?3:1);
+            if(existing)existing.weight+=weight;
+            else matchups.set(key,{weight,types:model.types,defense:defensiveTypes(model),leaders:[]});
+        }
+        const targets=[...matchups.values()].sort((a,b)=>b.weight-a.weight).slice(0,lowBudget?14:20);
+        const specialistsPerMatchup=lowBudget?2:3;
+        const strength=[];
+        for(const mon of candidates){
+            const model=MONS.get(mon.id),stats=effectiveStats(mon),defense=defensiveTypes(model),entries=damagingMoves(model);
+            const banned=activeMoveBans(mon,entries),offense={};
+            for(const {level,key,move,stab} of entries){
+                if(level>mon.level||banned?.includes(key))continue;
+                const power=stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab*(mon.damageMult||1)/100;
+                if(power>(offense[move.type]||0))offense[move.type]=power;
+            }
+            const attacks=Object.entries(offense),bulk=stats.hp*Math.sqrt(stats.def*stats.spd);
+            const offensePeak=Math.max(0,...Object.values(offense)),general=Math.sqrt(offensePeak*bulk);
+            strength.push({mon,general,offense:offensePeak,bulk,speed:stats.spe});
+            const group=identity(mon);
+            for(const target of targets){
+                let best=0;
+                for(const [type,power] of attacks)best=Math.max(best,power*(target.defense[type]??1));
+                const incoming=Math.max(.25,...target.types.map(type=>defense[type]??1));
+                const score=best*Math.sqrt(bulk/incoming);
+                const same=target.leaders.findIndex(entry=>entry.group===group);
+                if(same>=0){
+                    if(target.leaders[same].score>=score)continue;
+                    target.leaders.splice(same,1);
+                }
+                if(target.leaders.length<specialistsPerMatchup||score>target.leaders.at(-1).score){
+                    target.leaders.push({mon,group,score});target.leaders.sort((a,b)=>b.score-a.score);
+                    if(target.leaders.length>specialistsPerMatchup)target.leaders.pop();
+                }
+            }
+            if(sliced&&strength.length%4===0)yield;
+        }
+        const standing=new Set(candidates);
+        const leading=new Set();
+        const rolesToKeep=roles?['general','offense','bulk','speed']:['general'];
+        for(const role of rolesToKeep){
+            const limit=role==='general'?(lowBudget?16:24):(lowBudget?2:4),seen=new Set();
+            strength.sort((a,b)=>b[role]-a[role]||b.general-a.general);
+            for(const {mon} of strength){
+                const id=identity(mon);
+                if(seen.has(id))continue;
+                seen.add(id);leading.add(mon);
+                if(seen.size>=limit)break;
+            }
+            if(roles&&sliced)yield;
+        }
+        return [...new Set([...leading,...targets.flatMap(target=>target.leaders.map(entry=>entry.mon)),...party.filter(mon=>standing.has(mon))])];
     }
     function defensiveTypes(model){
         let table=speciesDefense.get(model);
@@ -113,9 +175,12 @@
         const types=defensiveTypes(enemy);
         const fixed=DATA.combat.moves[options.move];
         if(fixed?.power)consider(options.move,fixed,types[fixed.type]??1,model.types.includes(fixed.type)?1.5:1);
-        else for (const {level,key,move,stab} of damagingMoves(model)) {
-            if (level > mon.level) continue;
-            consider(key,move,types[move.type]??1,stab);
+        else{
+            const entries=damagingMoves(model),banned=activeMoveBans(mon,entries);
+            for(const entry of entries){
+                if(entry.level>mon.level||banned?.includes(entry.key))continue;
+                consider(entry.key,entry.move,types[entry.move.type]??1,entry.stab);
+            }
         }
         // Native combat uses typeless Struggle when all learned damaging moves are immune.
         if(!fixed?.power&&best&&!(best.choice>0)&&DATA.combat.moves.struggle){best=null;consider('struggle',DATA.combat.moves.struggle,1,1,true);}
@@ -148,8 +213,9 @@
         const model=MONS.get(mon.id),enemy=MONS.get(foe.id);if(!model||!enemy)return-Infinity;
         const types=defensiveTypes(enemy);
         let bestScore=-Infinity,bestType,fallbackPower=-Infinity,fallbackType;
-        for(const {level,move,deployPower} of damagingMoves(model)){
-            if(level>mon.level)continue;
+        const entries=damagingMoves(model),banned=activeMoveBans(mon,entries);
+        for(const {level,key,move,deployPower} of entries){
+            if(level>mon.level||banned?.includes(key))continue;
             if(deployPower>fallbackPower){fallbackPower=deployPower;fallbackType=move.type;}
             const score=deployPower*(types[move.type]??1);
             if(score>bestScore){bestScore=score;bestType=move.type;}
@@ -203,6 +269,14 @@
     function rescueProfile(detail,foeHp,hp){
         const turns=attackTurns(detail.attack,foeHp),hits=Math.max(0,turns-detail.first);
         return {turns,loss:hits===0||detail.incoming.sustainedDamage===0?0:hits*detail.incoming.sustainedDamage/hp};
+    }
+    function rescueLead(count,profile){
+        const current=profile(0);let bestCost=Infinity,lead=0;
+        for(let i=1;i<count;i++){
+            const cost=rescueCost(current,profile(i));
+            if(cost<bestCost){bestCost=cost;lead=i;}
+        }
+        return lead;
     }
     function battleSwitchCandidate(s,settings,now){
         const adv=s.adv,b=adv?.battle;
@@ -289,11 +363,14 @@
         return list.filter(foe=>MONS.has(foe.id)&&foe.weight>0);
     }
     const TEAM_ROWS=new Map(),ROUTE_FITS=new Map(),LEAGUE_TRAINING_ROWS=new Map(),TEAM_CACHE={hits:0,misses:0};
-    function combatProfile(m){return [m.id,m.level,m.rank||0,+!!m.shiny,m.statMult||1,m.hpMult||1,m.status||'',m.rageMax!=null,tasteProfile(m),m.damageMult||1];}
+    function combatProfile(m){return [m.id,m.level,m.rank||0,+!!m.shiny,m.statMult||1,m.hpMult||1,m.status||'',m.rageMax!=null,tasteProfile(m),m.damageMult||1,moveBanKey(m)];}
     function teamCacheStats(){return{...TEAM_CACHE,contexts:TEAM_ROWS.size,rows:[...TEAM_ROWS.values()].reduce((n,rows)=>n+rows.size,0)};}
     function clearTeamCache(){TEAM_ROWS.clear();ROUTE_FITS.clear();LEAGUE_TRAINING_ROWS.clear();TEAM_CACHE.hits=0;TEAM_CACHE.misses=0;}
     function planAdventureTeam(s, settings, pinned = [], context = {}) {
-        return adventureTeamSearch(s,settings,pinned,context,false).next().value;
+        const search=adventureTeamSearch(s,settings,pinned,context,false);
+        let result=search.next();
+        while(!result.done)result=search.next();
+        return result.value;
     }
     function isDexReplay(s,settings,chapter){
         return settings.mode==='dex' && chapter && chapter.id<s.adv.unlocked &&
@@ -301,11 +378,16 @@
     }
     function* adventureTeamSearch(s,settings,pinned,context,sliced){
         const reg = context.reg || currentRegion(s), party = partyMons(s), size=Math.floor(clamp(context.size,1,6,6));
-        const pool=(context.pool||s.mons||[]).filter(m=>teamEligible(s,m,reg));
+        const pool=context.pool?context.pool.filter(m=>teamEligible(s,m,reg)):eligibleRoster(s,reg);
+        const verifyAll=context.verifyAll===true;
         const route=context.row,chapters=route?(route.members?.length?route.members.map(id=>CHAPTERS.get(id)):route.league?DATA.chapters.filter(c=>c.loop===route.loop):[route]):[];
         const routeFoes=route?chapters.filter(Boolean).flatMap(c=>chapterCombatFoes(s,c)):null;
-        const foes = (context.foes || routeFoes || chapterThreats(s)).filter(m=>MONS.has(m.id)&&m.weight>0);
+        const rawFoes=context.foes||routeFoes||chapterThreats(s);
+        const foes=rawFoes.filter(m=>MONS.has(m.id)&&m.weight>0);
         const objective=context.objective||(['money','train','progress','dex'].includes(settings.mode)?settings.mode==='dex'?'progress':settings.mode:'coverage'),execution=objective!=='coverage';
+        if(verifyAll&&(!foes.length||rawFoes.some(foe=>foe.weight>0&&!MONS.has(foe.id))))return {
+            uids:[],changed:false,opponents:foes.length,reg,objective,reason:'本地对手资料不足，暂无法验证配队',verification:{status:'unavailable'},
+        };
         const xpShares=new Map(),goalByUid=context.trainingGoals&&new Map(context.trainingGoals.map(({uid,goal})=>[uid,goal]));
         const targetSet=goalByUid||new Set(pinned);
         const nominalLearners=Math.max(1,targetSet.size||size);
@@ -323,6 +405,7 @@
         const hasLearners=objective==='train'&&pool.some(mon=>xpShare(mon)>0);
         const farming=objective==='money'||hasLearners;
         const underground=objective==='underMoney'||objective==='underDepth';
+        const preferReserves=execution&&!underground;
         const allowRescue=!underground&&helperSwitchEnabled(s,settings);
         const encounters=allowRescue?foes.flatMap(foe=>{
             if(!foe.wildWeight)return [foe];
@@ -351,7 +434,10 @@
             if(!nodes.has(ref))nodes.set(ref,combatWeather(s,foe,context,instant));
             return nodes.get(ref);
         });
-        const threatKey=JSON.stringify([allowRescue,weights.map(combatProfile),weatherRows.map(row=>row.signature)]);
+        const threatKey=JSON.stringify([DATA.build,allowRescue,weights.map(combatProfile),weatherRows.map(row=>row.signature)]);
+        // A long route's row can contain hundreds of full encounter models.
+        // Bound the total retained cells per context as well as the UID count.
+        const rowLimit=Math.max(8,Math.min(1024,Math.floor(49152/weights.length)));
         let shared=TEAM_ROWS.get(threatKey);
         if(!shared){shared=new Map();TEAM_ROWS.set(threatKey,shared);if(TEAM_ROWS.size>4)TEAM_ROWS.delete(TEAM_ROWS.keys().next().value);}
         else{TEAM_ROWS.delete(threatKey);TEAM_ROWS.set(threatKey,shared);}
@@ -382,12 +468,15 @@
                     if(allowRescue)row.rescue.push(profile);
                     return Number.isFinite(profile.turns)?1/(1+profile.loss*profile.loss):0;
                 });
-                row.details=details.map(d=>({
-                    attack:d.attack,foeHp:d.foeHp,first:d.first,deployment:d.deployment,
-                    survives:attackTurns(d.incoming,d.hp)
-                }));
+                row.details=details.map(d=>{
+                    const {hit,minHit,maxHit,singleRollMax,accuracy,sustainedDamage}=d.attack;
+                    return{attack:{hit,minHit,maxHit,singleRollMax,accuracy,sustainedDamage},foeHp:d.foeHp,
+                        first:d.first,deployment:d.deployment,survives:attackTurns(d.incoming,d.hp)};
+                });
+                row.priorities=Float64Array.from(details,d=>d.deployment);
+                row.safeFarmCost=Float64Array.from(row.solo,(battle,i)=>1+Math.min(battle.turns,180)+.65*(1-row.endurance[i]));
                 shared.set(key,row);
-                if(shared.size>1024)shared.delete(shared.keys().next().value);
+                if(shared.size>rowLimit)shared.delete(shared.keys().next().value);
             }
             cache.set(mon.uid,row);return row;
         }
@@ -427,7 +516,7 @@
             if(farming&&!rows.length)return 0;
             if(underground){
                 if(!rows.length)return 0;
-                let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0,reserveCredit=0;
+                let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0,reserveCredit=0,progressOnLoss=0;
                 for(let i=0;i<weights.length;i++){
                     const foe=weights[i],details=rows.map(row=>row.details[i]);
                     // A fresh lead can hide a weak bench. Use the second-best solo
@@ -440,7 +529,7 @@
                     reserveCredit+=foe.weight*second;
                     // Underground shuffles the party before encounters. Rotate ties in native
                     // deployment priority instead of rewarding an adventure party's fixed lead.
-                    let clears=0,elapsed=0,orders=0;
+                    let clears=0,elapsed=0,orders=0,damageOnLoss=0;
                     const priority=Math.max(...details.map(d=>d.deployment));
                     for(let j=0;j<rows.length;j++){
                         if(details[j].deployment!==priority)continue;
@@ -455,11 +544,13 @@
                             const alive=Math.min(3,Math.max(0,rows.length-battle.deaths));
                             const wall=alive===3?45:alive===2?54:81;
                             clears+=credit/outcomes.length;
+                            if(!credit)damageOnLoss+=battle.coverage/outcomes.length;
                             elapsed+=(2.8*Math.min(30,battle.turns)+(foe.guard?0:credit*(wall+2.324)))/outcomes.length;
                         }
                         orders++;
                     }
                     const survival=clears/orders;
+                    progressOnLoss+=foe.weight*damageOnLoss/orders;
                     retained+=foe.weight*survival;
                     if(foe.guard){
                         guardWeight+=foe.weight;guardCredit+=foe.weight*survival;
@@ -473,14 +564,18 @@
                 // Relative objectives, not a displayed win probability or measured income.
                 const guardLoss=(guardWeight-guardCredit)/Math.max(.001,regularWeight);
                 const primary=objective==='underDepth'?depth:gold*(1-guardLoss)/Math.max(1,seconds);
+                if(summary)summary.expedition={endurance:retained/totalWeight,weakestGuard,guardLoss};
+                if(primary<=0)return .001*progressOnLoss/totalWeight;
                 return primary*(1+.04*reserveCredit/totalWeight);
             }
             let gymSum=0,gymWorst=1,worstEfficiency=Infinity;
-            let farmingTime=0,earnings=0,farmingLoss=0,fallbackCombat=0;
+            let farmingTime=0,earnings=0,farmingLoss=0,fallbackCombat=0,learnerTail=0;
             const shares=hasLearners?team.map(xpShare):null;
             const learnerShare=shares?.reduce((a,b)=>a+b,0)||0;
             if(eliteRooms.length)roomScores.fill(0);
-            const routeScore=weights.reduce((sum,foe,i)=>{
+            let routeScore=0,turns=0,worst=0,deaths=0,wipes=0;
+            for(let i=0;i<weights.length;i++){
+                const foe=weights[i];
                 let coverage=0;
                 if(!farming){
                     let count=0;
@@ -488,33 +583,26 @@
                     let value=0;for(let k=0;k<count;k++)value+=work[k]*(discount[k]||0);
                     coverage=Math.log1p(value);
                 }
-                if(!execution)return sum+foe.weight*coverage;
+                if(!execution){routeScore+=foe.weight*coverage;continue;}
                 // If the native lead finishes alone, every reserve would be unused.
                 // A deployment tie stays with the earlier party member, just as in deployedBattle.
-                let lead=rows[0];
-                if(s.autoSwitch!==false)for(let j=1;j<rows.length;j++)if(rows[j].details[i].deployment>lead.details[i].deployment)lead=rows[j];
+                let leadIndex=0;
+                if(s.autoSwitch!==false)for(let j=1;j<rows.length;j++)if(rows[j].priorities[i]>rows[leadIndex].priorities[i])leadIndex=j;
                 if(allowRescue&&foe.singleWild&&!foe.shiny&&!foe.veiled&&rows.length>1){
-                    const current=lead.rescue[i];let bestCost=Infinity;
-                    for(let j=1;j<rows.length;j++){
-                        const cost=rescueCost(current,rows[j].rescue[i]);
-                        if(cost<bestCost){bestCost=cost;lead=rows[j];}
-                    }
+                    leadIndex=rescueLead(rows.length,j=>rows[j].rescue[i]);
                 }
+                const lead=rows[leadIndex];
                 const solo=lead?.solo[i];
                 const order=allowRescue&&lead!==rows[0]?[lead,...rows.filter(r=>r!==lead)]:rows;
                 const battle=solo&&(solo.coverage===1||rows.length===1)?solo:deployedBattle(order.map(row=>row.details[i]),s.autoSwitch!==false);
-                if(summary){
-                    summary.turns=(summary.turns||0)+foe.weight*battle.turns;
-                    summary.worst=Math.max(summary.worst||0,battle.turns);
-                    summary.deaths=(summary.deaths||0)+foe.weight*battle.deaths;
-                    summary.wipes=(summary.wipes||0)+(battle.coverage<1?foe.weight:0);
-                }
+                if(summary){turns+=foe.weight*battle.turns;worst=Math.max(worst,battle.turns);deaths+=foe.weight*battle.deaths;if(battle.coverage<1)wipes+=foe.weight;}
                 if(farming){
                     const clear=battle.coverage===1;
-                    const wear=1-(lead?.endurance[i]??0);
+                    if(hasLearners)learnerTail=Math.max(learnerTail,Math.min(30,battle.turns)+2*battle.deaths);
                     // Fixed travel/reward time prevents a short fight's last
                     // fraction of a turn from dominating a change of roster.
-                    farmingTime+=foe.weight*(1+Math.min(battle.turns,180)+.65*wear+1.8*battle.deaths+(clear?0:12));
+                    const duration=solo?.coverage===1?lead.safeFarmCost[i]:1+Math.min(battle.turns,180)+.65*(1-(lead?.endurance[i]??0))+1.8*battle.deaths+(clear?0:12);
+                    farmingTime+=foe.weight*duration;
                     farmingLoss+=foe.weight*(clear?0:foe.gymCount?1.5:1);
                     fallbackCombat+=foe.weight*(clear?1:battle.coverage);
                     if(clear){
@@ -523,11 +611,11 @@
                             // Native XP gives full party shares and a 10% active
                             // bonus. Count the winner's bonus only when the
                             // fresh lead actually finished the fight.
-                            credit=(learnerShare+(battle.deaths===0?.1*shares[rows.indexOf(lead)]:0))/nominalLearners;
+                            credit=(learnerShare+(battle.deaths===0?.1*shares[leadIndex]:0))/nominalLearners;
                         }
                         earnings+=foe.weight*(totalPremium?premiums[i]:1)*credit;
                     }
-                    return sum;
+                    continue;
                 }
                 if(gymTotal&&foe.gymCount){
                     const endurance=rows.reduce((sum,row)=>sum+row.endurance[i],0)/Math.max(1,rows.length);
@@ -540,11 +628,13 @@
                 if(eliteRooms.length)roomScores[roomOf[i]]+=foe.weight*efficiency;
                 worstEfficiency=Math.min(worstEfficiency,efficiency);
                 const weight=objective==='progress'?.35:.7;
-                return sum+foe.weight*((1-weight)*coverage+weight*efficiency);
-            },0)/totalWeight;
+                routeScore+=foe.weight*((1-weight)*coverage+weight*efficiency);
+            }
+            routeScore/=totalWeight;
+            if(summary&&execution)Object.assign(summary,{turns,worst,deaths,wipes});
             if(farming){
                 const safety=Math.max(0,1-farmingLoss/totalWeight);
-                const rate=3*earnings/rewardWeight/(farmingTime/totalWeight)*(.7+.3*safety);
+                const rate=3*earnings/rewardWeight/(farmingTime/totalWeight+.06*Math.max(0,learnerTail-3))*(.7+.3*safety);
                 return scoreAfterTrainingCost(rate+.025*fallbackCombat/totalWeight,team);
             }
             const gymScore=gymTotal ? .7*gymSum/gymTotal+.3*gymWorst : 0;
@@ -562,7 +652,7 @@
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
         let force=context.force;
         // Check the real party before a progressive box search can publish a replacement.
-        if(context.dexReplay && party.length===size && !pinned.length && foes.length && party.every(mon=>pool.includes(mon))){
+        if(!verifyAll&&context.dexReplay && party.length===size && !pinned.length && foes.length && party.every(mon=>pool.includes(mon))){
             const map={kind:'map',id:context.dexReplay.id,reg,foes,now:instant};
             const assessment=yield* readinessSearch(s,settings,map,s.team,sliced);
             if(assessment.ready){
@@ -576,7 +666,7 @@
                 }
             }
         }
-        const chosen = [], used = new Set();
+        const chosen = [], used = new Set(),poolByUid=new Map(pool.map(mon=>[mon.uid,mon]));
         const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
         const reserveScores=new Map();
         const reserveScore=mon=>{
@@ -587,9 +677,12 @@
         // Only training projections carry this flag. Resolve equal combat scores
         // before falling back to the existing party order and stable UID.
         const prefer=(a,b)=>Number(!!a.evolutionItemLocked)-Number(!!b.evolutionItemLocked)||
-            (objective==='money'?reserveScore(b)-reserveScore(a):0)||
+            (preferReserves?reserveScore(b)-reserveScore(a):0)||
             (partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
-        for (const uid of pinned) { const mon=pool.find(m=>m.uid===uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
+        for (const uid of pinned) { const mon=poolByUid.get(uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
+        if(verifyAll&&(poolByUid.size!==pool.length||!context.pool&&rosterIndex(s).duplicates.size||chosen.length!==protectedUids.size))return {
+            uids:[],changed:false,opponents:foes.length,reg,objective,reason:'候选存在重复 UID，或固定成员当前无法同时出战',verification:{status:'unavailable'},
+        };
         // Copies with the same healed combat profile and training cost occupy the
         // same legal slot. Retain the preferred UID and any explicitly pinned copy.
         let candidates=pool;
@@ -603,11 +696,15 @@
             }
             candidates=[...equivalent.values()];
         }
+        const largeBox=candidates.length>64;
+        // For critical fights, keep the exact matchup screening on moderate boxes.
+        const useShortlist=largeBox&&!underground&&(objective!=='progress'||candidates.length>384);
+        if(useShortlist)candidates=yield* combatShortlist(candidates,party,weights,identity,context.lowBudget,sliced,verifyAll);
         // A legal incumbent is available before cold matchup rows are computed.
         // Only the live adventure scheduler consumes these checkpoints.
         if(context.progressive){
             if(underground&&candidates.length>size){
-                candidates=yield* expeditionSeedOrder(candidates,context.themeTypes||Object.keys(DATA.types),identity,sliced);
+                candidates=yield* expeditionSeedOrder(candidates,weights,identity,sliced,context.lowBudget);
             }
             const fallback=chosen.slice(),seen=new Set(used);
             for(const mon of [...party,...candidates]){
@@ -623,19 +720,20 @@
             }
             // On slow devices compare a few legal alternatives before scanning the
             // whole box. The scheduler retains the best completed checkpoint.
-            if(candidates.length>64&&fallback.length===size){
+            if(largeBox&&fallback.length===size){
                 for(const mon of fallback)yield* computeValues(mon,true);
-                const base=utility(fallback);let best=base;
+                const baseline={};
+                const base=utility(fallback,baseline);let best=base;
                 const extras=candidates.filter(m=>!seen.has(identity(m)));
-                if(objective==='money')extras.sort(prefer);
+                if(preferReserves)extras.sort(prefer);
                 for(const mon of extras.slice(0,6)){
                     yield* computeValues(mon,true);
                     for(let i=0;i<size;i++){
                         if(protectedUids.has(fallback[i].uid))continue;
                         const trial=fallback.slice();trial[i]=mon;
                         if(underground&&trial.some(other=>undergroundApart(mon,other)))continue;
-                        const score=utility(trial);
-                        if(score>best+1e-8&&(underground||score>base*1.05+.01)){
+                        const summary={},score=utility(trial,summary);
+                        if(score>best+1e-8&&(underground||score>base*1.05+.01)&&(!preferReserves||summary.wipes<=baseline.wipes)){
                             best=score;
                             yield {uids:trial.map(m=>m.uid),changed:true,gain:score/base-1,checkpointScore:score,reg,objective,opponents:foes.length,reason:'局部替换改善当前地图的模型表现'};
                         }else yield;
@@ -649,7 +747,7 @@
         }
         // Screen large boxes using already cached rows. Keep the strongest solo
         // candidates, matchup specialists and the existing party as replacements.
-        if(candidates.length>64){
+        if(!useShortlist&&candidates.length>64){
             const leaders=weights.map(()=>({mon:null,value:-Infinity}));
             const ranked=[];
             for(const mon of candidates){
@@ -679,24 +777,29 @@
         }
         const incumbent=party.filter(m=>pool.includes(m));
         const legalIncumbent=incumbent.length===party.length&&party.length===chosen.length&&new Set(party.map(identity)).size===party.length&&chosen.every(m=>!protectedUids.has(m.uid)||incumbent.includes(m));
-        const incumbentScore=context.progressive?utility(incumbent):0;
+        const incumbentSafety={};
+        const incumbentScore=context.progressive?utility(incumbent,incumbentSafety):0;
         function checkpoint(){
-            const score=utility(chosen),apply=!legalIncumbent||score>incumbentScore*1.05+.01;
+            const summary={},score=utility(chosen,summary);
+            const apply=!legalIncumbent||(score>incumbentScore*1.05+.01&&(!preferReserves||summary.wipes<=incumbentSafety.wipes));
             return {uids:(apply?chosen:incumbent).map(m=>m.uid),changed:apply,checkpointScore:apply?score:incumbentScore,gain:incumbentScore?score/incumbentScore-1:0,reg,objective,opponents:foes.length,reason:apply?'采用预算内改善最大的合法阵容':'已评估的提升未过换队门槛'};
         }
         if(context.progressive)yield checkpoint();
         // At most 56 unordered trios. Each candidate is a yield point, with the greedy
         // incumbent already available if the scheduler runs out of time.
-        const smallExpedition=underground&&size===3&&!pinned.length&&candidates.length<=8;
+        const smallExpedition=underground&&size===3&&!pinned.length&&(verifyAll?pool.length:candidates.length)<=8;
+        let exhaustiveAttempts=0;
         if(smallExpedition){
+            const trios=verifyAll?pool:candidates;
             let best=chosen.length===3?utility(chosen):-Infinity;
-            for(let i=0;i<candidates.length-2;i++)for(let j=i+1;j<candidates.length-1;j++){
-                const a=candidates[i],b=candidates[j];
+            for(let i=0;i<trios.length-2;i++)for(let j=i+1;j<trios.length-1;j++){
+                const a=trios[i],b=trios[j];
                 if(identity(a)===identity(b)||undergroundApart(a,b))continue;
-                for(let k=j+1;k<candidates.length;k++){
-                    const c=candidates[k];
+                for(let k=j+1;k<trios.length;k++){
+                    const c=trios[k];
                     if(identity(a)===identity(c)||identity(b)===identity(c)||undergroundApart(a,c)||undergroundApart(b,c))continue;
                     const trio=[a,b,c],score=utility(trio);
+                    exhaustiveAttempts++;
                     if(score>best+1e-8){
                         chosen.splice(0,chosen.length,...trio);best=score;
                         if(context.progressive)yield checkpoint();
@@ -715,7 +818,7 @@
                     if(taken.has(identity(mon))||underground&&rest.some(other=>undergroundApart(mon,other)))continue;
                     const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
                     if(value>score+1e-8||Math.abs(value-score)<1e-8&&
-                        (best.evolutionItemLocked&&!mon.evolutionItemLocked||objective==='money'&&prefer(mon,best)<0)){best=mon;score=value;}
+                        (best.evolutionItemLocked&&!mon.evolutionItemLocked||preferReserves&&prefer(mon,best)<0)){best=mon;score=value;}
                     if(sliced)yield;
                 }
                 if(best.uid!==chosen[slot].uid){chosen[slot]=best;improved=true;if(context.progressive)yield checkpoint();}
@@ -731,7 +834,7 @@
         }
         // Equal native deployment priorities break ties in party order. A strong
         // solo fighter can be the wrong lead for the matchups where this tie occurs.
-        const sameMembers=chosen.length===party.length&&chosen.every(mon=>partyOrder.has(mon.uid));
+        let sameMembers=chosen.length===party.length&&chosen.every(mon=>partyOrder.has(mon.uid));
         if(execution&&sameMembers){
             const currentOrder=[...chosen].sort((a,b)=>partyOrder.get(a.uid)-partyOrder.get(b.uid));
             const currentScore=utility(currentOrder);
@@ -750,6 +853,134 @@
             }
             if(!changed)break;
         }
+        let verification;
+        if(verifyAll){
+            // Shortlisting supplies only an initial seed. Certification uses the exact
+            // full legal pool, independent of the cheap score or seed selection.
+            const legal=team=>team.length<=size&&new Set(team.map(identity)).size===team.length&&
+                team.every((mon,i)=>poolByUid.get(mon.uid)===mon&&(!underground||!team.slice(0,i).some(other=>undergroundApart(mon,other))))&&
+                [...protectedUids].every(uid=>team.some(mon=>mon.uid===uid));
+            const assess=team=>{const safety={};return{team,score:utility(team,safety),safety};};
+            const better=(tested,base)=>tested.team.length>base.team.length||tested.team.length===base.team.length&&
+                ((tested.safety.wipes||0)<(base.safety.wipes||0)-1e-8||
+                (tested.safety.wipes||0)<=(base.safety.wipes||0)+1e-8&&tested.score>base.score+1e-8);
+            let evaluated=assess(chosen.slice());
+            if(legal(party)){
+                const former=assess(party.slice());
+                if(better(former,evaluated))evaluated=former;
+            }
+            let attempts=exhaustiveAttempts,passes=smallExpedition?1:0,pruned=0,orderPruned=0,reused=0,alternatives=[];
+            if(!smallExpedition){
+                let tryPairs=(context.kind==='elite'||context.kind==='zone'||gymTotal>0)&&!context.lowBudget&&evaluated.team.length>1;
+                const anchorScores=new Map();
+                for(;;){
+                    passes++;
+                    const ordered=evaluated.team,selected=new Set(ordered.map(mon=>mon.uid));
+                    const slots=ordered.flatMap((mon,slot)=>protectedUids.has(mon.uid)?[]:[slot]);
+                    if(ordered.length<size)slots.push(ordered.length);
+                    const nativeOrder=s.autoSwitch!==false&&!underground;
+                    const anchors=slots.map(slot=>{
+                        const rest=ordered.filter((_,i)=>i!==slot);
+                        const key=JSON.stringify(rest.map(mon=>mon.uid));
+                        let scores=anchorScores.get(key);
+                        if(!scores)scores=new Map();
+                        anchorScores.delete(key);anchorScores.set(key,scores);
+                        if(anchorScores.size>2*(size+1))anchorScores.delete(anchorScores.keys().next().value);
+                        const certain=nativeOrder?new Float64Array(weights.length).fill(-Infinity):null;
+                        if(certain)for(const mon of rest){
+                            const row=values(mon);
+                            for(let i=0;i<certain.length;i++)if(row.solo[i].coverage===1&&row.priorities[i]>certain[i])certain[i]=row.priorities[i];
+                        }
+                        return {slot,rest,ids:new Set(rest.map(identity)),certain,scores};
+                    });
+                    const legalFor=(mon,anchor)=>!anchor.ids.has(identity(mon))&&(!underground||anchor.rest.every(other=>!undergroundApart(mon,other)));
+                    let improved=evaluated,checked=0;
+                    const equivalents=new Set(),pairOptions=[];
+                    alternatives=[];
+                    for(const mon of pool){
+                        checked++;
+                        if(sliced&&checked%32===0)yield {verification:{status:'checking',checked:checked-1,total:pool.length,passes,attempts,pruned,orderPruned,reused}};
+                        const group=identity(mon);
+                        // Complete healed battle profile, learner share and training
+                        // cost determine equivalence. Incumbents and fixed UIDs are
+                        // always visited separately so order and ownership stay exact.
+                        const equivalent=JSON.stringify([group,combatProfile({...mon,status:null}),hasLearners?xpShare(mon):0,
+                            context.trainingCosts?.[mon.uid]??0,!!mon.evolutionItemLocked]);
+                        if(!selected.has(mon.uid)&&equivalents.has(equivalent)){pruned++;continue;}
+                        if(!selected.has(mon.uid))equivalents.add(equivalent);
+                        const possible=anchors.filter(anchor=>legalFor(mon,anchor));
+                        if(!possible.length)continue;
+                        const member=yield* computeValues(mon,sliced);
+                        if(tryPairs&&!selected.has(mon.uid)){
+                            pairOptions.push({mon,score:utility([mon])});
+                            pairOptions.sort((a,b)=>b.score-a.score||prefer(a.mon,b.mon));
+                            if(pairOptions.length>6)pairOptions.pop();
+                        }
+                        for(const {rest,slot,certain,scores} of possible){
+                            const positions=underground?1:rest.length+1;
+                            let prior=scores.get(mon.uid);
+                            if(!prior&&scores.size<512){prior=[];scores.set(mon.uid,prior);}
+                            for(let at=0;at<positions;at++){
+                                // An adjacent crossing can change a native battle
+                                // only at equal priority. Any strictly earlier
+                                // guaranteed solo clear makes the tie immaterial.
+                                if(at&&certain){
+                                    const rival=values(rest[at-1]);
+                                    if(!member.priorities.some((priority,i)=>priority===rival.priorities[i]&&priority>=certain[i])){
+                                        orderPruned++;continue;
+                                    }
+                                }
+                                const team=[...rest.slice(0,at),mon,...rest.slice(at)];
+                                const known=prior?.[at],tested=known?{team,...known}:assess(team);
+                                if(known)reused++;
+                                else if(prior)prior[at]={score:tested.score,safety:tested.safety};
+                                attempts++;
+                                if(better(tested,improved))improved=tested;
+                                const alternative=alternatives[slot];
+                                if(!selected.has(mon.uid)&&(!alternative||better(tested,alternative)))alternatives[slot]={...tested,member:mon};
+                                if(sliced)yield;
+                            }
+                        }
+                        if(!selected.has(mon.uid)&&!improved.team.includes(mon)&&!pairOptions.some(entry=>entry.mon===mon))cache.delete(mon.uid);
+                    }
+                    if(improved!==evaluated){evaluated=improved;continue;}
+                    if(tryPairs){
+                        tryPairs=false;
+                        for(let i=0;i<slots.length-1;i++)for(let j=i+1;j<slots.length;j++){
+                            if(slots[j]>=ordered.length)continue;
+                            for(const a of pairOptions)for(const b of pairOptions){
+                                if(a===b)continue;
+                                const trial=ordered.slice();trial[slots[i]]=a.mon;trial[slots[j]]=b.mon;
+                                if(!legal(trial))continue;
+                                const tested=assess(trial);attempts++;
+                                if(better(tested,improved))improved=tested;
+                                if(sliced)yield;
+                            }
+                        }
+                        if(improved!==evaluated){evaluated=improved;continue;}
+                    }
+                    break;
+                }
+            }
+            chosen.splice(0,chosen.length,...evaluated.team);
+            if(!chosen.length||underground&&chosen.length!==size||!legal(chosen))return {uids:[],changed:false,opponents:foes.length,reg,objective,
+                reason:'当前没有满足任务约束的队伍',verification:{status:'unavailable'}};
+            sameMembers=chosen.length===party.length&&chosen.every(mon=>partyOrder.has(mon.uid));
+            const safety=evaluated.safety.expedition||{
+                turns:(evaluated.safety.turns||0)/totalWeight,worstTurns:evaluated.safety.worst||0,
+                knockouts:(evaluated.safety.deaths||0)/totalWeight,wipeWeight:(evaluated.safety.wipes||0)/totalWeight,
+            };
+            verification={status:smallExpedition?'exhaustive':'verified',uids:chosen.map(mon=>mon.uid),score:evaluated.score,
+                total:pool.length,checked:pool.length,passes,attempts,pruned,orderPruned,reused,rules:DATA.build,safety,
+                members:chosen.map((mon,slot)=>{
+                    const own=values(mon),alternative=alternatives[slot];
+                    const favorable=weights.map((foe,i)=>({id:foe.id,key:!!(foe.gymCount||foe.guard),value:own[i]}))
+                        .sort((a,b)=>Number(b.key)-Number(a.key)||b.value-a.value).slice(0,3).map(foe=>foe.id);
+                    return{uid:mon.uid,id:mon.id,level:mon.level,slot,role:protectedUids.has(mon.uid)?'pinned':hasLearners&&xpShare(mon)>0?'learner':'combat',
+                        favorable,contribution:evaluated.score-utility(chosen.filter(other=>other!==mon)),
+                        alternative:alternative?{uid:alternative.member.uid,id:alternative.member.id,score:alternative.score}:null};
+                })};
+        }
         const previous={},proposed={};
         const now = utility(party.filter(m=>teamEligible(s,m,reg)),previous), next=utility(chosen,proposed);
         const changed = !sameMembers;
@@ -757,11 +988,14 @@
         // Keep a stable party unless the predicted gain is material, so income sampling remains useful.
         const gymGain=proposed.gym-previous.gym;
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
-        const fewerWipes=farming&&proposed.wipes===0&&previous.wipes>0&&next>=now;
-        const fasterFarm=farming&&next>now*1.035+.005&&proposed.turns<previous.turns*.95&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths;
-        const strongerReserves=objective==='money'&&changed&&next>=now-1e-8&&proposed.turns<=previous.turns+1e-8&&
+        const fewerWipes=preferReserves&&(verification?proposed.wipes<previous.wipes-1e-8:proposed.wipes===0&&previous.wipes>0&&next>=now);
+        const fasterFarm=farming&&next>now*1.015+.002&&proposed.turns<previous.turns*.96&&
+            proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths;
+        const strongerReserves=preferReserves&&changed&&next>=now-1e-8&&proposed.turns<=previous.turns+1e-8&&
             proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths&&reserveTotal(chosen)>reserveTotal(party)*1.15;
-        const improve = next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm||strongerReserves;
+        const dominates=!!verification&&next>now+1e-8&&proposed.turns<=previous.turns+1e-8&&
+            proposed.worst<=previous.worst+1e-8&&proposed.deaths<=previous.deaths+1e-8&&(proposed.wipes||0)<=(previous.wipes||0)+1e-8;
+        const improve = (!preferReserves||proposed.wipes<=previous.wipes)&&(next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm||strongerReserves||dominates);
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
         const fasterFarmOrder=farming&&next>now*1.0125+.001&&proposed.turns<previous.turns&&proposed.wipes<=previous.wipes;
@@ -774,5 +1008,10 @@
             const delta=base>0?Math.round((base-without)/base*100):0;
             backup=`同属性队员${MONS.get(sharedType.id).name} · 移除后模型分${delta>0?'降低 '+delta+'%':delta<0?'提高 '+(-delta)+'%':'接近不变'}`;
         }
-        return { uids: result.map(m=>m.uid), backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective, reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':strongerReserves?'保留刷钱效率并增强替补':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
+        const uids=result.map(m=>m.uid),verifiedResult=verification?.uids.every((uid,i)=>uid===uids[i])&&verification.uids.length===uids.length;
+        const suggestion=verification&&!verifiedResult?{uids:verification.uids,score:next,verification,
+            reason:'换队收益与当前风险不足以抵消切换成本，暂留现队'}:null;
+        return { uids, backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective,
+            ...verification?{selectedScore:apply?next:now,...suggestion?{suggestion}:{verification}}:{},
+            reason:suggestion?suggestion.reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':strongerReserves?'保留路线效率并增强替补':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
     }

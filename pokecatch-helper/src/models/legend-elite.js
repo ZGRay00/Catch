@@ -39,9 +39,10 @@
         const foeTypes=MONS.get(boss.id).types,foeDefense=defensiveTypes(MONS.get(boss.id)),resistance=LEGEND_ELITE.resist[context.tier-1];
         const blocked={burn:foeTypes.includes('fire'),poison:foeTypes.some(type=>['poison','steel'].includes(type)),freeze:foeTypes.includes('ice')};
         const dot=!blocked[status]&&chance&&attack.hit?chance*attack.turnAccuracy*resistance:0;
+        const banned=activeMoveBans(member,damagingMoves(MONS.get(member.id)));
         const setupMove=(LEGEND_ELITE.statusLearn[member.id]||[]).findLast(([level,key])=>{
             const [effect,,type]=LEGEND_ELITE.statusMoves[key];
-            return level<=member.level&&!blocked[effect]&&foeDefense[type]>0;
+            return level<=member.level&&!banned?.includes(key)&&!blocked[effect]&&foeDefense[type]>0;
         });
         const [setupType,setupChance]=LEGEND_ELITE.statusMoves[setupMove?.[1]]||[];
         const setup=['burn','poison'].includes(setupType)?setupChance*resistance:0;

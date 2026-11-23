@@ -13,6 +13,38 @@ function fixture(t,settings={}){
 }
 function catchAll(s){s.dex=Object.fromEntries(H.ROOTS.map(m=>[m.id,{caught:1}]));}
 
+for(const mode of ['dex','shiny']){
+    test(mode+' travels to a Lv.100 hunting map without starting a training detour',t=>{
+        const {s,e,save}=fixture(t,{mode,autoPrepare:true});
+        const chapter=H.DATA.chapters.find(row=>row.id===83);
+        const row={...chapter,key:'83',members:[83],hasWild:true,expected:1};
+        s.adv.chapter=76;s.adv.unlocked=83;s.travel.to=['unova'];s.mons[0].level=60;save();
+        const context=H.battleContext(s,'map',{row});assert.equal(context.level,100);
+        const old={mode,context,phase:'train',targets:[{uid:'a',goal:100}],uids:['a']};
+        e.beginTask(s,{preparation:old,budget:{spent:12,used:1}},Date.now());
+        assert.equal(e.preparation,null);
+        assert.equal(e.budget.spent,12);assert.equal(e.budget.used,1);
+        e.travelHunt(row,null,Date.now());
+        assert.equal(e.driver.pendingMap?.row.id,83);
+        assert.equal(e.coach.adventure(s,null),null);
+        assert.equal(e.preparation,null);
+        e.stop();
+    });
+}
+
+test('collection can still train for explicit story progression and a dedicated legendary encounter',t=>{
+    const {s,e}=fixture(t,{mode:'dex',autoPrepare:true});
+    s.adv.badges=['Maître'];s.mons[0].level=5;
+    const story=H.battleContext(s,'progress',{id:8}),now=Date.now();
+    assert.equal(e.ensurePrepared(s,story,{},now),true);
+    assert.equal(e.preparation.context.kind,'progress');
+    const zone=H.battleContext(s,'zone',{id:145});
+    e.preparation=null;
+    assert.equal(e.ensurePrepared(s,zone,{},now+1),true);
+    assert.equal(e.preparation.context.kind,'zone');
+    e.stop();
+});
+
 test('weather standby is opt-in and survives saved settings and queued task normalization',t=>{
     const {s,e}=fixture(t,{huntWeatherFallback:'xp'});e.persist();
     const restored=new H.Engine(e.storage);restored.loadAccount(s);
@@ -160,7 +192,7 @@ for(const scene of ['between','trainer','boss']){
         assert.ok(route&&!route.league&&route.targets.some(hit=>hit.kind==='phenomenon'&&[529,530].includes(hit.id)));
         assert.deepEqual(fitted,[]);
         e.driver.map=row=>{assert.equal(row.key,route.key);return true;};await e.step();
-        Object.assign(s.adv,{chapter:route.id,battle:null,nodes:[]});save();await e.step();
+        Object.assign(s.adv,{chapter:route.id,battle:null,nodes:[],loops:[route.key]});save();await e.step();await e.step();
         assert.deepEqual(fitted,[route.id]);e.stop();
     });
 }
@@ -242,7 +274,7 @@ test('dex keeps a generated sunny desert item roll for Larvesta and resumes trav
     const node={name:'Désert Délassant',type:'item',weather:'sun',loot:{'egg:636':.2}};
     Object.assign(s.adv,{chapter:69,unlocked:83,badges:['Maître Unys'],nodes:[node]});
     let mapCalls=0;e.driver.map=()=>{mapCalls++;return false;};
-    const pending=()=>({row:{id:83},options:{},started:Date.now()});
+    const pending=()=>({row:{...H.DATA.chapters.find(c=>c.id===83),key:'83',members:[83]},options:{},started:Date.now()});
     e.driver.pendingMap=pending();save();await e.step();
     assert.equal(mapCalls,0);assert.equal(e.driver.pendingMap,null);assert.match(e.status,/道具节点.*获得蛋.*燃烧虫/);assert.equal(calls.buff,0);
     node.find='star-piece';e.driver.pendingMap=pending();save();await e.step();

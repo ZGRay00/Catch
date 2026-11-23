@@ -26,7 +26,8 @@ test('resuming the screenshot preparation moves from Rain Badge to the open Vict
 
 test('standalone training also chooses the open latest map instead of retaining the older route',async t=>{
     const {s,e,now,mapped}=fixture(t,'train');await e.step(now);assert.equal(e.driver.pendingMap?.row.id,42);await e.step(now+1200);
-    assert.deepEqual(mapped,[42]);assert.equal(e.target.id,42);assert.equal(e.settings.trainLevel,72);assert.equal(s.adv.chapter,42);e.stop();
+    assert.deepEqual(mapped,[42]);assert.equal(e.target.id,41);
+    await e.step(now+2400);assert.equal(e.target.id,42);assert.equal(e.settings.trainLevel,72);assert.equal(s.adv.chapter,42);e.stop();
 });
 
 test('a mature measurement on the previous gym does not exclude an efficient unmeasured frontier',async t=>{

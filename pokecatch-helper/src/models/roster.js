@@ -106,6 +106,13 @@
         const profiles=pool.map(mon=>index?.byUid.get(mon.uid)===mon?index.profiles.get(mon.uid):rosterCombatKey(mon));
         return JSON.stringify([profiles.sort(),s.link?.to||'',s.link?.side||'']);
     }
+    function adventureRosterFingerprint(s,reg){
+        const index=rosterIndex(s),view=saveBoxViews.get(s);
+        if(view?.adventureKeys?.has(reg))return view.adventureKeys.get(reg);
+        const fingerprint=rosterSubsetFingerprint(s,eligibleRoster(s,reg))+'|'+JSON.stringify([...index.duplicates].sort());
+        if(view)(view.adventureKeys??=new Map()).set(reg,fingerprint);
+        return fingerprint;
+    }
     function teamEligible(s, mon, reg = currentRegion(s)) {
         if (!MONS.has(mon.id) || !mon.uid || String(mon.uid).startsWith('t:') || String(mon.uid).startsWith('c:')) return false;
         return !s.link || (reg === s.link.to) === (monRegion(mon) === s.link.to);

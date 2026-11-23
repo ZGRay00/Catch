@@ -139,10 +139,11 @@
                 const b=task.fitBasis,e=this.e,pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
                 const current=pokemonByUid(s),region=CHAPTERS.get(task.chapter)?.reg;
-                if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
+                if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
                     e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(e.settings).roamId)||
-                    !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==rosterFingerprint(s)||
+                    !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
                     b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
+                    !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now))||
                     task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
                     this.teamTask=null;e.teamCheck=null;return false;
                 }

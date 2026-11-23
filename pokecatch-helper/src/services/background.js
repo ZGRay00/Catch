@@ -11,14 +11,9 @@
         }
         return(s.mons||[]).filter(m=>teamEligible(s,m,'sinnoh')&&!used[m.uid]&&!away.has(m.uid));
     }
-    // Native event-team editor keeps one combat identity and separates the Tao fusions.
-    function undergroundApart(a,b){
-        const conflicts=(id,other)=>id===643&&(other===646||other===64602)||id===644&&(other===646||other===64601);
-        return conflicts(a.id,b.id)||conflicts(b.id,a.id);
-    }
     function canFillUndergroundTeam(pool){
         const seen=new Set(),candidates=[];
-        const compatible=(a,b)=>a.key!==b.key&&!undergroundApart(a.mon,b.mon);
+        const compatible=(a,b)=>a.key!==b.key&&!teamApart(a.mon,b.mon);
         for(const mon of pool){
             const form=`${mon.id}:${+!!mon.shiny}`;
             if(seen.has(form))continue;
@@ -81,10 +76,11 @@
         if(p)return '';
         const check=e.teamCheck,chapter=CHAPTERS.get(s.adv.chapter),frontier=mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
         if((frontier&&chapter?.loop!==frontier.loop)||(e.target&&!e.target.members?.includes(s.adv.chapter)))return '等待目标路线的冒险配队';
-        if(!check||check.chapter!==s.adv.chapter||check.mode!==mode||check.expectedParty!==partyKey||
-            check.roster!==rosterFingerprint(s)||check.autoSwitch!==(s.autoSwitch!==false)||
-            check.deaths!==(Number(s.adv.deaths?.[s.adv.chapter])||0)||now-check.at>=e.settings.teamMinutes*60000||
-            check.weatherKey!==adventureTeamWeatherKey(s,check.members||[s.adv.chapter],now))
+        const members=check?.members||[s.adv.chapter];
+        if(!check||!members.includes(s.adv.chapter)||check.mode!==mode||check.expectedParty!==partyKey||
+            check.roster!==adventureRosterFingerprint(s,chapter?.reg)||check.autoSwitch!==(s.autoSwitch!==false)||
+            check.deaths!==totalDeaths(s,{members})||now-check.at>=e.settings.teamMinutes*60000||
+            check.weatherKey!==adventureTeamWeatherKey(s,members,now))
             return '先适配冒险阵容，再派遣空闲队员';
         return '';
     }
@@ -340,7 +336,7 @@
         while(selected.length<3){
             let best,gain=-Infinity;
             for(const entry of entries){
-                if(taken.has(identity(entry.mon))||selected.some(mon=>undergroundApart(mon,entry.mon)))continue;
+                if(taken.has(identity(entry.mon))||selected.some(mon=>teamApart(mon,entry.mon)))continue;
                 const value=entry.scores.reduce((sum,score,i)=>sum+.7*Math.max(0,score-bestByType[i])+.3*score,0);
                 if(value>gain){best=entry;gain=value;}
             }

@@ -293,6 +293,8 @@
             const cfg=this.settings;
             this.startBattle = !cp && s.adv.battle ? this.ordinaryBattleKey(s) : null;
             this.startItems=itemCounter(s,cfg.itemId);
+            this.moneyRankingSince=null;
+            this.moneyBoundaryUntil=0;
             this.sessionItemId=cfg.itemId;
             this.trainProtected=cfg.mode==='train'?trainingUids(s,cfg):[];
             this.trainingSelection=cfg.trainUid;
@@ -960,6 +962,7 @@
             if(this.saveUnavailableAt!=null)return 3000;
             if(this.manual){const left=Number(this.manual.until)-now;return left>0?Math.min(1200,Math.max(50,left)):1200;}
             if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.driver.navigation||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution||this.services.underground)return 1200;
+            if(this.moneyBoundaryUntil>now)return 400;
             if(this.farmWait?.mode===this.settings.mode)return 6000;
             if(FLOW_MODES.has(this.settings.mode)&&this.nextWake>now)return Math.min(6000,Math.max(1200,this.nextWake-now));
             return 1200;
@@ -1390,10 +1393,10 @@
             const dex=this.settings.mode==='dex'?dexStatus(s,this.settings):null;
             let dexRoutes=dex?.missing.length?dexRanking(s,this.settings,this.cooldowns,now,dex):[];
             const directedHunt=this.settings.mode==='shiny'||(dex?.missing.length>0&&(this.settings.dexSpecies.length>0||dexRoutes[0]?.window));
-            const paired=this.visit?.activeRoutePlan,proofBusy=this.teamSearch?.signature?.startsWith('map-proof:');
+            const paired=this.visit?.activeRoutePlan;
             const pairedReady=paired&&this.target&&this.routeReached(s,this.target)&&paired.party.join('|')===s.team.join('|')&&this.routeRequestValid(s,{row:this.target,routePlan:paired},now,true);
             if(paired&&!pairedReady)delete this.visit.activeRoutePlan;
-            if(!directedHunt&&!proofBusy&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
+            if(!directedHunt&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(roadPending)this.telemetry.sample=null;
             if (this.target && this.target.members.includes(s.adv.chapter) && !roadPending) {
@@ -1521,15 +1524,19 @@
             },delay);
         }
         cancelTeamSearch(slot){
-            for(const name of slot?[slot]:['teamSearch','evolutionSearch']){
+            for(const name of slot?[slot]:['teamSearch','evolutionSearch','moneyProofSearch']){
                 if(this[name])this.cancelCompute(this[name]);
                 this[name]=null;
             }
             if(!slot||slot==='teamSearch')this.teamContinuation=null;
+            if(!slot){this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;}
         }
-        evaluateTeamSearch(signature,search,slot='teamSearch',strict=false){
+        evaluateTeamSearch(signature,search,slot='teamSearch',strict=false,expiresAt=Infinity){
             let job=this[slot];
             if(job&&job.signature!==signature){this.cancelTeamSearch(slot);job=null;}
+            if(strict&&performance.now()>=(job?.expiresAt??expiresAt)&&!job?.result){
+                this.cancelTeamSearch(slot);return {timedOut:true};
+            }
             if(job){
                 if(job.error){this.cancelTeamSearch(slot);throw job.error;}
                 const result=job.result;
@@ -1548,10 +1555,12 @@
                 }
             }
             const smallDevice=globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4;
-            job=this[slot]={signature,epoch:this.runId,cpu:0,slice:4,limit:smallDevice?80:180,strict};
+            const priority=slot==='moneyProofSearch'?2:1;
+            job=this[slot]={signature,epoch:this.runId,cpu:0,slice:4,limit:smallDevice?80:180,strict,expiresAt};
             const advance=()=>{
                 if(this[slot]!==job)return;
                 if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){this.cancelTeamSearch(slot);return;}
+                if(job.strict&&performance.now()>=job.expiresAt){job.result={timedOut:true};return;}
                 // Only score this snapshot here. The normal tick checks the latest
                 // route, party and roster again before it can queue a single PC action.
                 const start=performance.now(),deadline=start+job.slice;
@@ -1573,10 +1582,10 @@
                     const elapsed=performance.now()-start;
                     job.cpu+=elapsed;
                     if(elapsed>8){job.slice=3;job.limit=Math.min(job.limit,120);}
-                    this.queueCompute(job,advance,job.strict&&job.best?2:1);
+                    this.queueCompute(job,advance,job.strict&&job.best?Math.max(2,priority):priority);
                 }catch(error){job.error=error;}
             };
-            this.queueCompute(job,advance,1);
+            this.queueCompute(job,advance,priority);
             return null;
         }
         fitTeam(s,now,trackedRoamer) {
@@ -1606,38 +1615,56 @@
                 ['item','shiny'].includes(mode)?'route':'progress';
             const roamId=trackedRoamer||(roam?roamingSettings(this.settings).roamId:undefined);
             const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
-            const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
+            const reg=row.reg||c.reg;
+            const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=adventureRosterFingerprint(s,reg),last=this.teamCheck,deaths=totalDeaths(s,row);
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
+            const hazards=roamId?[]:routeRoamingFoes(s,row,now);
+            const hazardKey=JSON.stringify(hazards);
             const pinned=adventureTeamPins(s,members,this.settings,this.trainProtected);
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
-            if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
+            if(last&&last.policy===policy&&last.key===key&&last.weatherKey===weatherKey&&last.hazardKey===hazardKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths){
                 // Reuse a completed search whose inputs still match, including for underground dispatch.
                 if(!last.limited&&now-last.at>=this.settings.teamMinutes*60000)last.at=now;
                 return false;
             }
-            const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
+            const foes=roamId?battleContext(s,'map',{row,roamId}).foes:routeCombatFoes(s,row,now,hazards);
             const strict=!!this.strictPlanning;
+            const reviewKey=JSON.stringify([this.runId,policy,key,row.reg||c.reg,objective]);
+            if(strict&&this.adventureReview?.key!==reviewKey)this.adventureReview={key:reviewKey,expiresAt:performance.now()+60000};
             const context={reg:row.reg||c.reg,foes,objective,dexReplay,now,verifyAll:strict,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
             let plan;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:foes.length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.runId,this.localSnapshot.sourceEpoch,policy,c.id,key,!!dexReplay,context.reg,weatherKey,objective,autoSwitch,roster,s.team,foes,strict]);
-                plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,{...context,progressive:true},true),'teamSearch',strict);
+                const signature=JSON.stringify(['adventure',this.runId,this.localSnapshot.sourceEpoch,policy,key,!!dexReplay,context.reg,weatherKey,objective,autoSwitch,roster,s.team,foes,strict]);
+                plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,{...context,progressive:true},true),'teamSearch',strict,this.adventureReview?.expiresAt);
             }else plan=planAdventureTeam(s,this.settings,pinned,context);
+            const currentPartyIsLegal=()=>{
+                const party=partyMons(s);
+                return party.length>0&&party.length===s.team.length&&party.every((mon,i)=>teamEligible(s,mon,context.reg)&&!party.slice(0,i).some(other=>teamApart(mon,other)))&&
+                    new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length&&pinned.every(uid=>s.team.includes(uid));
+            };
+            if(plan?.timedOut){
+                this.adventureReview=null;this.teamRetryAt=now+30000;
+                if(!currentPartyIsLegal()){this.failTask('配队复核超时，当前无合规队伍');return true;}
+                this.teamValidationNote='配队复核超时，暂用当前合法队伍';
+                this.log(this.teamValidationNote);return false;
+            }
             if(!plan){
                 const verification=this.teamSearch?.verification;
                 this.status='正在评估冒险队伍 · '+(row.name||c.name)+(verification?.total?' · 已复核 '+verification.checked+'/'+verification.total:'');
                 this.teamValidationNote=verification?.total?'冒险配队复核 '+verification.checked+'/'+verification.total:'正在计算可用冒险队伍';
-                const party=partyMons(s);
-                const legal=party.length>0&&party.length===s.team.length&&party.every(mon=>teamEligible(s,mon,context.reg))&&
-                    new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length&&pinned.every(uid=>s.team.includes(uid));
-                return !strict||!legal;
+                if(!strict||!currentPartyIsLegal())return true;
+                if(s.team.length>=6||s.adv.battle||s.adv.pending)return false;
+                const party=partyMons(s),occupied=new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`));
+                // Allow an underfilled party to finish its pending fit before a new route takes control.
+                return eligibleRoster(s,context.reg).some(mon=>!occupied.has(DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)&&!party.some(other=>teamApart(mon,other)));
             }
+            this.adventureReview=null;
             this.teamValidationNote='';
-            this.teamCheck={key,policy,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
-                reason:[plan.suggestion?'发现更优建议，计入调整成本后暂留现队':plan.changed||plan.limited||plan.retainedForHunt?plan.reason:'按当前评估保留现队',plan.backup].filter(Boolean).join(' · '),
+            this.teamCheck={key,policy,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,hazardKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+                reason:[plan.changed||plan.limited||plan.retainedForHunt?plan.reason:'现队仍是本次复核的最优阵容',plan.backup].filter(Boolean).join(' · '),
                 gain:plan.gain,opponents:plan.opponents,verification:plan.verification||plan.suggestion?.verification,suggestion:!!plan.suggestion};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
@@ -1650,7 +1677,7 @@
             const changes=[incoming.length&&'上阵 '+incoming.join('、'),outgoing.length&&'换下 '+outgoing.join('、')].filter(Boolean);
             this.log([`配队评估 · ${plan.reason}`,...changes,plan.gain>0&&`综合评分 +${Math.round(plan.gain*100)}%`].filter(Boolean).join(' · '));
             this.telemetry.sample=null;this.status=`为${row.name||c.name}调整冒险队伍`;
-            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,autoSwitch,policy,party:s.team.join('|'),frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
+            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,hazardKey,autoSwitch,policy,party:s.team.join('|'),frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
             return true;
         }
         legend(s, now) {
@@ -1770,25 +1797,38 @@
         }
         releaseRankingView(keep){
             for(const [kind,job] of this.rankingJobs){
-                if(kind===keep)continue;
+                if(kind===keep||Array.isArray(keep)&&keep.includes(kind))continue;
                 job.view=false;
                 if(!job.task)this.cancelRankingJob(kind);
             }
         }
         rankedYieldRoutes(s,kind,cooldowns=this.cooldowns,now=Date.now(),view=false){
-            const request=yieldRankingRequest(kind,s,this.settings,this.metrics,now);
-            return this.evaluateRouteRanking(request,cooldowns,now,view);
+            const request=yieldRankingRequest(kind,s,this.settings,this.metrics,now,{separateMoney:true});
+            const rows=this.evaluateRouteRanking(request,cooldowns,now,view);
+            if(!rows?.length)return rows;
+            const projections=request.projections?.(rows);
+            if(!projections)return rows;
+            const hints=this.evaluateRouteRanking({...projections,background:true},{},now,view);
+            return request.withProjections(rows,hints);
         }
         evaluateRouteRanking(request,cooldowns,now,view=false){
             const kind=request.cacheSlot||request.kind;
-            if(view)this.releaseRankingView(kind);
+            if(view&&!request.background)this.releaseRankingView(kind==='money'?['money','money/projections']:kind);
+            const stored=routeRankings.get(kind),cached=stored?.signature===request.signature?stored:null;
+            const refresh=cached&&request.refreshAfterMs&&now-cached.at>=request.refreshAfterMs;
+            const available=job=>{
+                const previous=request.projectionOnly?stored?.rows:cached?.rows;
+                if(!job?.partial||!previous)return job?.partial||previous;
+                return [...new Map([...previous,...job.partial].map(row=>[row.key,row])).values()];
+            };
             let job=this.rankingJobs.get(kind);
             // A different preview must never restart the planner serving the active task.
             if(view&&job?.task&&job.signature!==request.signature){
-                return routeRankings.get(kind)?.signature===request.signature?completeYieldRanking(request,cooldowns,now):null;
+                const ready=available();
+                return ready?selectYieldRoutes(request,ready,cooldowns,now):null;
             }
             if(job&&job.signature!==request.signature){this.cancelRankingJob(kind);job=null;}
-            if(routeRankings.get(kind)?.signature===request.signature||!request.needsSlices){
+            if(cached&&!refresh||!request.needsSlices){
                 if(job)this.cancelRankingJob(kind);
                 return completeYieldRanking(request,cooldowns,now);
             }
@@ -1796,9 +1836,12 @@
                 job.view||=view;
                 job.task||=!view;
                 if(job.error){this.cancelRankingJob(kind);throw job.error;}
-                if(!job.rows)return null;
+                if(!job.rows){
+                    const ready=available(job);
+                    return ready?selectYieldRoutes(request,ready,cooldowns,now):null;
+                }
                 this.cancelRankingJob(kind);
-                routeRankings.set(kind,{signature:request.signature,rows:job.rows});
+                routeRankings.set(kind,{signature:request.signature,rows:job.rows,at:now});
                 return selectYieldRoutes(request,job.rows,cooldowns,now);
             }
             const search=request.search(true);
@@ -1816,13 +1859,15 @@
                     do{
                         const part=search.next();
                         if(part.done){job.rows=part.value;break;}
+                        if(request.projectionOnly&&Array.isArray(part.value))job.partial=part.value;
                     }while(performance.now()<deadline);
                 }catch(error){job.error=error;}
-                if(!job.rows&&!job.error)this.queueCompute(job,advance,job.task?1:3);
+                if(!job.rows&&!job.error)this.queueCompute(job,advance,request.background?3:job.task?0:3);
                 else if(job.view)this.notifyView(true);
             };
-            this.queueCompute(job,advance,job.task?1:3);
-            return null;
+            this.queueCompute(job,advance,request.background?3:job.task?0:3);
+            const ready=available();
+            return ready?selectYieldRoutes(request,ready,cooldowns,now):null;
         }
         farm(s, now, mode) {
             const rank=cooldowns=>mode==='item'?itemRanking(s,this.settings,this.metrics,cooldowns,now):this.rankedYieldRoutes(s,'xp',cooldowns,now);
@@ -2046,15 +2091,19 @@
                 if(!current?.window&&!current?.marked)return false;
             }
             if(!routePlan)return true;
+            if(this.strictPlanning&&(routePlan.sourceEpoch!==this.localSnapshot.sourceEpoch||routePlan.runId!==this.runId||!routePlan.verified))return false;
+            return !!this.routePlanState(s,row,routePlan,now,arrived);
+        }
+        routePlanState(s,row,routePlan,now,arrived=false){
             const cfg=this.settings,side=s.link?(row.reg===s.link.to?'to':'from'):null;
             const state=side===(s.link?.side??null)?s:otherMoneyParty(s);
             if(!state||side!==routePlan.scope||routePlan.setting!==routePlanSettings(cfg)||routePlan.identity!==routeIdentity(row)||
-                rosterFingerprint(state)!==routePlan.roster||(!arrived&&side!==(s.link?.side??null)&&cfg.moneyTarget>0))return false;
-            if(this.strictPlanning&&(routePlan.sourceEpoch!==this.localSnapshot.sourceEpoch||routePlan.runId!==this.runId||!routePlan.verified))return false;
-            if(!arrived&&(state.team.length!==routePlan.entryParty.length||!state.team.every((uid,i)=>uid===routePlan.entryParty[i])))return false;
+                adventureRosterFingerprint(state,row.reg)!==routePlan.roster||(!arrived&&side!==(s.link?.side??null)&&cfg.moneyTarget>0))return null;
+            if((routePlan.threat||'')!==moneyRouteThreatKey(state,row,now))return null;
+            if(!arrived&&(state.team.length!==routePlan.entryParty.length||!state.team.every((uid,i)=>uid===routePlan.entryParty[i])))return null;
             const party=partyMons(state,routePlan.party);
             return party.length===routePlan.party.length&&party.every(mon=>teamEligible(state,mon,row.reg))&&
-                routeMetricKey({...state,team:routePlan.party},cfg,now)(row)===routePlan.key;
+                routeMetricKey({...state,team:routePlan.party},cfg,now)(row)===routePlan.key?state:null;
         }
         observeMapArrival(s,pending,now){
             const {row,arrival,options}=pending;
@@ -2307,61 +2356,119 @@
             this.target = row; this.status = sameLeague&&active.id!==c.id?`推进联盟 · ${active.name} · 前沿 ${c.name}`:`推进主线 · ${c.name}`; this.driver.nav('adventure');
         }
         money(s, now) {
+            this.moneyBoundaryUntil=0;
             const rows=this.rankedYieldRoutes(s,'money',this.cooldowns,now);
-            if(!rows){this.status='正在比较刷钱路线';this.lastProgress=now;return;}
+            if(!rows){
+                const chapter=CHAPTERS.get(s.adv.chapter);
+                const onLoop=chapter&&(s.adv.loops||[]).some(key=>String(key)===String(chapter.loop));
+                this.moneyRankingSince??=now;
+                this.status=onLoop?`刷钱 · ${chapter.name} · 后台比较其他路线`:'正在比较刷钱路线';
+                if(onLoop||s.adv.battle||s.adv.pending)this.driver.nav('adventure');
+                else if(now-this.moneyRankingSince>=15000&&this.canStartRoute(s)){
+                    const eligible=candidates(s,this.settings,true).find(row=>row.members.includes(s.adv.chapter)&&!(this.cooldowns[row.key]>now));
+                    if(eligible){this.moneyRankingSince=now;this.travel(eligible,now);}
+                }
+                return;
+            }
+            this.moneyRankingSince=null;
             if (!rows.length) {
-                if(this.rankedYieldRoutes(s,'money',{},now).length){this.waitForFarm('刷钱地图暂时退避，等待后重试',now);return;}
+                if(this.rankedYieldRoutes(s,'money',{},now)?.length){this.waitForFarm('刷钱地图暂时退避，等待后重试',now);return;}
                 const frontier = CHAPTERS.get(s.adv.unlocked);
                 if (this.canProgress(s) && (this.cooldowns[String(frontier.loop)] || 0) <= now) this.progress(s, now);
                 else this.status = '暂无可用地图，等待失败退避时间结束';
                 return;
             }
             if(!s.adv.battle&&!s.adv.pending&&this.automation.autoBuff(s,now,'money')){this.telemetry.sample=null;return;}
-            const current = rows.find(row => row.key === this.target?.key);
+            const live=rows.find(row=>this.routeReached(s,row));
+            if(live&&live.key!==this.target?.key)this.confirmMapArrival(s,{row:live},now);
+            const current=live||rows.find(row=>row.key===this.target?.key&&row.members.includes(s.adv.chapter));
             const rate=row=>this.settings.mode==='money'&&row.routePlan?.party?row.projectedMoneyRate:row.rate;
-            let winner=rows.reduce((best,row)=>rate(row)>rate(best)?row:best);
+            const safer=rows.filter(row=>!row.battleFit?.roamingRisk);
+            const shortlist=safer.length?safer:rows;
+            const base=shortlist[0];
+            let winner=shortlist.reduce((best,row)=>rate(row)>rate(best)?row:best);
+            const ready=this.moneyReadyRoute;
+            const readyRow=ready&&shortlist.find(row=>row.key===ready.key);
+            const readyValid=readyRow&&ready.projectedMoneyRate>=readyRow.rate*1.08&&this.routeRequestValid(s,{row:readyRow,routePlan:ready.routePlan},now);
+            if(!readyValid)this.moneyReadyRoute=null;
+            const reviewing=this.moneyProofReview?.row;
+            const stillAvailable=reviewing&&shortlist.find(row=>row.key===reviewing.key);
+            if(readyValid)winner={...readyRow,routePlan:ready.routePlan,projectedMoneyRate:ready.projectedMoneyRate};
+            else if(stillAvailable&&this.routePlanState(s,stillAvailable,reviewing.routePlan,now)){
+                // A new measurement or a temporarily missing forecast cannot abandon a valid review.
+                const routePlan={...reviewing.routePlan,minimumRate:stillAvailable.rate*1.08};
+                winner={...stillAvailable,routePlan,projectedMoneyRate:reviewing.projectedMoneyRate};
+            }else if(reviewing){
+                this.cancelTeamSearch('moneyProofSearch');this.moneyProofReview=null;
+            }
             let usePlan=this.settings.mode==='money'&&!!winner.routePlan;
             let next=usePlan?{...winner,rate:winner.projectedMoneyRate,measured:false,samples:0}:winner;
-            if(current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,next,now,'money')){
+            const stays=row=>current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,row,now,'money');
+            if(stays(next)&&!reviewing){
                 this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
             }
-            if (!this.canStartRoute(s)) {this.driver.nav('adventure');return;}
-            if(usePlan&&this.strictPlanning){
+            if(usePlan&&this.strictPlanning&&!readyValid){
+                const reviewingName=winner.name;
                 const confirmed=this.moneyRouteProof(s,winner,now);
-                if(confirmed===undefined){this.status='正在核对路线专用阵容 · '+winner.name;this.lastProgress=now;this.driver.nav('adventure');return;}
-                if(confirmed){winner=confirmed;next={...confirmed,rate:confirmed.projectedMoneyRate,measured:false,samples:0};}
-                else{winner=next=rows[0];usePlan=false;}
-                if(current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,next,now,'money')){
-                    this.status=`保留刷钱路线 · ${current.name}`;this.driver.nav('adventure');return;
+                if(confirmed){this.moneyReadyRoute=winner=confirmed;next={...confirmed,rate:confirmed.projectedMoneyRate,measured:false,samples:0};}
+                else{winner=next=base;usePlan=false;}
+                if(stays(next)){
+                    const verification=this.moneyProofSearch?.verification;
+                    const detail=verification?.total?` · 第 ${verification.passes} 轮 ${verification.checked}/${verification.total} 只`:'';
+                    this.status=confirmed===undefined?`刷钱 · ${current.name} · 复核${reviewingName}阵容${detail}`:`保留刷钱路线 · ${current.name}`;
+                    this.driver.nav('adventure');return;
                 }
             }
+            if(stays(next)){this.status=`保留刷钱路线 · ${current.name}`;this.driver.nav('adventure');return;}
+            if (!this.canStartRoute(s)) {
+                if(this.ordinaryBattleKey(s))this.moneyBoundaryUntil=now+2000;
+                if(current?.battleFit?.roamingRisk&&!next.battleFit?.roamingRisk){
+                    const foe=MONS.get(current.battleFit.roamingRisk.id)?.name||'游荡首领';
+                    this.status=`${foe}风险较高 · 等待结算后前往${next.name}`;
+                }else this.status=`已选${next.name} · 等待当前战斗或选项结算`;
+                this.driver.nav('adventure');return;
+            }
             this.travel(winner,now,usePlan?{orderedRoutePlan:true}:{});
+            if(this.driver.pendingMap?.row.key===winner.key)this.moneyReadyRoute=null;
         }
         moneyRouteProof(s,row,now){
-            const base=row.routePlan,cfg=this.settings,scope=s.link?.side??null;
-            const state=scope===base.scope?s:otherMoneyParty(s);
+            const base=row.routePlan,cfg=this.settings;
+            const state=this.routePlanState(s,row,base,now);
             if(!state)return null;
-            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,base.roster,base.key,base.setting,state.team];
+            const threat=moneyRouteThreatKey(state,row,now);
+            if((base.threat||'')!==threat)return null;
+            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,base.roster,base.key,base.setting,state.team,threat];
             const signature='map-proof:'+JSON.stringify(stamp);
-            if(this.routeProof?.signature===signature)return this.routeProof.row;
+            const profitable=verified=>verified?.projectedMoneyRate>=base.minimumRate?verified:null;
+            if(this.routeProof?.signature===signature)return profitable(this.routeProof.row);
+            if(this.moneyProofRetry?.signature===signature&&now<this.moneyProofRetry.until)return null;
+            if(this.moneyProofReview?.signature!==signature)this.moneyProofReview={signature,row,started:now,expiresAt:performance.now()+120000};
             const sourceEpoch=this.localSnapshot.sourceEpoch,runId=this.runId;
             function* search(){
                 const seeded={...state,team:base.party};
-                const plan=yield* adventureTeamSearch(seeded,cfg,[],{row,objective:'money',now,force:true,verifyAll:true,lowBudget:true},true);
+                const plan=yield* adventureTeamSearch(seeded,cfg,[],{row,reg:row.reg,objective:'money',now,force:true,verifyAll:true,lowBudget:true},true);
                 if(!['verified','exhaustive'].includes(plan.verification?.status)||plan.verification.uids?.join('|')!==plan.uids.join('|'))return {row:null};
-                const fit=yield* battleRouteFitSearch(state,row,partyMons(state,plan.uids),now,true,cfg);
+                const fit=yield* battleRouteFitSearch(state,row,partyMons(state,plan.uids),now,true,cfg,true);
                 const projected=moneyRouteScore(state,row,null,fit,now,cfg.speed).rate;
-                if(fit.minCoverage<.999||projected<base.minimumRate)return {row:null};
+                if(fit.roamingRisk||fit.minCoverage<.999)return {row:null};
                 const routePlan={...base,party:plan.uids,key:routeMetricKey({...state,team:plan.uids},cfg,now)(row),sourceEpoch,runId,verified:true};
-                return {row:{...row,routePlan,projectedMoneyRate:projected}};
+                return {row:{...row,routePlan,projectedMoneyRate:projected},verification:plan.verification};
             }
-            const result=this.evaluateTeamSearch(signature,search(),'teamSearch',true);
+            const result=this.evaluateTeamSearch(signature,search(),'moneyProofSearch',true,this.moneyProofReview.expiresAt);
             if(!result)return undefined;
+            const elapsed=Math.max(0,Math.round((now-this.moneyProofReview.started)/1000));
+            this.moneyProofReview=null;
+            if(result.timedOut){
+                this.moneyProofRetry={signature,until:now+120000};
+                this.log('路线专用阵容复核超时，继续按当前可用阵容刷钱');return null;
+            }
             this.routeProof={signature,row:result.row};
-            return result.row;
+            if(result.verification?.total)this.log(`${row.name}阵容复核完成 · ${result.verification.checked} 只 · ${elapsed} 秒`);
+            return profitable(result.row);
         }
         routeWorthSwitch(s,current,next,now,kind){
             if(!next||next.key===current.key)return false;
+            if(kind==='money'&&current.battleFit?.roamingRisk&&!next.battleFit?.roamingRisk)return next.rate>0;
             if(next.trainingSafe&&!current.trainingSafe&&kind==='xp')return true;
             if(!(next.rate>0))return false;
             if(kind!=='xp'&&this.visit&&now-this.visit.started<15000)return false;

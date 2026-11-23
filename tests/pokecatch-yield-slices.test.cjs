@@ -59,15 +59,94 @@ test('idle and manually paused map views can finish, release, or supersede read-
     assert.deepEqual(result,H.xpRanking({...s,trainer:{id:'sync-paused'}},engine.settings,engine.metrics,{},now));
 });
 
-test('changes to a measured route replace a completed search before the first map is chosen',t=>{
-    const {s,engine,now,drain}=fixture(t,'replace');engine.running=true;
+test('changes to a measured route update a completed search before the first map is chosen',t=>{
+    const {s,engine,now,drain,timers}=fixture(t,'replace');engine.running=true;
     engine.money(s,now);drain();
     const row=H.candidates(s,engine.settings,true).find(row=>row.id===42);
     engine.metrics[H.metricsKey(s,row,engine.settings,now)]={net:1e12,seconds:60,runs:2};
-    assert.equal(engine.rankedYieldRoutes(s,'money',{},now),null);
-    drain();
     const updated=engine.rankedYieldRoutes(s,'money',{},now);
     assert.equal(updated[0].key,row.key);assert.equal(updated[0].rate,1e12);
+    assert.equal(timers.size,0,'measurements do not start another combat search');
+});
+
+test('money combat search survives measurements, bench XP and league room changes',t=>{
+    const {s,engine,now,drain,next}=fixture(t,'live-money');engine.running=true;
+    engine.settings.mode='money';
+    let clock=0;
+    t.mock.method(global.performance,'now',()=>clock+=5);
+    const reserve={id:289,uid:'reserve',level:90};
+    s.mons.push(reserve);
+    const row=H.candidates(s,engine.settings,true).find(row=>row.id===42);
+    const league=H.candidates(s,engine.settings,true).find(row=>row.reg==='unova'&&row.league);
+    s.adv.chapter=league.members[0];
+    const sample={net:1e7,seconds:60,runs:1};
+    assert.equal(engine.rankedYieldRoutes(s,'money',{},now),null);
+    const search=engine.rankingJobs.get('money');
+    for(let i=0;i<5;i++){
+        assert.ok(next());
+        sample.net+=1e7;sample.runs++;
+        engine.metrics[H.metricsKey(s,row,engine.settings,now)]=sample;
+        reserve.level++;
+        s.adv.chapter=league.members[i%league.members.length];
+        engine.rankedYieldRoutes(s,'money',{},now);
+        assert.equal(engine.rankingJobs.get('money'),search);
+    }
+    drain();
+    const result=engine.rankedYieldRoutes(s,'money',{},now);
+    assert.equal(result[0].key,row.key);
+    assert.equal(result[0].rate,sample.net);
+    assert.equal(result[0].samples,sample.runs);
+    assert.ok(engine.rankingJobs.get('money/projections'),'live results are available while specialist suggestions are pending');
+});
+
+test('money scouts stream completed maps, survive the refresh interval, and retain completed hints during refresh',t=>{
+    const {s,engine,now,drain,next}=fixture(t,'long-scout');
+    engine.running=true;engine.settings.mode='money';
+    s.mons.push({id:289,uid:'scout-reserve',level:100});
+    let clock=0;
+    t.mock.method(global.performance,'now',()=>clock+=5);
+    engine.rankedYieldRoutes(s,'money',{},now);drain();
+    assert.ok(engine.rankedYieldRoutes(s,'money',{},now).length);
+    const original=engine.rankingJobs.get('money/projections');assert.ok(original);
+    const later=now+125000;
+    const read=at=>engine.rankedYieldRoutes(s,'money',{},at);
+    assert.ok(read(later).length);
+    assert.equal(engine.rankingJobs.get('money/projections'),original,'elapsed wall time cannot restart an unfinished scout');
+    let partial;
+    for(let i=0;i<10000&&next();i++){
+        const hint=read(later)[0]?.planCoverage;
+        if(hint){partial=hint;break;}
+    }
+    assert.equal(partial?.evaluated,1,'the first completed map is visible before every scout finishes');
+    assert.equal(engine.rankingJobs.get('money/projections'),original);
+    drain();
+    const completed=read(later)[0].planCoverage;
+    assert.ok(completed.evaluated>partial.evaluated);
+    assert.equal(engine.rankingJobs.has('money/projections'),false);
+    const refreshing=read(later+125000)[0].planCoverage;
+    assert.ok(engine.rankingJobs.get('money/projections'),'refresh starts after completed evidence ages out');
+    assert.deepEqual(refreshing,completed,'the usable rows remain visible while refreshing');
+});
+
+test('a queued roaming opponent invalidates only its route fit and does not add money',t=>{
+    const {s,engine,now}=fixture(t,'roam-money');
+    s.mons.forEach((mon,i)=>{mon.id=[10,13,129,132,349,90][i];mon.level=60;});
+    s.adv.chapter=75;s.adv.node=0;
+    s.adv.badges=['Maître Unys'];
+    s.roam={at:{},caught:[]};
+    engine.settings.autoTeam=false;
+    const rates=()=>H.moneyRanking(s,engine.settings,{}, {},now);
+    const before=rates();
+    const lookup=(rows,id)=>rows.find(r=>r.id===id);
+    s.adv.nodes=[{roamer:641}];
+    const current=rates();
+    const threatened=lookup(current,75);
+    assert.equal(threatened.battleFit.roamingRisk?.id,641);
+    assert.ok(threatened.rate<lookup(before,75).rate);
+    assert.equal(threatened.estimatedReward,lookup(before,75).estimatedReward);
+    assert.deepEqual(lookup(current,76).battleFit,lookup(before,76).battleFit);
+    s.adv.node=1;
+    assert.deepEqual(lookup(rates(),75).battleFit,lookup(before,75).battleFit);
 });
 
 test('large single-region league rankings yield and stopping discards their outstanding timer',t=>{

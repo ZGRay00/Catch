@@ -1,8 +1,14 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **7.0.0**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **7.0.3**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v7.0.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v7.0.3.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+7.0.3 · 刷钱逐图产出阵容预估，后台刷新保留有效结果。持续核查已选专用阵容，明确区分复核和等待战斗结算，并减少大盒子重复计算。
+
+7.0.2 · 冒险配队优先解决关键战风险，复核全盒合法候选并试算互补的双人组合。
+
+7.0.1 · 将基础刷钱排名与专用阵容评估拆开，纳入已发现的游荡首领风险。
 
 7.0.0 · 本地共享盒子索引，分片复核配队及地图收益。整轮实测需确认到图和出战阵容；经验按指定学员目标记录。详见 [验证说明](./pokecatch-helper/docs/7.0.0-local-validation.md)。
 

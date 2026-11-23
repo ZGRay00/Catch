@@ -145,7 +145,7 @@
                 if(row===chosen[i]||!legal(row,others))continue;
                 const proposed=[...chosen];proposed[i]=row;
                 const value=evaluate(proposed);
-                if(value.score>result.score*1.001){chosen=proposed;result=value;}
+                if(value.score>result.score+1e-8){chosen=proposed;result=value;}
                 if(sliced)yield;
             }
         }
@@ -155,7 +155,7 @@
         }
         if(legalCurrent.length===party.length&&party.length===chosen.length){
             const previous=evaluate(legalCurrent);
-            if(previous.score>=result.score*.97){chosen=legalCurrent;result=previous;}
+            if(previous.score>=result.score-1e-8){chosen=legalCurrent;result=previous;}
         }
         return{uids:chosen.map(row=>row.mon.uid),estimate:result};
     }

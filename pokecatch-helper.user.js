@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      7.0.0
+// @version      7.0.3
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '7.0.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '7.0.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -651,7 +651,7 @@
         const used=new Set(),party=[];
         for(const {mon} of pool){
             const id=DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
-            if(used.has(id)||party.some(other=>undergroundApart(mon,other)))continue;
+            if(used.has(id)||party.some(other=>teamApart(mon,other)))continue;
             used.add(id);party.push(mon);
             if(party.length>=size)break;
         }
@@ -804,14 +804,9 @@
         }
         return(s.mons||[]).filter(m=>teamEligible(s,m,'sinnoh')&&!used[m.uid]&&!away.has(m.uid));
     }
-    // Native event-team editor keeps one combat identity and separates the Tao fusions.
-    function undergroundApart(a,b){
-        const conflicts=(id,other)=>id===643&&(other===646||other===64602)||id===644&&(other===646||other===64601);
-        return conflicts(a.id,b.id)||conflicts(b.id,a.id);
-    }
     function canFillUndergroundTeam(pool){
         const seen=new Set(),candidates=[];
-        const compatible=(a,b)=>a.key!==b.key&&!undergroundApart(a.mon,b.mon);
+        const compatible=(a,b)=>a.key!==b.key&&!teamApart(a.mon,b.mon);
         for(const mon of pool){
             const form=`${mon.id}:${+!!mon.shiny}`;
             if(seen.has(form))continue;
@@ -874,10 +869,11 @@
         if(p)return '';
         const check=e.teamCheck,chapter=CHAPTERS.get(s.adv.chapter),frontier=mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
         if((frontier&&chapter?.loop!==frontier.loop)||(e.target&&!e.target.members?.includes(s.adv.chapter)))return '等待目标路线的冒险配队';
-        if(!check||check.chapter!==s.adv.chapter||check.mode!==mode||check.expectedParty!==partyKey||
-            check.roster!==rosterFingerprint(s)||check.autoSwitch!==(s.autoSwitch!==false)||
-            check.deaths!==(Number(s.adv.deaths?.[s.adv.chapter])||0)||now-check.at>=e.settings.teamMinutes*60000||
-            check.weatherKey!==adventureTeamWeatherKey(s,check.members||[s.adv.chapter],now))
+        const members=check?.members||[s.adv.chapter];
+        if(!check||!members.includes(s.adv.chapter)||check.mode!==mode||check.expectedParty!==partyKey||
+            check.roster!==adventureRosterFingerprint(s,chapter?.reg)||check.autoSwitch!==(s.autoSwitch!==false)||
+            check.deaths!==totalDeaths(s,{members})||now-check.at>=e.settings.teamMinutes*60000||
+            check.weatherKey!==adventureTeamWeatherKey(s,members,now))
             return '先适配冒险阵容，再派遣空闲队员';
         return '';
     }
@@ -1133,7 +1129,7 @@
         while(selected.length<3){
             let best,gain=-Infinity;
             for(const entry of entries){
-                if(taken.has(identity(entry.mon))||selected.some(mon=>undergroundApart(mon,entry.mon)))continue;
+                if(taken.has(identity(entry.mon))||selected.some(mon=>teamApart(mon,entry.mon)))continue;
                 const value=entry.scores.reduce((sum,score,i)=>sum+.7*Math.max(0,score-bestByType[i])+.3*score,0);
                 if(value>gain){best=entry;gain=value;}
             }
@@ -2913,6 +2909,13 @@
         const profiles=pool.map(mon=>index?.byUid.get(mon.uid)===mon?index.profiles.get(mon.uid):rosterCombatKey(mon));
         return JSON.stringify([profiles.sort(),s.link?.to||'',s.link?.side||'']);
     }
+    function adventureRosterFingerprint(s,reg){
+        const index=rosterIndex(s),view=saveBoxViews.get(s);
+        if(view?.adventureKeys?.has(reg))return view.adventureKeys.get(reg);
+        const fingerprint=rosterSubsetFingerprint(s,eligibleRoster(s,reg))+'|'+JSON.stringify([...index.duplicates].sort());
+        if(view)(view.adventureKeys??=new Map()).set(reg,fingerprint);
+        return fingerprint;
+    }
     function teamEligible(s, mon, reg = currentRegion(s)) {
         if (!MONS.has(mon.id) || !mon.uid || String(mon.uid).startsWith('t:') || String(mon.uid).startsWith('c:')) return false;
         return !s.link || (reg === s.link.to) === (monRegion(mon) === s.link.to);
@@ -3242,6 +3245,11 @@
             Math.max(best,stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab/100),0);
         return Math.sqrt(offense*stats.hp*Math.sqrt(stats.def*stats.spd));
     }
+    function teamApart(a,b){
+        const fusion=a.id===643||a.id===644?b.id:a.id;
+        const dragon=fusion===a.id?b.id:a.id;
+        return dragon===643&&(fusion===646||fusion===64602)||dragon===644&&(fusion===646||fusion===64601);
+    }
     function* combatShortlist(candidates,party,foes,identity,lowBudget,sliced,roles=false){
         const matchups=new Map();
         for(const foe of foes){
@@ -3379,8 +3387,8 @@
     }
     function matchupDetails(mon,foe,stats=effectiveStats(mon),defense=effectiveStats(foe),options={}){
         const attack=expectedDamage(mon,foe,stats,defense,{...options,details:true}),incoming=expectedDamage(foe,mon,defense,stats,{...options,details:true});
-        const speed=stats.spe*(mon.status==='paralysis'?.25:1)-defense.spe*(foe.status==='paralysis'?.25:1);
-        return{attack,incoming,hp:stats.hp,foeHp:defense.hp,first:speed>0?1:speed<0?0:.5,deployment:deploymentScore(mon,foe)};
+        const speed=stats.spe*(mon.status==='paralysis'?.25:1),gap=speed-defense.spe*(foe.status==='paralysis'?.25:1);
+        return{attack,incoming,hp:stats.hp,foeHp:defense.hp,speed,first:gap>0?1:gap<0?0:.5,deployment:deploymentScore(mon,foe)};
     }
     function attackTurns(attack,hp){
         if(!(attack.hit>0)||!(attack.accuracy>0))return Infinity;
@@ -3409,6 +3417,38 @@
             hp=Math.max(.01,hp-dealt);turns+=Math.min(60,Number.isFinite(survives)?survives:60)+1;deaths++;
         }
         return{turns:Math.max(150,turns*2),coverage:Math.min(.5,Math.max(0,1-hp/details[0].foeHp)*.5),deaths};
+    }
+    // Native roaming fights put the entire party on the field. Approximate random
+    // single-target hits by spreading their expected damage across living allies.
+    function roamingBattle(details,foe){
+        if(!details.length)return deployedBattle(details);
+        // The game rolls equal-speed ties. Use a deterministic tie breaker for the model.
+        details=[...details].sort((a,b)=>b.speed-a.speed||b.attack.sustainedDamage-a.attack.sustainedDamage||b.hp-a.hp||
+            b.incoming.sustainedDamage-a.incoming.sustainedDamage||b.attack.turnAccuracy-a.attack.turnAccuracy);
+        const hp=details.map(detail=>detail.hp),start=details[0].foeHp;
+        let remaining=start,alive=details.length,rage=0;
+        const hurt=(factor,spread)=>{
+            for(let i=0;i<hp.length;i++)if(hp[i]>0){
+                hp[i]-=details[i].incoming.sustainedDamage*factor/spread;
+                if(hp[i]<=0)alive--;
+            }
+        };
+        for(let turns=1;turns<=32&&alive;turns++){
+            let bossActed=false;
+            for(let i=0;i<hp.length&&alive;i++){
+                if(!bossActed&&details[i].first<1){hurt(1,alive);bossActed=true;}
+                if(hp[i]<=0)continue;
+                const attack=details[i].attack;
+                if(!(attack.sustainedDamage>0))continue;
+                remaining-=attack.sustainedDamage;
+                if(remaining<=0)return{turns,coverage:1,deaths:details.length-alive};
+                rage+=attack.turnAccuracy;
+                if(rage>=foe.rageMax){rage-=foe.rageMax;hurt(1/.85,1);}
+                else hurt(.3/.85*attack.turnAccuracy,alive);
+            }
+            if(alive&&!bossActed)hurt(1,alive);
+        }
+        return{turns:150,coverage:Math.min(.5,Math.max(0,1-remaining/start)*.5),deaths:details.length-alive};
     }
     // The native rail promotes a tapped reserve in both the road and planned party.
     function helperSwitchEnabled(s,settings){
@@ -3475,6 +3515,40 @@
             return {...foe,chapter:chapter.id,wildWeight,...gymCount?{gymCount}:{}};
         });
     }
+    function roamingCombatFoe(id,chapter,weight=1){
+        // Public game build 6d1e2d8d8d: six slots, ROAM_HP 4, ROAM_POWER .6,
+        // ENEMY_HP_PER_ALLY .7, wild attack .85, and a burst every eight hits.
+        return{id,chapter,level:ROAMING_DATA.level,weight,wildWeight:weight,roaming:true,
+            hpMult:4*(1+.7*5),damageMult:.85*.6,rageMax:8};
+    }
+    function routeChapters(row){
+        if(!row)return [];
+        if(row.members?.length)return row.members.map(id=>CHAPTERS.get(id)).filter(Boolean);
+        return row.league?DATA.chapters.filter(chapter=>chapter.loop===row.loop):[row];
+    }
+    function routeRoamingFoes(s,row,now=Date.now()){
+        if(!s.roam&&!s.adv?.battle?.roam)return [];
+        const watch=new Map(routeChapters(row).filter(chapter=>!chapter.league).map(chapter=>[chapter.id,chapter]));
+        if(!watch.size)return [];
+        const threats=new Map();
+        const add=(rawId,chapter)=>{
+            const id=Number(rawId),route=watch.get(chapter);
+            if(!route||!ROAMING_DATA.groups.some(group=>group.reg===route.reg&&group.ids.includes(id)&&s.adv?.badges?.includes(group.badge))||s.roam?.caught?.includes(id))return;
+            threats.set(`${chapter}:${id}`,roamingCombatFoe(id,chapter));
+        };
+        for(const [id,marker]of Object.entries(s.roam?.at||{}))if(Number(marker?.until)>now)add(id,Number(marker.ch));
+        const adv=s.adv;
+        if(adv&&watch.has(adv.chapter)&&!adv.event&&!adv.tower&&!adv.zone&&!adv.league){
+            add(adv.battle?.roam,adv.chapter);
+            for(let i=Math.max(0,Number(adv.node)||0);i<(adv.nodes?.length||0);i++){
+                if(adv.nodes[i]?.roamer)add(adv.nodes[i].roamer,adv.chapter);
+            }
+        }
+        return [...threats.values()].sort((a,b)=>a.chapter-b.chapter||a.id-b.id);
+    }
+    function routeCombatFoes(s,row,now=Date.now(),hazards=routeRoamingFoes(s,row,now)){
+        return [...routeChapters(row).flatMap(chapter=>chapterCombatFoes(s,chapter)),...hazards];
+    }
     function resolveCombatWeatherNode(s,chapter,reference){
         const nodes=WEATHER_DATA.chapters[chapter]?.nodes||[];
         if(!reference||typeof reference!=='object')return null;
@@ -3509,10 +3583,9 @@
             node?[node.name,node.bg,node.kind,node.indoor,node.weather??null]:null,Object.values(weather)]};
     }
     function chapterThreats(s, chapter = s.adv.chapter) {
-        const c = CHAPTERS.get(chapter), chapters = c?.league ? DATA.chapters.filter(row=>row.loop===c.loop) : [c];
-        const list = chapters.filter(Boolean).flatMap(row=>chapterCombatFoes(s,row));
+        const c = CHAPTERS.get(chapter),list=routeCombatFoes(s,c);
         // The current opponent receives extra weight, without discarding the rest of the map.
-        if(!c?.league&&chapter===s.adv.chapter)for (const foe of s.adv.battle?.enemies || []) if (MONS.has(foe.id)) list.push({id:foe.id,level:foe.level||c?.ace||50,weight:list.length?.25:1,chapter,liveNode:true});
+        if(!c?.league&&chapter===s.adv.chapter)for (const foe of s.adv.battle?.enemies || []) if (MONS.has(foe.id)&&foe.id!==s.adv.battle.roam) list.push({id:foe.id,level:foe.level||c?.ace||50,weight:list.length?.25:1,chapter,liveNode:true});
         return list.filter(foe=>MONS.has(foe.id)&&foe.weight>0);
     }
     const TEAM_ROWS=new Map(),ROUTE_FITS=new Map(),LEAGUE_TRAINING_ROWS=new Map(),TEAM_CACHE={hits:0,misses:0};
@@ -3533,8 +3606,7 @@
         const reg = context.reg || currentRegion(s), party = partyMons(s), size=Math.floor(clamp(context.size,1,6,6));
         const pool=context.pool?context.pool.filter(m=>teamEligible(s,m,reg)):eligibleRoster(s,reg);
         const verifyAll=context.verifyAll===true;
-        const route=context.row,chapters=route?(route.members?.length?route.members.map(id=>CHAPTERS.get(id)):route.league?DATA.chapters.filter(c=>c.loop===route.loop):[route]):[];
-        const routeFoes=route?chapters.filter(Boolean).flatMap(c=>chapterCombatFoes(s,c)):null;
+        const routeFoes=context.row?routeCombatFoes(s,context.row,context.now):null;
         const rawFoes=context.foes||routeFoes||chapterThreats(s);
         const foes=rawFoes.filter(m=>MONS.has(m.id)&&m.weight>0);
         const objective=context.objective||(['money','train','progress','dex'].includes(settings.mode)?settings.mode==='dex'?'progress':settings.mode:'coverage'),execution=objective!=='coverage';
@@ -3561,7 +3633,7 @@
         const preferReserves=execution&&!underground;
         const allowRescue=!underground&&helperSwitchEnabled(s,settings);
         const encounters=allowRescue?foes.flatMap(foe=>{
-            if(!foe.wildWeight)return [foe];
+            if(!foe.wildWeight||foe.roaming)return [foe];
             const weight=Math.min(foe.weight,foe.wildWeight),wild={...foe,weight,singleWild:true,gymCount:0};
             return foe.weight>weight?[wild,{...foe,weight:foe.weight-weight,wildWeight:0}]:[wild];
         }):foes;
@@ -3575,6 +3647,7 @@
         }):[{id:19,level:CHAPTERS.get(s.adv.chapter)?.ace||5,weight:1}];
         if(farming&&sliced)yield;
         const gymTotal=objective==='progress'?weights.reduce((n,foe)=>n+(foe.gymCount||0),0):0;
+        const critical=weights.map(foe=>!!(foe.gymCount||foe.roaming||foe.guard||['elite','zone','raid','worldCapture'].includes(context.kind)));
         const enduranceRoute=execution&&weights.length>1;
         // A chapter's outdoor encounters share a forecast. Keep explicit gym
         // and live-node overrides separate without resolving every species anew.
@@ -3587,7 +3660,7 @@
             if(!nodes.has(ref))nodes.set(ref,combatWeather(s,foe,context,instant));
             return nodes.get(ref);
         });
-        const threatKey=JSON.stringify([DATA.build,allowRescue,weights.map(combatProfile),weatherRows.map(row=>row.signature)]);
+        const threatKey=JSON.stringify([DATA.build,allowRescue,weights.map(foe=>[combatProfile(foe),!!foe.roaming]),weatherRows.map(row=>row.signature)]);
         // A long route's row can contain hundreds of full encounter models.
         // Bound the total retained cells per context as well as the UID count.
         const rowLimit=Math.max(8,Math.min(1024,Math.floor(49152/weights.length)));
@@ -3621,7 +3694,8 @@
                     if(allowRescue)row.rescue.push(profile);
                     return Number.isFinite(profile.turns)?1/(1+profile.loss*profile.loss):0;
                 });
-                row.details=details.map(d=>{
+                row.details=details.map((d,i)=>{
+                    if(weights[i].roaming)return d;
                     const {hit,minHit,maxHit,singleRollMax,accuracy,sustainedDamage}=d.attack;
                     return{attack:{hit,minHit,maxHit,singleRollMax,accuracy,sustainedDamage},foeHp:d.foeHp,
                         first:d.first,deployment:d.deployment,survives:attackTurns(d.incoming,d.hp)};
@@ -3639,6 +3713,7 @@
         // Grouped encounter exports can't recover the payout of each trainer,
         // so level and encounter class are relative weights, not coin amounts.
         const premiums=farming?weights.map(foe=>{
+            if(foe.roaming)return 0;
             const wildShare=foe.singleWild?1:Math.min(1,(foe.wildWeight||0)/foe.weight);
             if(objective==='money')return(1-wildShare)*Math.max(1,foe.level)*(foe.gymCount?1.3:1);
             // The native base XP rises with level^2.4 before species and
@@ -3664,7 +3739,7 @@
         const roomOf=eliteRooms.length?weights.map(foe=>eliteRooms.indexOf(foe.chapter)):[];
         const roomWeights=eliteRooms.map(ch=>weights.reduce((n,foe)=>n+(foe.chapter===ch?foe.weight:0),0));
         const roomScores=new Float64Array(eliteRooms.length);
-        const utility = (team,summary) => {
+        const utility = (team,summary,nativeBasis,inserted,insertAt) => {
             const rows=team.map(values);
             if(farming&&!rows.length)return 0;
             if(underground){
@@ -3722,11 +3797,11 @@
                 return primary*(1+.04*reserveCredit/totalWeight);
             }
             let gymSum=0,gymWorst=1,worstEfficiency=Infinity;
-            let farmingTime=0,earnings=0,farmingLoss=0,fallbackCombat=0,learnerTail=0;
+            let farmingTime=0,earnings=0,farmingLoss=0,fallbackCombat=0,learnerTail=0,roamingLoss=0;
             const shares=hasLearners?team.map(xpShare):null;
             const learnerShare=shares?.reduce((a,b)=>a+b,0)||0;
             if(eliteRooms.length)roomScores.fill(0);
-            let routeScore=0,turns=0,worst=0,deaths=0,wipes=0;
+            let routeScore=0,turns=0,worst=0,deaths=0,wipes=0,keyWipes=0;
             for(let i=0;i<weights.length;i++){
                 const foe=weights[i];
                 let coverage=0;
@@ -3740,21 +3815,29 @@
                 // If the native lead finishes alone, every reserve would be unused.
                 // A deployment tie stays with the earlier party member, just as in deployedBattle.
                 let leadIndex=0;
-                if(s.autoSwitch!==false)for(let j=1;j<rows.length;j++)if(rows[j].priorities[i]>rows[leadIndex].priorities[i])leadIndex=j;
+                if(nativeBasis){
+                    const former=nativeBasis.leads[i],priority=inserted.priorities[i],incumbent=nativeBasis.priorities[i];
+                    leadIndex=priority>incumbent||priority===incumbent&&insertAt<=former?insertAt:former+Number(insertAt<=former);
+                }else if(s.autoSwitch!==false)for(let j=1;j<rows.length;j++)if(rows[j].priorities[i]>rows[leadIndex].priorities[i])leadIndex=j;
                 if(allowRescue&&foe.singleWild&&!foe.shiny&&!foe.veiled&&rows.length>1){
                     leadIndex=rescueLead(rows.length,j=>rows[j].rescue[i]);
                 }
                 const lead=rows[leadIndex];
                 const solo=lead?.solo[i];
                 const order=allowRescue&&lead!==rows[0]?[lead,...rows.filter(r=>r!==lead)]:rows;
-                const battle=solo&&(solo.coverage===1||rows.length===1)?solo:deployedBattle(order.map(row=>row.details[i]),s.autoSwitch!==false);
-                if(summary){turns+=foe.weight*battle.turns;worst=Math.max(worst,battle.turns);deaths+=foe.weight*battle.deaths;if(battle.coverage<1)wipes+=foe.weight;}
+                const battle=foe.roaming?roamingBattle(rows.map(row=>row.details[i]),foe):
+                    solo&&(solo.coverage===1||rows.length===1)?solo:deployedBattle(order.map(row=>row.details[i]),s.autoSwitch!==false);
+                if(foe.roaming)roamingLoss=Math.max(roamingLoss,battle.deaths);
+                if(summary){
+                    turns+=foe.weight*battle.turns;worst=Math.max(worst,battle.turns);deaths+=foe.weight*battle.deaths;
+                    if(battle.coverage<1){wipes+=foe.weight;if(critical[i])keyWipes+=foe.weight;}
+                }
                 if(farming){
                     const clear=battle.coverage===1;
                     if(hasLearners)learnerTail=Math.max(learnerTail,Math.min(30,battle.turns)+2*battle.deaths);
                     // Fixed travel/reward time prevents a short fight's last
                     // fraction of a turn from dominating a change of roster.
-                    const duration=solo?.coverage===1?lead.safeFarmCost[i]:1+Math.min(battle.turns,180)+.65*(1-(lead?.endurance[i]??0))+1.8*battle.deaths+(clear?0:12);
+                    const duration=!foe.roaming&&solo?.coverage===1?lead.safeFarmCost[i]:1+Math.min(battle.turns,180)+.65*(1-(lead?.endurance[i]??0))+1.8*battle.deaths+(clear?0:12);
                     farmingTime+=foe.weight*duration;
                     farmingLoss+=foe.weight*(clear?0:foe.gymCount?1.5:1);
                     fallbackCombat+=foe.weight*(clear?1:battle.coverage);
@@ -3766,7 +3849,7 @@
                             // fresh lead actually finished the fight.
                             credit=(learnerShare+(battle.deaths===0?.1*shares[leadIndex]:0))/nominalLearners;
                         }
-                        earnings+=foe.weight*(totalPremium?premiums[i]:1)*credit;
+                        earnings+=foe.weight*(foe.roaming?0:totalPremium?premiums[i]:1)*credit;
                     }
                     continue;
                 }
@@ -3784,11 +3867,11 @@
                 routeScore+=foe.weight*((1-weight)*coverage+weight*efficiency);
             }
             routeScore/=totalWeight;
-            if(summary&&execution)Object.assign(summary,{turns,worst,deaths,wipes});
+            if(summary&&execution)Object.assign(summary,{turns,worst,deaths,wipes,keyWipes,roamingLoss});
             if(farming){
                 const safety=Math.max(0,1-farmingLoss/totalWeight);
                 const rate=3*earnings/rewardWeight/(farmingTime/totalWeight+.06*Math.max(0,learnerTail-3))*(.7+.3*safety);
-                return scoreAfterTrainingCost(rate+.025*fallbackCombat/totalWeight,team);
+                return scoreAfterTrainingCost((rate+.025*fallbackCombat/totalWeight)/(1+.04*roamingLoss),team);
             }
             const gymScore=gymTotal ? .7*gymSum/gymTotal+.3*gymWorst : 0;
             if(summary)summary.gym=gymScore;
@@ -3832,7 +3915,7 @@
         const prefer=(a,b)=>Number(!!a.evolutionItemLocked)-Number(!!b.evolutionItemLocked)||
             (preferReserves?reserveScore(b)-reserveScore(a):0)||
             (partyOrder.get(a.uid)??9999)-(partyOrder.get(b.uid)??9999)||String(a.uid).localeCompare(String(b.uid));
-        for (const uid of pinned) { const mon=poolByUid.get(uid); if(chosen.length<size&&mon&&!used.has(identity(mon))){chosen.push(mon);used.add(identity(mon));} }
+        for (const uid of pinned) { const mon=poolByUid.get(uid); if(chosen.length<size&&mon&&!used.has(identity(mon))&&!chosen.some(other=>teamApart(mon,other))){chosen.push(mon);used.add(identity(mon));} }
         if(verifyAll&&(poolByUid.size!==pool.length||!context.pool&&rosterIndex(s).duplicates.size||chosen.length!==protectedUids.size))return {
             uids:[],changed:false,opponents:foes.length,reg,objective,reason:'候选存在重复 UID，或固定成员当前无法同时出战',verification:{status:'unavailable'},
         };
@@ -3862,7 +3945,7 @@
             const fallback=chosen.slice(),seen=new Set(used);
             for(const mon of [...party,...candidates]){
                 if(fallback.length>=size)break;
-                if(!pool.includes(mon)||seen.has(identity(mon))||underground&&fallback.some(other=>undergroundApart(mon,other)))continue;
+                if(!pool.includes(mon)||seen.has(identity(mon))||fallback.some(other=>teamApart(mon,other)))continue;
                 seen.add(identity(mon));fallback.push(mon);
             }
             const uids=fallback.map(m=>m.uid);
@@ -3884,7 +3967,7 @@
                     for(let i=0;i<size;i++){
                         if(protectedUids.has(fallback[i].uid))continue;
                         const trial=fallback.slice();trial[i]=mon;
-                        if(underground&&trial.some(other=>undergroundApart(mon,other)))continue;
+                        if(trial.some(other=>teamApart(mon,other)))continue;
                         const summary={},score=utility(trial,summary);
                         if(score>best+1e-8&&(underground||score>base*1.05+.01)&&(!preferReserves||summary.wipes<=baseline.wipes)){
                             best=score;
@@ -3919,7 +4002,7 @@
             let best = null, score = -Infinity,bestLeads=false;
             const tryLead=farming&&s.autoSwitch===false&&chosen.length>0&&chosen.every(member=>protectedUids.has(member.uid));
             for (const mon of candidates) {
-                if (used.has(identity(mon))||underground&&chosen.some(other=>undergroundApart(mon,other))) continue;
+                if (used.has(identity(mon))||chosen.some(other=>teamApart(mon,other))) continue;
                 const append=utility([...chosen,mon]),prepend=tryLead?utility([mon,...chosen]):-Infinity,value=Math.max(append,prepend);
                 if (value > score + 1e-8 || Math.abs(value-score)<1e-8&&(!best||prefer(mon,best)<0)) { best=mon;score=value;bestLeads=prepend>append; }
                 if(sliced)yield;
@@ -3929,15 +4012,59 @@
             used.add(identity(best));
         }
         const incumbent=party.filter(m=>pool.includes(m));
-        const legalIncumbent=incumbent.length===party.length&&party.length===chosen.length&&new Set(party.map(identity)).size===party.length&&chosen.every(m=>!protectedUids.has(m.uid)||incumbent.includes(m));
+        const conflictingParty=party.some((mon,i)=>party.slice(0,i).some(other=>teamApart(mon,other)));
+        const legalIncumbent=!conflictingParty&&incumbent.length===party.length&&party.length===chosen.length&&new Set(party.map(identity)).size===party.length&&chosen.every(m=>!protectedUids.has(m.uid)||incumbent.includes(m));
         const incumbentSafety={};
         const incumbentScore=context.progressive?utility(incumbent,incumbentSafety):0;
         function checkpoint(){
             const summary={},score=utility(chosen,summary);
-            const apply=!legalIncumbent||(score>incumbentScore*1.05+.01&&(!preferReserves||summary.wipes<=incumbentSafety.wipes));
+            const apply=!legalIncumbent||(preferReserves&&summary.wipes<incumbentSafety.wipes)||
+                (score>incumbentScore*1.05+.01&&(!preferReserves||summary.wipes<=incumbentSafety.wipes));
             return {uids:(apply?chosen:incumbent).map(m=>m.uid),changed:apply,checkpointScore:apply?score:incumbentScore,gain:incumbentScore?score/incumbentScore-1:0,reg,objective,opponents:foes.length,reason:apply?'采用预算内改善最大的合法阵容':'已评估的提升未过换队门槛'};
         }
         if(context.progressive)yield checkpoint();
+        let testedSeed=null;
+        if(farming&&chosen.length===size&&protectedUids.size<size){
+            const roamingIndexes=weights.flatMap((foe,index)=>foe.roaming?[index]:[]),current={};
+            let currentScore=utility(chosen,current);
+            if(roamingIndexes.length||current.wipes){
+                // A strong reserve can lower the score of one replacement by
+                // taking over a few wins from the incumbent. Compare two legal
+                // starting teams to escape a weak lineup's local minimum.
+                const seed=ordered=>{
+                    const team=chosen.filter(mon=>protectedUids.has(mon.uid)),seen=new Set(team.map(identity));
+                    for(const mon of ordered){
+                        const key=identity(mon);
+                        if(seen.has(key)||team.some(other=>teamApart(mon,other)))continue;
+                        team.push(mon);seen.add(key);
+                        if(team.length>=size)break;
+                    }
+                    return team;
+                };
+                const seeds=[seed([...candidates].sort(prefer))];
+                if(roamingIndexes.length){
+                    const matchups=candidates.map(mon=>{
+                        const row=values(mon);
+                        const value=roamingIndexes.reduce((sum,i)=>{
+                            const {attack,incoming,hp}=row.details[i];
+                            return sum+attack.sustainedDamage*Math.sqrt(hp/(1+incoming.sustainedDamage));
+                        },0);
+                        return{mon,value};
+                    });
+                    matchups.sort((a,b)=>b.value-a.value||prefer(a.mon,b.mon));
+                    seeds.push(seed(matchups.map(entry=>entry.mon)));
+                }
+                for(const trial of seeds){
+                    if(trial.length!==chosen.length||trial.every((mon,i)=>mon===chosen[i]))continue;
+                    const safety={},score=utility(trial,safety);
+                    if(safety.wipes<current.wipes||safety.wipes===current.wipes&&score>currentScore+1e-8){
+                        chosen.splice(0,chosen.length,...trial);Object.assign(current,safety);currentScore=score;
+                        testedSeed={members:trial,wipes:safety.wipes,score};
+                        if(context.progressive)yield checkpoint();
+                    }
+                }
+            }
+        }
         // At most 56 unordered trios. Each candidate is a yield point, with the greedy
         // incumbent already available if the scheduler runs out of time.
         const smallExpedition=underground&&size===3&&!pinned.length&&(verifyAll?pool.length:candidates.length)<=8;
@@ -3947,10 +4074,10 @@
             let best=chosen.length===3?utility(chosen):-Infinity;
             for(let i=0;i<trios.length-2;i++)for(let j=i+1;j<trios.length-1;j++){
                 const a=trios[i],b=trios[j];
-                if(identity(a)===identity(b)||undergroundApart(a,b))continue;
+                if(identity(a)===identity(b)||teamApart(a,b))continue;
                 for(let k=j+1;k<trios.length;k++){
                     const c=trios[k];
-                    if(identity(a)===identity(c)||identity(b)===identity(c)||undergroundApart(a,c)||undergroundApart(b,c))continue;
+                    if(identity(a)===identity(c)||identity(b)===identity(c)||teamApart(a,c)||teamApart(b,c))continue;
                     const trio=[a,b,c],score=utility(trio);
                     exhaustiveAttempts++;
                     if(score>best+1e-8){
@@ -3968,7 +4095,7 @@
                 if(protectedUids.has(chosen[slot].uid))continue;
                 const rest=chosen.filter((_,i)=>i!==slot),taken=new Set(rest.map(identity));let best=chosen[slot],score=utility(chosen);
                 for(const mon of candidates){
-                    if(taken.has(identity(mon))||underground&&rest.some(other=>undergroundApart(mon,other)))continue;
+                    if(taken.has(identity(mon))||rest.some(other=>teamApart(mon,other)))continue;
                     const value=utility(chosen.map((entry,i)=>i===slot?mon:entry));
                     if(value>score+1e-8||Math.abs(value-score)<1e-8&&
                         (best.evolutionItemLocked&&!mon.evolutionItemLocked||preferReserves&&prefer(mon,best)<0)){best=mon;score=value;}
@@ -4006,26 +4133,69 @@
             }
             if(!changed)break;
         }
+        if(testedSeed){
+            const safety={},score=utility(chosen,safety);
+            if(testedSeed.wipes<safety.wipes||testedSeed.wipes===safety.wipes&&testedSeed.score>score+1e-8){
+                chosen.splice(0,chosen.length,...testedSeed.members);
+                sameMembers=chosen.every(mon=>partyOrder.has(mon.uid))&&chosen.length===party.length;
+            }
+        }
         let verification;
+        const significant=value=>Math.abs(value)>1e-8?value:0;
+        function compareVerified(tested,base){
+            const a=tested.safety,b=base.safety;
+            // Major fights cannot be traded away for easier ordinary encounters.
+            return tested.team.length-base.team.length||significant((b.keyWipes||0)-(a.keyWipes||0))||
+                significant((b.wipes||0)-(a.wipes||0))||significant(tested.score-base.score)||
+                (preferReserves?significant((b.worst||0)-(a.worst||0))||significant((b.deaths||0)-(a.deaths||0))||reserveTotal(tested.team)-reserveTotal(base.team):0);
+        }
         if(verifyAll){
             // Shortlisting supplies only an initial seed. Certification uses the exact
             // full legal pool, independent of the cheap score or seed selection.
             const legal=team=>team.length<=size&&new Set(team.map(identity)).size===team.length&&
-                team.every((mon,i)=>poolByUid.get(mon.uid)===mon&&(!underground||!team.slice(0,i).some(other=>undergroundApart(mon,other))))&&
+                team.every((mon,i)=>poolByUid.get(mon.uid)===mon&&!team.slice(0,i).some(other=>teamApart(mon,other)))&&
                 [...protectedUids].every(uid=>team.some(mon=>mon.uid===uid));
-            const assess=team=>{const safety={};return{team,score:utility(team,safety),safety};};
-            const better=(tested,base)=>tested.team.length>base.team.length||tested.team.length===base.team.length&&
-                ((tested.safety.wipes||0)<(base.safety.wipes||0)-1e-8||
-                (tested.safety.wipes||0)<=(base.safety.wipes||0)+1e-8&&tested.score>base.score+1e-8);
+            const assess=(team,nativeBasis,inserted,insertAt)=>{
+                const safety={};return{team,score:utility(team,safety,nativeBasis,inserted,insertAt),safety};
+            };
+            const better=(tested,base)=>compareVerified(tested,base)>1e-8;
             let evaluated=assess(chosen.slice());
             if(legal(party)){
                 const former=assess(party.slice());
-                if(better(former,evaluated))evaluated=former;
+                if(!better(evaluated,former))evaluated=former;
             }
-            let attempts=exhaustiveAttempts,passes=smallExpedition?1:0,pruned=0,orderPruned=0,reused=0,alternatives=[];
+            let attempts=exhaustiveAttempts,passes=smallExpedition?1:0,pruned=0,orderPruned=0,reused=0,soloReused=0,alternatives=[];
             if(!smallExpedition){
-                let tryPairs=(context.kind==='elite'||context.kind==='zone'||gymTotal>0)&&!context.lowBudget&&evaluated.team.length>1;
+                let tryPairs=execution&&!underground&&evaluated.team.length-protectedUids.size>1&&pool.length>evaluated.team.length+1;
+                const pairLimit=context.lowBudget?4:6;
                 const anchorScores=new Map();
+                const exactSolo=objective==='money'&&!allowRescue&&!(trainingPenalty&&context.trainingCosts)&&!weights.some(foe=>foe.roaming);
+                function leadBasis(rest){
+                    if(!exactSolo||!rest.length)return null;
+                    const rows=rest.map(values),priorities=new Float64Array(weights.length),leads=new Uint8Array(weights.length);
+                    let allSolo=true;
+                    for(let i=0;i<weights.length;i++){
+                        let lead=0;
+                        if(s.autoSwitch!==false)for(let j=1;j<rows.length;j++)if(rows[j].priorities[i]>rows[lead].priorities[i])lead=j;
+                        if(rows[lead].solo[i].coverage!==1)allSolo=false;
+                        priorities[i]=rows[lead].priorities[i];leads[i]=lead;
+                    }
+                    return {priorities,leads,solo:allSolo?assess(rest):null};
+                }
+                function soloPlacements(member,basis){
+                    if(s.autoSwitch===false)return {unchangedAt:1,transitions:2};
+                    let unchangedAt=0,transitions=0;
+                    for(let i=0;i<basis.priorities.length;i++){
+                        const priority=member.priorities[i],current=basis.priorities[i];
+                        if(priority>current)unchangedAt=Infinity;
+                        if(priority===current){
+                            const afterLead=basis.leads[i]+1;
+                            unchangedAt=Math.max(unchangedAt,afterLead);
+                            transitions|=1<<afterLead;
+                        }
+                    }
+                    return {unchangedAt,transitions};
+                }
                 for(;;){
                     passes++;
                     const ordered=evaluated.team,selected=new Set(ordered.map(mon=>mon.uid));
@@ -4044,15 +4214,15 @@
                             const row=values(mon);
                             for(let i=0;i<certain.length;i++)if(row.solo[i].coverage===1&&row.priorities[i]>certain[i])certain[i]=row.priorities[i];
                         }
-                        return {slot,rest,ids:new Set(rest.map(identity)),certain,scores};
+                        return {slot,rest,ids:new Set(rest.map(identity)),certain,scores,basis:leadBasis(rest)};
                     });
-                    const legalFor=(mon,anchor)=>!anchor.ids.has(identity(mon))&&(!underground||anchor.rest.every(other=>!undergroundApart(mon,other)));
+                    const legalFor=(mon,anchor)=>!anchor.ids.has(identity(mon))&&anchor.rest.every(other=>!teamApart(mon,other));
                     let improved=evaluated,checked=0;
                     const equivalents=new Set(),pairOptions=[];
                     alternatives=[];
                     for(const mon of pool){
                         checked++;
-                        if(sliced&&checked%32===0)yield {verification:{status:'checking',checked:checked-1,total:pool.length,passes,attempts,pruned,orderPruned,reused}};
+                        if(sliced&&checked%32===0)yield {verification:{status:'checking',checked:checked-1,total:pool.length,passes,attempts,pruned,orderPruned,reused,soloReused}};
                         const group=identity(mon);
                         // Complete healed battle profile, learner share and training
                         // cost determine equivalence. Incumbents and fixed UIDs are
@@ -4067,13 +4237,16 @@
                         if(tryPairs&&!selected.has(mon.uid)){
                             pairOptions.push({mon,score:utility([mon])});
                             pairOptions.sort((a,b)=>b.score-a.score||prefer(a.mon,b.mon));
-                            if(pairOptions.length>6)pairOptions.pop();
+                            if(pairOptions.length>pairLimit)pairOptions.pop();
                         }
-                        for(const {rest,slot,certain,scores} of possible){
+                        for(const {rest,slot,certain,scores,basis} of possible){
                             const positions=underground?1:rest.length+1;
+                            const placements=basis?.solo?soloPlacements(member,basis):null;
+                            const nativeBasis=s.autoSwitch!==false?basis:null;
                             let prior=scores.get(mon.uid);
-                            if(!prior&&scores.size<512){prior=[];scores.set(mon.uid,prior);}
+                            let samePlacement=null;
                             for(let at=0;at<positions;at++){
+                                if(placements?.transitions&(1<<at))samePlacement=null;
                                 // An adjacent crossing can change a native battle
                                 // only at equal priority. Any strictly earlier
                                 // guaranteed solo clear makes the tie immaterial.
@@ -4084,9 +4257,18 @@
                                     }
                                 }
                                 const team=[...rest.slice(0,at),mon,...rest.slice(at)];
-                                const known=prior?.[at],tested=known?{team,...known}:assess(team);
+                                // If the same native leads defeat every opponent alone,
+                                // unused reserves cannot change money, time, or safety.
+                                // This still enters the stronger-reserve tie-break below.
+                                const fromSolo=placements&&(samePlacement||(at>=placements.unchangedAt?basis.solo:null));
+                                const known=prior?.[at]||fromSolo,tested=known?{team,score:known.score,safety:known.safety}:assess(team,nativeBasis,member,at);
+                                if(placements)samePlacement=tested;
+                                if(!prior?.[at]&&fromSolo)soloReused++;
                                 if(known)reused++;
-                                else if(prior)prior[at]={score:tested.score,safety:tested.safety};
+                                else{
+                                    if(!prior&&scores.size<512){prior=[];scores.set(mon.uid,prior);}
+                                    if(prior)prior[at]={score:tested.score,safety:tested.safety};
+                                }
                                 attempts++;
                                 if(better(tested,improved))improved=tested;
                                 const alternative=alternatives[slot];
@@ -4099,11 +4281,12 @@
                     if(improved!==evaluated){evaluated=improved;continue;}
                     if(tryPairs){
                         tryPairs=false;
+                        const paired=new Map(slots.map(slot=>[slot,[...new Set([alternatives[slot]?.member,...pairOptions.map(entry=>entry.mon)].filter(Boolean))].slice(0,pairLimit)]));
                         for(let i=0;i<slots.length-1;i++)for(let j=i+1;j<slots.length;j++){
                             if(slots[j]>=ordered.length)continue;
-                            for(const a of pairOptions)for(const b of pairOptions){
+                            for(const a of paired.get(slots[i]))for(const b of paired.get(slots[j])){
                                 if(a===b)continue;
-                                const trial=ordered.slice();trial[slots[i]]=a.mon;trial[slots[j]]=b.mon;
+                                const trial=ordered.slice();trial[slots[i]]=a;trial[slots[j]]=b;
                                 if(!legal(trial))continue;
                                 const tested=assess(trial);attempts++;
                                 if(better(tested,improved))improved=tested;
@@ -4121,10 +4304,10 @@
             sameMembers=chosen.length===party.length&&chosen.every(mon=>partyOrder.has(mon.uid));
             const safety=evaluated.safety.expedition||{
                 turns:(evaluated.safety.turns||0)/totalWeight,worstTurns:evaluated.safety.worst||0,
-                knockouts:(evaluated.safety.deaths||0)/totalWeight,wipeWeight:(evaluated.safety.wipes||0)/totalWeight,
+                knockouts:(evaluated.safety.deaths||0)/totalWeight,wipeWeight:(evaluated.safety.wipes||0)/totalWeight,keyWipeWeight:(evaluated.safety.keyWipes||0)/totalWeight,
             };
             verification={status:smallExpedition?'exhaustive':'verified',uids:chosen.map(mon=>mon.uid),score:evaluated.score,
-                total:pool.length,checked:pool.length,passes,attempts,pruned,orderPruned,reused,rules:DATA.build,safety,
+                total:pool.length,checked:pool.length,passes,attempts,pruned,orderPruned,reused,soloReused,rules:DATA.build,safety,
                 members:chosen.map((mon,slot)=>{
                     const own=values(mon),alternative=alternatives[slot];
                     const favorable=weights.map((foe,i)=>({id:foe.id,key:!!(foe.gymCount||foe.guard),value:own[i]}))
@@ -4137,22 +4320,24 @@
         const previous={},proposed={};
         const now = utility(party.filter(m=>teamEligible(s,m,reg)),previous), next=utility(chosen,proposed);
         const changed = !sameMembers;
-        const necessary = party.length!==(s.team||[]).length||party.length>size||chosen.length>party.length||party.some(m=>!teamEligible(s,m,reg))||new Set(party.map(identity)).size<party.length||chosen.some(m=>protectedUids.has(m.uid)&&!s.team.includes(m.uid));
-        // Keep a stable party unless the predicted gain is material, so income sampling remains useful.
+        const necessary = conflictingParty||party.length!==(s.team||[]).length||party.length>size||chosen.length>party.length||party.some(m=>!teamEligible(s,m,reg))||new Set(party.map(identity)).size<party.length||chosen.some(m=>protectedUids.has(m.uid)&&!s.team.includes(m.uid));
+        // Verified recommendations may improve by less than the heuristic threshold.
+        // The same objective also decides when the actual party should change.
+        const verifiedImprovement=!!verification&&compareVerified({team:chosen,score:next,safety:proposed},{team:party,score:now,safety:previous})>1e-8;
         const gymGain=proposed.gym-previous.gym;
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
-        const fewerWipes=preferReserves&&(verification?proposed.wipes<previous.wipes-1e-8:proposed.wipes===0&&previous.wipes>0&&next>=now);
+        const fewerWipes=preferReserves&&(verification?proposed.keyWipes<previous.keyWipes-1e-8||proposed.wipes<previous.wipes-1e-8:proposed.wipes===0&&previous.wipes>0&&next>=now);
         const fasterFarm=farming&&next>now*1.015+.002&&proposed.turns<previous.turns*.96&&
             proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths;
         const strongerReserves=preferReserves&&changed&&next>=now-1e-8&&proposed.turns<=previous.turns+1e-8&&
-            proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths&&reserveTotal(chosen)>reserveTotal(party)*1.15;
-        const dominates=!!verification&&next>now+1e-8&&proposed.turns<=previous.turns+1e-8&&
-            proposed.worst<=previous.worst+1e-8&&proposed.deaths<=previous.deaths+1e-8&&(proposed.wipes||0)<=(previous.wipes||0)+1e-8;
-        const improve = (!preferReserves||proposed.wipes<=previous.wipes)&&(next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm||strongerReserves||dominates);
+            proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths&&
+            reserveTotal(chosen)>reserveTotal(party)*(verification?1:1.15)+1e-8;
+        const improve = verification?verifiedImprovement:(!preferReserves||proposed.wipes<=previous.wipes)&&
+            (next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm||strongerReserves);
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
         const fasterFarmOrder=farming&&next>now*1.0125+.001&&proposed.turns<previous.turns&&proposed.wipes<=previous.wipes;
-        const reorder=!changed&&orderChanged&&(improve||fasterOrder||fasterFarmOrder||!farming&&s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2);
+        const reorder=!changed&&orderChanged&&(improve||!verification&&(fasterOrder||fasterFarmOrder||!farming&&s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2));
         const apply=force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
         const sharedType=result.find((mon,i)=>result.slice(0,i).some(other=>MONS.get(other.id)?.types.some(t=>MONS.get(mon.id)?.types.includes(t))));
         let backup='';
@@ -4315,7 +4500,7 @@
                 if(row===chosen[i]||!legal(row,others))continue;
                 const proposed=[...chosen];proposed[i]=row;
                 const value=evaluate(proposed);
-                if(value.score>result.score*1.001){chosen=proposed;result=value;}
+                if(value.score>result.score+1e-8){chosen=proposed;result=value;}
                 if(sliced)yield;
             }
         }
@@ -4325,7 +4510,7 @@
         }
         if(legalCurrent.length===party.length&&party.length===chosen.length){
             const previous=evaluate(legalCurrent);
-            if(previous.score>=result.score*.97){chosen=legalCurrent;result=previous;}
+            if(previous.score>=result.score-1e-8){chosen=legalCurrent;result=previous;}
         }
         return{uids:chosen.map(row=>row.mon.uid),estimate:result};
     }
@@ -4572,7 +4757,7 @@
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
     }
-    function yieldRankingRequest(kind,s,settings,metrics,now){
+    function yieldRankingRequest(kind,s,settings,metrics,now,{separateMoney=false}={}){
         if(settings.mode==='dex')settings={...settings,mode:kind==='xp'?'train':'money',autoTeam:false};
         let maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
         let otherWallet=null;
@@ -4585,7 +4770,7 @@
             }
             if(!otherWallet)maps=maps.filter(onCurrentSide);
         }
-        return makeYieldRankingRequest(kind,s,settings,metrics,now,maps,undefined,otherWallet);
+        return makeYieldRankingRequest(kind,s,settings,metrics,now,maps,undefined,otherWallet,undefined,separateMoney);
     }
     function otherMoneyParty(s){
         // Native Game.enterRegion swaps the team and wallet while both groups'
@@ -4594,7 +4779,7 @@
         if(!Array.isArray(stored)||!['from','to'].includes(link.side))return null;
         const side=link.side==='to'?'from':'to',reg=side==='to'?link.to:link.from;
         if(!reg)return null;
-        const index=new Map(s.mons.map(mon=>[mon.uid,mon]));
+        const index=pokemonByUid(s);
         const existing=stored.map(uid=>index.get(uid)).filter(Boolean);
         let members=existing.filter(mon=>teamEligible(s,mon,reg));
         if(existing.length&&!members.length){
@@ -4612,7 +4797,7 @@
         request.ceiling=preparation.routeCeiling;
         return request;
     }
-    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null,goals){
+    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null,goals,separateMoney=false){
         const xp=kind!=='money';
         const targets=xp?trainingXpTargets(s,settings,goals):null,suffix=trainingXpSuffix(targets);
         const metricKey=routeMetricKey(s,settings,now);
@@ -4629,18 +4814,112 @@
             const mixed=metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
             if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
         });
-        const otherInputs=otherWallet&&yieldRankingInputs(otherWallet,settings,[],now);
         const previewMoney=!xp&&settings.mode==='money'&&settings.autoTeam&&s.mons.length>s.team.length;
+        const split=!xp&&separateMoney;
+        const rankingInputs=xp?yieldRankingInputs:moneyBaseInputs;
+        const otherInputs=otherWallet&&rankingInputs(otherWallet,settings,maps.filter((row,i)=>states[i]===otherWallet),now);
         const maxCycleXp=targets?Math.max(0,...maps.map(row=>row.members.reduce((sum,id)=>sum+(CHAPTERS.get(id)?.xpEstimate||0),0)))*1.3*(activeYieldBuff(s,'xp',now)?.mult||1):0;
-        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)]),
-            previewMoney?rosterFingerprint(s):null]);
+        const signature=JSON.stringify([split,reg,rankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),split?null:samples,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)]),
+            previewMoney&&!split?rosterFingerprint(s):null]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
-            : previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
-        return {kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets)};
+            : !split&&previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&(split||maps.some(row=>row.league));
+        const request={kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,split?[]:samples,now,sliced,states,previewMoney&&!split,targets)};
+        if(!split)return request;
+        const locations=new Map(maps.map((row,i)=>[row.key,{row,state:states[i],sample:samples[i]}]));
+        request.refreshRows=rows=>rows.map(row=>{
+            const {state,sample}=locations.get(row.key);
+            return moneyRouteScore(state,row,sample,row.battleFit,now,settings.speed);
+        }).sort(compareYieldRows);
+        if(previewMoney){
+            request.projections=rows=>moneyProjectionRequest(s,settings,locations,rows,now);
+            request.withProjections=(rows,hints)=>applyMoneyProjections(rows,hints,locations,settings,now);
+        }
+        return request;
+    }
+    function moneyBaseInputs(s,settings,maps,now){
+        const inputs=yieldRankingInputs(s,settings,maps,now),members=new Set(maps.flatMap(row=>row.members));
+        const [account,,unlocked,open,region,hunt,slot,hour,season,roam]=inputs[0];
+        // Which room is currently fighting is immaterial to an all-map replay
+        // ranking, including natural room progression within a league.
+        inputs[0]=[account,unlocked,open,region,hunt,slot,hour,season,roam.filter(([,id])=>members.has(id))];
+        inputs.push(maps.map(row=>moneyRouteThreatKey(s,row,now)).filter(Boolean));
+        return inputs;
+    }
+    function moneyRouteThreatKey(s,row,now){
+        return routeRoamingFoes(s,row,now).map(foe=>foe.chapter+':'+foe.id).join(',');
+    }
+    function compareYieldRows(a,b){return b.rate-a.rate||a.id-b.id;}
+    function moneySpecialists(s,settings,rows,states){
+        const rated=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}));
+        const high=rated.slice().sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id);
+        const active=rated.find(entry=>entry.row.members.includes(s.adv.chapter));
+        const different=high.find(entry=>entry.row.league!==high[0]?.row.league);
+        return new Set([...high.slice(0,4),...[active,different].filter(Boolean)]);
+    }
+    function moneyProjectionPartyKey(party){
+        return JSON.stringify(party.map(mon=>[mon.uid,monRegion(mon),...combatProfile({...mon,status:null})]));
+    }
+    function moneyScoutEvidence(state,row,now){
+        return JSON.stringify([routeIdentity(row),state.link?.side,chapterYieldRules(row.id),moneyRouteThreatKey(state,row,now),
+            row.members.map(id=>{
+                const branch=CHAPTERS.get(id)?.foesByStarter;
+                const starter=branch&&starterChoice(state,branch.key,Object.keys(branch.choices||{}).map(Number));
+                return [starter,combatWeather(state,{chapter:id},{row},now).signature];
+            })]);
+    }
+    function moneyProjectionRequest(s,settings,locations,rows,now){
+        if(!rows.length)return null;
+        const candidates=moneySpecialists(s,settings,rows,rows.map(row=>locations.get(row.key).state));
+        // Scouts are hints; a separate live proof checks the exact current Box
+        // before deployment. Samples, unrelated members improving and minor XP
+        // changes must not keep restarting these slower advisory calculations.
+        const candidatesInScope=[...candidates].map(entry=>({...entry,scoutKey:moneyScoutEvidence(entry.state,entry.row,now)}));
+        const scene=candidatesInScope.map(entry=>entry.scoutKey);
+        const signature=JSON.stringify([accountId(s),routePlanSettings(settings),scene]);
+        return {kind:'money',cacheSlot:'money/projections',signature,needsSlices:true,projectionOnly:true,refreshAfterMs:120000,
+            search:sliced=>scoreMoneyProjections(settings,candidatesInScope,now,sliced)};
+    }
+    function* scoreMoneyProjections(settings,candidates,now,sliced){
+        const result=[],setting=routePlanSettings(settings);
+        for(const {row,state,scoutKey=moneyScoutEvidence(state,row,now)} of candidates){
+            const plan=yield* adventureTeamSearch(state,settings,[],{row,reg:row.reg,objective:'money',now,lowBudget:true},sliced);
+            const uidList=plan.changed?plan.uids:[],party=partyMons(state,uidList);
+            const hint={key:row.key,scouted:true,account:accountId(state),setting,scoutKey};
+            if(uidList.length&&party.length===uidList.length){
+                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced,settings,true);
+                Object.assign(hint,{scope:state.link?.side??null,party:uidList,profile:moneyProjectionPartyKey(party),
+                    evidenceKey:routeMetricKey({...state,team:uidList},settings,now)(row),threat:moneyRouteThreatKey(state,row,now),fit});
+            }
+            result.push(hint);
+            if(sliced)yield result.slice();
+        }
+        return result;
+    }
+    function applyMoneyProjections(rows,hints,locations,settings,now){
+        if(!hints?.length)return rows;
+        const setting=routePlanSettings(settings),shown=new Map(rows.map(row=>[row.key,row])),byKey=new Map();
+        for(const hint of hints){
+            const state=locations.get(hint.key)?.state,row=shown.get(hint.key);
+            if(state&&row&&hint.account===accountId(state)&&hint.setting===setting&&hint.scoutKey===moneyScoutEvidence(state,row,now))byKey.set(hint.key,hint);
+        }
+        if(!byKey.size)return rows;
+        return rows.map(row=>{
+            const hint=byKey.get(row.key),planCoverage={evaluated:byKey.size,total:rows.length,matched:!!hint};
+            if(!hint?.party||row.measured&&row.samples>=2)return {...row,planCoverage};
+            const {state}=locations.get(row.key),party=partyMons(state,hint.party);
+            if((state.link?.side??null)!==hint.scope||party.length!==hint.party.length||party.some(mon=>!teamEligible(state,mon,row.reg))||moneyProjectionPartyKey(party)!==hint.profile)return {...row,planCoverage};
+            const key=routeMetricKey({...state,team:hint.party},settings,now)(row);
+            if(key!==hint.evidenceKey||moneyRouteThreatKey(state,row,now)!==hint.threat)return {...row,planCoverage};
+            const estimate=moneyRouteScore(state,row,null,hint.fit,now,settings.speed).rate;
+            if(hint.fit.roamingRisk||hint.fit.coverage<.99||hint.fit.minCoverage<row.battleFit.minCoverage||!(estimate>row.rate*1.08))return {...row,planCoverage};
+            return {...row,planCoverage,projectedMoneyRate:estimate,projectedMoneyTurns:hint.fit.turns,
+                routePlan:{objective:'money',identity:routeIdentity(row),party:hint.party,entryParty:[...state.team],scope:hint.scope,
+                    setting,key,threat:hint.threat,roster:adventureRosterFingerprint(state,row.reg),evidence:'estimate',minimumRate:row.rate*1.08}};
+        });
     }
     function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets){
-        let rows=[];
+        const rows=[];
         const walletParties=new Map();
         let projection;
         if(kind!=='money'){
@@ -4653,7 +4932,7 @@
             else{
                 const state=states[i];
                 if(!walletParties.has(state))walletParties.set(state,partyMons(state));
-                const fit=yield* battleRouteFitSearch(state,row,walletParties.get(state),now,sliced,settings);
+                const fit=yield* battleRouteFitSearch(state,row,walletParties.get(state),now,sliced,settings,true);
                 rows.push(moneyRouteScore(state,row,samples[i],fit,now,settings.speed));
             }
             if(sliced)yield;
@@ -4662,33 +4941,12 @@
             // Screen every available map, then do route-specific legal party
             // comparison on a bounded set. The resulting rate belongs only to
             // that exact party. Coverage does not assert a global optimum.
-            const rated=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}));
-            const high=rated.slice().sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id);
-            const active=rated.find(entry=>entry.row.members.includes(s.adv.chapter));
-            const different=high.find(entry=>entry.row.league!==high[0]?.row.league);
-            const candidates=new Set([...high.slice(0,4),...[active,different].filter(Boolean)]);
-            const evaluated=new Set();
-            for(const {row,state} of candidates){
-                if(row.measured&&row.samples>=2)continue;
-                const plan=yield* adventureTeamSearch(state,settings,[],{row,objective:'money',now,lowBudget:true},sliced);
-                evaluated.add(row.key);
-                if(!plan.changed||!plan.uids.length)continue;
-                const party=partyMons(state,plan.uids);
-                if(party.length!==plan.uids.length)continue;
-                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced,settings);
-                const estimate=moneyRouteScore(state,row,null,fit,now,settings.speed).rate;
-                if(fit.coverage>=.99&&fit.minCoverage>=row.battleFit.minCoverage&&estimate>row.rate*1.08){
-                    row.projectedMoneyRate=estimate;
-                    row.projectedMoneyTurns=fit.turns;
-                    row.routePlan={objective:'money',identity:routeIdentity(row),party:plan.uids,entryParty:[...state.team],
-                        scope:state.link?.side??null,setting:routePlanSettings(settings),key:routeMetricKey({...state,team:plan.uids},settings,now)(row),
-                        roster:rosterFingerprint(state),evidence:'estimate',minimumRate:row.rate*1.08};
-                }
-                if(sliced)yield;
-            }
-            for(const {row} of rated)row.planCoverage={evaluated:evaluated.size,total:rated.length,matched:evaluated.has(row.key)};
+            const candidates=[...moneySpecialists(s,settings,rows,states)].filter(({row})=>!row.measured||row.samples<2);
+            const hints=yield* scoreMoneyProjections(settings,candidates,now,sliced);
+            const locations=new Map(rows.map((row,i)=>[row.key,{state:states[i]}]));
+            return applyMoneyProjections(rows,hints,locations,settings,now).sort(compareYieldRows);
         }
-        return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
+        return rows.sort(compareYieldRows);
     }
     function safeTrainingRoutes(rows,startChapter){
         const safe=rows.filter(row=>row.trainingSafe);
@@ -4698,6 +4956,7 @@
         return replays.filter(row=>row.maxLevel===minimum);
     }
     function selectYieldRoutes(request,rows,cooldowns,now){
+        if(request.refreshRows)rows=request.refreshRows(rows);
         if(request.kind==='preparation'||request.kind==='xp'){
             if(Number.isFinite(request.ceiling))rows=rows.filter(row=>row.maxLevel<=request.ceiling);
             rows=safeTrainingRoutes(rows,request.startChapter);
@@ -4803,7 +5062,11 @@
         if(kind==='map'||kind==='progress'){
             const chapters=row?.members||[id];level=Math.max(...chapters.map(id=>CHAPTERS.get(id)?.ace||1));
             foes=chapters.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
-            if(ROAMING_DATA.groups.some(group=>group.ids.includes(Number(options.roamId)))){level=ROAMING_DATA.level;foes=[{id:Number(options.roamId),level,weight:20},...foes.map(foe=>({...foe,gymCount:0,weight:foe.weight*.05}))];label='游荡捕获 · '+(MONS.get(Number(options.roamId))?.name||options.roamId);}
+            if(ROAMING_DATA.groups.some(group=>group.ids.includes(Number(options.roamId)))){
+                level=ROAMING_DATA.level;
+                foes=[roamingCombatFoe(Number(options.roamId),id,20),...foes.map(foe=>({...foe,gymCount:0,weight:foe.weight*.05}))];
+                label='游荡捕获 · '+(MONS.get(Number(options.roamId))?.name||options.roamId);
+            }
         }else if(kind==='zone'||kind==='raid'||kind==='worldCapture'){
             id=kind==='worldCapture'?493:id;level=level||zone?.level||DATA.automation.levels.raid;foes=[{id,level,weight:1}];size=kind==='raid'?2:6;
             label=options.label||({zone:'传说战',raid:'每日团体战',worldCapture:'世界首领捕获'}[kind]+' · '+(MONS.get(id)?.name||id));
@@ -4946,10 +5209,11 @@
     function battleRouteFit(s,row,uids=s.team||[],now=Date.now(),settings=DEFAULTS){
         return battleRouteFitSearch(s,row,partyMons(s,uids),now,false,settings).next().value;
     }
-    function* battleRouteFitSearch(s,row,party,now,sliced,settings=DEFAULTS){
+    function* battleRouteFitSearch(s,row,party,now,sliced,settings=DEFAULTS,includeRoaming=false){
         const team=party.filter(m=>teamEligible(s,m,row.reg)).map(m=>({...m,status:null}));
         const nativeSwitch=s.autoSwitch!==false,rescue=team.length>1&&!row.league&&helperSwitchEnabled(s,settings);
-        const foes=(row.members?.length?row.members.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter)):chapterCombatFoes(s,row)).filter(m=>MONS.has(m.id)&&m.weight>0);
+        const foes=(includeRoaming?routeCombatFoes(s,row,now):
+            (row.members?.length?row.members.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter)):chapterCombatFoes(s,row))).filter(m=>MONS.has(m.id)&&m.weight>0);
         if(!team.length||!foes.length)return{factor:1,turns:null,coverage:null};
         // Aggregate encounters on the same chapter share their weather. Explicit
         // encounter nodes can override that chapter and must keep their own entry.
@@ -4966,12 +5230,26 @@
         const key=JSON.stringify([row.reg,nativeSwitch,rescue,foes,team.map(combatProfile),weatherKey]),cached=ROUTE_FITS.get(key);
         if(cached)return{...cached};
         const allies=team.map(mon=>({mon,stats:effectiveStats(mon)}));let weight=0,cost=0,covered=0,deaths=0,minCoverage=1,worstTurns=0,worstDeaths=0;
+        let roamingTurns=0,roamingWeight=0,roamingRisk;
+        const recordRisk=battle=>{
+            minCoverage=Math.min(minCoverage,battle.coverage);worstTurns=Math.max(worstTurns,battle.turns);worstDeaths=Math.max(worstDeaths,battle.deaths);
+        };
         const record=(battle,share)=>{
             weight+=share;cost+=share*battle.turns;covered+=share*battle.coverage;deaths+=share*battle.deaths;
-            minCoverage=Math.min(minCoverage,battle.coverage);worstTurns=Math.max(worstTurns,battle.turns);worstDeaths=Math.max(worstDeaths,battle.deaths);
+            recordRisk(battle);
         };
         for(const [i,foe]of foes.entries()){
             const defense=effectiveStats(foe),details=allies.map(({mon,stats})=>matchupDetails(mon,foe,stats,defense,weatherRows[i]));
+            if(foe.roaming){
+                const battle=roamingBattle(details,foe);
+                roamingWeight+=foe.weight;roamingTurns+=foe.weight*battle.turns;
+                recordRisk(battle);
+                if(battle.coverage<.999||battle.deaths>2){
+                    if(!roamingRisk||battle.coverage<roamingRisk.coverage||battle.coverage===roamingRisk.coverage&&battle.deaths>roamingRisk.deaths)roamingRisk={id:foe.id,...battle};
+                }
+                if(sliced)yield;
+                continue;
+            }
             // The route export separates wild occurrences from paid fights. Keep
             // the conservative native order for trainer waves and special foes.
             const wild=rescue&&!foe.shiny&&!foe.veiled?Math.min(foe.weight,foe.singleWild?foe.weight:foe.wildWeight||0):0;
@@ -4984,8 +5262,12 @@
         }
         // Static route time assumes a short fight; allow three expected attack turns per foe.
         // Low survival increases that cost, while observed complete runs supersede this model.
-        const turns=cost/weight;
-        const fit={factor:Math.max(.02,Math.min(1,3/turns)),turns,coverage:covered/weight,deaths:deaths/weight,minCoverage,worstTurns,worstDeaths,weatherKey};
+        // A marked roaming encounter can consume time and knock out the party.
+        // Keep it out of the paid encounter denominator and never credit a payout.
+        const turns=(cost+roamingTurns)/(weight+roamingWeight);
+        const ordinaryFactor=Math.min(1,3*weight/Math.max(1,cost)),roamingDelay=roamingTurns/Math.max(1,3*weight);
+        const fit={factor:Math.max(.02,ordinaryFactor/(1+roamingDelay)),turns,coverage:weight?covered/weight:null,deaths:weight?deaths/weight:null,minCoverage,worstTurns,worstDeaths,weatherKey};
+        if(roamingRisk)fit.roamingRisk=roamingRisk;
         ROUTE_FITS.set(key,fit);if(ROUTE_FITS.size>256)ROUTE_FITS.delete(ROUTE_FITS.keys().next().value);
         return{...fit};
     }
@@ -5010,7 +5292,7 @@
         const team=party??partyMons(s,uids);
         if(team.length!==uids.length||team.some(mon=>!teamEligible(s,mon,context.reg)))return reject('目标成员不在PC或不符合地区限制');
         const identity=mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
-        if(new Set(team.map(identity)).size!==team.length)return reject('目标成员不能同时出战');
+        if(new Set(team.map(identity)).size!==team.length||team.some((mon,i)=>team.slice(0,i).some(other=>teamApart(mon,other))))return reject('目标成员不能同时出战');
         context=rebuildPreparationContext(s,context);
         const foes=(context.foes||[]).filter(foe=>MONS.has(foe.id)&&foe.weight>0);
         if(!foes.length)return reject('目标敌人数据不足，保留等级补练要求');
@@ -5020,14 +5302,14 @@
         const allies=team.map(mon=>({mon:{...mon,status:null},stats:effectiveStats(mon)}));
         let weight=0,turns=0,deaths=0,coverage=0,minCoverage=1,worstTurns=0,worstDeaths=0,hardest=null,uncoveredId=null;
         for(const foe of foes){
-            const guarded={...foe,hpMult:(foe.hpMult||1)*hpMargin},defense=effectiveStats(guarded),weather=combatWeather(s,foe,context,context.now??Date.now());
+            const guarded=foe.roaming?foe:{...foe,hpMult:(foe.hpMult||1)*hpMargin},defense=effectiveStats(guarded),weather=combatWeather(s,foe,context,context.now??Date.now());
             const details=allies.map(({mon,stats})=>{
                 const detail=matchupDetails(mon,guarded,stats,defense,weather);
                 // Apply the margin to the HP threshold so each native integer
                 // damage roll, including borderline one-hit KOs, stays intact.
-                return {...detail,hp:detail.hp/damageMargin};
+                return foe.roaming?detail:{...detail,hp:detail.hp/damageMargin};
             });
-            const battle=deployedBattle(details,s.autoSwitch!==false);
+            const battle=foe.roaming?roamingBattle(details,foe):deployedBattle(details,s.autoSwitch!==false);
             weight+=foe.weight;turns+=foe.weight*battle.turns;deaths+=foe.weight*battle.deaths;coverage+=foe.weight*battle.coverage;
             if(battle.coverage<minCoverage){minCoverage=battle.coverage;uncoveredId=foe.id;}
             worstDeaths=Math.max(worstDeaths,battle.deaths);
@@ -6062,10 +6344,11 @@
                 const b=task.fitBasis,e=this.e,pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
                 const current=pokemonByUid(s),region=CHAPTERS.get(task.chapter)?.reg;
-                if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||task.chapter!==s.adv.chapter||destination&&!destination.members?.includes(task.chapter)||
+                if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
                     e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(e.settings).roamId)||
-                    !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==rosterFingerprint(s)||
+                    !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
                     b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
+                    !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now))||
                     task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
                     this.teamTask=null;e.teamCheck=null;return false;
                 }
@@ -7070,7 +7353,7 @@
             };
             if(pool.length<=3){
                 const unique=new Set(pool.map(m=>DATA.combat.singles[m.id]||m.id+':'+!!m.shiny));
-                const legal=unique.size===pool.length&&!pool.some(m=>pool.some(other=>undergroundApart(m,other)));
+                const legal=unique.size===pool.length&&!pool.some((mon,i)=>pool.slice(0,i).some(other=>teamApart(mon,other)));
                 if(pool.length===3&&legal)e.log(`地下第 ${Number(bay)+1} 队 · ${availability()} · ${pool.map(m=>MONS.get(m.id).name).join('、')}`);
                 return this.lastUnderPlan={key,uids:legal?pool.map(m=>m.uid):[]};
             }
@@ -8848,6 +9131,8 @@
             const cfg=this.settings;
             this.startBattle = !cp && s.adv.battle ? this.ordinaryBattleKey(s) : null;
             this.startItems=itemCounter(s,cfg.itemId);
+            this.moneyRankingSince=null;
+            this.moneyBoundaryUntil=0;
             this.sessionItemId=cfg.itemId;
             this.trainProtected=cfg.mode==='train'?trainingUids(s,cfg):[];
             this.trainingSelection=cfg.trainUid;
@@ -9515,6 +9800,7 @@
             if(this.saveUnavailableAt!=null)return 3000;
             if(this.manual){const left=Number(this.manual.until)-now;return left>0?Math.min(1200,Math.max(50,left)):1200;}
             if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.driver.navigation||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution||this.services.underground)return 1200;
+            if(this.moneyBoundaryUntil>now)return 400;
             if(this.farmWait?.mode===this.settings.mode)return 6000;
             if(FLOW_MODES.has(this.settings.mode)&&this.nextWake>now)return Math.min(6000,Math.max(1200,this.nextWake-now));
             return 1200;
@@ -9945,10 +10231,10 @@
             const dex=this.settings.mode==='dex'?dexStatus(s,this.settings):null;
             let dexRoutes=dex?.missing.length?dexRanking(s,this.settings,this.cooldowns,now,dex):[];
             const directedHunt=this.settings.mode==='shiny'||(dex?.missing.length>0&&(this.settings.dexSpecies.length>0||dexRoutes[0]?.window));
-            const paired=this.visit?.activeRoutePlan,proofBusy=this.teamSearch?.signature?.startsWith('map-proof:');
+            const paired=this.visit?.activeRoutePlan;
             const pairedReady=paired&&this.target&&this.routeReached(s,this.target)&&paired.party.join('|')===s.team.join('|')&&this.routeRequestValid(s,{row:this.target,routePlan:paired},now,true);
             if(paired&&!pairedReady)delete this.visit.activeRoutePlan;
-            if(!directedHunt&&!proofBusy&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
+            if(!directedHunt&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(roadPending)this.telemetry.sample=null;
             if (this.target && this.target.members.includes(s.adv.chapter) && !roadPending) {
@@ -10076,15 +10362,19 @@
             },delay);
         }
         cancelTeamSearch(slot){
-            for(const name of slot?[slot]:['teamSearch','evolutionSearch']){
+            for(const name of slot?[slot]:['teamSearch','evolutionSearch','moneyProofSearch']){
                 if(this[name])this.cancelCompute(this[name]);
                 this[name]=null;
             }
             if(!slot||slot==='teamSearch')this.teamContinuation=null;
+            if(!slot){this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;}
         }
-        evaluateTeamSearch(signature,search,slot='teamSearch',strict=false){
+        evaluateTeamSearch(signature,search,slot='teamSearch',strict=false,expiresAt=Infinity){
             let job=this[slot];
             if(job&&job.signature!==signature){this.cancelTeamSearch(slot);job=null;}
+            if(strict&&performance.now()>=(job?.expiresAt??expiresAt)&&!job?.result){
+                this.cancelTeamSearch(slot);return {timedOut:true};
+            }
             if(job){
                 if(job.error){this.cancelTeamSearch(slot);throw job.error;}
                 const result=job.result;
@@ -10103,10 +10393,12 @@
                 }
             }
             const smallDevice=globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4;
-            job=this[slot]={signature,epoch:this.runId,cpu:0,slice:4,limit:smallDevice?80:180,strict};
+            const priority=slot==='moneyProofSearch'?2:1;
+            job=this[slot]={signature,epoch:this.runId,cpu:0,slice:4,limit:smallDevice?80:180,strict,expiresAt};
             const advance=()=>{
                 if(this[slot]!==job)return;
                 if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){this.cancelTeamSearch(slot);return;}
+                if(job.strict&&performance.now()>=job.expiresAt){job.result={timedOut:true};return;}
                 // Only score this snapshot here. The normal tick checks the latest
                 // route, party and roster again before it can queue a single PC action.
                 const start=performance.now(),deadline=start+job.slice;
@@ -10128,10 +10420,10 @@
                     const elapsed=performance.now()-start;
                     job.cpu+=elapsed;
                     if(elapsed>8){job.slice=3;job.limit=Math.min(job.limit,120);}
-                    this.queueCompute(job,advance,job.strict&&job.best?2:1);
+                    this.queueCompute(job,advance,job.strict&&job.best?Math.max(2,priority):priority);
                 }catch(error){job.error=error;}
             };
-            this.queueCompute(job,advance,1);
+            this.queueCompute(job,advance,priority);
             return null;
         }
         fitTeam(s,now,trackedRoamer) {
@@ -10161,38 +10453,56 @@
                 ['item','shiny'].includes(mode)?'route':'progress';
             const roamId=trackedRoamer||(roam?roamingSettings(this.settings).roamId:undefined);
             const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
-            const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=rosterFingerprint(s),last=this.teamCheck,deaths=Number(s.adv.deaths?.[s.adv.chapter])||0;
+            const reg=row.reg||c.reg;
+            const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=adventureRosterFingerprint(s,reg),last=this.teamCheck,deaths=totalDeaths(s,row);
             const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
+            const hazards=roamId?[]:routeRoamingFoes(s,row,now);
+            const hazardKey=JSON.stringify(hazards);
             const pinned=adventureTeamPins(s,members,this.settings,this.trainProtected);
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
-            if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
+            if(last&&last.policy===policy&&last.key===key&&last.weatherKey===weatherKey&&last.hazardKey===hazardKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths){
                 // Reuse a completed search whose inputs still match, including for underground dispatch.
                 if(!last.limited&&now-last.at>=this.settings.teamMinutes*60000)last.at=now;
                 return false;
             }
-            const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
+            const foes=roamId?battleContext(s,'map',{row,roamId}).foes:routeCombatFoes(s,row,now,hazards);
             const strict=!!this.strictPlanning;
+            const reviewKey=JSON.stringify([this.runId,policy,key,row.reg||c.reg,objective]);
+            if(strict&&this.adventureReview?.key!==reviewKey)this.adventureReview={key:reviewKey,expiresAt:performance.now()+60000};
             const context={reg:row.reg||c.reg,foes,objective,dexReplay,now,verifyAll:strict,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
             let plan;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:foes.length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.runId,this.localSnapshot.sourceEpoch,policy,c.id,key,!!dexReplay,context.reg,weatherKey,objective,autoSwitch,roster,s.team,foes,strict]);
-                plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,{...context,progressive:true},true),'teamSearch',strict);
+                const signature=JSON.stringify(['adventure',this.runId,this.localSnapshot.sourceEpoch,policy,key,!!dexReplay,context.reg,weatherKey,objective,autoSwitch,roster,s.team,foes,strict]);
+                plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,{...context,progressive:true},true),'teamSearch',strict,this.adventureReview?.expiresAt);
             }else plan=planAdventureTeam(s,this.settings,pinned,context);
+            const currentPartyIsLegal=()=>{
+                const party=partyMons(s);
+                return party.length>0&&party.length===s.team.length&&party.every((mon,i)=>teamEligible(s,mon,context.reg)&&!party.slice(0,i).some(other=>teamApart(mon,other)))&&
+                    new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length&&pinned.every(uid=>s.team.includes(uid));
+            };
+            if(plan?.timedOut){
+                this.adventureReview=null;this.teamRetryAt=now+30000;
+                if(!currentPartyIsLegal()){this.failTask('配队复核超时，当前无合规队伍');return true;}
+                this.teamValidationNote='配队复核超时，暂用当前合法队伍';
+                this.log(this.teamValidationNote);return false;
+            }
             if(!plan){
                 const verification=this.teamSearch?.verification;
                 this.status='正在评估冒险队伍 · '+(row.name||c.name)+(verification?.total?' · 已复核 '+verification.checked+'/'+verification.total:'');
                 this.teamValidationNote=verification?.total?'冒险配队复核 '+verification.checked+'/'+verification.total:'正在计算可用冒险队伍';
-                const party=partyMons(s);
-                const legal=party.length>0&&party.length===s.team.length&&party.every(mon=>teamEligible(s,mon,context.reg))&&
-                    new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length&&pinned.every(uid=>s.team.includes(uid));
-                return !strict||!legal;
+                if(!strict||!currentPartyIsLegal())return true;
+                if(s.team.length>=6||s.adv.battle||s.adv.pending)return false;
+                const party=partyMons(s),occupied=new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`));
+                // Allow an underfilled party to finish its pending fit before a new route takes control.
+                return eligibleRoster(s,context.reg).some(mon=>!occupied.has(DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)&&!party.some(other=>teamApart(mon,other)));
             }
+            this.adventureReview=null;
             this.teamValidationNote='';
-            this.teamCheck={key,policy,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
-                reason:[plan.suggestion?'发现更优建议，计入调整成本后暂留现队':plan.changed||plan.limited||plan.retainedForHunt?plan.reason:'按当前评估保留现队',plan.backup].filter(Boolean).join(' · '),
+            this.teamCheck={key,policy,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,hazardKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+                reason:[plan.changed||plan.limited||plan.retainedForHunt?plan.reason:'现队仍是本次复核的最优阵容',plan.backup].filter(Boolean).join(' · '),
                 gain:plan.gain,opponents:plan.opponents,verification:plan.verification||plan.suggestion?.verification,suggestion:!!plan.suggestion};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
@@ -10205,7 +10515,7 @@
             const changes=[incoming.length&&'上阵 '+incoming.join('、'),outgoing.length&&'换下 '+outgoing.join('、')].filter(Boolean);
             this.log([`配队评估 · ${plan.reason}`,...changes,plan.gain>0&&`综合评分 +${Math.round(plan.gain*100)}%`].filter(Boolean).join(' · '));
             this.telemetry.sample=null;this.status=`为${row.name||c.name}调整冒险队伍`;
-            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,autoSwitch,policy,party:s.team.join('|'),frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
+            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,hazardKey,autoSwitch,policy,party:s.team.join('|'),frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
             return true;
         }
         legend(s, now) {
@@ -10325,25 +10635,38 @@
         }
         releaseRankingView(keep){
             for(const [kind,job] of this.rankingJobs){
-                if(kind===keep)continue;
+                if(kind===keep||Array.isArray(keep)&&keep.includes(kind))continue;
                 job.view=false;
                 if(!job.task)this.cancelRankingJob(kind);
             }
         }
         rankedYieldRoutes(s,kind,cooldowns=this.cooldowns,now=Date.now(),view=false){
-            const request=yieldRankingRequest(kind,s,this.settings,this.metrics,now);
-            return this.evaluateRouteRanking(request,cooldowns,now,view);
+            const request=yieldRankingRequest(kind,s,this.settings,this.metrics,now,{separateMoney:true});
+            const rows=this.evaluateRouteRanking(request,cooldowns,now,view);
+            if(!rows?.length)return rows;
+            const projections=request.projections?.(rows);
+            if(!projections)return rows;
+            const hints=this.evaluateRouteRanking({...projections,background:true},{},now,view);
+            return request.withProjections(rows,hints);
         }
         evaluateRouteRanking(request,cooldowns,now,view=false){
             const kind=request.cacheSlot||request.kind;
-            if(view)this.releaseRankingView(kind);
+            if(view&&!request.background)this.releaseRankingView(kind==='money'?['money','money/projections']:kind);
+            const stored=routeRankings.get(kind),cached=stored?.signature===request.signature?stored:null;
+            const refresh=cached&&request.refreshAfterMs&&now-cached.at>=request.refreshAfterMs;
+            const available=job=>{
+                const previous=request.projectionOnly?stored?.rows:cached?.rows;
+                if(!job?.partial||!previous)return job?.partial||previous;
+                return [...new Map([...previous,...job.partial].map(row=>[row.key,row])).values()];
+            };
             let job=this.rankingJobs.get(kind);
             // A different preview must never restart the planner serving the active task.
             if(view&&job?.task&&job.signature!==request.signature){
-                return routeRankings.get(kind)?.signature===request.signature?completeYieldRanking(request,cooldowns,now):null;
+                const ready=available();
+                return ready?selectYieldRoutes(request,ready,cooldowns,now):null;
             }
             if(job&&job.signature!==request.signature){this.cancelRankingJob(kind);job=null;}
-            if(routeRankings.get(kind)?.signature===request.signature||!request.needsSlices){
+            if(cached&&!refresh||!request.needsSlices){
                 if(job)this.cancelRankingJob(kind);
                 return completeYieldRanking(request,cooldowns,now);
             }
@@ -10351,9 +10674,12 @@
                 job.view||=view;
                 job.task||=!view;
                 if(job.error){this.cancelRankingJob(kind);throw job.error;}
-                if(!job.rows)return null;
+                if(!job.rows){
+                    const ready=available(job);
+                    return ready?selectYieldRoutes(request,ready,cooldowns,now):null;
+                }
                 this.cancelRankingJob(kind);
-                routeRankings.set(kind,{signature:request.signature,rows:job.rows});
+                routeRankings.set(kind,{signature:request.signature,rows:job.rows,at:now});
                 return selectYieldRoutes(request,job.rows,cooldowns,now);
             }
             const search=request.search(true);
@@ -10371,13 +10697,15 @@
                     do{
                         const part=search.next();
                         if(part.done){job.rows=part.value;break;}
+                        if(request.projectionOnly&&Array.isArray(part.value))job.partial=part.value;
                     }while(performance.now()<deadline);
                 }catch(error){job.error=error;}
-                if(!job.rows&&!job.error)this.queueCompute(job,advance,job.task?1:3);
+                if(!job.rows&&!job.error)this.queueCompute(job,advance,request.background?3:job.task?0:3);
                 else if(job.view)this.notifyView(true);
             };
-            this.queueCompute(job,advance,job.task?1:3);
-            return null;
+            this.queueCompute(job,advance,request.background?3:job.task?0:3);
+            const ready=available();
+            return ready?selectYieldRoutes(request,ready,cooldowns,now):null;
         }
         farm(s, now, mode) {
             const rank=cooldowns=>mode==='item'?itemRanking(s,this.settings,this.metrics,cooldowns,now):this.rankedYieldRoutes(s,'xp',cooldowns,now);
@@ -10601,15 +10929,19 @@
                 if(!current?.window&&!current?.marked)return false;
             }
             if(!routePlan)return true;
+            if(this.strictPlanning&&(routePlan.sourceEpoch!==this.localSnapshot.sourceEpoch||routePlan.runId!==this.runId||!routePlan.verified))return false;
+            return !!this.routePlanState(s,row,routePlan,now,arrived);
+        }
+        routePlanState(s,row,routePlan,now,arrived=false){
             const cfg=this.settings,side=s.link?(row.reg===s.link.to?'to':'from'):null;
             const state=side===(s.link?.side??null)?s:otherMoneyParty(s);
             if(!state||side!==routePlan.scope||routePlan.setting!==routePlanSettings(cfg)||routePlan.identity!==routeIdentity(row)||
-                rosterFingerprint(state)!==routePlan.roster||(!arrived&&side!==(s.link?.side??null)&&cfg.moneyTarget>0))return false;
-            if(this.strictPlanning&&(routePlan.sourceEpoch!==this.localSnapshot.sourceEpoch||routePlan.runId!==this.runId||!routePlan.verified))return false;
-            if(!arrived&&(state.team.length!==routePlan.entryParty.length||!state.team.every((uid,i)=>uid===routePlan.entryParty[i])))return false;
+                adventureRosterFingerprint(state,row.reg)!==routePlan.roster||(!arrived&&side!==(s.link?.side??null)&&cfg.moneyTarget>0))return null;
+            if((routePlan.threat||'')!==moneyRouteThreatKey(state,row,now))return null;
+            if(!arrived&&(state.team.length!==routePlan.entryParty.length||!state.team.every((uid,i)=>uid===routePlan.entryParty[i])))return null;
             const party=partyMons(state,routePlan.party);
             return party.length===routePlan.party.length&&party.every(mon=>teamEligible(state,mon,row.reg))&&
-                routeMetricKey({...state,team:routePlan.party},cfg,now)(row)===routePlan.key;
+                routeMetricKey({...state,team:routePlan.party},cfg,now)(row)===routePlan.key?state:null;
         }
         observeMapArrival(s,pending,now){
             const {row,arrival,options}=pending;
@@ -10862,61 +11194,119 @@
             this.target = row; this.status = sameLeague&&active.id!==c.id?`推进联盟 · ${active.name} · 前沿 ${c.name}`:`推进主线 · ${c.name}`; this.driver.nav('adventure');
         }
         money(s, now) {
+            this.moneyBoundaryUntil=0;
             const rows=this.rankedYieldRoutes(s,'money',this.cooldowns,now);
-            if(!rows){this.status='正在比较刷钱路线';this.lastProgress=now;return;}
+            if(!rows){
+                const chapter=CHAPTERS.get(s.adv.chapter);
+                const onLoop=chapter&&(s.adv.loops||[]).some(key=>String(key)===String(chapter.loop));
+                this.moneyRankingSince??=now;
+                this.status=onLoop?`刷钱 · ${chapter.name} · 后台比较其他路线`:'正在比较刷钱路线';
+                if(onLoop||s.adv.battle||s.adv.pending)this.driver.nav('adventure');
+                else if(now-this.moneyRankingSince>=15000&&this.canStartRoute(s)){
+                    const eligible=candidates(s,this.settings,true).find(row=>row.members.includes(s.adv.chapter)&&!(this.cooldowns[row.key]>now));
+                    if(eligible){this.moneyRankingSince=now;this.travel(eligible,now);}
+                }
+                return;
+            }
+            this.moneyRankingSince=null;
             if (!rows.length) {
-                if(this.rankedYieldRoutes(s,'money',{},now).length){this.waitForFarm('刷钱地图暂时退避，等待后重试',now);return;}
+                if(this.rankedYieldRoutes(s,'money',{},now)?.length){this.waitForFarm('刷钱地图暂时退避，等待后重试',now);return;}
                 const frontier = CHAPTERS.get(s.adv.unlocked);
                 if (this.canProgress(s) && (this.cooldowns[String(frontier.loop)] || 0) <= now) this.progress(s, now);
                 else this.status = '暂无可用地图，等待失败退避时间结束';
                 return;
             }
             if(!s.adv.battle&&!s.adv.pending&&this.automation.autoBuff(s,now,'money')){this.telemetry.sample=null;return;}
-            const current = rows.find(row => row.key === this.target?.key);
+            const live=rows.find(row=>this.routeReached(s,row));
+            if(live&&live.key!==this.target?.key)this.confirmMapArrival(s,{row:live},now);
+            const current=live||rows.find(row=>row.key===this.target?.key&&row.members.includes(s.adv.chapter));
             const rate=row=>this.settings.mode==='money'&&row.routePlan?.party?row.projectedMoneyRate:row.rate;
-            let winner=rows.reduce((best,row)=>rate(row)>rate(best)?row:best);
+            const safer=rows.filter(row=>!row.battleFit?.roamingRisk);
+            const shortlist=safer.length?safer:rows;
+            const base=shortlist[0];
+            let winner=shortlist.reduce((best,row)=>rate(row)>rate(best)?row:best);
+            const ready=this.moneyReadyRoute;
+            const readyRow=ready&&shortlist.find(row=>row.key===ready.key);
+            const readyValid=readyRow&&ready.projectedMoneyRate>=readyRow.rate*1.08&&this.routeRequestValid(s,{row:readyRow,routePlan:ready.routePlan},now);
+            if(!readyValid)this.moneyReadyRoute=null;
+            const reviewing=this.moneyProofReview?.row;
+            const stillAvailable=reviewing&&shortlist.find(row=>row.key===reviewing.key);
+            if(readyValid)winner={...readyRow,routePlan:ready.routePlan,projectedMoneyRate:ready.projectedMoneyRate};
+            else if(stillAvailable&&this.routePlanState(s,stillAvailable,reviewing.routePlan,now)){
+                // A new measurement or a temporarily missing forecast cannot abandon a valid review.
+                const routePlan={...reviewing.routePlan,minimumRate:stillAvailable.rate*1.08};
+                winner={...stillAvailable,routePlan,projectedMoneyRate:reviewing.projectedMoneyRate};
+            }else if(reviewing){
+                this.cancelTeamSearch('moneyProofSearch');this.moneyProofReview=null;
+            }
             let usePlan=this.settings.mode==='money'&&!!winner.routePlan;
             let next=usePlan?{...winner,rate:winner.projectedMoneyRate,measured:false,samples:0}:winner;
-            if(current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,next,now,'money')){
+            const stays=row=>current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,row,now,'money');
+            if(stays(next)&&!reviewing){
                 this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
             }
-            if (!this.canStartRoute(s)) {this.driver.nav('adventure');return;}
-            if(usePlan&&this.strictPlanning){
+            if(usePlan&&this.strictPlanning&&!readyValid){
+                const reviewingName=winner.name;
                 const confirmed=this.moneyRouteProof(s,winner,now);
-                if(confirmed===undefined){this.status='正在核对路线专用阵容 · '+winner.name;this.lastProgress=now;this.driver.nav('adventure');return;}
-                if(confirmed){winner=confirmed;next={...confirmed,rate:confirmed.projectedMoneyRate,measured:false,samples:0};}
-                else{winner=next=rows[0];usePlan=false;}
-                if(current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,next,now,'money')){
-                    this.status=`保留刷钱路线 · ${current.name}`;this.driver.nav('adventure');return;
+                if(confirmed){this.moneyReadyRoute=winner=confirmed;next={...confirmed,rate:confirmed.projectedMoneyRate,measured:false,samples:0};}
+                else{winner=next=base;usePlan=false;}
+                if(stays(next)){
+                    const verification=this.moneyProofSearch?.verification;
+                    const detail=verification?.total?` · 第 ${verification.passes} 轮 ${verification.checked}/${verification.total} 只`:'';
+                    this.status=confirmed===undefined?`刷钱 · ${current.name} · 复核${reviewingName}阵容${detail}`:`保留刷钱路线 · ${current.name}`;
+                    this.driver.nav('adventure');return;
                 }
             }
+            if(stays(next)){this.status=`保留刷钱路线 · ${current.name}`;this.driver.nav('adventure');return;}
+            if (!this.canStartRoute(s)) {
+                if(this.ordinaryBattleKey(s))this.moneyBoundaryUntil=now+2000;
+                if(current?.battleFit?.roamingRisk&&!next.battleFit?.roamingRisk){
+                    const foe=MONS.get(current.battleFit.roamingRisk.id)?.name||'游荡首领';
+                    this.status=`${foe}风险较高 · 等待结算后前往${next.name}`;
+                }else this.status=`已选${next.name} · 等待当前战斗或选项结算`;
+                this.driver.nav('adventure');return;
+            }
             this.travel(winner,now,usePlan?{orderedRoutePlan:true}:{});
+            if(this.driver.pendingMap?.row.key===winner.key)this.moneyReadyRoute=null;
         }
         moneyRouteProof(s,row,now){
-            const base=row.routePlan,cfg=this.settings,scope=s.link?.side??null;
-            const state=scope===base.scope?s:otherMoneyParty(s);
+            const base=row.routePlan,cfg=this.settings;
+            const state=this.routePlanState(s,row,base,now);
             if(!state)return null;
-            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,base.roster,base.key,base.setting,state.team];
+            const threat=moneyRouteThreatKey(state,row,now);
+            if((base.threat||'')!==threat)return null;
+            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,base.roster,base.key,base.setting,state.team,threat];
             const signature='map-proof:'+JSON.stringify(stamp);
-            if(this.routeProof?.signature===signature)return this.routeProof.row;
+            const profitable=verified=>verified?.projectedMoneyRate>=base.minimumRate?verified:null;
+            if(this.routeProof?.signature===signature)return profitable(this.routeProof.row);
+            if(this.moneyProofRetry?.signature===signature&&now<this.moneyProofRetry.until)return null;
+            if(this.moneyProofReview?.signature!==signature)this.moneyProofReview={signature,row,started:now,expiresAt:performance.now()+120000};
             const sourceEpoch=this.localSnapshot.sourceEpoch,runId=this.runId;
             function* search(){
                 const seeded={...state,team:base.party};
-                const plan=yield* adventureTeamSearch(seeded,cfg,[],{row,objective:'money',now,force:true,verifyAll:true,lowBudget:true},true);
+                const plan=yield* adventureTeamSearch(seeded,cfg,[],{row,reg:row.reg,objective:'money',now,force:true,verifyAll:true,lowBudget:true},true);
                 if(!['verified','exhaustive'].includes(plan.verification?.status)||plan.verification.uids?.join('|')!==plan.uids.join('|'))return {row:null};
-                const fit=yield* battleRouteFitSearch(state,row,partyMons(state,plan.uids),now,true,cfg);
+                const fit=yield* battleRouteFitSearch(state,row,partyMons(state,plan.uids),now,true,cfg,true);
                 const projected=moneyRouteScore(state,row,null,fit,now,cfg.speed).rate;
-                if(fit.minCoverage<.999||projected<base.minimumRate)return {row:null};
+                if(fit.roamingRisk||fit.minCoverage<.999)return {row:null};
                 const routePlan={...base,party:plan.uids,key:routeMetricKey({...state,team:plan.uids},cfg,now)(row),sourceEpoch,runId,verified:true};
-                return {row:{...row,routePlan,projectedMoneyRate:projected}};
+                return {row:{...row,routePlan,projectedMoneyRate:projected},verification:plan.verification};
             }
-            const result=this.evaluateTeamSearch(signature,search(),'teamSearch',true);
+            const result=this.evaluateTeamSearch(signature,search(),'moneyProofSearch',true,this.moneyProofReview.expiresAt);
             if(!result)return undefined;
+            const elapsed=Math.max(0,Math.round((now-this.moneyProofReview.started)/1000));
+            this.moneyProofReview=null;
+            if(result.timedOut){
+                this.moneyProofRetry={signature,until:now+120000};
+                this.log('路线专用阵容复核超时，继续按当前可用阵容刷钱');return null;
+            }
             this.routeProof={signature,row:result.row};
-            return result.row;
+            if(result.verification?.total)this.log(`${row.name}阵容复核完成 · ${result.verification.checked} 只 · ${elapsed} 秒`);
+            return profitable(result.row);
         }
         routeWorthSwitch(s,current,next,now,kind){
             if(!next||next.key===current.key)return false;
+            if(kind==='money'&&current.battleFit?.roamingRisk&&!next.battleFit?.roamingRisk)return next.rate>0;
             if(next.trainingSafe&&!current.trainingSafe&&kind==='xp')return true;
             if(!(next.rate>0))return false;
             if(kind!=='xp'&&this.visit&&now-this.visit.started<15000)return false;
@@ -11049,6 +11439,7 @@
         module.exports = { DATA, DEFAULTS, MONS, ROOTS, ITEMS, MODE_NAMES, normalizeSettings, decodeSave, economicRegion, moneyFactor, accountId, captured, dexStatus, candidates, specialAvailable, dexRanking, moneyRanking, itemRanking, xpRanking, trainingCap, trainingGemTarget, trainingStatus, selectTrainingBuddy, experienceTotal, partyMons, rosterFingerprint, teamEligible, effectiveStats, expectedDamage, matchupScore, chapterThreats, chapterFoes, giftChoices, planAdventureTeam, ownedItems, itemCounter, sourceAvailable, legendProgress, estimateRate, teamFingerprint, metricsKey, activeYieldBuff, yieldFingerprint, parisDay, allyStrength, Telemetry, Engine, DOMDriver, phaseAt, encounterDataErrors,Automation,Budget,shinyOwned,shinyRanking,pensionPlan,parsePrice,normalizeJobs,undergroundTeamKey,undergroundMembers,battleContext,preparationPlan,battleRouteFit,preparationRoutes,LevelCoach,candyRegion,candyXpGap,candyChoice,teamCacheStats,clearTeamCache };
         Object.assign(module.exports,{MULTI_HIT_DATA,damageRollMean,attackTurns,chapterCombatFoes,resolveCombatWeatherNode,combatWeather,deploymentScore,matchupDetails,deployedBattle,battleSwitchCandidate,preparationCosts,preparationReadiness,rebuildPreparationContext,trainingCandidates,leagueTrainingModel});
         Object.assign(module.exports,{LEGEND_ELITE,legendEliteContext,legendEliteCompatible,legendEliteTeamSearch});
+        Object.assign(module.exports,{roamingCombatFoe,routeRoamingFoes,routeCombatFoes,roamingBattle});
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,worldAttackParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
         Object.assign(module.exports,{shopCandyTier});
@@ -12319,7 +12710,7 @@
                 </details>
             </section>
             <h3>配队与自动化</h3>
-            <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
+            <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">自动配队 · 强度优先</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="activeSwitch">助手主动换人</span></label><div class="hint" id="switch-hint"></div>
@@ -13140,7 +13531,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward])]);
+                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -13184,6 +13575,11 @@
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
                         else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
                         textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        if(mode==='money'&&row.battleFit?.roamingRisk){
+                            const detail=table.tBodies[0].insertRow().insertCell();
+                            detail.colSpan=3;detail.className='hint warn';detail.style.textAlign='left';
+                            detail.textContent=`当前阵容难以稳定应对 ${MONS.get(row.battleFit.roamingRisk.id)?.name||'游荡首领'}`;
+                        }
                         if(mode==='money'&&row.projectedMoneyRate!=null){
                             const detail=table.tBodies[0].insertRow().insertCell();
                             detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';

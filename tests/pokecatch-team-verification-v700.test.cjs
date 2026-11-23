@@ -75,7 +75,7 @@ test('strict planning preserves pins and refuses ambiguous UIDs or uncovered opp
     assert.equal(model.planAdventureTeam(state,settings,[],{...strict,foes:[{id:9999,level:50,weight:1}]}).verification.status,'unavailable');
 });
 
-test('bounded pair search escapes a full single-challenge local optimum',()=>{
+test('bounded pair search finds complementary teammates for both practice and elite battles',()=>{
     const H=require('../Pokecatch自动助手.user.js');
     const members=[[524,70],[573,97],[226,85],[382,68],[44,72],[506,88],[429,73],[463,81],[358,74],[98,83]];
     const encounters=[[98,87,6,1,0],[506,89,2,1,1],[344,82,4,1,0],[253,83,1,1,1],[358,71,1,0,0],[92,90,4,0,1]];
@@ -84,13 +84,50 @@ test('bounded pair search escapes a full single-challenge local optimum',()=>{
     const foes=encounters.map(([id,level,weight,gymCount,chapter])=>({id,level,weight,gymCount,chapter}));
     const context={foes,now:Date.UTC(2026,10,23,4),objective:'train',force:true,size:2,verifyAll:true};
     const settings={...H.DEFAULTS,mode:'train',autoTeam:true,activeSwitch:false};
-    // Training scoring is identical here. The elite context enables the
-    // bounded pair search in addition to the same full single challenge.
-    const onlySingles=H.planAdventureTeam(s,settings,[],{...context,kind:'map'});
-    const pair=H.planAdventureTeam(s,settings,[],{...context,kind:'elite'});
-    assert.equal(onlySingles.verification.status,'verified');assert.equal(pair.verification.status,'verified');
-    assert.ok(pair.selectedScore>onlySingles.selectedScore*1.1);
-    assert.ok(pair.uids.every(uid=>!onlySingles.uids.includes(uid)));
+    const practice=H.planAdventureTeam(s,settings,[],{...context,kind:'map'});
+    const elite=H.planAdventureTeam(s,settings,[],{...context,kind:'elite'});
+    assert.equal(practice.verification.status,'verified');assert.equal(elite.verification.status,'verified');
+    assert.deepEqual(new Set(practice.uids),new Set(elite.uids));
+    assert.ok(practice.uids.every(uid=>!s.team.includes(uid)));
+});
+
+test('ordinary money finds the viable two-member replacement on a constrained device',()=>{
+    const H=require('../Pokecatch自动助手.user.js');
+    const members=[[335,81],[215,90],[285,59],[63,65],[363,91],[331,90],[290,93],[287,79]];
+    const mons=members.map(([id,level],i)=>({uid:'m'+i,id,level,reg:'unova'}));
+    const s={mons,team:['m0','m1','m2'],adv:{chapter:75,unlocked:83},autoSwitch:true};
+    const foes=[[327,70,5],[107,80,5],[176,78,2],[205,90,3],[643,72,4],[124,89,2],[405,78,5]]
+        .map(([id,level,weight])=>({id,level,weight,chapter:75}));
+    const cfg={...H.DEFAULTS,mode:'money'};
+    const plan=H.planAdventureTeam(s,cfg,[],{reg:'unova',foes,size:3,now:Date.UTC(2026,10,23,12),verifyAll:true,lowBudget:true});
+    assert.deepEqual(new Set(plan.uids),new Set(['m4','m1','m6']));
+    assert.equal(plan.verification.safety.wipeWeight,0);assert.ok(plan.changed);
+});
+
+test('equal route performance replaces a weaker reserve while keeping fixed members',()=>{
+    const {model,MONS,state,settings,ctx}=fixture();
+    const mons=[...state.mons.slice(0,6),state.mons[64]];
+    for(const mon of mons)mon.level=mon.uid==='u1'?100:mon.uid==='u65'?60:59;
+    MONS.get(65).stats={...MONS.get(1).stats};
+    Object.assign(MONS.get(100).stats,{hp:1,def:1});
+    const s={...state,mons,autoSwitch:false,team:mons.slice(0,6).map(mon=>mon.uid)};
+    const context={...ctx,force:false,size:6,verifyAll:true};
+    const plan=model.planAdventureTeam(s,settings,['u2'],context);
+    assert.equal(plan.currentScore,plan.selectedScore);
+    assert.ok(plan.changed);assert.ok(plan.uids.includes('u65'));assert.ok(plan.uids.includes('u2'));
+    const retained=model.planAdventureTeam({...s,team:[...plan.uids]},settings,['u2'],context);
+    assert.equal(retained.changed,false);assert.deepEqual([...retained.uids],[...plan.uids]);
+});
+
+test('a verified adventure lineup never contains native-incompatible Tao pairs',()=>{
+    const H=require('../Pokecatch自动助手.user.js');
+    const mons=[643,64602,644,64601,6,9,150,289].map(id=>({uid:'m'+id,id,level:100,reg:'unova'}));
+    const s={mons,team:mons.slice(0,6).map(mon=>mon.uid),adv:{chapter:75,unlocked:83}};
+    const cfg={...H.DEFAULTS,mode:'money'},ctx={reg:'unova',foes:[{id:149,level:65,weight:1}],now:Date.UTC(2026,10,23,12),verifyAll:true};
+    const plan=H.planAdventureTeam(s,cfg,[],ctx);
+    assert.equal(plan.uids.length,6);assert.ok(plan.changed);
+    for(const [a,b] of [[643,64602],[644,64601]])assert.ok(![a,b].every(id=>plan.uids.includes('m'+id)));
+    assert.equal(H.planAdventureTeam(s,cfg,['m643','m64602'],ctx).verification.status,'unavailable');
 });
 
 test('small eligible expedition enumerates every legal trio and rejects incomplete groups',()=>{

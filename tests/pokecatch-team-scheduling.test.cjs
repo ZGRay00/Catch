@@ -143,6 +143,44 @@ test('strict jobs share the compute queue and expose only a completed result for
     assert.equal(e.computePending.size,0);assert.equal(e.computeTimer,null);
 });
 
+test('money proof runs independently of current team work and times out without publishing a candidate',async()=>{
+    const e=engine();
+    function* review(){yield {uids:['tentative'],checkpointScore:3};return {uids:['verified'],changed:true,score:4};}
+    e.evaluateTeamSearch('current',review());const current=e.teamSearch;
+    e.evaluateTeamSearch('destination',review(),'moneyProofSearch',true,performance.now()+10000);
+    assert.equal(e.teamSearch,current);
+    e.moneyProofSearch.expiresAt=performance.now()-1;
+    assert.deepEqual(e.evaluateTeamSearch('destination',review(),'moneyProofSearch',true),{timedOut:true});
+    assert.equal(e.moneyProofSearch,null);
+    await finish(current);assert.deepEqual(current.result.uids,['verified']);e.cancelTeamSearch();
+});
+
+test('unrelated roster churn cannot extend the current route verification window',async()=>{
+    const e=engine(),s=fixture();e.settings.mode='money';e.strictPlanning=true;
+    assert.equal(e.fitTeam(s,now),false,'the existing legal team can keep running');
+    const pending=e.teamSearch;
+    e.adventureReview.expiresAt=performance.now()-1;s.mons.at(-1).level+=1;
+    assert.equal(e.fitTeam(s,now+1000),false);
+    assert.equal(e.teamSearch,null);assert.equal(e.driver.teamTask,null);
+    assert.ok(e.teamRetryAt>now+1000);assert.match(e.teamValidationNote,/超时/);
+    assert.equal(pending.result,undefined);
+});
+
+test('moving through the same league and changing a region-ineligible reserve preserve the review',()=>{
+    const e=engine(),s=fixture();e.settings.mode='money';e.strictPlanning=true;
+    s.adv.chapter=9;s.adv.unlocked=13;s.link={to:'unova',from:'kanto',side:'from'};
+    const foreign={uid:'foreign',id:609,level:70,reg:'unova'};s.mons.push(foreign);
+    e.fitTeam(s,now);const pending=e.teamSearch;
+    assert.ok(pending);
+    foreign.level++;s.adv.chapter=10;
+    e.fitTeam(s,now+1000);
+    assert.equal(e.teamSearch,pending);
+    s.mons.at(-2).level++;
+    e.fitTeam(s,now+2000);
+    assert.notEqual(e.teamSearch,pending,'an eligible member change still invalidates an old review');
+    e.cancelTeamSearch();
+});
+
 test('changes to a training lock replace pending work; a switch setting change cancels queued PC work',async()=>{
     const e=engine(),s=fixture();s.autoSwitch=false;e.settings.mode='train';e.settings.trainUid=s.team[0];
     e.fitTeam(s,now);const old=e.teamSearch;

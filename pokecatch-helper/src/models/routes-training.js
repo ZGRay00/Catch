@@ -241,7 +241,7 @@
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
     }
-    function yieldRankingRequest(kind,s,settings,metrics,now){
+    function yieldRankingRequest(kind,s,settings,metrics,now,{separateMoney=false}={}){
         if(settings.mode==='dex')settings={...settings,mode:kind==='xp'?'train':'money',autoTeam:false};
         let maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
         let otherWallet=null;
@@ -254,7 +254,7 @@
             }
             if(!otherWallet)maps=maps.filter(onCurrentSide);
         }
-        return makeYieldRankingRequest(kind,s,settings,metrics,now,maps,undefined,otherWallet);
+        return makeYieldRankingRequest(kind,s,settings,metrics,now,maps,undefined,otherWallet,undefined,separateMoney);
     }
     function otherMoneyParty(s){
         // Native Game.enterRegion swaps the team and wallet while both groups'
@@ -263,7 +263,7 @@
         if(!Array.isArray(stored)||!['from','to'].includes(link.side))return null;
         const side=link.side==='to'?'from':'to',reg=side==='to'?link.to:link.from;
         if(!reg)return null;
-        const index=new Map(s.mons.map(mon=>[mon.uid,mon]));
+        const index=pokemonByUid(s);
         const existing=stored.map(uid=>index.get(uid)).filter(Boolean);
         let members=existing.filter(mon=>teamEligible(s,mon,reg));
         if(existing.length&&!members.length){
@@ -281,7 +281,7 @@
         request.ceiling=preparation.routeCeiling;
         return request;
     }
-    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null,goals){
+    function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null,goals,separateMoney=false){
         const xp=kind!=='money';
         const targets=xp?trainingXpTargets(s,settings,goals):null,suffix=trainingXpSuffix(targets);
         const metricKey=routeMetricKey(s,settings,now);
@@ -298,18 +298,112 @@
             const mixed=metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
             if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
         });
-        const otherInputs=otherWallet&&yieldRankingInputs(otherWallet,settings,[],now);
         const previewMoney=!xp&&settings.mode==='money'&&settings.autoTeam&&s.mons.length>s.team.length;
+        const split=!xp&&separateMoney;
+        const rankingInputs=xp?yieldRankingInputs:moneyBaseInputs;
+        const otherInputs=otherWallet&&rankingInputs(otherWallet,settings,maps.filter((row,i)=>states[i]===otherWallet),now);
         const maxCycleXp=targets?Math.max(0,...maps.map(row=>row.members.reduce((sum,id)=>sum+(CHAPTERS.get(id)?.xpEstimate||0),0)))*1.3*(activeYieldBuff(s,'xp',now)?.mult||1):0;
-        const signature=JSON.stringify([reg,yieldRankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),samples,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)]),
-            previewMoney?rosterFingerprint(s):null]);
+        const signature=JSON.stringify([split,reg,rankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),split?null:samples,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)]),
+            previewMoney&&!split?rosterFingerprint(s):null]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
-            : previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&maps.some(row=>row.league);
-        return {kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets)};
+            : !split&&previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&(split||maps.some(row=>row.league));
+        const request={kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,split?[]:samples,now,sliced,states,previewMoney&&!split,targets)};
+        if(!split)return request;
+        const locations=new Map(maps.map((row,i)=>[row.key,{row,state:states[i],sample:samples[i]}]));
+        request.refreshRows=rows=>rows.map(row=>{
+            const {state,sample}=locations.get(row.key);
+            return moneyRouteScore(state,row,sample,row.battleFit,now,settings.speed);
+        }).sort(compareYieldRows);
+        if(previewMoney){
+            request.projections=rows=>moneyProjectionRequest(s,settings,locations,rows,now);
+            request.withProjections=(rows,hints)=>applyMoneyProjections(rows,hints,locations,settings,now);
+        }
+        return request;
+    }
+    function moneyBaseInputs(s,settings,maps,now){
+        const inputs=yieldRankingInputs(s,settings,maps,now),members=new Set(maps.flatMap(row=>row.members));
+        const [account,,unlocked,open,region,hunt,slot,hour,season,roam]=inputs[0];
+        // Which room is currently fighting is immaterial to an all-map replay
+        // ranking, including natural room progression within a league.
+        inputs[0]=[account,unlocked,open,region,hunt,slot,hour,season,roam.filter(([,id])=>members.has(id))];
+        inputs.push(maps.map(row=>moneyRouteThreatKey(s,row,now)).filter(Boolean));
+        return inputs;
+    }
+    function moneyRouteThreatKey(s,row,now){
+        return routeRoamingFoes(s,row,now).map(foe=>foe.chapter+':'+foe.id).join(',');
+    }
+    function compareYieldRows(a,b){return b.rate-a.rate||a.id-b.id;}
+    function moneySpecialists(s,settings,rows,states){
+        const rated=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}));
+        const high=rated.slice().sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id);
+        const active=rated.find(entry=>entry.row.members.includes(s.adv.chapter));
+        const different=high.find(entry=>entry.row.league!==high[0]?.row.league);
+        return new Set([...high.slice(0,4),...[active,different].filter(Boolean)]);
+    }
+    function moneyProjectionPartyKey(party){
+        return JSON.stringify(party.map(mon=>[mon.uid,monRegion(mon),...combatProfile({...mon,status:null})]));
+    }
+    function moneyScoutEvidence(state,row,now){
+        return JSON.stringify([routeIdentity(row),state.link?.side,chapterYieldRules(row.id),moneyRouteThreatKey(state,row,now),
+            row.members.map(id=>{
+                const branch=CHAPTERS.get(id)?.foesByStarter;
+                const starter=branch&&starterChoice(state,branch.key,Object.keys(branch.choices||{}).map(Number));
+                return [starter,combatWeather(state,{chapter:id},{row},now).signature];
+            })]);
+    }
+    function moneyProjectionRequest(s,settings,locations,rows,now){
+        if(!rows.length)return null;
+        const candidates=moneySpecialists(s,settings,rows,rows.map(row=>locations.get(row.key).state));
+        // Scouts are hints; a separate live proof checks the exact current Box
+        // before deployment. Samples, unrelated members improving and minor XP
+        // changes must not keep restarting these slower advisory calculations.
+        const candidatesInScope=[...candidates].map(entry=>({...entry,scoutKey:moneyScoutEvidence(entry.state,entry.row,now)}));
+        const scene=candidatesInScope.map(entry=>entry.scoutKey);
+        const signature=JSON.stringify([accountId(s),routePlanSettings(settings),scene]);
+        return {kind:'money',cacheSlot:'money/projections',signature,needsSlices:true,projectionOnly:true,refreshAfterMs:120000,
+            search:sliced=>scoreMoneyProjections(settings,candidatesInScope,now,sliced)};
+    }
+    function* scoreMoneyProjections(settings,candidates,now,sliced){
+        const result=[],setting=routePlanSettings(settings);
+        for(const {row,state,scoutKey=moneyScoutEvidence(state,row,now)} of candidates){
+            const plan=yield* adventureTeamSearch(state,settings,[],{row,reg:row.reg,objective:'money',now,lowBudget:true},sliced);
+            const uidList=plan.changed?plan.uids:[],party=partyMons(state,uidList);
+            const hint={key:row.key,scouted:true,account:accountId(state),setting,scoutKey};
+            if(uidList.length&&party.length===uidList.length){
+                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced,settings,true);
+                Object.assign(hint,{scope:state.link?.side??null,party:uidList,profile:moneyProjectionPartyKey(party),
+                    evidenceKey:routeMetricKey({...state,team:uidList},settings,now)(row),threat:moneyRouteThreatKey(state,row,now),fit});
+            }
+            result.push(hint);
+            if(sliced)yield result.slice();
+        }
+        return result;
+    }
+    function applyMoneyProjections(rows,hints,locations,settings,now){
+        if(!hints?.length)return rows;
+        const setting=routePlanSettings(settings),shown=new Map(rows.map(row=>[row.key,row])),byKey=new Map();
+        for(const hint of hints){
+            const state=locations.get(hint.key)?.state,row=shown.get(hint.key);
+            if(state&&row&&hint.account===accountId(state)&&hint.setting===setting&&hint.scoutKey===moneyScoutEvidence(state,row,now))byKey.set(hint.key,hint);
+        }
+        if(!byKey.size)return rows;
+        return rows.map(row=>{
+            const hint=byKey.get(row.key),planCoverage={evaluated:byKey.size,total:rows.length,matched:!!hint};
+            if(!hint?.party||row.measured&&row.samples>=2)return {...row,planCoverage};
+            const {state}=locations.get(row.key),party=partyMons(state,hint.party);
+            if((state.link?.side??null)!==hint.scope||party.length!==hint.party.length||party.some(mon=>!teamEligible(state,mon,row.reg))||moneyProjectionPartyKey(party)!==hint.profile)return {...row,planCoverage};
+            const key=routeMetricKey({...state,team:hint.party},settings,now)(row);
+            if(key!==hint.evidenceKey||moneyRouteThreatKey(state,row,now)!==hint.threat)return {...row,planCoverage};
+            const estimate=moneyRouteScore(state,row,null,hint.fit,now,settings.speed).rate;
+            if(hint.fit.roamingRisk||hint.fit.coverage<.99||hint.fit.minCoverage<row.battleFit.minCoverage||!(estimate>row.rate*1.08))return {...row,planCoverage};
+            return {...row,planCoverage,projectedMoneyRate:estimate,projectedMoneyTurns:hint.fit.turns,
+                routePlan:{objective:'money',identity:routeIdentity(row),party:hint.party,entryParty:[...state.team],scope:hint.scope,
+                    setting,key,threat:hint.threat,roster:adventureRosterFingerprint(state,row.reg),evidence:'estimate',minimumRate:row.rate*1.08}};
+        });
     }
     function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets){
-        let rows=[];
+        const rows=[];
         const walletParties=new Map();
         let projection;
         if(kind!=='money'){
@@ -322,7 +416,7 @@
             else{
                 const state=states[i];
                 if(!walletParties.has(state))walletParties.set(state,partyMons(state));
-                const fit=yield* battleRouteFitSearch(state,row,walletParties.get(state),now,sliced,settings);
+                const fit=yield* battleRouteFitSearch(state,row,walletParties.get(state),now,sliced,settings,true);
                 rows.push(moneyRouteScore(state,row,samples[i],fit,now,settings.speed));
             }
             if(sliced)yield;
@@ -331,33 +425,12 @@
             // Screen every available map, then do route-specific legal party
             // comparison on a bounded set. The resulting rate belongs only to
             // that exact party. Coverage does not assert a global optimum.
-            const rated=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}));
-            const high=rated.slice().sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id);
-            const active=rated.find(entry=>entry.row.members.includes(s.adv.chapter));
-            const different=high.find(entry=>entry.row.league!==high[0]?.row.league);
-            const candidates=new Set([...high.slice(0,4),...[active,different].filter(Boolean)]);
-            const evaluated=new Set();
-            for(const {row,state} of candidates){
-                if(row.measured&&row.samples>=2)continue;
-                const plan=yield* adventureTeamSearch(state,settings,[],{row,objective:'money',now,lowBudget:true},sliced);
-                evaluated.add(row.key);
-                if(!plan.changed||!plan.uids.length)continue;
-                const party=partyMons(state,plan.uids);
-                if(party.length!==plan.uids.length)continue;
-                const fit=yield* battleRouteFitSearch(state,row,party,now,sliced,settings);
-                const estimate=moneyRouteScore(state,row,null,fit,now,settings.speed).rate;
-                if(fit.coverage>=.99&&fit.minCoverage>=row.battleFit.minCoverage&&estimate>row.rate*1.08){
-                    row.projectedMoneyRate=estimate;
-                    row.projectedMoneyTurns=fit.turns;
-                    row.routePlan={objective:'money',identity:routeIdentity(row),party:plan.uids,entryParty:[...state.team],
-                        scope:state.link?.side??null,setting:routePlanSettings(settings),key:routeMetricKey({...state,team:plan.uids},settings,now)(row),
-                        roster:rosterFingerprint(state),evidence:'estimate',minimumRate:row.rate*1.08};
-                }
-                if(sliced)yield;
-            }
-            for(const {row} of rated)row.planCoverage={evaluated:evaluated.size,total:rated.length,matched:evaluated.has(row.key)};
+            const candidates=[...moneySpecialists(s,settings,rows,states)].filter(({row})=>!row.measured||row.samples<2);
+            const hints=yield* scoreMoneyProjections(settings,candidates,now,sliced);
+            const locations=new Map(rows.map((row,i)=>[row.key,{state:states[i]}]));
+            return applyMoneyProjections(rows,hints,locations,settings,now).sort(compareYieldRows);
         }
-        return rows.sort((a,b)=>b.rate-a.rate||a.id-b.id);
+        return rows.sort(compareYieldRows);
     }
     function safeTrainingRoutes(rows,startChapter){
         const safe=rows.filter(row=>row.trainingSafe);
@@ -367,6 +440,7 @@
         return replays.filter(row=>row.maxLevel===minimum);
     }
     function selectYieldRoutes(request,rows,cooldowns,now){
+        if(request.refreshRows)rows=request.refreshRows(rows);
         if(request.kind==='preparation'||request.kind==='xp'){
             if(Number.isFinite(request.ceiling))rows=rows.filter(row=>row.maxLevel<=request.ceiling);
             rows=safeTrainingRoutes(rows,request.startChapter);
@@ -472,7 +546,11 @@
         if(kind==='map'||kind==='progress'){
             const chapters=row?.members||[id];level=Math.max(...chapters.map(id=>CHAPTERS.get(id)?.ace||1));
             foes=chapters.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
-            if(ROAMING_DATA.groups.some(group=>group.ids.includes(Number(options.roamId)))){level=ROAMING_DATA.level;foes=[{id:Number(options.roamId),level,weight:20},...foes.map(foe=>({...foe,gymCount:0,weight:foe.weight*.05}))];label='游荡捕获 · '+(MONS.get(Number(options.roamId))?.name||options.roamId);}
+            if(ROAMING_DATA.groups.some(group=>group.ids.includes(Number(options.roamId)))){
+                level=ROAMING_DATA.level;
+                foes=[roamingCombatFoe(Number(options.roamId),id,20),...foes.map(foe=>({...foe,gymCount:0,weight:foe.weight*.05}))];
+                label='游荡捕获 · '+(MONS.get(Number(options.roamId))?.name||options.roamId);
+            }
         }else if(kind==='zone'||kind==='raid'||kind==='worldCapture'){
             id=kind==='worldCapture'?493:id;level=level||zone?.level||DATA.automation.levels.raid;foes=[{id,level,weight:1}];size=kind==='raid'?2:6;
             label=options.label||({zone:'传说战',raid:'每日团体战',worldCapture:'世界首领捕获'}[kind]+' · '+(MONS.get(id)?.name||id));
@@ -615,10 +693,11 @@
     function battleRouteFit(s,row,uids=s.team||[],now=Date.now(),settings=DEFAULTS){
         return battleRouteFitSearch(s,row,partyMons(s,uids),now,false,settings).next().value;
     }
-    function* battleRouteFitSearch(s,row,party,now,sliced,settings=DEFAULTS){
+    function* battleRouteFitSearch(s,row,party,now,sliced,settings=DEFAULTS,includeRoaming=false){
         const team=party.filter(m=>teamEligible(s,m,row.reg)).map(m=>({...m,status:null}));
         const nativeSwitch=s.autoSwitch!==false,rescue=team.length>1&&!row.league&&helperSwitchEnabled(s,settings);
-        const foes=(row.members?.length?row.members.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter)):chapterCombatFoes(s,row)).filter(m=>MONS.has(m.id)&&m.weight>0);
+        const foes=(includeRoaming?routeCombatFoes(s,row,now):
+            (row.members?.length?row.members.map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter)):chapterCombatFoes(s,row))).filter(m=>MONS.has(m.id)&&m.weight>0);
         if(!team.length||!foes.length)return{factor:1,turns:null,coverage:null};
         // Aggregate encounters on the same chapter share their weather. Explicit
         // encounter nodes can override that chapter and must keep their own entry.
@@ -635,12 +714,26 @@
         const key=JSON.stringify([row.reg,nativeSwitch,rescue,foes,team.map(combatProfile),weatherKey]),cached=ROUTE_FITS.get(key);
         if(cached)return{...cached};
         const allies=team.map(mon=>({mon,stats:effectiveStats(mon)}));let weight=0,cost=0,covered=0,deaths=0,minCoverage=1,worstTurns=0,worstDeaths=0;
+        let roamingTurns=0,roamingWeight=0,roamingRisk;
+        const recordRisk=battle=>{
+            minCoverage=Math.min(minCoverage,battle.coverage);worstTurns=Math.max(worstTurns,battle.turns);worstDeaths=Math.max(worstDeaths,battle.deaths);
+        };
         const record=(battle,share)=>{
             weight+=share;cost+=share*battle.turns;covered+=share*battle.coverage;deaths+=share*battle.deaths;
-            minCoverage=Math.min(minCoverage,battle.coverage);worstTurns=Math.max(worstTurns,battle.turns);worstDeaths=Math.max(worstDeaths,battle.deaths);
+            recordRisk(battle);
         };
         for(const [i,foe]of foes.entries()){
             const defense=effectiveStats(foe),details=allies.map(({mon,stats})=>matchupDetails(mon,foe,stats,defense,weatherRows[i]));
+            if(foe.roaming){
+                const battle=roamingBattle(details,foe);
+                roamingWeight+=foe.weight;roamingTurns+=foe.weight*battle.turns;
+                recordRisk(battle);
+                if(battle.coverage<.999||battle.deaths>2){
+                    if(!roamingRisk||battle.coverage<roamingRisk.coverage||battle.coverage===roamingRisk.coverage&&battle.deaths>roamingRisk.deaths)roamingRisk={id:foe.id,...battle};
+                }
+                if(sliced)yield;
+                continue;
+            }
             // The route export separates wild occurrences from paid fights. Keep
             // the conservative native order for trainer waves and special foes.
             const wild=rescue&&!foe.shiny&&!foe.veiled?Math.min(foe.weight,foe.singleWild?foe.weight:foe.wildWeight||0):0;
@@ -653,8 +746,12 @@
         }
         // Static route time assumes a short fight; allow three expected attack turns per foe.
         // Low survival increases that cost, while observed complete runs supersede this model.
-        const turns=cost/weight;
-        const fit={factor:Math.max(.02,Math.min(1,3/turns)),turns,coverage:covered/weight,deaths:deaths/weight,minCoverage,worstTurns,worstDeaths,weatherKey};
+        // A marked roaming encounter can consume time and knock out the party.
+        // Keep it out of the paid encounter denominator and never credit a payout.
+        const turns=(cost+roamingTurns)/(weight+roamingWeight);
+        const ordinaryFactor=Math.min(1,3*weight/Math.max(1,cost)),roamingDelay=roamingTurns/Math.max(1,3*weight);
+        const fit={factor:Math.max(.02,ordinaryFactor/(1+roamingDelay)),turns,coverage:weight?covered/weight:null,deaths:weight?deaths/weight:null,minCoverage,worstTurns,worstDeaths,weatherKey};
+        if(roamingRisk)fit.roamingRisk=roamingRisk;
         ROUTE_FITS.set(key,fit);if(ROUTE_FITS.size>256)ROUTE_FITS.delete(ROUTE_FITS.keys().next().value);
         return{...fit};
     }
@@ -679,7 +776,7 @@
         const team=party??partyMons(s,uids);
         if(team.length!==uids.length||team.some(mon=>!teamEligible(s,mon,context.reg)))return reject('目标成员不在PC或不符合地区限制');
         const identity=mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
-        if(new Set(team.map(identity)).size!==team.length)return reject('目标成员不能同时出战');
+        if(new Set(team.map(identity)).size!==team.length||team.some((mon,i)=>team.slice(0,i).some(other=>teamApart(mon,other))))return reject('目标成员不能同时出战');
         context=rebuildPreparationContext(s,context);
         const foes=(context.foes||[]).filter(foe=>MONS.has(foe.id)&&foe.weight>0);
         if(!foes.length)return reject('目标敌人数据不足，保留等级补练要求');
@@ -689,14 +786,14 @@
         const allies=team.map(mon=>({mon:{...mon,status:null},stats:effectiveStats(mon)}));
         let weight=0,turns=0,deaths=0,coverage=0,minCoverage=1,worstTurns=0,worstDeaths=0,hardest=null,uncoveredId=null;
         for(const foe of foes){
-            const guarded={...foe,hpMult:(foe.hpMult||1)*hpMargin},defense=effectiveStats(guarded),weather=combatWeather(s,foe,context,context.now??Date.now());
+            const guarded=foe.roaming?foe:{...foe,hpMult:(foe.hpMult||1)*hpMargin},defense=effectiveStats(guarded),weather=combatWeather(s,foe,context,context.now??Date.now());
             const details=allies.map(({mon,stats})=>{
                 const detail=matchupDetails(mon,guarded,stats,defense,weather);
                 // Apply the margin to the HP threshold so each native integer
                 // damage roll, including borderline one-hit KOs, stays intact.
-                return {...detail,hp:detail.hp/damageMargin};
+                return foe.roaming?detail:{...detail,hp:detail.hp/damageMargin};
             });
-            const battle=deployedBattle(details,s.autoSwitch!==false);
+            const battle=foe.roaming?roamingBattle(details,foe):deployedBattle(details,s.autoSwitch!==false);
             weight+=foe.weight;turns+=foe.weight*battle.turns;deaths+=foe.weight*battle.deaths;coverage+=foe.weight*battle.coverage;
             if(battle.coverage<minCoverage){minCoverage=battle.coverage;uncoveredId=foe.id;}
             worstDeaths=Math.max(worstDeaths,battle.deaths);

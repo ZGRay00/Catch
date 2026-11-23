@@ -73,7 +73,7 @@
         const used=new Set(),party=[];
         for(const {mon} of pool){
             const id=DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
-            if(used.has(id)||party.some(other=>undergroundApart(mon,other)))continue;
+            if(used.has(id)||party.some(other=>teamApart(mon,other)))continue;
             used.add(id);party.push(mon);
             if(party.length>=size)break;
         }

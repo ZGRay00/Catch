@@ -155,7 +155,7 @@
                 </details>
             </section>
             <h3>配队与自动化</h3>
-            <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
+            <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">自动配队 · 强度优先</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="activeSwitch">助手主动换人</span></label><div class="hint" id="switch-hint"></div>
@@ -976,7 +976,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward])]);
+                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -1020,6 +1020,11 @@
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
                         else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
                         textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        if(mode==='money'&&row.battleFit?.roamingRisk){
+                            const detail=table.tBodies[0].insertRow().insertCell();
+                            detail.colSpan=3;detail.className='hint warn';detail.style.textAlign='left';
+                            detail.textContent=`当前阵容难以稳定应对 ${MONS.get(row.battleFit.roamingRisk.id)?.name||'游荡首领'}`;
+                        }
                         if(mode==='money'&&row.projectedMoneyRate!=null){
                             const detail=table.tBodies[0].insertRow().insertCell();
                             detail.colSpan=3;detail.className='hint';detail.style.textAlign='left';

@@ -397,7 +397,7 @@
             };
             if(pool.length<=3){
                 const unique=new Set(pool.map(m=>DATA.combat.singles[m.id]||m.id+':'+!!m.shiny));
-                const legal=unique.size===pool.length&&!pool.some(m=>pool.some(other=>undergroundApart(m,other)));
+                const legal=unique.size===pool.length&&!pool.some((mon,i)=>pool.slice(0,i).some(other=>teamApart(mon,other)));
                 if(pool.length===3&&legal)e.log(`地下第 ${Number(bay)+1} 队 · ${availability()} · ${pool.map(m=>MONS.get(m.id).name).join('、')}`);
                 return this.lastUnderPlan={key,uids:legal?pool.map(m=>m.uid):[]};
             }

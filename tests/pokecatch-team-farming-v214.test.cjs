@@ -101,6 +101,54 @@ test('an unmatched estimate does not trigger a switch to an unmeasured trial rou
     assert.equal(selected,undefined);assert.match(e.status,/刷钱/);
 });
 
+test('an already running loop continues while the base ranking is computed',t=>{
+    const {s,e,now}=fixture(t),current=route(0);
+    s.adv.loops=[Number(current.key)];s.adv.battle={kind:'wild'};
+    e.lastProgress=now-1000;e.rankedYieldRoutes=()=>null;
+    let screen;e.driver.nav=next=>{screen=next;};
+    e.travel=()=>assert.fail('a pending ranking should not restart the ongoing loop');
+    e.money(s,now);
+    assert.equal(screen,'adventure');assert.equal(e.lastProgress,now-1000);
+    assert.match(e.status,/后台比较其他路线/);
+});
+
+test('money keeps a live proof and a completed route through forecast refresh and battle settlement',t=>{
+    const {s,e,now}=fixture(t),current={...route(0),rate:100},destination={...route(3),rate:85};
+    s.adv.loops=[0];s.adv.battle={kind:'wild',enemies:[{id:19}]};
+    e.target=current;e.visit={started:now-20000};e.strictPlanning=true;
+    e.driver.nav=()=>true;e.routePlanState=()=>s;e.routeRequestValid=()=>true;
+    const forecast={...destination,routePlan:{party:['strong0']},projectedMoneyRate:160};
+    const verified={...forecast,routePlan:{...forecast.routePlan,verified:true}};
+    let reads=[current,forecast],proofCalls=0,travel;
+    e.rankedYieldRoutes=()=>reads;e.travel=(row,_now,options)=>{travel={row,options};};
+    e.moneyRouteProof=(_s,row)=>{
+        if(++proofCalls===1){e.moneyProofReview={row};return undefined;}
+        assert.equal(row.key,destination.key);
+        e.moneyProofReview=null;return verified;
+    };
+    e.money(s,now);
+    assert.match(e.status,/复核/);assert.equal(travel,undefined);
+    reads=[current,destination];
+    e.money(s,now+1200);
+    assert.equal(e.moneyReadyRoute,verified);assert.equal(travel,undefined);
+    assert.match(e.status,/已选.*等待.*结算/);assert.equal(e.nextDelay(now+1200),400);
+    delete s.adv.battle;e.money(s,now+1600);
+    assert.equal(proofCalls,2);assert.equal(travel.row.key,destination.key);assert.equal(travel.options.orderedRoutePlan,true);
+});
+
+test('a marked roaming threat waits for the live result, then favors a safer loop over the usual margin',t=>{
+    const {s,e,now}=fixture(t),current={...route(0),rate:100,measured:true,battleFit:{roamingRisk:{id:641}}};
+    const alternative={...route(3),rate:96,battleFit:{minCoverage:1}};
+    s.adv.loops=[Number(current.key)];s.adv.battle={kind:'wild',roam:641};
+    e.automation.autoBuff=()=>false;e.rankedYieldRoutes=()=>[current,alternative];
+    e.driver.nav=()=>true;
+    let selected;e.travel=row=>{selected=row;};
+    e.money(s,now);
+    assert.equal(selected,undefined);assert.match(e.status,/龙卷云.*等待结算/);
+    delete s.adv.battle;e.money(s,now+1000);
+    assert.equal(selected.key,alternative.key);
+});
+
 test('completed money measurements retain their real net rate even on a modelled difficult route',()=>{
     const s=state(),r=route(6),metrics={[H.metricsKey(s,r,H.DEFAULTS)]:{net:12345,seconds:60,runs:2}},ranked=H.moneyRanking(s,H.DEFAULTS,metrics),measured=ranked.find(row=>row.id===6);
     assert.equal(measured.rate,12345);assert.equal(measured.measured,true);assert.ok(measured.battleFit.factor<.1);assert.equal(ranked[0].id,6);

@@ -310,8 +310,9 @@ async function main() {
             if(e.teamSearch===job&&!job.result)throw Error('Fixture team planner timed out');
             await e.step();
         }`);
-        const resumed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('manual pause');e.start();await e.step();const running=e.running;mock.state.adv.event=null;mock.save();const deadline=performance.now()+5000;do{await tickWithTeam(e);if(e.driver.pendingMap||!e.running)break;await new Promise(resolve=>setTimeout(resolve,20));}while(performance.now()<deadline);return{running,after:e.running,raid:e.driver.raid,probe:e.raidProbe,pending:!!e.driver.pendingMap}})()`);
-        assert.equal(resumed.running, true); assert.equal(resumed.after, true); assert.equal(resumed.raid, null); assert.equal(resumed.probe, false); assert.equal(resumed.pending, true);
+        const resumed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('manual pause');e.start();await e.step();const running=e.running;mock.state.adv.event=null;mock.save();const routeSelected=()=>!!e.driver.pendingMap||!!e.target&&e.routeReached(e.read(),e.target);const deadline=performance.now()+5000;do{await tickWithTeam(e);if(routeSelected()||!e.running)break;await new Promise(resolve=>setTimeout(resolve,20));}while(performance.now()<deadline);return{running,after:e.running,raid:e.driver.raid,probe:e.raidProbe,routeSelected:routeSelected()}})()`);
+        assert.equal(resumed.running, true); assert.equal(resumed.after, true); assert.equal(resumed.raid, null); assert.equal(resumed.probe, false);
+        assert.equal(resumed.routeSelected, true, 'return to an existing native loop or select a better route');
         const timed = await evaluate(`(async()=>{const e=__pcTest.engine;e.stop('timeout-fixture');mock.state.adv.event={raid:true,reg:'kanto',id:35,loops:23};mock.save();phase='home';mock.nav('adventure');e.start();e.driver.raid.started=Date.now()-91*60000;for(let i=0;i<8&&mock.state.adv.event;i++){e.driver.lastClick=0;await e.step()}return{event:mock.state.adv.event,cooldowns:Object.values(e.raidCooldown),now:Date.now(),running:e.running}})()`);
         assert.equal(timed.event, null, 'timeout must open Chroma from raid home before clicking Leave');
         assert.equal(timed.running, true); assert.ok(timed.cooldowns.some(expiry => expiry > timed.now));

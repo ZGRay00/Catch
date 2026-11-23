@@ -76,6 +76,7 @@
         if(p)return '';
         const check=e.teamCheck,chapter=CHAPTERS.get(s.adv.chapter),frontier=mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
         if((frontier&&chapter?.loop!==frontier.loop)||(e.target&&!e.target.members?.includes(s.adv.chapter)))return '等待目标路线的冒险配队';
+        if(e.farmingTeamHeld?.(s,now,check))return '';
         const members=check?.members||[s.adv.chapter];
         if(!check||!members.includes(s.adv.chapter)||check.mode!==mode||check.expectedParty!==partyKey||
             check.roster!==adventureRosterFingerprint(s,chapter?.reg)||check.autoSwitch!==(s.autoSwitch!==false)||

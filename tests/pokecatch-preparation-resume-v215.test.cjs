@@ -1,4 +1,4 @@
-const test=require('node:test'),assert=require('node:assert/strict'),H=require('../Pokecatch自动助手.user.js');
+const test=require('node:test'),assert=require('node:assert/strict'),H=require(process.env.POKECATCH_AUDIT_SOURCE||'../Pokecatch自动助手.user.js');
 const species=[289,282,257,319,310,365];
 function fixture(t,levels=species.map(()=>92),settings={}){
     const before=global.document;global.document={hidden:false,querySelector:()=>null,querySelectorAll:()=>[]};
@@ -23,6 +23,54 @@ test('a capable below-cap party ends ordinary preparation without levelling ever
     assert.equal(e.preparation,null);assert.equal(e.coach.ready.trial,true);assert.ok(e.coach.ready.targets.every(target=>target.goal===92));
     assert.equal(e.budget.spent,123);assert.equal(e.budget.used,2);assert.equal(e.started,started);assert.equal(e.settings.progressUntil,65);assert.equal(p.targets.at(-1).goal,95);
     assert.ok(s.mons.every(mon=>mon.level===92));assert.equal(e.ensurePrepared(s,context,{},now+1200),false);assert.equal(e.preparation,null);
+});
+
+test('winning training keeps the full plan while growth still checks early readiness and a defeat reopens it',t=>{
+    const {s,e,p,now}=fixture(t,species.map(()=>60));
+    const calls=[];
+    e.coach.comparePreparation=function*(_s,_p,_ctx,_grew,_sliced,readinessOnly){
+        calls.push(readinessOnly);
+        const assessment={ready:false,reason:'fixture'};
+        return readinessOnly?{assessment}:{assessment,plan:{uids:p.uids},same:true};
+    };
+    assert.equal(e.coach.reviewPreparation(s,p,now),false);assert.deepEqual(calls,[false]);
+    assert.equal(e.coach.reviewPreparation(s,p,now+31000),false);assert.deepEqual(calls,[false]);
+    s.stats.wins=2;s.buddy={uid:'m0'};s.mons.push({uid:'new',id:384,level:100,reg:'hoenn'});
+    const later=now+12*3600000;
+    assert.equal(e.coach.reviewPreparation(s,p,later),false);assert.deepEqual(calls,[false]);
+    s.mons[0].level++;
+    assert.equal(e.coach.reviewPreparation(s,p,later+1000),false);assert.deepEqual(calls,[false,true]);
+    s.adv.deaths[42]=1;
+    assert.equal(e.coach.reviewPreparation(s,p,later+2000),false);assert.deepEqual(calls,[false,true,false]);
+});
+
+test('reaching every training target bypasses another roster search before returning',t=>{
+    const {s,e,p,now}=fixture(t,species.map(()=>95));
+    e.coach.reviewPreparation=()=>assert.fail('all training goals are already met');
+    e.coach.step(s,now);
+    assert.equal(e.preparation,null);assert.equal(p.phase,'restore');
+});
+
+test('the applied training route avoids another comparison through wins and growth until a defeat',t=>{
+    const {s,e,p,now}=fixture(t,species.map(()=>60),{autoTeam:false});
+    let comparisons=0;e.coach.routes=()=>{comparisons++;return [p.route];};
+    e.coach.step(s,now);assert.equal(comparisons,1);
+    const rows=e.coach.heldTrainingRoutes(s,p);assert.deepEqual(rows,[p.route]);
+    s.stats.wins=1;s.adv.runs++;s.mons[0].level++;
+    e.coach.step(s,now+31000);assert.equal(comparisons,1);assert.equal(e.coach.heldTrainingRoutes(s,p),rows);
+    s.adv.deaths[42]=1;
+    assert.equal(e.coach.heldTrainingRoutes(s,p),null);
+    e.coach.step(s,now+32000);assert.equal(comparisons,2);
+});
+
+test('growth after a win in the original encounter keeps a trial valid, but a switching change revokes it',t=>{
+    const {s,e,context,now}=fixture(t);
+    e.coach.step(s,now);const ready=e.coach.ready;
+    s.adv.chapter=46;s.stats.wins=1;s.mons[0].level++;
+    assert.equal(e.ensurePrepared(s,context,{},now+1200),false);assert.equal(e.coach.ready,ready);
+    s.autoSwitch=false;
+    e.ensurePrepared(s,context,{},now+2400);
+    assert.notEqual(e.coach.ready,ready);
 });
 
 test('a money goal reached in a training detour cancels pending PC swaps and avoids restarting the farm',async t=>{

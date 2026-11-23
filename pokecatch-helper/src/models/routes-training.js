@@ -31,8 +31,13 @@
     }
     function starterChoice(s,key,ids){
         const choice=s.adv.gifts?.[key];if(typeof choice==='number')return choice;if(!choice)return null;
-        const owned=[...(s.mons||[]),...(s.pension?.mons||[]).map(p=>p.mon),...(s.link?.stash?.mons||[]),...(s.under?.slots||[]).flatMap(slot=>slot.mons||[])];
-        return owned.map(m=>MONS.get(m?.id)?.root).find(id=>ids.includes(id))??null;
+        const find=(entries,pokemon)=>{
+            for(const entry of entries||[]){const id=MONS.get(pokemon(entry)?.id)?.root;if(ids.includes(id))return id;}
+        };
+        const live=find(s.mons,mon=>mon)??find(s.pension?.mons,entry=>entry.mon)??find(s.link?.stash?.mons,mon=>mon);
+        if(live!=null)return live;
+        for(const slot of s.under?.slots||[]){const id=find(slot.mons,mon=>mon);if(id!=null)return id;}
+        return null;
     }
     function chapterFoes(s,chapter){
         const branch=chapter?.foesByStarter;
@@ -216,34 +221,45 @@
     function clearsWithinLimits(fit,limits){
         return fit.minCoverage>=.999&&fit.turns<=limits.turns&&fit.worstTurns<=limits.worst&&fit.deaths<=limits.deaths&&fit.worstDeaths<=limits.knockouts;
     }
-    function* xpRouteSearch(s,settings,row,m,now,sliced,projection){
-        const {party,yieldMembers,xpMult,targets}=projection;
-        const measured=m?.xpSeconds>0,samples=m?.xpRuns||0;
+    function* xpRouteSearch(s,settings,row,now,sliced,party){
         const battleFit=yield* battleRouteFitSearch(s,row,party,now,sliced,settings);
-        const base=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0);
         const leagueTraining=row.league?yield* leagueTrainingSearch(s,settings,row,battleFit,now,sliced,party):null;
-        const perMember=(leagueTraining?.xpPerMember??base)*xpMult;
-        const experience=targets?targets.reduce((sum,t)=>sum+Math.min(t.remaining,perMember*(t.uid===s.buddy?.uid?1.3:1)),0):perMember*yieldMembers;
-        const model=leagueTraining?experience/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
-        const estimate=estimateWithHistory(model,m?.historicalRate);
-        const actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
         const levels=party.filter(mon=>teamEligible(s,mon,row.reg)).map(mon=>mon.level).sort((a,b)=>b-a);
         const lead=(levels[0]||1)*.75+(levels[1]||levels[0]||1)*.25,maxLevel=Math.max(...row.members.map(id=>CHAPTERS.get(id)?.ace||1));
-        const proven=measured&&samples>=2&&actualRate>0;
         const efficient=battleFit.coverage>=.9&&battleFit.turns>0&&battleFit.turns<=3;
         // The time model already charges for slower fights. A new chapter also
         // needs an answer to its worst matchup before we try its full loop.
         const covered=battleFit.minCoverage>=.999;
         const ordinary=clearsWithinLimits(battleFit,STORY_FIT_LIMITS)||efficient&&(!row.trainingFrontier||covered)||!row.trainingFrontier&&maxLevel<=lead;
-        const trainingSafe=proven||(leagueTraining?leagueTraining.allowed:ordinary);
-        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,battleFit,leagueTraining,maxLevel,trainingSafe,fallback:!trainingSafe};
+        return{...row,battleFit,leagueTraining,maxLevel,trainingSafe:leagueTraining?leagueTraining.allowed:ordinary};
+    }
+    function xpRouteScore(row,m,speed,projection){
+        const {battleFit,leagueTraining}=row,{yieldMembers,xpMult,targets,buddy}=projection;
+        const base=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0),perMember=(leagueTraining?.xpPerMember??base)*xpMult;
+        const experience=targets?targets.reduce((sum,t)=>sum+Math.min(t.remaining,perMember*(t.uid===buddy?1.3:1)),0):perMember*yieldMembers;
+        const model=leagueTraining?experience/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,speed)*60*battleFit.factor;
+        const estimate=estimateWithHistory(model,m?.historicalRate);
+        const measured=m?.xpSeconds>0,samples=m?.xpRuns||0,actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
+        const trainingSafe=row.trainingSafe||measured&&samples>=2&&actualRate>0;
+        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,trainingSafe,fallback:!trainingSafe};
     }
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
     }
+    const yieldMaps=new Map();
+    function yieldCandidates(s,settings,xp){
+        const key=JSON.stringify([xp,settings.mode==='dex',settings.region,huntRegions(settings),currentRegion(s),s.adv.unlocked,s.travel?.to]);
+        let maps=yieldMaps.get(key);
+        if(!maps){
+            maps=xp?trainingCandidates(s,settings):candidates(s,settings,true);
+            yieldMaps.set(key,maps);
+            if(yieldMaps.size>8)yieldMaps.delete(yieldMaps.keys().next().value);
+        }
+        return maps;
+    }
     function yieldRankingRequest(kind,s,settings,metrics,now,{separateMoney=false}={}){
         if(settings.mode==='dex')settings={...settings,mode:kind==='xp'?'train':'money',autoTeam:false};
-        let maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
+        let maps=yieldCandidates(s,settings,kind==='xp');
         let otherWallet=null;
         if(s.link){
             const onCurrentSide=row=>(row.reg===s.link.to)===(s.link.side==='to');
@@ -275,59 +291,87 @@
     }
     function preparationRankingRequest(s,settings,preparation,metrics,now){
         const options={...settings,region:'all'},reg=preparation.context.reg;
-        const maps=trainingCandidates(s,options).filter(row=>row.reg===reg);
+        const maps=yieldCandidates(s,options,true).filter(row=>row.reg===reg);
         const training={...s,team:[...(preparation.uids||[])]};
         const request=makeYieldRankingRequest('preparation',training,options,metrics,now,maps,reg,null,preparation.targets);
         request.ceiling=preparation.routeCeiling;
         return request;
     }
+    const liveYieldRows=new WeakMap(),yieldMetricLookups=new Map();
+    function refreshYieldRows(rows,signature,score){
+        const cached=liveYieldRows.get(rows);
+        if(cached?.signature===signature)return cached.rows;
+        const refreshed=rows.map(score).sort(compareYieldRows);
+        liveYieldRows.set(rows,{signature,rows:refreshed});
+        return refreshed;
+    }
     function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null,goals,separateMoney=false){
         const xp=kind!=='money';
         const targets=xp?trainingXpTargets(s,settings,goals):null,suffix=trainingXpSuffix(targets);
-        const metricKey=routeMetricKey(s,settings,now);
-        const otherKey=otherWallet&&routeMetricKey(otherWallet,settings,now);
         const states=maps.map(row=>otherWallet&&(row.reg===s.link.to)===(otherWallet.link.side==='to')?otherWallet:s);
-        // The telemetry object mutates in place. Pin precisely the fields read by
-        // this search so a sample crossing two slices cannot mix measurements.
-        const samples=maps.map((row,i)=>{
-            const key=states[i]===s?metricKey:otherKey,exact=key(row),m=metrics[exact+suffix];
-            if(xp?m?.xpSeconds>0:m?.seconds>0)return xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs};
-            if(suffix)return;
-            const legacy=key(row,false);
-            if(exact===legacy)return;
-            const mixed=metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
-            if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
-        });
         const previewMoney=!xp&&settings.mode==='money'&&settings.autoTeam&&s.mons.length>s.team.length;
         const split=!xp&&separateMoney;
-        const rankingInputs=xp?yieldRankingInputs:moneyBaseInputs;
-        const otherInputs=otherWallet&&rankingInputs(otherWallet,settings,maps.filter((row,i)=>states[i]===otherWallet),now);
+        const otherInputs=otherWallet&&routeYieldInputs(otherWallet,settings,maps.filter((row,i)=>states[i]===otherWallet),now,true);
+        const battleInputs=[split,reg,routeYieldInputs(s,settings,maps,now,!xp),otherInputs,maps.map(row=>row.key)];
+        // The telemetry object mutates in place. Pin precisely the fields read by
+        // this read, while reusing scoped lookup keys between equivalent saves.
+        let samples=[];
+        if(Object.keys(metrics).length){
+            const metricSignature=JSON.stringify([battleInputs,suffix,new Date(now).getDate(),ROAMING_DATA.groups.some(group=>s.adv.badges?.includes(group.badge))]);
+            let keys=yieldMetricLookups.get(metricSignature);
+            if(!keys){
+                const metricKey=routeMetricKey(s,settings,now),otherKey=otherWallet&&routeMetricKey(otherWallet,settings,now);
+                keys=maps.map((row,i)=>{
+                    const key=states[i]===s?metricKey:otherKey,exact=key(row),legacy=suffix?null:key(row,false);
+                    return [exact+suffix,exact===legacy?null:legacy];
+                });
+                yieldMetricLookups.set(metricSignature,keys);
+                if(yieldMetricLookups.size>6)yieldMetricLookups.delete(yieldMetricLookups.keys().next().value);
+            }
+            samples=keys.map(([exact,legacy])=>{
+                const m=metrics[exact];
+                if(xp?m?.xpSeconds>0:m?.seconds>0)return xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs};
+                const mixed=legacy&&metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
+                if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
+            });
+        }
         const maxCycleXp=targets?Math.max(0,...maps.map(row=>row.members.reduce((sum,id)=>sum+(CHAPTERS.get(id)?.xpEstimate||0),0)))*1.3*(activeYieldBuff(s,'xp',now)?.mult||1):0;
-        const signature=JSON.stringify([split,reg,rankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),split?null:samples,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)]),
+        const signature=JSON.stringify([...battleInputs,!xp&&!split?samples:null,
             previewMoney&&!split?rosterFingerprint(s):null]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
             : !split&&previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&(split||maps.some(row=>row.league));
         const request={kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,split?[]:samples,now,sliced,states,previewMoney&&!split,targets)};
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,split?[]:samples,now,sliced,states,previewMoney&&!split)};
+        if(xp){
+            const growing=partyMons(s).filter(mon=>mon.level<trainingCap(s,mon)),buddy=s.buddy?.uid;
+            const projection={yieldMembers:growing.length+(growing.some(mon=>mon.uid===buddy)?.3:0),xpMult:activeYieldBuff(s,'xp',now)?.mult||1,targets,buddy};
+            const currentSamples=new Map(maps.map((row,i)=>[row.key,samples[i]]));
+            const refreshSignature=JSON.stringify([samples,projection.yieldMembers,projection.xpMult,buddy,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)])]);
+            // XP ticks and measured rounds change how a route pays, not how the same team fights.
+            request.refreshRows=rows=>refreshYieldRows(rows,refreshSignature,row=>xpRouteScore(row,currentSamples.get(row.key),settings.speed,projection));
+            return request;
+        }
         if(!split)return request;
         const locations=new Map(maps.map((row,i)=>[row.key,{row,state:states[i],sample:samples[i]}]));
-        request.refreshRows=rows=>rows.map(row=>{
+        const refreshSignature=JSON.stringify(samples);
+        request.refreshRows=rows=>refreshYieldRows(rows,refreshSignature,row=>{
             const {state,sample}=locations.get(row.key);
             return moneyRouteScore(state,row,sample,row.battleFit,now,settings.speed);
-        }).sort(compareYieldRows);
+        });
         if(previewMoney){
             request.projections=rows=>moneyProjectionRequest(s,settings,locations,rows,now);
             request.withProjections=(rows,hints)=>applyMoneyProjections(rows,hints,locations,settings,now);
         }
         return request;
     }
-    function moneyBaseInputs(s,settings,maps,now){
+    function routeYieldInputs(s,settings,maps,now,money){
         const inputs=yieldRankingInputs(s,settings,maps,now),members=new Set(maps.flatMap(row=>row.members));
         const [account,,unlocked,open,region,hunt,slot,hour,season,roam]=inputs[0];
         // Which room is currently fighting is immaterial to an all-map replay
         // ranking, including natural room progression within a league.
-        inputs[0]=[account,unlocked,open,region,hunt,slot,hour,season,roam.filter(([,id])=>members.has(id))];
-        inputs.push(maps.map(row=>moneyRouteThreatKey(s,row,now)).filter(Boolean));
+        inputs[0]=[account,unlocked,open,region,hunt,slot,hour,season,roam.filter(([,id])=>members.has(id)),
+            totalDeaths(s,{members:[...members]})];
+        if(money)inputs.push(maps.map(row=>moneyRouteThreatKey(s,row,now)).filter(Boolean));
         return inputs;
     }
     function moneyRouteThreatKey(s,row,now){
@@ -335,7 +379,14 @@
     }
     function compareYieldRows(a,b){return b.rate-a.rate||a.id-b.id;}
     function moneySpecialists(s,settings,rows,states){
-        const rated=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}));
+        const walletFactors=new Map();
+        const rated=rows.map((row,i)=>{
+            const state=states[i];
+            let regional=walletFactors.get(state);
+            if(!regional){regional=new Map();walletFactors.set(state,regional);}
+            if(!regional.has(row.reg))regional.set(row.reg,moneyFactor(state,row));
+            return{row,state,potential:estimateRate(row,settings.speed)*regional.get(row.reg)};
+        });
         const high=rated.slice().sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id);
         const active=rated.find(entry=>entry.row.members.includes(s.adv.chapter));
         const different=high.find(entry=>entry.row.league!==high[0]?.row.league);
@@ -345,12 +396,15 @@
         return JSON.stringify(party.map(mon=>[mon.uid,monRegion(mon),...combatProfile({...mon,status:null})]));
     }
     function moneyScoutEvidence(state,row,now){
-        return JSON.stringify([routeIdentity(row),state.link?.side,chapterYieldRules(row.id),moneyRouteThreatKey(state,row,now),
+        return JSON.stringify([routeIdentity(row),state.link?.side,chapterYieldRules(row.id),moneyRouteThreatKey(state,row,now),totalDeaths(state,row),
             row.members.map(id=>{
                 const branch=CHAPTERS.get(id)?.foesByStarter;
                 const starter=branch&&starterChoice(state,branch.key,Object.keys(branch.choices||{}).map(Number));
                 return [starter,combatWeather(state,{chapter:id},{row},now).signature];
             })]);
+    }
+    function projectionEvidence(location,row,now){
+        return location.scoutKey??=moneyScoutEvidence(location.state,row,now);
     }
     function moneyProjectionRequest(s,settings,locations,rows,now){
         if(!rows.length)return null;
@@ -358,10 +412,10 @@
         // Scouts are hints; a separate live proof checks the exact current Box
         // before deployment. Samples, unrelated members improving and minor XP
         // changes must not keep restarting these slower advisory calculations.
-        const candidatesInScope=[...candidates].map(entry=>({...entry,scoutKey:moneyScoutEvidence(entry.state,entry.row,now)}));
+        const candidatesInScope=[...candidates].map(entry=>({...entry,scoutKey:projectionEvidence(locations.get(entry.row.key),entry.row,now)}));
         const scene=candidatesInScope.map(entry=>entry.scoutKey);
         const signature=JSON.stringify([accountId(s),routePlanSettings(settings),scene]);
-        return {kind:'money',cacheSlot:'money/projections',signature,needsSlices:true,projectionOnly:true,refreshAfterMs:120000,
+        return {kind:'money',cacheSlot:'money/projections',signature,needsSlices:true,projectionOnly:true,
             search:sliced=>scoreMoneyProjections(settings,candidatesInScope,now,sliced)};
     }
     function* scoreMoneyProjections(settings,candidates,now,sliced){
@@ -384,8 +438,8 @@
         if(!hints?.length)return rows;
         const setting=routePlanSettings(settings),shown=new Map(rows.map(row=>[row.key,row])),byKey=new Map();
         for(const hint of hints){
-            const state=locations.get(hint.key)?.state,row=shown.get(hint.key);
-            if(state&&row&&hint.account===accountId(state)&&hint.setting===setting&&hint.scoutKey===moneyScoutEvidence(state,row,now))byKey.set(hint.key,hint);
+            const location=locations.get(hint.key),row=shown.get(hint.key);
+            if(location&&row&&hint.account===accountId(location.state)&&hint.setting===setting&&hint.scoutKey===projectionEvidence(location,row,now))byKey.set(hint.key,hint);
         }
         if(!byKey.size)return rows;
         return rows.map(row=>{
@@ -402,17 +456,12 @@
                     setting,key,threat:hint.threat,roster:adventureRosterFingerprint(state,row.reg),evidence:'estimate',minimumRate:row.rate*1.08}};
         });
     }
-    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets){
+    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney){
         const rows=[];
         const walletParties=new Map();
-        let projection;
-        if(kind!=='money'){
-            const party=partyMons(s),growing=party.filter(mon=>mon.level<trainingCap(s,mon));
-            const buddyShare=growing.some(mon=>mon.uid===s.buddy?.uid) ? .3 : 0;
-            projection={party,yieldMembers:growing.length+buddyShare,xpMult:activeYieldBuff(s,'xp',now)?.mult||1,targets};
-        }
+        const party=kind==='money'?null:partyMons(s);
         for(const [i,row] of maps.entries()){
-            if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,samples[i],now,sliced,projection));
+            if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,now,sliced,party));
             else{
                 const state=states[i];
                 if(!walletParties.has(state))walletParties.set(state,partyMons(state));
@@ -430,7 +479,7 @@
             const locations=new Map(rows.map((row,i)=>[row.key,{state:states[i]}]));
             return applyMoneyProjections(rows,hints,locations,settings,now).sort(compareYieldRows);
         }
-        return rows.sort(compareYieldRows);
+        return party?rows:rows.sort(compareYieldRows);
     }
     function safeTrainingRoutes(rows,startChapter){
         const safe=rows.filter(row=>row.trainingSafe);
@@ -460,7 +509,7 @@
         const cached=routeRankings.get(request.kind);
         if(cached?.signature!==request.signature)return [];
         const result=[];
-        for(const row of cached.rows){
+        for(const row of request.refreshRows?.(cached.rows)||cached.rows){
             if(!row.league||selected.some(other=>other.key===row.key))continue;
             const causes=[];
             if(row.maxLevel>request.ceiling)causes.push(`补练难度上限 Lv.${request.ceiling}，联盟最高 Lv.${row.maxLevel}`);

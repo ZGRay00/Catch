@@ -37,8 +37,9 @@
         return{byUid,profiles,duplicates,fingerprint,rebuilt};
     }
     function publishSaveBox(s,previous){
-        const roster=makeRosterIndex(s.mons,saveBoxViews.get(previous)?.roster,true);
+        const prior=saveBoxViews.get(previous),roster=makeRosterIndex(s.mons,prior?.roster,true);
         const view={roster,locations:null,eligible:new Map()};
+        if(prior?.adventureKeys&&prior.roster.profiles===roster.profiles&&previous.link?.to===s.link?.to&&previous.link?.side===s.link?.side)view.adventureKeys=prior.adventureKeys;
         saveBoxViews.set(s,view);saveRosterArrays.set(s.mons,roster);
         return view;
     }

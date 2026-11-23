@@ -1,4 +1,4 @@
-const test=require('node:test'),assert=require('node:assert/strict'),H=require('../Pokecatch自动助手.user.js');
+const test=require('node:test'),assert=require('node:assert/strict'),H=require(process.env.POKECATCH_AUDIT_SOURCE||'../Pokecatch自动助手.user.js');
 
 function fixture(options={}){
     const mons=[129,19,16,21,23,10].map((id,i)=>({uid:'m'+i,id,level:i?20:5,reg:'kanto'}));
@@ -48,6 +48,15 @@ test('a strong carrier on the locked regional side cannot replace the destinatio
 test('equal-strength duplicate PC members do not cause repeated training-party replacements',()=>{
     const {s,p,coach,logs}=fixture();s.mons.push({...s.mons[1],uid:'equivalent'});coach.reconcile(s,p,1000);const before=[...p.uids],count=logs.length;
     coach.reconcile(s,p,2200);coach.reconcile(s,p,35000);assert.deepEqual(p.uids,before);assert.ok(!p.uids.includes('equivalent'));assert.equal(logs.length,count);
+});
+
+test('a training carrier review is retained through successful fights but a defeat can reopen the pilot lineup',()=>{
+    const {s,p,coach,carrier}=fixture();p.phase='train';coach.reconcile(s,p,1000);
+    const previous=coach.teamReview;s.stats={wins:2};s.buddy={uid:'m0'};carrier();
+    const later=1000+12*3600000;
+    coach.reconcile(s,p,later);assert.equal(coach.teamReview,previous);assert.ok(!p.uids.includes('carrier'));
+    s.adv.deaths={8:1};coach.reconcile(s,p,later+1200);
+    assert.notEqual(coach.teamReview,previous);assert.ok(p.uids.includes('carrier'));assert.ok(p.uids.includes('m0'));
 });
 
 test('a carrier level gain causes an immediate safe review rather than waiting for its periodic deadline',()=>{

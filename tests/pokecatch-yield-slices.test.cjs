@@ -99,7 +99,41 @@ test('money combat search survives measurements, bench XP and league room change
     assert.ok(engine.rankingJobs.get('money/projections'),'live results are available while specialist suggestions are pending');
 });
 
-test('money scouts stream completed maps, survive the refresh interval, and retain completed hints during refresh',t=>{
+test('named learner XP and measured rounds update results without restarting combat evaluation',t=>{
+    const {s,engine,now,drain,next,timers}=fixture(t,'train');engine.running=true;
+    Object.assign(engine.settings,{trainUid:'selected',trainUids:[s.team[0]],trainLevel:s.mons[0].level+1});
+    const learner=s.mons[0],gap=H.candyXpGap(s,learner,engine.settings.trainLevel);
+    assert.ok(gap>10000);
+    learner.xp=gap-10000;
+    const league=H.candidates(s,engine.settings,true).find(entry=>entry.reg==='unova'&&entry.league);
+    s.adv.chapter=league.members[0];
+    const row=H.candidates(s,engine.settings,true).find(entry=>entry.id===42);
+    const suffix=H.trainingXpSuffix(H.trainingXpTargets(s,engine.settings));
+    const key=H.metricsKey(s,row,engine.settings,now)+suffix;
+    let clock=0;t.mock.method(global.performance,'now',()=>clock+=5);
+    assert.equal(engine.rankedYieldRoutes(s,'xp',{},now),null);
+    const search=engine.rankingJobs.get('xp'),sample={xp:20000000,xpSeconds:60,xpRuns:2};
+    for(let i=0;i<5;i++){
+        assert.ok(next());learner.xp+=100;
+        sample.xp+=200000;
+        s.adv.chapter=league.members[i%league.members.length];
+        engine.metrics[key]=sample;
+        assert.equal(engine.rankedYieldRoutes(s,'xp',{},now),null);
+        assert.equal(engine.rankingJobs.get('xp'),search);
+    }
+    drain();
+    const result=engine.rankedYieldRoutes(s,'xp',{},now);
+    assert.equal(result[0].key,row.key);assert.equal(result[0].rate,sample.xp);
+    const unmeasured=result.find(entry=>!entry.measured&&entry.estimatedRate>0);
+    assert.ok(unmeasured);
+    learner.xp=gap-1;
+    const refreshed=engine.rankedYieldRoutes(s,'xp',{},now).find(entry=>entry.key===unmeasured.key);
+    assert.equal(refreshed.battleFit,unmeasured.battleFit);
+    assert.ok(refreshed.estimatedRate<unmeasured.estimatedRate,'the latest remaining XP still caps the forecast');
+    assert.equal(timers.size,0);
+});
+
+test('money scouts stream completed maps and keep the result past the former refresh interval',t=>{
     const {s,engine,now,drain,next}=fixture(t,'long-scout');
     engine.running=true;engine.settings.mode='money';
     s.mons.push({id:289,uid:'scout-reserve',level:100});
@@ -123,9 +157,8 @@ test('money scouts stream completed maps, survive the refresh interval, and reta
     const completed=read(later)[0].planCoverage;
     assert.ok(completed.evaluated>partial.evaluated);
     assert.equal(engine.rankingJobs.has('money/projections'),false);
-    const refreshing=read(later+125000)[0].planCoverage;
-    assert.ok(engine.rankingJobs.get('money/projections'),'refresh starts after completed evidence ages out');
-    assert.deepEqual(refreshing,completed,'the usable rows remain visible while refreshing');
+    assert.deepEqual(read(later+125000)[0].planCoverage,completed);
+    assert.equal(engine.rankingJobs.has('money/projections'),false,'completed evidence has no time-only refresh');
 });
 
 test('a queued roaming opponent invalidates only its route fit and does not add money',t=>{

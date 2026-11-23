@@ -897,10 +897,11 @@ test('explicit trainees enter a full strong party even when their addition lower
     assert.equal(plan.uids.length,6);assert.ok(plan.score<plan.currentScore);
 });
 
-test('single-level and stat modifier changes invalidate team recommendations immediately',t=>{
+test('farming keeps the existing team review through growth, but a defeat invalidates it',t=>{
     const s=state(),{e}=runtime(t,s,{autoTeam:true,mode:'money'}),now=Date.now();e.fitTeam(s,now);let key=H.rosterFingerprint(s);
-    s.mons[0].level++;assert.notEqual(H.rosterFingerprint(s),key);e.fitTeam(s,now+1000);assert.equal(e.teamCheck.at,now+1000);
-    key=H.rosterFingerprint(s);s.mons[0].statMult=1.2;assert.notEqual(H.rosterFingerprint(s),key);e.fitTeam(s,now+2000);assert.equal(e.teamCheck.at,now+2000);
+    s.mons[0].level++;assert.notEqual(H.rosterFingerprint(s),key);e.fitTeam(s,now+1000);assert.equal(e.teamCheck.at,now);
+    key=H.rosterFingerprint(s);s.mons[0].statMult=1.2;assert.notEqual(H.rosterFingerprint(s),key);e.fitTeam(s,now+2000);assert.equal(e.teamCheck.at,now);
+    s.adv.deaths={[s.adv.chapter]:1};e.fitTeam(s,now+3000);assert.equal(e.teamCheck.at,now+3000);
 });
 
 test('team recommendation waits for the queued road party to apply before starting another swap',t=>{

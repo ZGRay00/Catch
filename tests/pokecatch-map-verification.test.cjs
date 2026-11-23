@@ -1,4 +1,4 @@
-const test=require('node:test'),assert=require('node:assert/strict'),H=require('../Pokecatch自动助手.user.js');
+const test=require('node:test'),assert=require('node:assert/strict'),H=require(process.env.POKECATCH_AUDIT_SOURCE||'../Pokecatch自动助手.user.js');
 
 const now=new Date(2026,10,19,12,15).getTime();
 function fixture(t,settings={}){
@@ -107,9 +107,57 @@ test('a verified money trip takes precedence over training through native arriva
     s.road=[...specialist];save();
     await e.step(now+4800);
     assert.equal(e.visit.activeRoutePlan,verified.routePlan);assert.equal(e.preparation,null);
+    const later=now+2*3600000;
+    s.mons.push({uid:'unused-new-member',id:149,level:100,reg:'unova'});save();
+    assert.equal(e.verifiedFarmHeld(e.read(),later),true,'an arriving reserve and new weather slot do not invalidate the applied party');
+    e.evaluateRouteRanking=()=>assert.fail('the confirmed visit must not open a new comparison');
+    assert.equal(e.rankedYieldRoutes(e.read(),'money',{},later,true)[0].key,e.target.key);
+    e.driver.raid={reg:'kanto'};
+    e.finishRaidReturn(later,e.read());
+    assert.equal(e.target,verified,'a raid that returns to the same route does not displace the running plan');
+    e.updateHeldFarmSample(e.read(),{seconds:60,net:12000},later);
+    assert.equal(e.heldFarm(e.read(),'money',later).row.rate,12000,'live income changes without starting another route calculation');
     assert.equal(e.coach.adventure(e.read(),null,now+4800),null,'an applied proof must not immediately be routed through the same preflight');
     s.adv.deaths[verified.id]=1;save();
+    assert.equal(e.verifiedFarmHeld(e.read(),later),false);
+    assert.equal(e.heldFarm(e.read(),'money',later),null);
     assert.equal(e.coach.adventure(e.read(),null,now+6000)?.context.id,verified.id,'fresh defeat releases the optimistic proof');
+});
+
+test('a completed practice route is retained through growth and resume until defeat or a new goal',t=>{
+    const {s,e,save}=fixture(t,{mode:'train',trainUid:'a',trainLevel:45});
+    const chosen={...row(0),rate:1000,trainingSafe:true},alternative={...row(1),rate:950,trainingSafe:true};
+    const ranked=e.rankedYieldRoutes;
+    let reranks=0;
+    e.rankedYieldRoutes=()=>{reranks++;return [chosen,alternative];};
+    e.confirmMapArrival(e.read(),{row:chosen},now);
+    e.automation.autoBuddy=()=>false;e.automation.autoBuff=()=>false;
+    e.farm(e.read(),now,'train');
+    assert.equal(reranks,1);
+    s.mons[0].level++;s.mons.push({uid:'bench',id:150,level:100});save();
+    e.manualInput(now+2000);e.resumeManual(now+4000);
+    e.farm(e.read(),now+2*3600000,'train');
+    assert.equal(reranks,1,'neither growth, steps, elapsed time nor resuming starts another ranking');
+    assert.equal(ranked.call(e,e.read(),'xp',{},now+2*3600000,true)[0].key,chosen.key);
+    e.settings.trainLevel++;
+    assert.equal(e.heldFarm(e.read(),'xp',now+2*3600000),null);
+    e.farm(e.read(),now+2*3600000,'train');
+    assert.equal(reranks,2,'an explicitly different goal gets a new plan');
+    s.adv.deaths={0:1};save();
+    e.farm(e.read(),now+2*3600000+1000,'train');
+    assert.equal(reranks,3,'a new defeat triggers a fresh comparison immediately');
+});
+
+test('money finishes its first choice before locking a newly adopted loop',t=>{
+    const {e}=fixture(t),current={...row(0),rate:1000},faster={...row(1),rate:2000};
+    e.rankedYieldRoutes=()=>[faster,current];
+    e.automation.autoBuff=()=>false;e.canStartRoute=()=>true;
+    e.money(e.read(),now);
+    assert.equal(e.target.key,current.key);
+    assert.equal(e.driver.pendingMap,null);
+    assert.equal(e.heldFarm(e.read(),'money',now),null);
+    e.money(e.read(),now+16000);
+    assert.equal(e.driver.pendingMap.row.key,faster.key);
 });
 
 test('a changed eligible box cancels an unexecuted money proof before considering preparation again',async t=>{
@@ -122,6 +170,26 @@ test('a changed eligible box cancels an unexecuted money proof before considerin
     await e.step(now+1200);
     assert.equal(e.driver.pendingMap,null);assert.equal(e.preparation,null);
     assert.equal(e.coach.adventure(e.read(),null,now+2400)?.context.id,75);
+});
+
+test('a money route waits for its started legal swap through Box growth and retires the stale proof on road receipt',t=>{
+    const {s,e,save,verified}=verifiedMoneyTrip(t),plan=verified.routePlan;
+    Object.assign(s.adv,{chapter:verified.id,loops:[verified.key],node:0});save();
+    e.confirmMapArrival(e.read(),{row:verified,routePlan:plan},now);
+    assert.equal(e.applyArrivalTeam(e.read(),now+1000),true);
+    const task=e.driver.teamTask;
+    task.hasDragged=true;
+    task.pending={before:s.team.join('|'),after:plan.party.join('|'),at:now+1000};
+    s.mons.push({uid:'changed-box',id:1,level:70,reg:'unova'});s.team=[...plan.party];save();
+    assert.equal(e.routeRequestValid(e.read(),{row:verified,routePlan:plan},now+2000,true),false);
+    assert.equal(e.applyArrivalTeam(e.read(),now+2000),true);
+    assert.equal(e.driver.teamTask,task);
+    assert.equal(e.driver.adventureTeam(e.read(),now+2000),true);
+    assert.equal(e.driver.teamTask,null);assert.equal(e.visit.routePlan.applied,true);
+    assert.equal(e.applyArrivalTeam(e.read(),now+3000),true);
+    s.road=[...plan.party];save();
+    assert.equal(e.applyArrivalTeam(e.read(),now+4000),false);
+    assert.equal(e.visit.routePlan,null);assert.equal(e.visit.activeRoutePlan,undefined);
 });
 
 test('learners use goal-truncated UID observations, separate from historical party XP',t=>{

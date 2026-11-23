@@ -92,6 +92,66 @@ test('a delayed native party save cannot trigger duplicate swap drags or undo th
     assert.deepEqual(f.s.road,['a','b'],'saved PC selection does not invent native road application');
 });
 
+function farmingSwapFixture(t,mode='money'){
+    const f=teamFixture(t),e=f.e,d=e.driver;
+    f.s.mons.push({uid:'c',id:3,level:70},{uid:'bench',id:25,level:70});
+    f.s.team.push('c');f.s.road.push('c');
+    f.nodes.get('#team-slots').children.push(f.node({slot:2}));
+    const uids=['b','c','a'];d.teamTask=null;
+    Object.assign(e.settings,{mode,trainUid:'selected',trainUids:['b'],trainLevel:100});
+    e.evaluateTeamSearch=()=>({uids,changed:true,reason:'sample',gain:.2,opponents:10});
+    assert.equal(e.fitTeam(f.s,f.now()),true);
+    return f;
+}
+
+test('a training party finishes its legal moves through unrelated Box growth and keeps its locked target',t=>{
+    const f=farmingSwapFixture(t,'train'),d=f.e.driver;
+    f.s.mons.at(-1).level++;
+    assert.equal(f.tick(),false,'a changed Box before the first action invalidates the old plan');
+    assert.equal(f.drags.length,0);
+    assert.equal(f.e.fitTeam(f.s,f.now()),true);
+    f.tick();assert.deepEqual(f.drags,[[1,0]]);
+    f.s.team=['b','a','c'];f.s.mons.at(-1).level++;
+    f.advance(1200);f.tick();assert.deepEqual(f.drags,[[1,0],[2,1]]);
+    f.s.team=['b','c','a'];f.advance(1200);f.tick();
+    assert.equal(d.teamTask,null);assert.equal(f.visits.at(-1),'adventure');
+    assert.deepEqual(f.s.road,['a','b','c'],'the helper still waits for the game to apply the road team');
+});
+
+for(const invalid of ['unexpected saved party','missing planned member','manual takeover']){
+    test(`a pending farming move stops for ${invalid}`,t=>{
+        const f=farmingSwapFixture(t),d=f.e.driver;
+        f.tick();assert.deepEqual(f.drags,[[1,0]]);
+        f.s.team=invalid==='unexpected saved party'?['c','b','a']:['b','a','c'];
+        if(invalid==='missing planned member')f.s.mons=f.s.mons.filter(mon=>mon.uid!=='c');
+        if(invalid==='manual takeover')f.e.manualInput(f.now());
+        f.advance(1200);assert.equal(f.tick(),false);
+        assert.equal(d.teamTask,null);assert.equal(f.drags.length,1);
+    });
+}
+
+for(const example of [
+    {name:'same-species replacement',ids:[6,9,3,9],goal:['x','a','c'],drop:1,receipt:['a','x','c']},
+    {name:'Kyurem ejecting a remaining fusion conflict',ids:[643,644,6,646],goal:['x','c'],drop:0,receipt:['x','c']},
+]){
+    test(`farming accepts the native PC receipt for ${example.name}`,t=>{
+        const f=farmingSwapFixture(t),d=f.e.driver;
+        f.s.mons=example.ids.map((id,i)=>({uid:['a','b','c','x'][i],id,level:70}));
+        const card=f.node({dataset:{uid:'x'},getBoundingClientRect:()=>({top:10,bottom:30})});
+        global.document.querySelectorAll=selector=>selector==='#pc-grid .pc-cell[data-uid]'?[card]:[];
+        const previousHeight=global.innerHeight;global.innerHeight=500;
+        t.after(()=>{if(previousHeight===undefined)delete global.innerHeight;else global.innerHeight=previousHeight;});
+        d.drag=(from,to)=>{f.drags.push([from.dataset.uid??from.slot,to.slot]);return true;};
+        f.e.evaluateTeamSearch=()=>({uids:example.goal,changed:true,reason:'sample',gain:.2,opponents:10});
+        assert.equal(f.e.fitTeam(f.s,f.now()),true);
+        f.tick();assert.deepEqual(f.drags,[['x',example.drop]]);
+        assert.equal(d.teamTask.pending.after,example.receipt.join('|'));
+        f.s.team=example.receipt;f.advance(1200);assert.equal(f.tick(),true);
+        if(d.teamTask){f.s.team=example.goal;f.advance(1200);assert.equal(f.tick(),true);}
+        assert.equal(d.teamTask,null);assert.equal(f.visits.at(-1),'adventure');
+    });
+}
+
 test('unconfirmed swaps retry only after their save window and eventually back off to adventure',t=>{
     const f=teamFixture(t);f.e.teamCheck={key:'old'};f.tick();
     f.advance(10000);f.tick();f.advance(10000);f.tick();assert.equal(f.drags.length,3);
@@ -103,6 +163,27 @@ test('unconfirmed swaps retry only after their save window and eventually back o
 test('background suspension preserves the remaining party save confirmation window',t=>{
     const f=teamFixture(t);f.tick();const at=f.e.driver.teamTask.pending.at;f.e.hiddenAt=f.now();f.advance(300000);f.e.resumeUIClock(f.now());
     assert.equal(f.e.driver.teamTask.pending.at,at+300000);f.tick();assert.equal(f.drags.length,1);assert.ok(f.e.driver.teamTask);
+});
+
+test('rendered PC members can be placed into a six-slot formation without redundant searches or swaps',t=>{
+    const f=fixture(t,{screen:'team'}),d=f.e.driver,drags=[];
+    const team=['a','b','c','d','e','f'],desired=['a','b','x','y','z','c'];
+    f.s.team=[...team];f.s.mons=[...team,'x','y','z'].map((uid,i)=>({uid,id:i+1,level:50}));
+    const slots=team.map((_,slot)=>f.node({slot}));f.nodes.set('#team-slots',{children:slots});
+    const cards=new Map(['x','y','z'].map(uid=>[uid,f.node({dataset:{uid},getBoundingClientRect:()=>({top:10,bottom:30})})]));
+    global.document.querySelectorAll=selector=>selector==='#pc-grid .pc-cell[data-uid]'?[...cards.values()]:[];
+    const previousHeight=global.innerHeight;global.innerHeight=500;
+    t.after(()=>{if(previousHeight===undefined)delete global.innerHeight;else global.innerHeight=previousHeight;});
+    d.input=()=>assert.fail('a rendered target needs no species search');
+    d.drag=(from,to)=>{
+        drags.push([from.dataset.uid??from.slot,to.slot]);
+        if(from.dataset.uid)f.s.team[to.slot]=from.dataset.uid;
+        else [f.s.team[from.slot],f.s.team[to.slot]]=[f.s.team[to.slot],f.s.team[from.slot]];
+        return true;
+    };
+    d.teamTask={chapter:0,members:[0],uids:desired,started:f.now(),attempts:0};
+    for(let i=0;i<8&&d.teamTask;i++){d.adventureTeam(f.s,f.now());f.advance(1200);}
+    assert.deepEqual(f.s.team,desired);assert.equal(drags.length,4);assert.equal(d.teamTask,null);
 });
 
 test('route decisions distinguish the selected party from the real travelling party',t=>{

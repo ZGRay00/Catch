@@ -112,7 +112,9 @@ test('auto fitting gets first choice of PC members, then dispatch can use the re
     s.road=[...s.team];f.save();
     assert.ok(f.plan().ready.includes('underground'));
     assert.ok(H.undergroundIdleMembers(s,e,f.now()).every(mon=>!chosen.includes(mon.uid)));
-    f.add('new-carry',445);assert.match(f.plan().blocked.underground,/先适配/);
+    f.add('new-carry',445);assert.ok(f.plan().ready.includes('underground'),'new Box members do not clear a successful fit');
+    s.adv.deaths={...s.adv.deaths,[s.adv.chapter]:1};f.save();
+    assert.match(f.plan().blocked.underground,/先适配/);
 });
 
 test('entering Sinnoh enables scheduling but the native Forest badge requirement still applies',t=>{

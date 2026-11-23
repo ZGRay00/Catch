@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      7.0.4
+// @version      7.2.0
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '7.0.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '7.2.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -869,6 +869,7 @@
         if(p)return '';
         const check=e.teamCheck,chapter=CHAPTERS.get(s.adv.chapter),frontier=mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
         if((frontier&&chapter?.loop!==frontier.loop)||(e.target&&!e.target.members?.includes(s.adv.chapter)))return '等待目标路线的冒险配队';
+        if(e.farmingTeamHeld?.(s,now,check))return '';
         const members=check?.members||[s.adv.chapter];
         if(!check||!members.includes(s.adv.chapter)||check.mode!==mode||check.expectedParty!==partyKey||
             check.roster!==adventureRosterFingerprint(s,chapter?.reg)||check.autoSwitch!==(s.autoSwitch!==false)||
@@ -2840,8 +2841,9 @@
         return{byUid,profiles,duplicates,fingerprint,rebuilt};
     }
     function publishSaveBox(s,previous){
-        const roster=makeRosterIndex(s.mons,saveBoxViews.get(previous)?.roster,true);
+        const prior=saveBoxViews.get(previous),roster=makeRosterIndex(s.mons,prior?.roster,true);
         const view={roster,locations:null,eligible:new Map()};
+        if(prior?.adventureKeys&&prior.roster.profiles===roster.profiles&&previous.link?.to===s.link?.to&&previous.link?.side===s.link?.side)view.adventureKeys=prior.adventureKeys;
         saveBoxViews.set(s,view);saveRosterArrays.set(s.mons,roster);
         return view;
     }
@@ -3243,7 +3245,28 @@
         const entries=damagingMoves(MONS.get(mon.id)),banned=activeMoveBans(mon,entries);
         const offense=entries.reduce((best,{level,key,move,stab})=>level>mon.level||banned?.includes(key)?best:
             Math.max(best,stats[move.cat==='phys'?'atk':'spa']*move.power*move.acc*stab/100),0);
-        return Math.sqrt(offense*stats.hp*Math.sqrt(stats.def*stats.spd));
+        return Math.sqrt(offense*(mon.damageMult||1)*stats.hp*Math.sqrt(stats.def*stats.spd));
+    }
+    // Give a one-hit win with room for a stronger foe or a counterattack credit
+    // over a borderline one. This is a selection cost, not measured fight time.
+    function farmingPressure(detail){
+        const damageMargin=(detail.attack.minHit??0)/Math.max(1,detail.foeHp);
+        const incoming=(detail.incoming.maxHit??0)/Math.max(1,detail.hp);
+        return .22/(1+damageMargin)+(.15+.10*(1-detail.first))*incoming/(1+incoming);
+    }
+    const FARM_RESERVE_BONUS=.14, FARM_CHANGE_GAIN=.0075;
+    function farmRiskDelta(safety,previous){
+        const keyWipes=previous.keyWipes-safety.keyWipes;
+        return Math.abs(keyWipes)>1e-8?keyWipes:previous.wipes-safety.wipes;
+    }
+    function farmRiskBeforeScore(safety,previous,score,current){
+        const risk=farmRiskDelta(safety,previous);
+        return risk>1e-8||Math.abs(risk)<=1e-8&&score>current+1e-8;
+    }
+    function worthwhileFarmChange(score,current,safety,previous){
+        const risk=farmRiskDelta(safety,previous);
+        if(Math.abs(risk)>1e-8)return risk>0;
+        return score>current*(1+FARM_CHANGE_GAIN)||score>=current&&safety.deaths<=previous.deaths&&safety.worst<=previous.worst-1;
     }
     function teamApart(a,b){
         const fusion=a.id===643||a.id===644?b.id:a.id;
@@ -3407,7 +3430,8 @@
     }
     function deployedBattle(details,autoSwitch=true){
         if(!details.length)return{turns:1200,coverage:0,deaths:0};
-        const order=autoSwitch?details.map((detail,i)=>({detail,i})).sort((a,b)=>b.detail.deployment-a.detail.deployment||a.i-b.i).map(entry=>entry.detail):details;
+        // Stable sort retains native party order at equal priorities.
+        const order=autoSwitch?details.slice().sort((a,b)=>b.deployment-a.deployment):details;
         let hp=details[0].foeHp,turns=0,deaths=0;
         for(const detail of order){
             const {attack,incoming,first}=detail,needed=attackTurns(attack,hp);
@@ -3629,6 +3653,29 @@
         }
         const hasLearners=objective==='train'&&pool.some(mon=>xpShare(mon)>0);
         const farming=objective==='money'||hasLearners;
+        const protectedUids=new Set(pinned),combatSlots=Math.max(1,size-protectedUids.size);
+        const reserveScores=new Map();
+        const reserveScore=mon=>{
+            if(!reserveScores.has(mon.uid))reserveScores.set(mon.uid,reserveStrength(mon));
+            return reserveScores.get(mon.uid);
+        };
+        let strongestReserve=0;
+        if(farming&&protectedUids.size<size){
+            let checked=0;
+            for(const mon of pool){
+                if(!protectedUids.has(mon.uid))strongestReserve=Math.max(strongestReserve,reserveScore(mon));
+                if(sliced&&++checked%24===0)yield;
+            }
+        }
+        // Normalize against this legal Box. The combat premium is bounded and
+        // independent of encounter order, so cached solo outcomes remain reusable.
+        const reserveWeight=strongestReserve>0?FARM_RESERVE_BONUS/(strongestReserve*combatSlots):0;
+        function farmPartyScore(team,score){
+            if(!reserveWeight||!score)return score;
+            let strength=0;
+            for(const mon of team)if(!protectedUids.has(mon.uid))strength+=reserveScore(mon);
+            return score*(1+reserveWeight*strength);
+        }
         const underground=objective==='underMoney'||objective==='underDepth';
         const preferReserves=execution&&!underground;
         const allowRescue=!underground&&helperSwitchEnabled(s,settings);
@@ -3669,7 +3716,7 @@
         else{TEAM_ROWS.delete(threatKey);TEAM_ROWS.set(threatKey,shared);}
         const foeStats = weights.map(effectiveStats), cache = new Map();
         if(farming&&sliced)yield;
-        function* computeValues(mon,split) {
+        function* computeValues(mon,split,reviewPass=false) {
             if (cache.has(mon.uid)) return cache.get(mon.uid);
             const healed={...mon,status:null},key=JSON.stringify(combatProfile(healed));let row=shared.get(key);
             if(row){TEAM_CACHE.hits++;shared.delete(key);shared.set(key,row);}
@@ -3701,9 +3748,14 @@
                         first:d.first,deployment:d.deployment,survives:attackTurns(d.incoming,d.hp)};
                 });
                 row.priorities=Float64Array.from(details,d=>d.deployment);
-                row.safeFarmCost=Float64Array.from(row.solo,(battle,i)=>1+Math.min(battle.turns,180)+.65*(1-row.endurance[i]));
-                shared.set(key,row);
-                if(shared.size>rowLimit)shared.delete(shared.keys().next().value);
+                row.farmPressure=Float64Array.from(details,farmingPressure);
+                row.safeFarmCost=Float64Array.from(row.solo,(battle,i)=>1+Math.min(battle.turns,180)+.65*(1-row.endurance[i])+row.farmPressure[i]);
+                // A sequential full-pool review can be larger than this cache.
+                // Keep the existing block for the next pass instead of cycling it out.
+                if(!reviewPass||shared.size<rowLimit){
+                    shared.set(key,row);
+                    if(shared.size>rowLimit)shared.delete(shared.keys().next().value);
+                }
             }
             cache.set(mon.uid,row);return row;
         }
@@ -3739,8 +3791,8 @@
         const roomOf=eliteRooms.length?weights.map(foe=>eliteRooms.indexOf(foe.chapter)):[];
         const roomWeights=eliteRooms.map(ch=>weights.reduce((n,foe)=>n+(foe.chapter===ch?foe.weight:0),0));
         const roomScores=new Float64Array(eliteRooms.length);
-        const utility = (team,summary,nativeBasis,inserted,insertAt) => {
-            const rows=team.map(values);
+        const encounterUtility = (team,summary,nativeBasis,inserted,insertAt,scoredRows) => {
+            const rows=scoredRows||team.map(values);
             if(farming&&!rows.length)return 0;
             if(underground){
                 if(!rows.length)return 0;
@@ -3837,7 +3889,9 @@
                     if(hasLearners)learnerTail=Math.max(learnerTail,Math.min(30,battle.turns)+2*battle.deaths);
                     // Fixed travel/reward time prevents a short fight's last
                     // fraction of a turn from dominating a change of roster.
-                    const duration=!foe.roaming&&solo?.coverage===1?lead.safeFarmCost[i]:1+Math.min(battle.turns,180)+.65*(1-(lead?.endurance[i]??0))+1.8*battle.deaths+(clear?0:12);
+                    const duration=!foe.roaming&&solo?.coverage===1?lead.safeFarmCost[i]:
+                        1+Math.min(battle.turns,180)+.65*(1-(lead?.endurance[i]??0))+1.8*battle.deaths+(clear?0:12)+
+                            (foe.roaming?0:lead.farmPressure[i]);
                     farmingTime+=foe.weight*duration;
                     farmingLoss+=foe.weight*(clear?0:foe.gymCount?1.5:1);
                     fallbackCombat+=foe.weight*(clear?1:battle.coverage);
@@ -3885,6 +3939,7 @@
             }
             return scoreAfterTrainingCost(score,team);
         };
+        const utility=(team,summary)=>farmPartyScore(team,encounterUtility(team,summary));
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
         let force=context.force;
         // Check the real party before a progressive box search can publish a replacement.
@@ -3903,12 +3958,7 @@
             }
         }
         const chosen = [], used = new Set(),poolByUid=new Map(pool.map(mon=>[mon.uid,mon]));
-        const protectedUids=new Set(pinned),partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
-        const reserveScores=new Map();
-        const reserveScore=mon=>{
-            if(!reserveScores.has(mon.uid))reserveScores.set(mon.uid,reserveStrength(mon));
-            return reserveScores.get(mon.uid);
-        };
+        const partyOrder=new Map((s.team||[]).map((uid,i)=>[uid,i]));
         const reserveTotal=team=>team.reduce((sum,mon)=>sum+reserveScore(mon),0);
         // Only training projections carry this flag. Resolve equal combat scores
         // before falling back to the existing party order and stable UID.
@@ -3969,7 +4019,9 @@
                         const trial=fallback.slice();trial[i]=mon;
                         if(trial.some(other=>teamApart(mon,other)))continue;
                         const summary={},score=utility(trial,summary);
-                        if(score>best+1e-8&&(underground||score>base*1.05+.01)&&(!preferReserves||summary.wipes<=baseline.wipes)){
+                        const improves=farming?worthwhileFarmChange(score,base,summary,baseline):
+                            (underground||score>base*1.05+.01)&&(!preferReserves||summary.wipes<=baseline.wipes);
+                        if(score>best+1e-8&&improves){
                             best=score;
                             yield {uids:trial.map(m=>m.uid),changed:true,gain:score/base-1,checkpointScore:score,reg,objective,opponents:foes.length,reason:'局部替换改善当前地图的模型表现'};
                         }else yield;
@@ -4018,8 +4070,8 @@
         const incumbentScore=context.progressive?utility(incumbent,incumbentSafety):0;
         function checkpoint(){
             const summary={},score=utility(chosen,summary);
-            const apply=!legalIncumbent||(preferReserves&&summary.wipes<incumbentSafety.wipes)||
-                (score>incumbentScore*1.05+.01&&(!preferReserves||summary.wipes<=incumbentSafety.wipes));
+            const apply=!legalIncumbent||(farming?worthwhileFarmChange(score,incumbentScore,summary,incumbentSafety):
+                (preferReserves&&summary.wipes<incumbentSafety.wipes)||(score>incumbentScore*1.05+.01&&(!preferReserves||summary.wipes<=incumbentSafety.wipes)));
             return {uids:(apply?chosen:incumbent).map(m=>m.uid),changed:apply,checkpointScore:apply?score:incumbentScore,gain:incumbentScore?score/incumbentScore-1:0,reg,objective,opponents:foes.length,reason:apply?'采用预算内改善最大的合法阵容':'已评估的提升未过换队门槛'};
         }
         if(context.progressive)yield checkpoint();
@@ -4027,41 +4079,38 @@
         if(farming&&chosen.length===size&&protectedUids.size<size){
             const roamingIndexes=weights.flatMap((foe,index)=>foe.roaming?[index]:[]),current={};
             let currentScore=utility(chosen,current);
-            if(roamingIndexes.length||current.wipes){
-                // A strong reserve can lower the score of one replacement by
-                // taking over a few wins from the incumbent. Compare two legal
-                // starting teams to escape a weak lineup's local minimum.
-                const seed=ordered=>{
-                    const team=chosen.filter(mon=>protectedUids.has(mon.uid)),seen=new Set(team.map(identity));
-                    for(const mon of ordered){
-                        const key=identity(mon);
-                        if(seen.has(key)||team.some(other=>teamApart(mon,other)))continue;
-                        team.push(mon);seen.add(key);
-                        if(team.length>=size)break;
-                    }
-                    return team;
-                };
-                const seeds=[seed([...candidates].sort(prefer))];
-                if(roamingIndexes.length){
-                    const matchups=candidates.map(mon=>{
-                        const row=values(mon);
-                        const value=roamingIndexes.reduce((sum,i)=>{
-                            const {attack,incoming,hp}=row.details[i];
-                            return sum+attack.sustainedDamage*Math.sqrt(hp/(1+incoming.sustainedDamage));
-                        },0);
-                        return{mon,value};
-                    });
-                    matchups.sort((a,b)=>b.value-a.value||prefer(a.mon,b.mon));
-                    seeds.push(seed(matchups.map(entry=>entry.mon)));
+            // Give the strongest available core its own comparison. A sequence
+            // of one-member replacements can get stuck at a fragile local optimum.
+            const seed=ordered=>{
+                const team=chosen.filter(mon=>protectedUids.has(mon.uid)),seen=new Set(team.map(identity));
+                for(const mon of ordered){
+                    const key=identity(mon);
+                    if(seen.has(key)||team.some(other=>teamApart(mon,other)))continue;
+                    team.push(mon);seen.add(key);
+                    if(team.length>=size)break;
                 }
-                for(const trial of seeds){
-                    if(trial.length!==chosen.length||trial.every((mon,i)=>mon===chosen[i]))continue;
-                    const safety={},score=utility(trial,safety);
-                    if(safety.wipes<current.wipes||safety.wipes===current.wipes&&score>currentScore+1e-8){
-                        chosen.splice(0,chosen.length,...trial);Object.assign(current,safety);currentScore=score;
-                        testedSeed={members:trial,wipes:safety.wipes,score};
-                        if(context.progressive)yield checkpoint();
-                    }
+                return team;
+            };
+            const seeds=[seed([...candidates].sort(prefer))];
+            if(roamingIndexes.length){
+                const matchups=candidates.map(mon=>{
+                    const row=values(mon);
+                    const value=roamingIndexes.reduce((sum,i)=>{
+                        const {attack,incoming,hp}=row.details[i];
+                        return sum+attack.sustainedDamage*Math.sqrt(hp/(1+incoming.sustainedDamage));
+                    },0);
+                    return{mon,value};
+                });
+                matchups.sort((a,b)=>b.value-a.value||prefer(a.mon,b.mon));
+                seeds.push(seed(matchups.map(entry=>entry.mon)));
+            }
+            for(const trial of seeds){
+                if(trial.length!==chosen.length||trial.every((mon,i)=>mon===chosen[i]))continue;
+                const safety={},score=utility(trial,safety);
+                if(farmRiskBeforeScore(safety,current,score,currentScore)){
+                    chosen.splice(0,chosen.length,...trial);Object.assign(current,safety);currentScore=score;
+                    testedSeed={members:trial,safety,score};
+                    if(context.progressive)yield checkpoint();
                 }
             }
         }
@@ -4135,19 +4184,20 @@
         }
         if(testedSeed){
             const safety={},score=utility(chosen,safety);
-            if(testedSeed.wipes<safety.wipes||testedSeed.wipes===safety.wipes&&testedSeed.score>score+1e-8){
+            if(farmRiskBeforeScore(testedSeed.safety,safety,testedSeed.score,score)){
                 chosen.splice(0,chosen.length,...testedSeed.members);
                 sameMembers=chosen.every(mon=>partyOrder.has(mon.uid))&&chosen.length===party.length;
             }
         }
         let verification;
         const significant=value=>Math.abs(value)>1e-8?value:0;
+        const assessedReserves=assessment=>assessment.reserves??(assessment.reserves=reserveTotal(assessment.team));
         function compareVerified(tested,base){
             const a=tested.safety,b=base.safety;
             // Major fights cannot be traded away for easier ordinary encounters.
             return tested.team.length-base.team.length||significant((b.keyWipes||0)-(a.keyWipes||0))||
                 significant((b.wipes||0)-(a.wipes||0))||significant(tested.score-base.score)||
-                (preferReserves?significant((b.worst||0)-(a.worst||0))||significant((b.deaths||0)-(a.deaths||0))||reserveTotal(tested.team)-reserveTotal(base.team):0);
+                (preferReserves?significant((b.worst||0)-(a.worst||0))||significant((b.deaths||0)-(a.deaths||0))||assessedReserves(tested)-assessedReserves(base):0);
         }
         if(verifyAll){
             // Shortlisting supplies only an initial seed. Certification uses the exact
@@ -4156,7 +4206,8 @@
                 team.every((mon,i)=>poolByUid.get(mon.uid)===mon&&!team.slice(0,i).some(other=>teamApart(mon,other)))&&
                 [...protectedUids].every(uid=>team.some(mon=>mon.uid===uid));
             const assess=(team,nativeBasis,inserted,insertAt)=>{
-                const safety={};return{team,score:utility(team,safety,nativeBasis,inserted,insertAt),safety};
+                const safety={},encounterScore=encounterUtility(team,safety,nativeBasis,inserted,insertAt);
+                return{team,score:farmPartyScore(team,encounterScore),encounterScore,safety};
             };
             const better=(tested,base)=>compareVerified(tested,base)>1e-8;
             let evaluated=assess(chosen.slice());
@@ -4169,6 +4220,7 @@
                 let tryPairs=execution&&!underground&&evaluated.team.length-protectedUids.size>1&&pool.length>evaluated.team.length+1;
                 const pairLimit=context.lowBudget?4:6;
                 const anchorScores=new Map();
+                const candidateInputs=new Map();
                 const exactSolo=objective==='money'&&!allowRescue&&!(trainingPenalty&&context.trainingCosts)&&!weights.some(foe=>foe.roaming);
                 function leadBasis(rest){
                     if(!exactSolo||!rest.length)return null;
@@ -4210,11 +4262,11 @@
                         anchorScores.delete(key);anchorScores.set(key,scores);
                         if(anchorScores.size>2*(size+1))anchorScores.delete(anchorScores.keys().next().value);
                         const certain=nativeOrder?new Float64Array(weights.length).fill(-Infinity):null;
-                        if(certain)for(const mon of rest){
-                            const row=values(mon);
+                        const rows=rest.map(values);
+                        if(certain)for(const row of rows){
                             for(let i=0;i<certain.length;i++)if(row.solo[i].coverage===1&&row.priorities[i]>certain[i])certain[i]=row.priorities[i];
                         }
-                        return {slot,rest,ids:new Set(rest.map(identity)),certain,scores,basis:leadBasis(rest)};
+                        return {slot,rest,rows,ids:new Set(rest.map(identity)),certain,scores,basis:leadBasis(rest)};
                     });
                     const legalFor=(mon,anchor)=>!anchor.ids.has(identity(mon))&&anchor.rest.every(other=>!teamApart(mon,other));
                     let improved=evaluated,checked=0;
@@ -4227,52 +4279,65 @@
                         // Complete healed battle profile, learner share and training
                         // cost determine equivalence. Incumbents and fixed UIDs are
                         // always visited separately so order and ownership stay exact.
-                        const equivalent=JSON.stringify([group,combatProfile({...mon,status:null}),hasLearners?xpShare(mon):0,
-                            context.trainingCosts?.[mon.uid]??0,!!mon.evolutionItemLocked]);
+                        let input=candidateInputs.get(mon.uid);
+                        if(!input){
+                            input={equivalent:JSON.stringify([group,combatProfile({...mon,status:null}),hasLearners?xpShare(mon):0,
+                                context.trainingCosts?.[mon.uid]??0,!!mon.evolutionItemLocked])};
+                            candidateInputs.set(mon.uid,input);
+                        }
+                        const {equivalent}=input;
                         if(!selected.has(mon.uid)&&equivalents.has(equivalent)){pruned++;continue;}
                         if(!selected.has(mon.uid))equivalents.add(equivalent);
                         const possible=anchors.filter(anchor=>legalFor(mon,anchor));
                         if(!possible.length)continue;
-                        const member=yield* computeValues(mon,sliced);
+                        const member=yield* computeValues(mon,sliced,true);
                         if(tryPairs&&!selected.has(mon.uid)){
-                            pairOptions.push({mon,score:utility([mon])});
+                            pairOptions.push({mon,score:input.solo??(input.solo=utility([mon]))});
                             pairOptions.sort((a,b)=>b.score-a.score||prefer(a.mon,b.mon));
                             if(pairOptions.length>pairLimit)pairOptions.pop();
                         }
-                        for(const {rest,slot,certain,scores,basis} of possible){
+                        for(const {rest,rows,slot,certain,scores,basis} of possible){
                             const positions=underground?1:rest.length+1;
                             const placements=basis?.solo?soloPlacements(member,basis):null;
                             const nativeBasis=s.autoSwitch!==false?basis:null;
                             let prior=scores.get(mon.uid);
                             let samePlacement=null;
+                            const team=[mon,...rest],scoredRows=[member,...rows];
+                            const tested={team};
                             for(let at=0;at<positions;at++){
+                                if(at){
+                                    team[at-1]=rest[at-1];team[at]=mon;
+                                    scoredRows[at-1]=rows[at-1];scoredRows[at]=member;
+                                }
                                 if(placements?.transitions&(1<<at))samePlacement=null;
                                 // An adjacent crossing can change a native battle
                                 // only at equal priority. Any strictly earlier
                                 // guaranteed solo clear makes the tie immaterial.
                                 if(at&&certain){
-                                    const rival=values(rest[at-1]);
+                                    const rival=rows[at-1];
                                     if(!member.priorities.some((priority,i)=>priority===rival.priorities[i]&&priority>=certain[i])){
                                         orderPruned++;continue;
                                     }
                                 }
-                                const team=[...rest.slice(0,at),mon,...rest.slice(at)];
-                                // If the same native leads defeat every opponent alone,
-                                // unused reserves cannot change money, time, or safety.
-                                // This still enters the stronger-reserve tie-break below.
+                                // Reuse fight outcomes, then score the replacement's
+                                // strength even when the native lead is unchanged.
                                 const fromSolo=placements&&(samePlacement||(at>=placements.unchangedAt?basis.solo:null));
-                                const known=prior?.[at]||fromSolo,tested=known?{team,score:known.score,safety:known.safety}:assess(team,nativeBasis,member,at);
-                                if(placements)samePlacement=tested;
+                                const known=prior?.[at]||fromSolo;
+                                const safety=known?.safety||{};
+                                const encounterScore=known?.encounterScore??encounterUtility(team,safety,nativeBasis,member,at,scoredRows);
+                                tested.score=farmPartyScore(team,encounterScore);tested.safety=safety;tested.reserves=undefined;
+                                if(placements)samePlacement=known||{encounterScore,safety};
                                 if(!prior?.[at]&&fromSolo)soloReused++;
                                 if(known)reused++;
                                 else{
                                     if(!prior&&scores.size<512){prior=[];scores.set(mon.uid,prior);}
-                                    if(prior)prior[at]={score:tested.score,safety:tested.safety};
+                                    if(prior)prior[at]=samePlacement||{encounterScore,safety};
                                 }
                                 attempts++;
-                                if(better(tested,improved))improved=tested;
+                                // Only results that survive this mutable trial need a team copy.
+                                if(better(tested,improved))improved={...tested,team:team.slice()};
                                 const alternative=alternatives[slot];
-                                if(!selected.has(mon.uid)&&(!alternative||better(tested,alternative)))alternatives[slot]={...tested,member:mon};
+                                if(!selected.has(mon.uid)&&(!alternative||better(tested,alternative)))alternatives[slot]={...tested,team:team.slice(),member:mon};
                                 if(sliced)yield;
                             }
                         }
@@ -4323,21 +4388,20 @@
         const necessary = conflictingParty||party.length!==(s.team||[]).length||party.length>size||chosen.length>party.length||party.some(m=>!teamEligible(s,m,reg))||new Set(party.map(identity)).size<party.length||chosen.some(m=>protectedUids.has(m.uid)&&!s.team.includes(m.uid));
         // Verified recommendations may improve by less than the heuristic threshold.
         // The same objective also decides when the actual party should change.
-        const verifiedImprovement=!!verification&&compareVerified({team:chosen,score:next,safety:proposed},{team:party,score:now,safety:previous})>1e-8;
+        const farmUpgrade=farming&&worthwhileFarmChange(next,now,proposed,previous);
+        const verifiedImprovement=!!verification&&compareVerified({team:chosen,score:next,safety:proposed},{team:party,score:now,safety:previous})>1e-8&&
+            (!farming||farmUpgrade);
         const gymGain=proposed.gym-previous.gym;
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
         const fewerWipes=preferReserves&&(verification?proposed.keyWipes<previous.keyWipes-1e-8||proposed.wipes<previous.wipes-1e-8:proposed.wipes===0&&previous.wipes>0&&next>=now);
-        const fasterFarm=farming&&next>now*1.015+.002&&proposed.turns<previous.turns*.96&&
-            proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths;
         const strongerReserves=preferReserves&&changed&&next>=now-1e-8&&proposed.turns<=previous.turns+1e-8&&
             proposed.worst<=previous.worst&&proposed.wipes<=previous.wipes&&proposed.deaths<=previous.deaths&&
             reserveTotal(chosen)>reserveTotal(party)*(verification?1:1.15)+1e-8;
-        const improve = verification?verifiedImprovement:(!preferReserves||proposed.wipes<=previous.wipes)&&
-            (next > now * 1.05 + .01||gymUpgrade||fewerWipes||fasterFarm||strongerReserves);
+        const improve = verification?verifiedImprovement:farming?farmUpgrade:(!preferReserves||proposed.wipes<=previous.wipes)&&
+            (next > now * 1.05 + .01||gymUpgrade||fewerWipes||strongerReserves);
         const orderChanged=chosen.some((m,i)=>s.team[i]!==m.uid),leadGain=chosen.length&&party.length?utility([chosen[0]])/Math.max(.001,utility([party[0]])):1;
         const fasterOrder=execution&&next>now+.002&&proposed.turns<previous.turns*.92&&proposed.worst<=previous.worst&&proposed.deaths<=previous.deaths;
-        const fasterFarmOrder=farming&&next>now*1.0125+.001&&proposed.turns<previous.turns&&proposed.wipes<=previous.wipes;
-        const reorder=!changed&&orderChanged&&(improve||!verification&&(fasterOrder||fasterFarmOrder||!farming&&s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2));
+        const reorder=!changed&&orderChanged&&(improve||!verification&&!farming&&(fasterOrder||s.autoSwitch===false&&leadGain>1.2||!execution&&protectedUids.size<chosen.length&&leadGain>1.2));
         const apply=force||necessary||changed&&improve||reorder,result = apply ? chosen : party;
         const sharedType=result.find((mon,i)=>result.slice(0,i).some(other=>MONS.get(other.id)?.types.some(t=>MONS.get(mon.id)?.types.includes(t))));
         let backup='';
@@ -4348,10 +4412,10 @@
         }
         const uids=result.map(m=>m.uid),verifiedResult=verification?.uids.every((uid,i)=>uid===uids[i])&&verification.uids.length===uids.length;
         const suggestion=verification&&!verifiedResult?{uids:verification.uids,score:next,verification,
-            reason:'换队收益与当前风险不足以抵消切换成本，暂留现队'}:null;
+            reason:farming?'新阵容改善不足，保留当前刷图阵容':'换队收益与当前风险不足以抵消切换成本，暂留现队'}:null;
         return { uids, backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective,
             ...verification?{selectedScore:apply?next:now,...suggestion?{suggestion}:{verification}}:{},
-            reason:suggestion?suggestion.reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':strongerReserves?'保留路线效率并增强替补':objective==='money'?'提高付钱战完成率与整轮效率':objective==='train'&&hasLearners?'提高未达标学员的预计经验效率':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
+            reason:suggestion?suggestion.reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'结合付钱战整轮效率与阵容战力':hasLearners?'保留学员，按经验效率与带队战力配队':strongerReserves?'保留路线效率并增强替补':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
     }
     const LEGEND_ELITE = {"bundle":"0a5492aada","size":6,"level":100,"legendLimit":1,"apart":[[643,[646,64602]],[644,[646,64601]]],"enemyHp":4.5,"enemyDamage":1,"rage":8,"counter":0.3,"burst":1,"resist":[0.92,0.84,0.76,0.68,0.6],"hurt":[44,48,52,56,60],"dotTurns":4,"dot":{"ember":["burn",0.1],"fire-punch":["burn",0.1],"flamethrower":["burn",0.1],"fire-blast":["burn",0.1],"flame-wheel":["burn",0.1],"sacred-fire":["burn",0.5],"fire-fang":["burn",0.1],"lava-plume":["burn",0.3],"heat-wave":["burn",0.1],"flare-blitz":["burn",0.1],"blaze-kick":["burn",0.1],"inferno":["burn",1],"scald":["burn",0.3],"searing-shot":["burn",0.3],"scorching-sands":["burn",0.3],"ice-burn":["burn",0.3],"blue-flare":["burn",0.2],"sandsear-storm":["burn",0.2],"poison-jab":["poison",0.3],"poison-fang":["poison",0.3],"cross-poison":["poison",0.1],"gunk-shot":["poison",0.3],"sludge-wave":["poison",0.1],"poison-tail":["poison",0.1],"poison-sting":["poison",0.3],"sludge":["poison",0.3],"sludge-bomb":["poison",0.3],"smog":["poison",0.3],"twineedle":["poison",0.2]},"setupChance":0.3,"statusMoves":{"will-o-wisp":["burn",0.7,"fire"],"toxic":["poison",0.7,"poison"],"sleep-powder":["sleep",0.7,"grass"],"spore":["sleep",1,"grass"],"hypnosis":["sleep",0.6,"psychic"],"sing":["sleep",0.55,"normal"],"lovely-kiss":["sleep",0.7,"normal"],"stun-spore":["paralysis",0.7,"grass"],"thunder-wave":["paralysis",0.7,"electric"],"glare":["paralysis",0.7,"normal"],"poison-powder":["poison",0.7,"poison"],"poison-gas":["poison",0.7,"poison"],"confuse-ray":["confusion",0.7,"ghost"],"supersonic":["confusion",0.55,"normal"],"sweet-kiss":["confusion",0.7,"fairy"]},"statusLearn":{"1":[[30,"poison-powder"],[34,"sleep-powder"]],"2":[[30,"poison-powder"],[35,"sleep-powder"]],"3":[[30,"poison-powder"],[35,"sleep-powder"]],"12":[[5,"supersonic"],[18,"poison-powder"],[22,"stun-spore"],[27,"sleep-powder"]],"23":[[14,"glare"],[38,"toxic"]],"24":[[15,"glare"],[43,"toxic"]],"29":[[43,"toxic"]],"30":[[50,"toxic"]],"31":[[79,"toxic"]],"32":[[40,"toxic"]],"33":[[50,"toxic"]],"34":[[69,"toxic"]],"37":[[29,"confuse-ray"],[38,"will-o-wisp"]],"38":[[29,"confuse-ray"],[37,"will-o-wisp"]],"41":[[5,"supersonic"],[28,"toxic"],[53,"confuse-ray"]],"42":[[6,"supersonic"],[28,"toxic"],[55,"confuse-ray"]],"43":[[16,"poison-powder"],[30,"stun-spore"],[34,"sleep-powder"],[44,"toxic"]],"44":[[17,"poison-powder"],[31,"stun-spore"],[35,"sleep-powder"],[44,"toxic"]],"45":[[17,"poison-powder"],[30,"stun-spore"],[39,"sleep-powder"],[48,"toxic"]],"46":[[5,"sleep-powder"],[9,"poison-powder"],[14,"stun-spore"],[45,"spore"]],"47":[[6,"sleep-powder"],[10,"poison-powder"],[14,"stun-spore"],[46,"spore"]],"48":[[11,"supersonic"],[19,"poison-powder"],[47,"stun-spore"],[60,"sleep-powder"]],"49":[[10,"supersonic"],[19,"poison-powder"],[42,"stun-spore"],[55,"sleep-powder"]],"69":[[15,"sleep-powder"],[42,"poison-powder"],[46,"stun-spore"]],"70":[[15,"sleep-powder"],[42,"poison-powder"],[46,"stun-spore"]],"71":[[15,"sleep-powder"],[42,"poison-powder"],[47,"stun-spore"]],"88":[[5,"poison-gas"],[33,"toxic"]],"89":[[6,"poison-gas"],[34,"toxic"]],"92":[[10,"confuse-ray"],[15,"hypnosis"],[19,"poison-gas"],[28,"will-o-wisp"],[41,"toxic"]],"93":[[9,"confuse-ray"],[14,"hypnosis"],[19,"poison-gas"],[32,"will-o-wisp"],[45,"toxic"]],"94":[[10,"confuse-ray"],[14,"hypnosis"],[19,"poison-gas"],[32,"will-o-wisp"],[46,"toxic"]],"96":[[5,"hypnosis"],[19,"poison-gas"]],"97":[[5,"hypnosis"],[19,"poison-gas"]],"102":[[9,"hypnosis"],[34,"stun-spore"],[38,"poison-powder"],[47,"sleep-powder"]],"103":[[9,"hypnosis"],[35,"stun-spore"],[39,"poison-powder"],[43,"sleep-powder"]],"109":[[6,"poison-gas"],[38,"toxic"]],"110":[[6,"poison-gas"],[42,"toxic"]],"114":[[11,"stun-spore"],[29,"poison-powder"],[46,"sleep-powder"]],"152":[[11,"poison-powder"]],"153":[[11,"poison-powder"]],"154":[[10,"poison-powder"]],"169":[[5,"supersonic"],[28,"toxic"],[59,"confuse-ray"]],"182":[[17,"poison-powder"],[30,"stun-spore"],[35,"sleep-powder"],[43,"toxic"]],"187":[[15,"poison-powder"],[19,"stun-spore"],[23,"sleep-powder"]],"188":[[19,"poison-powder"],[24,"stun-spore"],[28,"sleep-powder"]],"189":[[19,"poison-powder"],[24,"stun-spore"],[29,"sleep-powder"]],"194":[[47,"toxic"]],"195":[[46,"toxic"]],"211":[[55,"toxic"]],"269":[[24,"poison-powder"],[42,"toxic"]],"285":[[11,"stun-spore"],[29,"poison-powder"],[42,"toxic"],[51,"spore"]],"286":[[10,"stun-spore"],[41,"poison-powder"],[59,"toxic"],[69,"spore"]],"315":[[5,"stun-spore"],[40,"toxic"]],"316":[[8,"poison-gas"],[25,"toxic"]],"317":[[10,"poison-gas"],[25,"toxic"]],"353":[[16,"will-o-wisp"]],"354":[[16,"will-o-wisp"]],"355":[[13,"confuse-ray"],[26,"will-o-wisp"]],"356":[[13,"confuse-ray"],[26,"will-o-wisp"]],"407":[[6,"stun-spore"],[40,"toxic"]],"414":[[37,"poison-powder"]],"416":[[19,"confuse-ray"],[64,"toxic"]],"434":[[5,"poison-gas"],[41,"toxic"]],"435":[[6,"poison-gas"],[42,"toxic"]],"451":[[39,"toxic"]],"452":[[43,"toxic"]],"453":[[69,"toxic"]],"454":[[74,"toxic"]],"465":[[10,"stun-spore"],[32,"poison-powder"],[59,"sleep-powder"]],"477":[[12,"confuse-ray"],[26,"will-o-wisp"]],"478":[[52,"confuse-ray"],[62,"will-o-wisp"]],"543":[[47,"toxic"]],"544":[[48,"toxic"]],"545":[[52,"toxic"]],"546":[[10,"stun-spore"],[28,"poison-powder"]],"547":[[9,"stun-spore"],[32,"poison-powder"]],"562":[[16,"will-o-wisp"]],"563":[[17,"will-o-wisp"]],"568":[[6,"poison-gas"],[38,"toxic"]],"569":[[5,"poison-gas"],[47,"toxic"]],"590":[[9,"stun-spore"],[45,"toxic"],[55,"spore"]],"591":[[10,"stun-spore"],[46,"toxic"],[55,"spore"]],"607":[[15,"confuse-ray"],[32,"will-o-wisp"]],"608":[[14,"confuse-ray"],[32,"will-o-wisp"]],"609":[[14,"confuse-ray"],[37,"will-o-wisp"]],"617":[[52,"toxic"]]},"zones":{"144":{"foes":{"144":[[9.11,0.747054],[9.11,0.747054],[9.11,0.747054],[9.11,0.747054],[9.11,0.747054]]}},"145":{"foes":{"145":[[6.32,0.606375],[6.32,0.606375],[6.32,0.606375],[6.32,0.606375],[6.32,0.606375]]}},"146":{"foes":{"146":[[11.84,0.499686],[11.84,0.499686],[11.84,0.499686],[11.84,0.499686],[11.84,0.499686]]}},"150":{"foes":{"150":[[4.87,1.492755],[4.87,1.492755],[4.87,1.492755],[4.87,1.492755],[4.87,1.492755]]},"counter":"confusion","burst":"psystrike"},"151":{"foes":{"151":[[4.59,0.83985],[4.59,0.83985],[4.59,0.83985],[4.59,0.83985],[4.59,0.83985]]}},"243":{"foes":{"243":[[10,0.99],[10,0.99],[10,0.99],[10,0.99],[10,0.99]]}},"244":{"foes":{"244":[[10,0.5247],[10,0.5247],[10,0.5247],[10,0.5247],[10,0.5247]]}},"245":{"foes":{"245":[[10,0.4554],[10,0.4554],[10,0.4554],[10,0.4554],[10,0.4554]]}},"249":{"foes":{"249":[[4.25,0.83655],[4.25,0.83655],[4.25,0.83655],[4.25,0.83655],[4.25,0.83655]]},"burst":"aeroblast"},"250":{"foes":{"250":[[11.2,0.92565],[11.2,0.92565],[11.2,0.92565],[11.2,0.92565],[11.2,0.92565]]},"burst":"sacred-fire"},"251":{"foes":{"251":[[6.76,1.0725],[6.76,1.0725],[6.76,1.0725],[6.76,1.0725],[6.76,1.0725]]}},"377":{"foes":{"377":[[5.07,1.112496],[5.07,1.112496],[5.07,1.112496],[5.07,1.112496],[5.07,1.112496]]},"burst":"rock-slide"},"378":{"foes":{"378":[[7.79,0.830775],[7.79,0.830775],[7.79,0.830775],[7.79,0.830775],[7.79,0.830775]]},"burst":"blizzard"},"379":{"foes":{"379":[[5.59,1.3398],[5.59,1.3398],[5.59,1.3398],[5.59,1.3398],[5.59,1.3398]]},"burst":"iron-head"},"380":{"foes":{"380":[[10,0.5445],[10,0.5445],[10,0.5445],[10,0.5445],[10,0.5445]]}},"381":{"foes":{"381":[[10,0.5049],[10,0.5049],[10,0.5049],[10,0.5049],[10,0.5049]]}},"382":{"foes":{"382":[[5.7,0.80256],[5.7,0.80256],[5.7,0.80256],[5.7,0.80256],[5.7,0.80256]]},"burst":"origin-pulse"},"383":{"foes":{"383":[[6.41,0.79101],[6.41,0.79101],[6.41,0.79101],[6.41,0.79101],[6.41,0.79101]]},"burst":"precipice-blades"},"384":{"foes":{"384":[[10.13,0.289641],[10.13,0.289641],[10.13,0.289641],[10.13,0.289641],[10.13,0.289641]]},"burst":"dragon-ascent"},"385":{"foes":{"385":[[6.86,0.848925],[6.86,0.848925],[6.86,0.848925],[6.86,0.848925],[6.86,0.848925]]},"burst":"doom-desire"},"386":{"foes":{"386":[[14.43,2.44035],[14.43,2.44035],[14.43,2.44035],[14.43,2.44035],[14.43,2.44035]],"38601":[[17.61,2.81061],[17.61,2.81061],[17.61,2.81061],[17.61,2.81061],[17.61,2.81061]],"38602":[[4.96,3.75309],[4.96,3.75309],[4.96,3.75309],[4.96,3.75309],[4.96,3.75309]],"38603":[[6.16,3.68577],[6.16,3.68577],[6.16,3.68577],[6.16,3.68577],[6.16,3.68577]]},"burst":"psycho-boost"},"480":{"foes":{"480":[[4.46,5.145525],[4.46,5.145525],[4.46,5.145525],[4.46,5.145525],[4.46,5.145525]]},"burst":"mystical-power"},"481":{"foes":{"481":[[5,1.815],[5,1.815],[5,1.815],[5,1.815],[5,1.815]]}},"482":{"foes":{"482":[[7.87,2.178],[7.87,2.178],[7.87,2.178],[7.87,2.178],[7.87,2.178]]},"burst":"mystical-power"},"483":{"foes":{"483":[[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875],[4.89,0.4219875]]},"burst":"roar-of-time"},"484":{"foes":{"484":[[5,0.616704],[5,0.616704],[5,0.616704],[5,0.616704],[5,0.616704]]},"burst":"spacial-rend"},"485":{"foes":{"485":[[7.22,0.8316],[7.22,0.8316],[7.22,0.8316],[7.22,0.8316],[7.22,0.8316]]},"burst":"magma-storm"},"486":{"foes":{"486":[[6.81,0.583605],[6.81,0.583605],[6.81,0.583605],[6.81,0.583605],[6.81,0.583605]]},"burst":"giga-impact"},"487":{"foes":{"487":[[3.03,0.858],[3.03,0.858],[3.03,0.858],[3.03,0.858],[3.03,0.858]]},"burst":"shadow-force"},"488":{"foes":{"488":[[4.41,1.32066],[4.41,1.32066],[4.41,1.32066],[4.41,1.32066],[4.41,1.32066]]},"burst":"moonblast"},"491":{"foes":{"491":[[8.68,0.91476],[8.68,0.91476],[8.68,0.91476],[8.68,0.91476],[8.68,0.91476]]},"burst":"dark-pulse"},"492":{"foes":{"492":[[6.13,2.873475],[6.13,2.873475],[6.13,2.873475],[6.13,2.873475],[6.13,2.873475]]},"burst":"seed-flare"},"494":{"foes":{"494":[[4.5,0.91377],[4.5,0.91377],[4.5,0.91377],[4.5,0.91377],[4.5,0.91377]]}},"638":{"foes":{"638":[[6.72,1.49787],[6.72,1.49787],[6.72,1.49787],[6.72,1.49787],[6.72,1.49787]]}},"639":{"foes":{"639":[[8.19,0.59598],[8.19,0.59598],[8.19,0.59598],[8.19,0.59598],[8.19,0.59598]]}},"640":{"foes":{"640":[[12.81,1.269675],[12.81,1.269675],[12.81,1.269675],[12.81,1.269675],[12.81,1.269675]]}},"641":{"foes":{"641":[[10,0.4851],[10,0.4851],[10,0.4851],[10,0.4851],[10,0.4851]]}},"642":{"foes":{"642":[[10,0.5544],[10,0.5544],[10,0.5544],[10,0.5544],[10,0.5544]]}},"643":{"foes":{"643":[[5.89,0.33957],[5.89,0.33957],[5.89,0.33957],[5.89,0.33957],[5.89,0.33957]]}},"644":{"foes":{"644":[[5.18,0.614196],[5.18,0.614196],[5.18,0.614196],[5.18,0.614196],[5.18,0.614196]]}},"645":{"foes":{"645":[[9.87,0.45045],[9.87,0.45045],[9.87,0.45045],[9.87,0.45045],[9.87,0.45045]]}},"646":{"foes":{"646":[[4.95,0.5808],[4.95,0.5808],[4.95,0.5808],[4.95,0.5808],[4.95,0.5808]]}},"647":{"foes":{"647":[[6.78,0.93357],[6.78,0.93357],[6.78,0.93357],[6.78,0.93357],[6.78,0.93357]]}},"648":{"foes":{"648":[[5.15,0.814275],[5.15,0.814275],[5.15,0.814275],[5.15,0.814275],[5.15,0.814275]]}},"649":{"foes":{"649":[[16.59,0.7425],[16.59,0.7425],[16.59,0.7425],[16.59,0.7425],[16.59,0.7425]]}},"48701":{"foes":{"48701":[[4.06,0.63954],[4.06,0.63954],[4.06,0.63954],[4.06,0.63954],[4.06,0.63954]]},"burst":"shadow-force"},"49201":{"foes":{"49201":[[8.77,1.04181],[8.77,1.04181],[8.77,1.04181],[8.77,1.04181],[8.77,1.04181]]},"burst":"seed-flare"},"64101":{"foes":{"64101":[[7.7,0.81774],[7.7,0.81774],[7.7,0.81774],[7.7,0.81774],[7.7,0.81774]]}},"64201":{"foes":{"64201":[[9.22,0.5643],[9.22,0.5643],[9.22,0.5643],[9.22,0.5643],[9.22,0.5643]]}},"64501":{"foes":{"64501":[[10.73,0.372834],[10.73,0.372834],[10.73,0.372834],[10.73,0.372834],[10.73,0.372834]]}},"64601":{"foes":{"64601":[[4.39,0.528],[4.39,0.528],[4.39,0.528],[4.39,0.528],[4.39,0.528]]}},"64602":{"foes":{"64602":[[6.12,0.17985],[6.12,0.17985],[6.12,0.17985],[6.12,0.17985],[6.12,0.17985]]}},"64801":{"foes":{"64801":[[6.69,1.25235],[6.69,1.25235],[6.69,1.25235],[6.69,1.25235],[6.69,1.25235]]}},"64901":{"foes":{"64901":[[17.58,0.35145],[17.58,0.35145],[17.58,0.35145],[17.58,0.35145],[17.58,0.35145]]}},"64902":{"foes":{"64902":[[16.41,0.759],[16.41,0.759],[16.41,0.759],[16.41,0.759],[16.41,0.759]]}},"64903":{"foes":{"64903":[[16.15,0.759],[16.15,0.759],[16.15,0.759],[16.15,0.759],[16.15,0.759]]}},"64904":{"foes":{"64904":[[16.72,0.7095],[16.72,0.7095],[16.72,0.7095],[16.72,0.7095],[16.72,0.7095]]}}}};    function legendEliteContext(s,id,tier,now=Date.now()){
         const zone=DATA.zones.find(entry=>entry.id===id),rules=LEGEND_ELITE.zones[id];
@@ -4547,8 +4611,13 @@
     }
     function starterChoice(s,key,ids){
         const choice=s.adv.gifts?.[key];if(typeof choice==='number')return choice;if(!choice)return null;
-        const owned=[...(s.mons||[]),...(s.pension?.mons||[]).map(p=>p.mon),...(s.link?.stash?.mons||[]),...(s.under?.slots||[]).flatMap(slot=>slot.mons||[])];
-        return owned.map(m=>MONS.get(m?.id)?.root).find(id=>ids.includes(id))??null;
+        const find=(entries,pokemon)=>{
+            for(const entry of entries||[]){const id=MONS.get(pokemon(entry)?.id)?.root;if(ids.includes(id))return id;}
+        };
+        const live=find(s.mons,mon=>mon)??find(s.pension?.mons,entry=>entry.mon)??find(s.link?.stash?.mons,mon=>mon);
+        if(live!=null)return live;
+        for(const slot of s.under?.slots||[]){const id=find(slot.mons,mon=>mon);if(id!=null)return id;}
+        return null;
     }
     function chapterFoes(s,chapter){
         const branch=chapter?.foesByStarter;
@@ -4732,34 +4801,45 @@
     function clearsWithinLimits(fit,limits){
         return fit.minCoverage>=.999&&fit.turns<=limits.turns&&fit.worstTurns<=limits.worst&&fit.deaths<=limits.deaths&&fit.worstDeaths<=limits.knockouts;
     }
-    function* xpRouteSearch(s,settings,row,m,now,sliced,projection){
-        const {party,yieldMembers,xpMult,targets}=projection;
-        const measured=m?.xpSeconds>0,samples=m?.xpRuns||0;
+    function* xpRouteSearch(s,settings,row,now,sliced,party){
         const battleFit=yield* battleRouteFitSearch(s,row,party,now,sliced,settings);
-        const base=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0);
         const leagueTraining=row.league?yield* leagueTrainingSearch(s,settings,row,battleFit,now,sliced,party):null;
-        const perMember=(leagueTraining?.xpPerMember??base)*xpMult;
-        const experience=targets?targets.reduce((sum,t)=>sum+Math.min(t.remaining,perMember*(t.uid===s.buddy?.uid?1.3:1)),0):perMember*yieldMembers;
-        const model=leagueTraining?experience/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,settings.speed)*60*battleFit.factor;
-        const estimate=estimateWithHistory(model,m?.historicalRate);
-        const actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
         const levels=party.filter(mon=>teamEligible(s,mon,row.reg)).map(mon=>mon.level).sort((a,b)=>b-a);
         const lead=(levels[0]||1)*.75+(levels[1]||levels[0]||1)*.25,maxLevel=Math.max(...row.members.map(id=>CHAPTERS.get(id)?.ace||1));
-        const proven=measured&&samples>=2&&actualRate>0;
         const efficient=battleFit.coverage>=.9&&battleFit.turns>0&&battleFit.turns<=3;
         // The time model already charges for slower fights. A new chapter also
         // needs an answer to its worst matchup before we try its full loop.
         const covered=battleFit.minCoverage>=.999;
         const ordinary=clearsWithinLimits(battleFit,STORY_FIT_LIMITS)||efficient&&(!row.trainingFrontier||covered)||!row.trainingFrontier&&maxLevel<=lead;
-        const trainingSafe=proven||(leagueTraining?leagueTraining.allowed:ordinary);
-        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,battleFit,leagueTraining,maxLevel,trainingSafe,fallback:!trainingSafe};
+        return{...row,battleFit,leagueTraining,maxLevel,trainingSafe:leagueTraining?leagueTraining.allowed:ordinary};
+    }
+    function xpRouteScore(row,m,speed,projection){
+        const {battleFit,leagueTraining}=row,{yieldMembers,xpMult,targets,buddy}=projection;
+        const base=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0),perMember=(leagueTraining?.xpPerMember??base)*xpMult;
+        const experience=targets?targets.reduce((sum,t)=>sum+Math.min(t.remaining,perMember*(t.uid===buddy?1.3:1)),0):perMember*yieldMembers;
+        const model=leagueTraining?experience/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,speed)*60*battleFit.factor;
+        const estimate=estimateWithHistory(model,m?.historicalRate);
+        const measured=m?.xpSeconds>0,samples=m?.xpRuns||0,actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
+        const trainingSafe=row.trainingSafe||measured&&samples>=2&&actualRate>0;
+        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,trainingSafe,fallback:!trainingSafe};
     }
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
     }
+    const yieldMaps=new Map();
+    function yieldCandidates(s,settings,xp){
+        const key=JSON.stringify([xp,settings.mode==='dex',settings.region,huntRegions(settings),currentRegion(s),s.adv.unlocked,s.travel?.to]);
+        let maps=yieldMaps.get(key);
+        if(!maps){
+            maps=xp?trainingCandidates(s,settings):candidates(s,settings,true);
+            yieldMaps.set(key,maps);
+            if(yieldMaps.size>8)yieldMaps.delete(yieldMaps.keys().next().value);
+        }
+        return maps;
+    }
     function yieldRankingRequest(kind,s,settings,metrics,now,{separateMoney=false}={}){
         if(settings.mode==='dex')settings={...settings,mode:kind==='xp'?'train':'money',autoTeam:false};
-        let maps=kind==='xp'?trainingCandidates(s,settings):candidates(s,settings,true);
+        let maps=yieldCandidates(s,settings,kind==='xp');
         let otherWallet=null;
         if(s.link){
             const onCurrentSide=row=>(row.reg===s.link.to)===(s.link.side==='to');
@@ -4791,59 +4871,87 @@
     }
     function preparationRankingRequest(s,settings,preparation,metrics,now){
         const options={...settings,region:'all'},reg=preparation.context.reg;
-        const maps=trainingCandidates(s,options).filter(row=>row.reg===reg);
+        const maps=yieldCandidates(s,options,true).filter(row=>row.reg===reg);
         const training={...s,team:[...(preparation.uids||[])]};
         const request=makeYieldRankingRequest('preparation',training,options,metrics,now,maps,reg,null,preparation.targets);
         request.ceiling=preparation.routeCeiling;
         return request;
     }
+    const liveYieldRows=new WeakMap(),yieldMetricLookups=new Map();
+    function refreshYieldRows(rows,signature,score){
+        const cached=liveYieldRows.get(rows);
+        if(cached?.signature===signature)return cached.rows;
+        const refreshed=rows.map(score).sort(compareYieldRows);
+        liveYieldRows.set(rows,{signature,rows:refreshed});
+        return refreshed;
+    }
     function makeYieldRankingRequest(kind,s,settings,metrics,now,maps,reg,otherWallet=null,goals,separateMoney=false){
         const xp=kind!=='money';
         const targets=xp?trainingXpTargets(s,settings,goals):null,suffix=trainingXpSuffix(targets);
-        const metricKey=routeMetricKey(s,settings,now);
-        const otherKey=otherWallet&&routeMetricKey(otherWallet,settings,now);
         const states=maps.map(row=>otherWallet&&(row.reg===s.link.to)===(otherWallet.link.side==='to')?otherWallet:s);
-        // The telemetry object mutates in place. Pin precisely the fields read by
-        // this search so a sample crossing two slices cannot mix measurements.
-        const samples=maps.map((row,i)=>{
-            const key=states[i]===s?metricKey:otherKey,exact=key(row),m=metrics[exact+suffix];
-            if(xp?m?.xpSeconds>0:m?.seconds>0)return xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs};
-            if(suffix)return;
-            const legacy=key(row,false);
-            if(exact===legacy)return;
-            const mixed=metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
-            if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
-        });
         const previewMoney=!xp&&settings.mode==='money'&&settings.autoTeam&&s.mons.length>s.team.length;
         const split=!xp&&separateMoney;
-        const rankingInputs=xp?yieldRankingInputs:moneyBaseInputs;
-        const otherInputs=otherWallet&&rankingInputs(otherWallet,settings,maps.filter((row,i)=>states[i]===otherWallet),now);
+        const otherInputs=otherWallet&&routeYieldInputs(otherWallet,settings,maps.filter((row,i)=>states[i]===otherWallet),now,true);
+        const battleInputs=[split,reg,routeYieldInputs(s,settings,maps,now,!xp),otherInputs,maps.map(row=>row.key)];
+        // The telemetry object mutates in place. Pin precisely the fields read by
+        // this read, while reusing scoped lookup keys between equivalent saves.
+        let samples=[];
+        if(Object.keys(metrics).length){
+            const metricSignature=JSON.stringify([battleInputs,suffix,new Date(now).getDate(),ROAMING_DATA.groups.some(group=>s.adv.badges?.includes(group.badge))]);
+            let keys=yieldMetricLookups.get(metricSignature);
+            if(!keys){
+                const metricKey=routeMetricKey(s,settings,now),otherKey=otherWallet&&routeMetricKey(otherWallet,settings,now);
+                keys=maps.map((row,i)=>{
+                    const key=states[i]===s?metricKey:otherKey,exact=key(row),legacy=suffix?null:key(row,false);
+                    return [exact+suffix,exact===legacy?null:legacy];
+                });
+                yieldMetricLookups.set(metricSignature,keys);
+                if(yieldMetricLookups.size>6)yieldMetricLookups.delete(yieldMetricLookups.keys().next().value);
+            }
+            samples=keys.map(([exact,legacy])=>{
+                const m=metrics[exact];
+                if(xp?m?.xpSeconds>0:m?.seconds>0)return xp?{xp:m.xp,xpSeconds:m.xpSeconds,xpRuns:m.xpRuns}:{net:m.net,seconds:m.seconds,runs:m.runs};
+                const mixed=legacy&&metrics[legacy],seconds=xp?mixed?.xpSeconds:mixed?.seconds,runs=xp?mixed?.xpRuns:mixed?.runs;
+                if(seconds>0&&runs>0)return {historicalRate:(xp?mixed.xp:mixed.net)/seconds*60};
+            });
+        }
         const maxCycleXp=targets?Math.max(0,...maps.map(row=>row.members.reduce((sum,id)=>sum+(CHAPTERS.get(id)?.xpEstimate||0),0)))*1.3*(activeYieldBuff(s,'xp',now)?.mult||1):0;
-        const signature=JSON.stringify([split,reg,rankingInputs(s,settings,maps,now),otherInputs,maps.map(row=>row.key),split?null:samples,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)]),
+        const signature=JSON.stringify([...battleInputs,!xp&&!split?samples:null,
             previewMoney&&!split?rosterFingerprint(s):null]);
         const needsSlices=kind==='preparation' ? maps.length>=4||maps.some(row=>row.league)
             : !split&&previewMoney||maps.some(row=>row.reg!==maps[0].reg)||maps.length>=10&&(split||maps.some(row=>row.league));
         const request={kind,reg,startChapter:DATA.regions.find(region=>region.key===(reg||currentRegion(s)))?.start,signature,needsSlices,
-            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,split?[]:samples,now,sliced,states,previewMoney&&!split,targets)};
+            search:sliced=>scoreYieldRoutes(kind,s,settings,maps,split?[]:samples,now,sliced,states,previewMoney&&!split)};
+        if(xp){
+            const growing=partyMons(s).filter(mon=>mon.level<trainingCap(s,mon)),buddy=s.buddy?.uid;
+            const projection={yieldMembers:growing.length+(growing.some(mon=>mon.uid===buddy)?.3:0),xpMult:activeYieldBuff(s,'xp',now)?.mult||1,targets,buddy};
+            const currentSamples=new Map(maps.map((row,i)=>[row.key,samples[i]]));
+            const refreshSignature=JSON.stringify([samples,projection.yieldMembers,projection.xpMult,buddy,targets?.map(t=>[t.uid,t.goal,Math.min(t.remaining,maxCycleXp)])]);
+            // XP ticks and measured rounds change how a route pays, not how the same team fights.
+            request.refreshRows=rows=>refreshYieldRows(rows,refreshSignature,row=>xpRouteScore(row,currentSamples.get(row.key),settings.speed,projection));
+            return request;
+        }
         if(!split)return request;
         const locations=new Map(maps.map((row,i)=>[row.key,{row,state:states[i],sample:samples[i]}]));
-        request.refreshRows=rows=>rows.map(row=>{
+        const refreshSignature=JSON.stringify(samples);
+        request.refreshRows=rows=>refreshYieldRows(rows,refreshSignature,row=>{
             const {state,sample}=locations.get(row.key);
             return moneyRouteScore(state,row,sample,row.battleFit,now,settings.speed);
-        }).sort(compareYieldRows);
+        });
         if(previewMoney){
             request.projections=rows=>moneyProjectionRequest(s,settings,locations,rows,now);
             request.withProjections=(rows,hints)=>applyMoneyProjections(rows,hints,locations,settings,now);
         }
         return request;
     }
-    function moneyBaseInputs(s,settings,maps,now){
+    function routeYieldInputs(s,settings,maps,now,money){
         const inputs=yieldRankingInputs(s,settings,maps,now),members=new Set(maps.flatMap(row=>row.members));
         const [account,,unlocked,open,region,hunt,slot,hour,season,roam]=inputs[0];
         // Which room is currently fighting is immaterial to an all-map replay
         // ranking, including natural room progression within a league.
-        inputs[0]=[account,unlocked,open,region,hunt,slot,hour,season,roam.filter(([,id])=>members.has(id))];
-        inputs.push(maps.map(row=>moneyRouteThreatKey(s,row,now)).filter(Boolean));
+        inputs[0]=[account,unlocked,open,region,hunt,slot,hour,season,roam.filter(([,id])=>members.has(id)),
+            totalDeaths(s,{members:[...members]})];
+        if(money)inputs.push(maps.map(row=>moneyRouteThreatKey(s,row,now)).filter(Boolean));
         return inputs;
     }
     function moneyRouteThreatKey(s,row,now){
@@ -4851,7 +4959,14 @@
     }
     function compareYieldRows(a,b){return b.rate-a.rate||a.id-b.id;}
     function moneySpecialists(s,settings,rows,states){
-        const rated=rows.map((row,i)=>({row,state:states[i],potential:estimateRate(row,settings.speed)*moneyFactor(states[i],row)}));
+        const walletFactors=new Map();
+        const rated=rows.map((row,i)=>{
+            const state=states[i];
+            let regional=walletFactors.get(state);
+            if(!regional){regional=new Map();walletFactors.set(state,regional);}
+            if(!regional.has(row.reg))regional.set(row.reg,moneyFactor(state,row));
+            return{row,state,potential:estimateRate(row,settings.speed)*regional.get(row.reg)};
+        });
         const high=rated.slice().sort((a,b)=>b.potential-a.potential||a.row.id-b.row.id);
         const active=rated.find(entry=>entry.row.members.includes(s.adv.chapter));
         const different=high.find(entry=>entry.row.league!==high[0]?.row.league);
@@ -4861,12 +4976,15 @@
         return JSON.stringify(party.map(mon=>[mon.uid,monRegion(mon),...combatProfile({...mon,status:null})]));
     }
     function moneyScoutEvidence(state,row,now){
-        return JSON.stringify([routeIdentity(row),state.link?.side,chapterYieldRules(row.id),moneyRouteThreatKey(state,row,now),
+        return JSON.stringify([routeIdentity(row),state.link?.side,chapterYieldRules(row.id),moneyRouteThreatKey(state,row,now),totalDeaths(state,row),
             row.members.map(id=>{
                 const branch=CHAPTERS.get(id)?.foesByStarter;
                 const starter=branch&&starterChoice(state,branch.key,Object.keys(branch.choices||{}).map(Number));
                 return [starter,combatWeather(state,{chapter:id},{row},now).signature];
             })]);
+    }
+    function projectionEvidence(location,row,now){
+        return location.scoutKey??=moneyScoutEvidence(location.state,row,now);
     }
     function moneyProjectionRequest(s,settings,locations,rows,now){
         if(!rows.length)return null;
@@ -4874,10 +4992,10 @@
         // Scouts are hints; a separate live proof checks the exact current Box
         // before deployment. Samples, unrelated members improving and minor XP
         // changes must not keep restarting these slower advisory calculations.
-        const candidatesInScope=[...candidates].map(entry=>({...entry,scoutKey:moneyScoutEvidence(entry.state,entry.row,now)}));
+        const candidatesInScope=[...candidates].map(entry=>({...entry,scoutKey:projectionEvidence(locations.get(entry.row.key),entry.row,now)}));
         const scene=candidatesInScope.map(entry=>entry.scoutKey);
         const signature=JSON.stringify([accountId(s),routePlanSettings(settings),scene]);
-        return {kind:'money',cacheSlot:'money/projections',signature,needsSlices:true,projectionOnly:true,refreshAfterMs:120000,
+        return {kind:'money',cacheSlot:'money/projections',signature,needsSlices:true,projectionOnly:true,
             search:sliced=>scoreMoneyProjections(settings,candidatesInScope,now,sliced)};
     }
     function* scoreMoneyProjections(settings,candidates,now,sliced){
@@ -4900,8 +5018,8 @@
         if(!hints?.length)return rows;
         const setting=routePlanSettings(settings),shown=new Map(rows.map(row=>[row.key,row])),byKey=new Map();
         for(const hint of hints){
-            const state=locations.get(hint.key)?.state,row=shown.get(hint.key);
-            if(state&&row&&hint.account===accountId(state)&&hint.setting===setting&&hint.scoutKey===moneyScoutEvidence(state,row,now))byKey.set(hint.key,hint);
+            const location=locations.get(hint.key),row=shown.get(hint.key);
+            if(location&&row&&hint.account===accountId(location.state)&&hint.setting===setting&&hint.scoutKey===projectionEvidence(location,row,now))byKey.set(hint.key,hint);
         }
         if(!byKey.size)return rows;
         return rows.map(row=>{
@@ -4918,17 +5036,12 @@
                     setting,key,threat:hint.threat,roster:adventureRosterFingerprint(state,row.reg),evidence:'estimate',minimumRate:row.rate*1.08}};
         });
     }
-    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney,targets){
+    function* scoreYieldRoutes(kind,s,settings,maps,samples,now,sliced,states,previewMoney){
         const rows=[];
         const walletParties=new Map();
-        let projection;
-        if(kind!=='money'){
-            const party=partyMons(s),growing=party.filter(mon=>mon.level<trainingCap(s,mon));
-            const buddyShare=growing.some(mon=>mon.uid===s.buddy?.uid) ? .3 : 0;
-            projection={party,yieldMembers:growing.length+buddyShare,xpMult:activeYieldBuff(s,'xp',now)?.mult||1,targets};
-        }
+        const party=kind==='money'?null:partyMons(s);
         for(const [i,row] of maps.entries()){
-            if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,samples[i],now,sliced,projection));
+            if(kind!=='money')rows.push(yield* xpRouteSearch(s,settings,row,now,sliced,party));
             else{
                 const state=states[i];
                 if(!walletParties.has(state))walletParties.set(state,partyMons(state));
@@ -4946,7 +5059,7 @@
             const locations=new Map(rows.map((row,i)=>[row.key,{state:states[i]}]));
             return applyMoneyProjections(rows,hints,locations,settings,now).sort(compareYieldRows);
         }
-        return rows.sort(compareYieldRows);
+        return party?rows:rows.sort(compareYieldRows);
     }
     function safeTrainingRoutes(rows,startChapter){
         const safe=rows.filter(row=>row.trainingSafe);
@@ -4976,7 +5089,7 @@
         const cached=routeRankings.get(request.kind);
         if(cached?.signature!==request.signature)return [];
         const result=[];
-        for(const row of cached.rows){
+        for(const row of request.refreshRows?.(cached.rows)||cached.rows){
             if(!row.league||selected.some(other=>other.key===row.key))continue;
             const causes=[];
             if(row.maxLevel>request.ceiling)causes.push(`补练难度上限 Lv.${request.ceiling}，联盟最高 Lv.${row.maxLevel}`);
@@ -6229,6 +6342,7 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
+    const GAME_ACTION_GAP=700;
     function highestShopCandy(s,cards,expected=shopCandyTier(s)){
         // An unlocked card still sets the tier if its price or button is unavailable.
         const shown=highestCandy(s,cards.filter(el=>!el.classList.contains('locked')).map(el=>({id:el.dataset.id,el})));
@@ -6287,7 +6401,7 @@
         }
         click(el, label, pointer = false, resuming = false) {
             const handoff=this.e.manual;
-            if (!enabled(el) || !this.e.running&&!this.e.nurseryAssist?.idleAccess || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || pageHidden() || Date.now() - this.lastClick < 700) return false;
+            if (!enabled(el) || !this.e.running&&!this.e.nurseryAssist?.idleAccess || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || pageHidden() || Date.now() - this.lastClick < GAME_ACTION_GAP) return false;
             this.lastClick = Date.now();
             if (pointer) el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0 }));
             el.click(); this.e.action = label; return true;
@@ -6324,11 +6438,11 @@
             return navigate(tab);
         }
         input(el, value, label) {
-            if (!enabled(el) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<700) return false;
+            if (!enabled(el) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<GAME_ACTION_GAP) return false;
             this.lastClick=Date.now(); el.value=value; el.dispatchEvent(new Event('input',{bubbles:true})); this.e.action=label; return true;
         }
         drag(source, target, label) {
-            if (!enabled(source) || !enabled(target) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<700) return false;
+            if (!enabled(source) || !enabled(target) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<GAME_ACTION_GAP) return false;
             const a=source.getBoundingClientRect(),b=target.getBoundingClientRect(),pointer={bubbles:true,pointerId:927,pointerType:'mouse',isPrimary:true,button:0};
             const from={clientX:a.left+a.width/2,clientY:a.top+a.height/2},to={clientX:b.left+b.width/2,clientY:b.top+b.height/2};
             this.lastClick=Date.now();
@@ -6358,33 +6472,52 @@
         }
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
-            if(task.fitBasis){
-                const b=task.fitBasis,e=this.e,pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
+            const e=this.e,b=task.fitBasis,farm=b?.farming,tracked=!!(farm||task.routePlan),signature=s.team.join('|');
+            const discard=()=>{
+                if(task.routePlan&&e.visit?.routePlan?.plan===task.routePlan)delete e.visit.routePlan;
+                this.teamTask=null;e.teamCheck=null;
+            };
+            const expected=task.pending?.before??task.partySignature;
+            if(tracked&&(e.manual||expected!=null&&expected!==signature&&task.pending?.after!==signature)){
+                discard();e.status='队伍已由其他操作变更，重新核对配队';return false;
+            }
+            if(tracked)task.partySignature??=signature;
+            if(b){
+                const pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
                 const current=pokemonByUid(s),region=CHAPTERS.get(task.chapter)?.reg;
+                const hardFarmChange=farm&&(farm.mode!==e.settings.mode||farm.region!==e.settings.region||farm.side!==s.link?.side||farm.link!==s.link?.to||
+                    farm.switchEnabled!==helperSwitchEnabled(s,e.settings)||farm.pins!==pins.join('|')||farm.mode==='train'&&farm.trainLevel!==e.settings.trainLevel||
+                    !legalAdventureParty(s,task.uids,region,pins));
+                // Before the first drag require an exact plan. Afterwards, a changed Box or weather
+                // must not strand the team midway through a known legal sequence of native moves.
+                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
+                    b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
+                    !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now)));
                 if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
                     e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(e.settings).roamId)||
-                    !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
-                    b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
-                    !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now))||
+                    !task.hasDragged&&b.party!==signature||hardFarmChange||stalePlan||b.autoSwitch!==(s.autoSwitch!==false)||
                     task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
-                    this.teamTask=null;e.teamCheck=null;return false;
+                    discard();return false;
                 }
             }
-            const fail=reason=>{this.e.log(`自动配队暂缓：${reason}`);this.e.teamRetryAt=now+5*60000;this.e.teamCheck=null;this.teamTask=null;this.nav('adventure');};
-            if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){this.teamTask=null;this.e.teamCheck=null;return false;}
+            const fail=reason=>{e.log(`自动配队暂缓：${reason}`);e.teamRetryAt=now+5*60000;discard();this.nav('adventure');};
+            if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){discard();return false;}
             if(now-task.started>90000){fail('队伍页面操作超时，继续当前任务');return false;}
             const roster=pokemonByUid(s);
-            if(task.uids.some(uid=>!roster.has(uid))){this.teamTask=null;this.e.teamCheck=null;return false;}
-            const signature=s.team.join('|');
+            if(task.uids.some(uid=>!roster.has(uid))){discard();return false;}
             if(task.pending){
                 if(signature===task.pending.before&&now-task.pending.at<10000){this.e.status='冒险配队 · 等待游戏确认上一次拖放';this.e.lastProgress=now;return true;}
+                if(tracked)task.partySignature=signature;
                 delete task.pending;
             }
             const same=task.uids.length===s.team.length&&task.uids.every((uid,i)=>s.team[i]===uid);
             if(same){
                 const search=$('#screen-team.active #pc-search');
                 if(search&&task.searchBefore!==undefined&&search.value!==task.searchBefore){this.input(search,task.searchBefore,'恢复PC搜索');return true;}
+                const check=this.e.teamCheck;
+                if(task.fitBasis&&check?.expectedParty===signature&&check.roster===task.fitBasis.roster)check.party=signature;
+                if(task.routePlan&&e.visit?.routePlan?.plan===task.routePlan)e.visit.routePlan.applied=true;
                 this.teamTask=null;this.e.telemetry.sample=null;
                 if(this.e.target&&!task.routePlan)this.e.visit={started:now,deaths:totalDeaths(s,this.e.target),caught:dexStatus(s,this.e.settings).complete};
                 this.e.status='冒险队伍已适配，等待游戏治疗点应用';
@@ -6396,34 +6529,58 @@
             this.e.status=`适配冒险队伍 · ${task.uids.filter((uid,i)=>s.team[i]===uid).length}/${task.uids.length}`;
             if(task.signature!==signature){task.signature=signature;task.attempts=0;}
             if(task.attempts>=3){fail('游戏未接受拖放，请检查队伍地区限制');return false;}
-            const move=(source,target,label)=>{
-                if(this.drag(source,target,label)){task.attempts++;task.hasDragged=true;task.pending={before:signature,at:now};}
+            const move=(source,target,label,expected)=>{
+                if(this.drag(source,target,label)){task.attempts++;task.hasDragged=true;task.pending={before:signature,after:expected?.join('|'),at:now};}
                 return true;
             };
             const slotNodes=()=>{const mini=$('#team-mini.show');return [...(mini?.children||$('#team-slots')?.children||[])];};
             const mismatch=task.uids.findIndex((uid,i)=>s.team[i]!==uid);
             if(mismatch>=0){
                 const uid=task.uids[mismatch],oldIndex=s.team.indexOf(uid),mon=roster.get(uid);
-                if(oldIndex>=0){const slots=slotNodes();return move(slots[oldIndex],slots[mismatch],'调整冒险队伍顺序');}
-                const filters=$$('#pc-active [data-clear]').filter(enabled),other=filters.find(el=>el.dataset.clear!=='q');
-                if(other){this.click(filters.find(el=>el.dataset.clear==='all')||other,'清除PC筛选以配置队伍');return true;}
-                const search=$('#pc-search');if(!search){fail('找不到PC搜索框');return false;}
-                if(search.value!==String(mon.id)){this.input(search,String(mon.id),`查找配队成员：${MONS.get(mon.id)?.name}`);return true;}
-                const card=$$('#pc-grid .pc-cell[data-uid]').find(el=>el.dataset.uid===uid);
-                if(!card){this.e.status='等待PC列表显示配队成员';return true;}
+                if(oldIndex>=0){
+                    const slots=slotNodes(),next=s.team.slice();[next[oldIndex],next[mismatch]]=[next[mismatch],next[oldIndex]];
+                    return move(slots[oldIndex],slots[mismatch],'调整冒险队伍顺序',next);
+                }
+                const card=globalThis.CSS?.escape?$(`#pc-grid .pc-cell[data-uid="${CSS.escape(uid)}"]`):$$('#pc-grid .pc-cell[data-uid]').find(el=>el.dataset.uid===uid);
+                if(!enabled(card)){
+                    const filters=$$('#pc-active [data-clear]').filter(enabled),other=filters.find(el=>el.dataset.clear!=='q');
+                    if(other){this.click(filters.find(el=>el.dataset.clear==='all')||other,'清除PC筛选以配置队伍');return true;}
+                    const search=$('#pc-search');if(!search){fail('找不到PC搜索框');return false;}
+                    if(search.value!==String(mon.id)){this.input(search,String(mon.id),`查找配队成员：${MONS.get(mon.id)?.name}`);return true;}
+                    this.e.status='等待PC列表显示配队成员';return true;
+                }
                 const rect=card.getBoundingClientRect();
                 if(rect.top<0||rect.bottom>innerHeight){card.scrollIntoView({block:'center'});return true;}
                 // A PC drop replaces the occupant. Bring the newcomer onto the team
                 // first, then reorder within the team so retained trainees stay on it.
                 let destination=mismatch;
                 if(task.uids.includes(s.team[mismatch])){
-                    const outgoing=s.team.findIndex(member=>!task.uids.includes(member));
+                    let outgoing=s.team.findIndex(member=>!task.uids.includes(member));
+                    if(s.team.length===task.uids.length&&new Set(s.team).size===s.team.length&&new Set(task.uids).size===task.uids.length){
+                        // The target requests a newcomer here, so following retained members' slots cannot cycle.
+                        outgoing=mismatch;
+                        for(let at=task.uids.indexOf(s.team[outgoing]);at>=0;at=task.uids.indexOf(s.team[outgoing]))outgoing=at;
+                    }
                     destination=outgoing<0?s.team.length:outgoing;
                 }
-                return move(card,slotNodes()[destination],`派出${MONS.get(mon.id)?.name}`);
+                const next=s.team.slice();
+                if(tracked){
+                    const identity=member=>DATA.combat.singles[member.id]||`${member.id}:${+!!member.shiny}`;
+                    const key=identity(mon),conflicts=other=>{
+                        const member=roster.get(other);
+                        return other!==uid&&member&&(identity(member)===key||teamApart(mon,member));
+                    };
+                    // Native PC drops replace a slot and then eject the first remaining conflict.
+                    const conflict=next.findIndex(conflicts);
+                    if(conflict>=0)destination=conflict;
+                    if(next[destination])next[destination]=uid;else next.push(uid);
+                    const ejected=next.findIndex(conflicts);
+                    if(ejected>=0)next.splice(ejected,1);
+                }else next[destination]=uid;
+                return move(card,slotNodes()[destination],`派出${MONS.get(mon.id)?.name}`,next);
             }else{
                 const index=s.team.findIndex(uid=>!task.uids.includes(uid));
-                if(index>=0)return move(slotNodes()[index],$('#pc-grid'),'移出多余冒险队员');
+                if(index>=0)return move(slotNodes()[index],$('#pc-grid'),'移出多余冒险队员',s.team.filter((_,i)=>i!==index));
             }
             return true;
         }
@@ -8335,20 +8492,35 @@
     }
     class LevelCoach {
         constructor(engine){this.e=engine;this.checked=null;this.combat=null;this.ready=null;this.planReview=null;}
-        partyProfile(s,uids=s.team||[]){
+        partyProfile(s,uids=s.team||[],ignoreLevels=false){
             const index=pokemonByUid(s);
-            return JSON.stringify([s.autoSwitch!==false,uids.map(uid=>{const mon=index.get(uid);return mon?[uid,...combatProfile({...mon,status:null})]:[uid];})]);
+            return JSON.stringify([s.autoSwitch!==false,uids.map(uid=>{const mon=index.get(uid);return mon?[uid,...combatProfile({...mon,level:ignoreLevels?0:mon.level,status:null})]:[uid];})]);
+        }
+        battleProgress(s){return {wins:Number(s.stats?.wins)||0,runs:Number(s.adv.runs)||0};}
+        advanced(s,baseline){
+            if(!baseline)return false;
+            const current=this.battleProgress(s);
+            return current.wins>=baseline.wins&&current.runs>=baseline.runs&&(current.wins>baseline.wins||current.runs>baseline.runs);
+        }
+        successfulTraining(s,p,review,scope){
+            const same=uids=>uids.length===p.uids.length&&p.uids.every((uid,i)=>uids[i]===uid);
+            return review?.preparation===p&&review.scope===scope&&p.phase==='train'&&!s.adv.event&&!s.adv.zone&&!s.adv.tower&&!s.adv.league&&p.route?.members?.includes(s.adv.chapter)&&
+                same(s.team)&&(!s.road?.length||same(s.road))&&this.advanced(s,review.progress);
         }
         trialFloor(s,uids=s.team||[]){
-            return uids.map(uid=>(s.mons||[]).find(mon=>mon.uid===uid)).filter(Boolean).map(mon=>({uid:mon.uid,id:mon.id,level:mon.level,rank:mon.rank||0,statMult:mon.statMult||1,hpMult:mon.hpMult||1,taste:tasteProfile(mon)}));
+            return partyMons(s,uids).map(mon=>({uid:mon.uid,id:mon.id,level:mon.level,rank:mon.rank||0,statMult:mon.statMult||1,hpMult:mon.hpMult||1,taste:tasteProfile(mon)}));
         }
         trialGrew(s,p){
             if(!p.trialFailure?.floor)return true;
             const old=new Map(p.trialFailure.floor.map(mon=>[mon.uid,mon]));
-            return(p.uids||[]).some(uid=>{
-                const mon=(s.mons||[]).find(mon=>mon.uid===uid),before=old.get(uid);if(!mon)return false;
+            return partyMons(s,p.uids||[]).some(mon=>{
+                const before=old.get(mon.uid);
                 return!before||mon.level>=before.level+2||mon.id!==before.id||(mon.rank||0)>before.rank||(mon.statMult||1)>before.statMult||(mon.hpMult||1)>before.hpMult||tasteProfile(mon)!==before.taste;
             });
+        }
+        trialRules(s){
+            const cfg=this.e.settings;
+            return JSON.stringify([s.adv.unlocked,s.link?.side,helperSwitchEnabled(s,cfg),cfg.mode,cfg.autoTeam,cfg.prepareMargin,cfg.prepareGap]);
         }
         conditions(s,context,now){
             const chapters=[...new Set((context.foes||[]).map(foe=>foe.chapter??s.adv.chapter))];
@@ -8362,7 +8534,7 @@
         rememberReady(s,context,targets,trial=false,now=Date.now()){
             const chapter=CHAPTERS.get(context.id),members=chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[context.id];
             this.ready={key:context.key,deaths:totalDeaths(s,{members}),team:[...s.team],conditions:this.conditions(s,rebuildPreparationContext(s,context),now),targets:trial?this.trialFloor(s).map(mon=>({uid:mon.uid,goal:mon.level})):targets.map(t=>({uid:t.uid,goal:t.goal}))};
-            if(trial)Object.assign(this.ready,{trial:true,profile:this.partyProfile(s)});
+            if(trial)Object.assign(this.ready,{trial:true,profile:this.partyProfile(s),levelIndependentProfile:this.partyProfile(s,s.team,true),progress:this.battleProgress(s),rules:this.trialRules(s)});
         }
         manualTrainingWait(s,targets,reg,now){
             if(this.e.settings.autoTeam!==false)return false;
@@ -8395,7 +8567,12 @@
                 const ready=this.ready;
                 const sameTeam=ready.team?.length===s.team.length&&ready.team.every((uid,i)=>s.team[i]===uid);
                 const applied=!s.road?.length||s.road.length===s.team.length&&s.road.every((uid,i)=>s.team[i]===uid);
-                if(ordinary&&ready.key===context.key&&deaths<=ready.deaths&&sameTeam&&applied&&ready.conditions===conditions&&(!ready.trial||ready.profile===this.partyProfile(s))&&ready.targets.every(t=>(s.mons||[]).some(m=>m.uid===t.uid&&m.level>=Math.min(t.goal,trainingCap(s,m)))))return false;
+                if(ordinary&&ready.key===context.key&&deaths<=ready.deaths&&sameTeam&&applied&&ready.conditions===conditions&&(!ready.rules||ready.rules===this.trialRules(s))){
+                    const wonOnRoute=chapter&&(chapter.id===s.adv.chapter||chapter.league&&chapter.loop===CHAPTERS.get(s.adv.chapter)?.loop)&&this.advanced(s,ready.progress);
+                    const sameTrialParty=!ready.trial||ready.profile===this.partyProfile(s)||wonOnRoute&&ready.levelIndependentProfile===this.partyProfile(s,s.team,true);
+                    const index=pokemonByUid(s);
+                    if(sameTrialParty&&ready.targets.every(t=>{const mon=index.get(t.uid);return mon&&mon.level>=Math.min(t.goal,trainingCap(s,mon));}))return false;
+                }
                 if(ordinary&&ready.key===context.key&&ready.trial&&deaths>ready.deaths)failedTrial={at:now,deaths,floor:this.trialFloor(s)};
                 this.ready=null;
             }
@@ -8465,6 +8642,7 @@
             if(outcome||a.event||a.zone||a.tower||a.league||e.raidProbe||e.raidReturn||FLOW_MODES.has(mode)||['legend','train'].includes(mode))return null;
             // Give the map/party transaction its own validation and receipt tick.
             if(mode==='money'&&(e.driver.pendingMap?.routePlan?.verified||e.visit?.routePlan?.plan?.verified))return null;
+            if(mode==='money'&&(e.heldFarm?.(s,'money',now)||e.verifiedFarmHeld?.(s,now)))return null;
             let row;
             if(isCollectionMap(mode,'map'))return null;
             if(mode==='progress'){
@@ -8615,10 +8793,12 @@
             const current=CHAPTERS.get(s.adv.chapter),fallback=current?.reg===p.context.reg?current:DATA.chapters.find(c=>c.reg===p.context.reg);
             const row=p.route?.reg===p.context.reg?p.route:fallback;
             const chapters=row?.members?.length?row.members:row?.league?DATA.chapters.filter(c=>c.loop===row.loop).map(c=>c.id):[row?.id??s.adv.chapter];
-            const weather=adventureTeamWeatherKey(s,chapters,now);
-            const fingerprint=()=>JSON.stringify([row?.key??row?.id,chapters,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),p.uids,s.autoSwitch!==false,weather,rosterFingerprint(s),helperSwitchEnabled(s,this.e.settings),s.buddy?.uid,s.adv.unlocked,s.adv.badges]);
-            const profile=fingerprint(),last=this.teamReview;
-            if(!repair&&last?.preparation===p&&last.profile===profile&&now-last.at<30000)return;
+            const scope=()=>JSON.stringify([row?.key??row?.id,chapters,p.context.key,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),required,p.uids,
+                this.partyProfile(s,p.uids,true),helperSwitchEnabled(s,this.e.settings),s.adv.unlocked,s.adv.badges,s.link?.side,totalDeaths(s,{members:chapters})]);
+            const last=this.teamReview,key=scope();
+            if(!repair&&this.successfulTraining(s,p,last,key))return;
+            const exact=[adventureTeamWeatherKey(s,chapters,now),s.buddy?.uid,rosterFingerprint(s)],profile=JSON.stringify([key,exact]);
+            if(!repair&&last?.preparation===p&&last.profile===profile)return;
             const settings=this.e.settings,context={reg:p.context.reg,row,objective:'train',trainingGoals:p.targets,force:repair,now},state={...s,team:p.uids};
             const sliced=this.e.running&&s.mons.length>=24;
             const search=adventureTeamSearch(state,settings,required,context,sliced);
@@ -8628,36 +8808,43 @@
                 p.uids=plan.uids;this.e.telemetry.sample=null;p.routeCheck=0;p.routeProfile=null;
                 this.e.log(`补练配队重评：${plan.reason}${plan.gain>0?` · 综合评分 +${Math.round(plan.gain*100)}%`:''}`);
             }
-            this.teamReview={preparation:p,at:now,profile:fingerprint()};
+            const checked=scope();
+            this.teamReview={preparation:p,at:now,scope:checked,profile:JSON.stringify([checked,exact]),progress:this.battleProgress(s)};
         }
         reviewPreparation(s,p,now){
             const e=this.e;
             if(!['map','progress'].includes(p.context.kind)||!e.settings.autoTeam||e.settings.mode==='train'||p.phase==='exit'||p.phase==='travelFirst'||p.phase==='restore')return false;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid));
-            const prepared=p.uids.map(uid=>(s.mons||[]).find(mon=>mon.uid===uid)),identity=mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
-            const readyRosterValid=prepared.length>0&&prepared.every(mon=>mon&&teamEligible(s,mon,p.context.reg))&&new Set(prepared.map(identity)).size===prepared.length;
+            const readyRosterValid=legalAdventureParty(s,p.uids,p.context.reg);
             const readyApplied=p.uids.length===s.team.length&&p.uids.every((uid,i)=>s.team[i]===uid);
             // A ready roster is a pending native transaction, not a new search target.
             // Keep it stable until applied; unavailable members still force replanning.
             if(p.resumeReady&&readyRosterValid&&(!readyApplied||roadPending))return false;
             if(s.adv.battle||s.adv.pending||roadPending||e.driver.teamTask||e.driver.ownedDialog||p.candyTx||e.automation?.owner||e.automation?.buddyTask||e.automation?.buffUI||e.automation?.state?.resourceTx||e.automation?.state?.autoBuffTx||e.automation?.state?.resourceBuffTx)return false;
+            const chapter=CHAPTERS.get(p.context.id),chapters=chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[p.context.id];
+            const scope=JSON.stringify([p.context.key,p.context.level,p.context.roamId,p.route?.key,e.settings.mode,e.settings.autoEvolve,e.settings.prepareMargin,e.settings.prepareGap,
+                s.adv.unlocked,s.adv.badges,s.travel?.to,s.link?.side,s.autoSwitch!==false,helperSwitchEnabled(s,e.settings),s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),
+                totalDeaths(s,{members:chapters}),totalDeaths(s,{members:p.route?.members||[]})]);
+            const last=this.preparationReview,readinessOnly=readyRosterValid&&this.successfulTraining(s,p,last,scope);
+            const grew=this.trialGrew(s,p);
+            const readinessKey=JSON.stringify([this.partyProfile(s),grew]);
+            if(readinessOnly&&last.readinessKey===readinessKey)return false;
             const context=rebuildPreparationContext(s,p.context);if(!context?.foes?.length)return false;
-            const chapters=[...new Set(context.foes.map(foe=>foe.chapter??s.adv.chapter))],grew=this.trialGrew(s,p);
-            const profile=JSON.stringify([context.key,context.foes,e.settings.mode,e.settings.autoEvolve,e.settings.prepareMargin,e.settings.prepareGap,
-                s.adv.unlocked,s.adv.badges,s.travel?.to,phaseAt(s,now),adventureTeamWeatherKey(s,chapters,now),s.autoSwitch!==false,s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),
-                rosterFingerprint(s),lockedEvolutionItems(s),e.settings.autoEvolve&&reserveEvolutionKey(s),grew]),last=this.preparationReview;
-            if(last?.preparation===p&&last.profile===profile&&(now-last.at<30000||e.teamSearch?.signature.startsWith('trainees:')))return false;
+            const profile=readinessOnly?JSON.stringify([scope,readinessKey]):JSON.stringify([scope,readinessKey,context.foes,phaseAt(s,now),adventureTeamWeatherKey(s,chapters,now),
+                rosterFingerprint(s),lockedEvolutionItems(s),e.settings.autoEvolve&&reserveEvolutionKey(s)]);
+            if(last?.preparation===p&&last.profile===profile)return false;
             const sliced=e.running&&s.mons.length>=24;
-            const search=this.comparePreparation(s,p,{...context,now},grew,sliced);
+            const search=this.comparePreparation(s,p,{...context,now},grew,sliced,readinessOnly);
             const review=sliced?e.evaluateTeamSearch('review:'+profile,search):search.next().value;
             if(!review){e.status='正在复评补练目标 · '+p.context.label;p.phaseAt=now;return true;}
-            this.preparationReview={preparation:p,profile,at:now};
+            this.preparationReview={preparation:p,profile,scope,readinessKey,progress:readinessOnly?last.progress:this.battleProgress(s)};
             const {assessment,plan,equalCostAndQuality}=review,applied=readyApplied;
             p.assessment={ready:assessment.ready&&grew&&applied,reason:!applied?'等待目标队伍在治疗点实际上阵后重新评估':!grew?'上次试打战败，先补练获得可验证成长后再尝试':assessment.reason};
             if(assessment.fit)p.assessment.fit={turns:assessment.fit.turns,coverage:assessment.fit.coverage,deaths:assessment.fit.deaths};
             if(applied&&assessment.ready&&grew){
                 p.earlyReady=true;p.returnReason='当前战力已足够尝试原任务，提前结束补练';this.setPhase(p,'restore',now);return true;
             }
+            if(!plan)return false;
             if(!plan.uids.length){if(p.resumeReady){e.failTask('准备上阵的队伍已不可用，当前地区没有可替换成员');return true;}p.selection=plan.selection;return false;}
             if(review.same){p.selection=plan.selection;return false;}
             if(!review.worthwhile)return false;
@@ -8666,12 +8853,12 @@
             p.resumeReady=!plan.needed&&!plan.targets.length;this.teamReview=null;e.telemetry.sample=null;this.preparationReview=null;
             this.setPhase(p,'team',now);e.log(next?.ready?'发现无需额外补练的现成队伍，准备上阵后继续原任务':equalCostAndQuality?'补练队伍同分，优先选择进化道具已解锁或无需道具的成员':'补练计划重评：改用培养负担更低的队伍，保留原任务与预算');return true;
         }
-        *comparePreparation(s,p,context,grew,sliced){
+        *comparePreparation(s,p,context,grew,sliced,readinessOnly=false){
             const settings=this.e.settings,uids=[...p.uids];
             const targetKey=targets=>JSON.stringify(targets.map(t=>[t.uid,t.goal]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
             const oldTargets=targetKey(p.targets),noTargets=!p.targets.length;
             const assessment=yield* readinessSearch(s,settings,context,s.team,sliced);
-            if(assessment.ready&&grew&&uids.length===s.team.length&&uids.every((uid,i)=>uid===s.team[i]))return{assessment};
+            if(readinessOnly||assessment.ready&&grew&&uids.length===s.team.length&&uids.every((uid,i)=>uid===s.team[i]))return{assessment};
             const plan=yield* preparationSearch(s,settings,grew?context:{...context,forcePreparation:true},sliced);
             const same=targetKey(plan.targets)===oldTargets&&plan.uids.length===uids.length&&plan.uids.every((uid,i)=>uids[i]===uid);
             if(!plan.uids.length||same)return{assessment,plan,same};
@@ -8694,6 +8881,25 @@
             }
             return profile;
         }
+        trainingRouteScope(s,p){
+            const cfg=this.e.settings;
+            return JSON.stringify([p.context.key,p.route.key,p.route.members,p.routeCeiling,s.adv.loops,s.adv.unlocked,s.link?.side,s.link?.to,
+                cfg.mode,cfg.speed,cfg.autoTeam,this.partyProfile(s,p.uids,true),helperSwitchEnabled(s,cfg),p.targets.map(t=>[t.uid,t.goal]),totalDeaths(s,p.route)]);
+        }
+        heldTrainingRoutes(s,p){
+            const review=this.routeReview;
+            if(!p?.route||p.phase!=='train'||review?.preparation!==p||review.route!==p.route.key||!review.rows)return null;
+            if(review.pendingArrival)return review.rows;
+            const scope=this.trainingRouteScope(s,p);
+            return this.successfulTraining(s,p,review,scope)||review.scope===scope&&p.routeProfile===trainingRouteFingerprint(s,p.uids)?review.rows:null;
+        }
+        updateTrainingSample(s,p,sample,now){
+            const review=this.routeReview;
+            if(review?.preparation!==p||review.route!==p.route.key||!Number.isFinite(sample.xp)||!(sample.seconds>0))return;
+            const record=this.e.metrics[metricsKey(s,p.route,this.e.settings,now)+trainingXpSuffix(trainingXpTargets(s,this.e.settings,p.targets))];
+            const rate=record?.xpSeconds>0&&Number.isFinite(record.xp)?record.xp/record.xpSeconds*60:sample.xp/sample.seconds*60;
+            review.rows=review.rows.map(row=>row.key===p.route.key?{...row,rate,actualRate:rate,measured:true,samples:record?.xpRuns??(row.samples||0)+1}:row);
+        }
         routes(s,p,now,message,ceiling=p.routeCeiling){
             const e=this.e,options=ceiling===p.routeCeiling?p:{...p,routeCeiling:ceiling};
             const request=preparationRankingRequest(s,e.settings,options,e.metrics,now);
@@ -8710,7 +8916,7 @@
                 this.rememberReady(s,p.context,p.targets,!!p.earlyReady,now);
             }
             e.preparation=null;e.target=null;e.visit=null;e.telemetry.sample=null;e.driver.pendingMap=null;e.teamCheck=null;e.teamRetryAt=0;e.driver.recent?.clear();this.checked=null;
-            e.zoneId=null;e.zoneStarted=null;e.driver.raid=null;e.raidProbe=false;e.raidReturn=null;this.preparationReview=null;
+            e.zoneId=null;e.zoneStarted=null;e.driver.raid=null;e.raidProbe=false;e.raidReturn=null;this.preparationReview=null;this.teamReview=null;this.routeReview=null;
             if(p.terminalGoal){
                 if(p.terminalGoal.failed)e.failTask(p.terminalGoal.reason);
                 else e.completeTask(p.terminalGoal.reason);
@@ -8771,14 +8977,15 @@
             if(p.context.kind==='progress'&&s.adv.unlocked>(p.frontier??p.context.id)&&p.phase!=='restore'){
                 p.returnReason='补练期间原关卡已通过，继续推进后续主线';this.setPhase(p,'restore',now);
             }
-            if(this.reviewPreparation(s,p,now)&&p.phase!=='restore')return;
+            const graduated=p.phase==='restore'||p.targets.every(m=>index.get(m.uid).level>=m.goal);
+            if((!graduated||p.resumeReady)&&this.reviewPreparation(s,p,now)&&p.phase!=='restore')return;
             const applied=p.uids.length===s.team.length&&p.uids.every((uid,i)=>s.team[i]===uid)&&(!Array.isArray(s.road)||!s.road.length||s.road.length===s.team.length&&s.road.every((uid,i)=>uid===s.team[i]));
             if(p.phase!=='restore'&&p.resumeReady&&!applied){
                 p.lastGrowth=now;e.telemetry.sample=null;
                 if(p.uids.length!==s.team.length||p.uids.some((uid,i)=>s.team[i]!==uid)){this.team(s,p.uids,now);e.status='准备用现成战力继续原任务，等待队伍配置';}
                 else{e.status='现成战力已配置，等待治疗点应用后继续原任务';d.nav('adventure');}return;
             }
-            if(p.phase!=='restore'&&p.targets.every(m=>index.get(m.uid).level>=m.goal))this.setPhase(p,'restore',now);
+            if(p.phase!=='restore'&&graduated)this.setPhase(p,'restore',now);
             if(p.phase==='restore'){
                 if(!['map','progress'].includes(p.context.kind)&&p.originalLocation?.reg!==currentRegion(s)){d.map(p.originalLocation,s);return;}
                 const original=p.originalTeam.filter(uid=>index.has(uid)&&teamEligible(s,index.get(uid)));
@@ -8807,7 +9014,8 @@
                 e.status=`补练前往 ${row.name}${row.fallback?' · 起步地图自动重试':''}`;
                 if(d.map(row,s)){
                     if(p.phase==='travelFirst'){this.setPhase(p,'team',now);return;}
-                    p.route=routeDescriptor(row);p.visit={at:now,deaths:totalDeaths(s,row)};p.routeCheck=now;p.routeProfile=routeProfile;e.telemetry.sample=null;this.setPhase(p,'train',now);
+                    p.route=routeDescriptor(row);p.visit={at:now,deaths:totalDeaths(s,row)};p.routeCheck=now;p.routeProfile=routeProfile;
+                    this.routeReview={preparation:p,route:row.key,rows:routes,pendingArrival:true};e.telemetry.sample=null;this.setPhase(p,'train',now);
                 }return;
             }
             const growth=p.targets.map(m=>{const mon=index.get(m.uid);return `${m.uid}:${mon.level}:${mon.xp||0}:${mon.rank||0}`;}).join('|');
@@ -8836,7 +9044,8 @@
             else{
                 p.roadWait=null;p.roadRepairs=0;
                 if(!e.telemetry.sample)e.telemetry.begin(s,p.route,e.settings,now,p.targets);
-                const sample=e.telemetry.observe(s,p.route,e.settings,now,p.targets);if(sample?.valid)e.persist();
+                const sample=e.telemetry.observe(s,p.route,e.settings,now,p.targets);
+                if(sample?.valid){this.updateTrainingSample(s,p,sample,now);e.persist();}
             }
             const safe=!s.adv.battle&&!s.adv.pending;
             if(safe&&totalDeaths(s,p.route)-(p.visit?.deaths||0)>=Math.min(2,e.settings.lossLimit)){
@@ -8846,14 +9055,20 @@
                 if(alternatives.length){p.routeCeiling=ceiling;p.routeLimit={until:now+10*60000,profile:routeProfile};p.avoid[p.route.key]=now+10*60000;e.log(`${p.route.name}补练仍有战败，暂时降低难度，成长后重新评估`);this.setPhase(p,'travel',now);e.telemetry.sample=null;return;}
                 p.visit.deaths=totalDeaths(s,p.route);e.log('当前只有一张起步练级地图，继续获取经验后重试');
             }
-            if(safe&&!roadPending&&(p.routeProfile!==routeProfile||now-(p.routeCheck||0)>=30000)){
-                const rows=this.routes(s,p,now,'正在重新比较补练地图收益');
-                if(!rows)return;
-                p.routeCheck=now;p.routeProfile=routeProfile;
-                const next=rows[0],current=rows.find(row=>row.key===p.route.key);
-                if(shouldSwitchTrainingRoute(current,next)){
-                    e.log(`补练效率重评：${p.route.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
-                    this.setPhase(p,'travel',now);e.telemetry.sample=null;return;
+            if(safe&&!roadPending){
+                const scope=this.trainingRouteScope(s,p),review=this.routeReview;
+                if(review?.preparation===p&&review.pendingArrival)this.routeReview={...review,pendingArrival:false,scope,progress:this.battleProgress(s)};
+                const checked=this.routeReview,changed=checked?.preparation===p&&checked.scope!==scope;
+                if(!this.successfulTraining(s,p,checked,scope)&&(changed||p.routeProfile!==routeProfile||now-(p.routeCheck||0)>=30000)){
+                    const rows=this.routes(s,p,now,'正在重新比较补练地图收益');
+                    if(!rows)return;
+                    p.routeCheck=now;p.routeProfile=routeProfile;
+                    const next=rows[0],current=rows.find(row=>row.key===p.route.key);
+                    if(shouldSwitchTrainingRoute(current,next)){
+                        e.log(`补练效率重评：${p.route.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
+                        this.setPhase(p,'travel',now);e.telemetry.sample=null;return;
+                    }
+                    this.routeReview={preparation:p,route:p.route.key,rows,scope,progress:checked?.preparation===p&&!changed?checked.progress:this.battleProgress(s)};
                 }
             }
             // Native member details and Buddy selection also work during ordinary combat.
@@ -8882,6 +9097,12 @@
         const party=partyMons(s);
         return [...required].map(id=>party.find(mon=>mon.id===id)?.uid).filter(Boolean);
     }
+    function legalAdventureParty(s,uids,region,pins=[]){
+        const party=partyMons(s,uids);
+        return party.length>0&&party.length<=6&&party.length===uids.length&&pins.every(uid=>uids.includes(uid))&&
+            party.every((mon,i)=>teamEligible(s,mon,region)&&!party.slice(0,i).some(other=>teamApart(mon,other)))&&
+            new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length;
+    }
     function localRulesKnown(build=typeof window==='undefined'?null:window.BUILD){
         return !build||[DATA.build,DATA.combat.build,DATA.economy.build,WEATHER_DATA.build].includes(build);
     }
@@ -8891,6 +9112,7 @@
             this.status = '已就绪，点击开始'; this.action = ''; this.logs = []; this.account = null;
             this.metrics = {}; this.telemetry = new Telemetry(this.metrics); this.cooldowns = {}; this.raidCooldown = {};
             this.rankingJobs=new Map();
+            this.completedTeamSearch=new Map();
             this.target = null; this.visit = null; this.nextRaid = 0; this.raidProbe = false; this.raidCheckNote=''; this.raw = null;
             this.progressSignature = ''; this.lastProgress = Date.now(); this.driver = new DOMDriver(this);
             this.timer = null; this.runId = 0; this.nextLegend = 0; this.lease = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -9371,10 +9593,10 @@
                 if(this.suspended)this.suspended.record=this.storage.getItem(PREFIX+this.account);
                 this.persist(!this.restoring,!this.restoring);
             }catch{}
+            this.cancelRouteRankings(!!this.suspended);
             this.running=false;this.runId++;clearTimeout(this.timer);this.timer=null;this.release();
             this.clearFrameProbe();
-            this.cancelTeamSearch();
-            this.cancelRouteRankings();
+            this.cancelTeamSearch(undefined,!!this.suspended);
             if(this.restoring){this.restoring=false;this.status='页面已离开，循环恢复操作已中断';}
         }
         resumeSuspended(explicit=false,now=Date.now()){
@@ -9628,14 +9850,17 @@
             if (!this.running || !this.settings.manualPause) return;
             if (!this.settings.manualResume || this.restoring) { this.stop('检测到手动操作，已停止助手'); return; }
             if (!this.manual) {
-                this.cancelTeamSearch();
-                this.cancelRouteRankings();
                 // A launch can be saved between ticks while this.state still describes the old map.
                 // Snapshot the latest persisted activity before yielding to the user's first input.
                 let s;
                 try{ s=this.read();if(!s?.adv)throw new Error('游戏存档不可用'); }
                 catch(err){this.stop('手动接管时无法读取游戏存档：'+(err?.message||err));return;}
                 if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return;}
+                const pending=this.driver.pendingMap,readyRoute=this.moneyReadyRoute||(pending?.routePlan?.verified?pending.row:null);
+                this.handoffPlanning={route:this.target,visit:this.visit,mode:this.settings.mode,party:s.team.join('|'),ready:this.coach.ready,checked:this.coach.checked};
+                this.cancelTeamSearch(undefined,true);
+                this.moneyReadyRoute=readyRoute;
+                this.cancelRouteRankings(true);
                 const raid = s.adv.event, zone = s.adv.zone;
                 this.manual = { since: now, until: now, raid: raidIdentity(s),
                     zone: zone ? JSON.stringify([zone.id, zone.foe, zone.elite]) : null,
@@ -9654,7 +9879,7 @@
                 // Keep session goals and the original loop backup, discard interrupted UI work.
                 this.target = null; this.visit = null; this.telemetry.sample = null;
                 this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
-                this.driver.teamTask=null;this.driver.navigation=null;this.teamCheck=null;
+                this.driver.teamTask=null;this.driver.navigation=null;
                 if(this.services.underground?.action==='dispatch'&&!this.services.underground.launch)this.services.underground.returning=true;
                 this.driver.recent?.clear();
                 this.coach.checked=null;this.coach.ready=null;
@@ -9736,14 +9961,20 @@
             }
             this.manual = null; this.interruptedPicker=null; this.target = null; this.visit = null; this.telemetry.sample = null;
             this.driver.pendingMap = null; this.driver.ownedDialog = null; this.raidProbe = false;
-            this.driver.teamTask=null;this.teamCheck=null;
+            this.driver.teamTask=null;
+            const reviewed=this.handoffPlanning;this.handoffPlanning=null;
+            if(reviewed?.mode===this.settings.mode&&reviewed.party===s.team.join('|')){
+                this.coach.ready=reviewed.ready;this.coach.checked=reviewed.checked;
+                if(reviewed.route?.members?.length&&this.routeReached(s,reviewed.route)){
+                    this.target=reviewed.route;this.visit=reviewed.visit;
+                }
+            }
             if(!this.startActivityExit&&!this.adoptManualPreparation(s,now,true))return true;
-            if(this.preparation?.phase==='train'){this.preparation.routeCheck=0;this.preparation.routeProfile=null;}
             if(this.raidReturn&&!raid?.raid){this.raidProbe=true;this.raidProbeStarted=now;}
             if (!raid?.raid) this.driver.raid = null;
             if (!zone) { this.zoneId = null; this.zoneStarted = null; }
             this.lastProgress = now; this.progressSignature = ''; this.errors = 0; this.lastExplore = 0;
-            this.status = `已恢复${MODE_NAMES[this.settings.mode]}，重新规划中`; this.action = '';
+            this.status = `已恢复${MODE_NAMES[this.settings.mode]}，核对上次规划`; this.action = '';
             this.log(this.status); return false;
         }
         resumeManual(now = Date.now()) {
@@ -9828,6 +10059,14 @@
             if(pageHidden())return 6000;
             if(this.saveUnavailableAt!=null)return 3000;
             if(this.manual){const left=Number(this.manual.until)-now;return left>0?Math.min(1200,Math.max(50,left)):1200;}
+            if(Number.isFinite(this.driver.pendingMap?.started)||Number.isFinite(this.driver.teamTask?.started)){
+                const at=this.driver.pendingMap?.arrival?.at??this.driver.teamTask?.pending?.at;
+                if(at!=null)return now-at<1800?350:1200;
+                if(this.driver.pendingMap?.waiting)return 1200;
+                if(this.driver.navigation?.nextAt>now)return Math.min(1200,Math.max(350,this.driver.navigation.nextAt-now));
+                const untilClick=GAME_ACTION_GAP-Math.max(0,now-this.driver.lastClick);
+                return untilClick>0?Math.max(300,untilClick):GAME_ACTION_GAP;
+            }
             if(this.preparation||this.driver.pendingMap||this.driver.teamTask||this.driver.ownedDialog||this.driver.navigation||this.automation.owner||this.automation.buddyTask||this.automation.buffUI||this.automation.state.eggService||this.automation.state.evolution||this.services.underground)return 1200;
             if(this.moneyBoundaryUntil>now)return 400;
             if(this.farmWait?.mode===this.settings.mode)return 6000;
@@ -10261,7 +10500,7 @@
             let dexRoutes=dex?.missing.length?dexRanking(s,this.settings,this.cooldowns,now,dex):[];
             const directedHunt=this.settings.mode==='shiny'||(dex?.missing.length>0&&(this.settings.dexSpecies.length>0||dexRoutes[0]?.window));
             const paired=this.visit?.activeRoutePlan;
-            const pairedReady=paired&&this.target&&this.routeReached(s,this.target)&&paired.party.join('|')===s.team.join('|')&&this.routeRequestValid(s,{row:this.target,routePlan:paired},now,true);
+            const pairedReady=paired&&this.verifiedFarmHeld(s,now);
             if(paired&&!pairedReady)delete this.visit.activeRoutePlan;
             if(!directedHunt&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
@@ -10269,7 +10508,11 @@
             if (this.target && this.target.members.includes(s.adv.chapter) && !roadPending) {
                 if (!this.telemetry.sample) this.telemetry.begin(s, this.target, this.settings, now);
                 const sample = this.telemetry.observe(s, this.target, this.settings, now);
-                if (sample?.valid) { this.log(`${this.target.name} 实测 ${Math.round(sample.net / sample.seconds * 60)} ₽/分钟${sample.xp != null ? ` · ${Math.round(sample.xp / sample.seconds * 60)} EXP/分钟` : ''}`); this.persist(); }
+                if (sample?.valid) {
+                    this.updateHeldFarmSample(s,sample,now);
+                    this.log(`${this.target.name} 实测 ${Math.round(sample.net / sample.seconds * 60)} ₽/分钟${sample.xp != null ? ` · ${Math.round(sample.xp / sample.seconds * 60)} EXP/分钟` : ''}`);
+                    this.persist();
+                }
                 if (this.visit && totalDeaths(s, this.target) - this.visit.deaths >= this.settings.lossLimit && safeBoundary) {
                     this.cooldowns[this.target.key] = now + 15 * 60000; this.log(`${this.target.name} 连续失败，避开 15 分钟`); this.target = null; this.telemetry.sample = null;
                     if(dex)dexRoutes=dexRanking(s,this.settings,this.cooldowns,now,dex);
@@ -10390,17 +10633,22 @@
                 try{run();}finally{this.computeBusy=false;this.computeCpu+=performance.now()-start;this.runComputeQueue();}
             },delay);
         }
-        cancelTeamSearch(slot){
+        cancelTeamSearch(slot,preserveCompleted=false){
             for(const name of slot?[slot]:['teamSearch','evolutionSearch','moneyProofSearch']){
                 if(this[name])this.cancelCompute(this[name]);
                 this[name]=null;
             }
             if(!slot||slot==='teamSearch')this.teamContinuation=null;
-            if(!slot){this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;}
+            if(!slot){
+                this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;
+                if(!preserveCompleted){this.completedTeamSearch.clear();this.routeProof=null;this.handoffPlanning=null;}
+            }
         }
         evaluateTeamSearch(signature,search,slot='teamSearch',strict=false,expiresAt=Infinity){
             let job=this[slot];
             if(job&&job.signature!==signature){this.cancelTeamSearch(slot);job=null;}
+            const completed=this.completedTeamSearch.get(slot);
+            if(strict&&completed?.signature===signature&&!job)return completed.result;
             if(strict&&performance.now()>=(job?.expiresAt??expiresAt)&&!job?.result){
                 this.cancelTeamSearch(slot);return {timedOut:true};
             }
@@ -10437,6 +10685,9 @@
                         if(step.done){
                             const plan=step.value,finalScore=plan?.changed?plan.score:plan?.currentScore;
                             job.result=!job.strict&&job.best?.checkpointScore>finalScore?job.best:plan;
+                            if(job.strict&&signature.startsWith('["adventure",')&&['verified','exhaustive'].includes(plan?.verification?.status)&&
+                                plan.verification.uids?.join('|')===plan.uids?.join('|'))this.completedTeamSearch.set(slot,{signature,result:plan});
+                            if((this.timer!=null||this.activeTick)&&(signature.startsWith('["adventure",')||slot==='moneyProofSearch'))this.schedule(0);
                             return;
                         }
                         if(step.value?.uids&&(!job.best||(step.value.checkpointScore??0)>=(job.best.checkpointScore??0)))job.best=step.value;
@@ -10483,35 +10734,39 @@
             const roamId=trackedRoamer||(roam?roamingSettings(this.settings).roamId:undefined);
             const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
             const reg=row.reg||c.reg;
-            const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,roster=adventureRosterFingerprint(s,reg),last=this.teamCheck,deaths=totalDeaths(s,row);
-            const members=row.members||[c.id],weatherKey=adventureTeamWeatherKey(s,members,now);
-            const hazards=roamId?[]:routeRoamingFoes(s,row,now);
-            const hazardKey=JSON.stringify(hazards);
+            const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,last=this.teamCheck,deaths=totalDeaths(s,row);
+            const members=row.members||[c.id];
             const pinned=adventureTeamPins(s,members,this.settings,this.trainProtected);
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
-            if(last&&last.policy===policy&&last.key===key&&last.weatherKey===weatherKey&&last.hazardKey===hazardKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
+            const partyKey=s.team.join('|');
+            const currentPartyIsLegal=()=>legalAdventureParty(s,s.team,reg,pinned);
+            const farmKind=objective==='money'?'money':objective==='train'?'xp':null;
+            const farmKey=farmKind&&this.farmPlanningKey(s,farmKind);
+            if(farmKey&&last?.farmKey===farmKey&&last.key===key&&last.expectedParty===partyKey&&
+                last.objective===objective&&!last.limited&&last.deaths===deaths&&currentPartyIsLegal())return false;
+            const roster=adventureRosterFingerprint(s,reg),weatherKey=adventureTeamWeatherKey(s,members,now);
+            const hazards=roamId?[]:routeRoamingFoes(s,row,now),hazardKey=JSON.stringify(hazards);
+            const matches=last&&(last.party===partyKey&&(this.driver.teamTask||last.expectedParty===partyKey)||last.expectedParty===partyKey&&last.verification?.uids?.join('|')===partyKey);
+            if(matches&&last.policy===policy&&last.key===key&&last.weatherKey===weatherKey&&last.hazardKey===hazardKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths){
                 // Reuse a completed search whose inputs still match, including for underground dispatch.
                 if(!last.limited&&now-last.at>=this.settings.teamMinutes*60000)last.at=now;
                 return false;
             }
-            const foes=roamId?battleContext(s,'map',{row,roamId}).foes:routeCombatFoes(s,row,now,hazards);
+            const makeFoes=()=>roamId?battleContext(s,'map',{row,roamId}).foes:routeCombatFoes(s,row,now,hazards);
             const strict=!!this.strictPlanning;
             const reviewKey=JSON.stringify([this.runId,policy,key,row.reg||c.reg,objective]);
             if(strict&&this.adventureReview?.key!==reviewKey)this.adventureReview={key:reviewKey,expiresAt:performance.now()+60000};
-            const context={reg:row.reg||c.reg,foes,objective,dexReplay,now,verifyAll:strict,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
+            const context={reg,objective,dexReplay,now,verifyAll:strict,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
             let plan;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
-                plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:foes.length};
+                plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:makeFoes().length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.runId,this.localSnapshot.sourceEpoch,policy,key,!!dexReplay,context.reg,weatherKey,objective,autoSwitch,roster,s.team,foes,strict]);
-                plan=this.evaluateTeamSearch(signature,adventureTeamSearch(s,this.settings,pinned,{...context,progressive:true},true),'teamSearch',strict,this.adventureReview?.expiresAt);
-            }else plan=planAdventureTeam(s,this.settings,pinned,context);
-            const currentPartyIsLegal=()=>{
-                const party=partyMons(s);
-                return party.length>0&&party.length===s.team.length&&party.every((mon,i)=>teamEligible(s,mon,context.reg)&&!party.slice(0,i).some(other=>teamApart(mon,other)))&&
-                    new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length&&pinned.every(uid=>s.team.includes(uid));
-            };
+                const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,roster,partyKey,strict,deaths]);
+                const settings=this.settings;
+                function* search(){return yield* adventureTeamSearch(s,settings,pinned,{...context,foes:makeFoes(),progressive:true},true);}
+                plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,this.adventureReview?.expiresAt);
+            }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;
                 if(!currentPartyIsLegal()){this.failTask('配队复核超时，当前无合规队伍');return true;}
@@ -10530,8 +10785,8 @@
             }
             this.adventureReview=null;
             this.teamValidationNote='';
-            this.teamCheck={key,policy,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,hazardKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
-                reason:[plan.changed||plan.limited||plan.retainedForHunt?plan.reason:'现队仍是本次复核的最优阵容',plan.backup].filter(Boolean).join(' · '),
+            this.teamCheck={key,policy,farmKey,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,hazardKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+                reason:[plan.changed||plan.limited||plan.retainedForHunt||plan.suggestion?plan.reason:'现队仍是本次复核的最优阵容',plan.backup].filter(Boolean).join(' · '),
                 gain:plan.gain,opponents:plan.opponents,verification:plan.verification||plan.suggestion?.verification,suggestion:!!plan.suggestion};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
             if(!plan.changed)return false;
@@ -10544,7 +10799,11 @@
             const changes=[incoming.length&&'上阵 '+incoming.join('、'),outgoing.length&&'换下 '+outgoing.join('、')].filter(Boolean);
             this.log([`配队评估 · ${plan.reason}`,...changes,plan.gain>0&&`综合评分 +${Math.round(plan.gain*100)}%`].filter(Boolean).join(' · '));
             this.telemetry.sample=null;this.status=`为${row.name||c.name}调整冒险队伍`;
-            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,hazardKey,autoSwitch,policy,party:s.team.join('|'),frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
+            const farming=objective==='train'||objective==='money'?{
+                mode,region:this.settings.region,side:s.link?.side,link:s.link?.to,switchEnabled:helperSwitchEnabled(s,this.settings),
+                trainLevel:mode==='train'?this.settings.trainLevel:null,pins:pinned.join('|'),
+            }:null;
+            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,hazardKey,autoSwitch,policy,farming,party:partyKey,frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
             return true;
         }
         legend(s, now) {
@@ -10659,8 +10918,11 @@
             const job=this.rankingJobs.get(kind);
             if(job){this.cancelCompute(job);this.rankingJobs.delete(kind);}
         }
-        cancelRouteRankings(){
-            for(const kind of this.rankingJobs.keys())this.cancelRankingJob(kind);
+        cancelRouteRankings(preserveCompleted=false){
+            for(const [kind,job] of this.rankingJobs){
+                if(preserveCompleted&&job.rows&&job.epoch===this.runId)routeRankings.set(kind,{signature:job.signature,rows:job.rows,at:Date.now()});
+                this.cancelRankingJob(kind);
+            }
         }
         releaseRankingView(keep){
             for(const [kind,job] of this.rankingJobs){
@@ -10669,7 +10931,57 @@
                 if(!job.task)this.cancelRankingJob(kind);
             }
         }
+        farmPlanningKey(s,kind){
+            const cfg=this.settings;
+            return JSON.stringify([this.localSnapshot.sourceEpoch,cfg.mode,kind,cfg.region,cfg.speed,cfg.autoTeam,
+                s.autoSwitch!==false,helperSwitchEnabled(s,cfg),s.link?.side,s.link?.to,
+                kind==='xp'?[cfg.trainUid,cfg.trainUids,cfg.trainLevel,this.trainProtected]:[cfg.moneyTarget,cfg.stopMinutes]]);
+        }
+        farmingTeamHeld(s,now,check=this.teamCheck){
+            const row=this.target,party=s.team.join('|');
+            if(this.verifiedFarmHeld(s,now))return true;
+            if(!check?.farmKey||check.limited||check.expectedParty!==party||!check.members?.includes(s.adv.chapter)||
+                (row&&row.key!==check.key)||check.deaths!==totalDeaths(s,check))return false;
+            const kind=check.objective==='train'?'xp':'money',reg=CHAPTERS.get(s.adv.chapter)?.reg;
+            return check.farmKey===this.farmPlanningKey(s,kind)&&
+                legalAdventureParty(s,s.team,reg,adventureTeamPins(s,check.members,this.settings,this.trainProtected));
+        }
+        verifiedFarmHeld(s,now){
+            const visit=this.visit,row=this.target,plan=visit?.activeRoutePlan;
+            return !!(plan&&row&&visit.activeFarmKey===this.farmPlanningKey(s,'money')&&this.routeReached(s,row)&&
+                plan.party.join('|')===s.team.join('|')&&(!s.road?.length||s.road.join('|')===s.team.join('|'))&&
+                visit.activeRouteDeaths===totalDeaths(s,row)&&this.routeRequestValid(s,{row,routePlan:plan},now,true,true));
+        }
+        heldFarm(s,kind,now){
+            const held=this.visit?.farmPlan,row=this.target;
+            if(!held||held.kind!==kind||!row||held.row.key!==row.key||!this.routeReached(s,row)||
+                held.inputs!==this.farmPlanningKey(s,kind)||held.party!==s.team.join('|')||
+                held.deaths!==totalDeaths(s,row)||!this.routeRequestValid(s,{row},now)||
+                s.road?.length&&s.road.join('|')!==held.party||
+                !legalAdventureParty(s,s.team,row.reg,adventureTeamPins(s,row.members,this.settings,this.trainProtected)))return null;
+            return held;
+        }
+        rememberFarm(s,kind,row,rows,now){
+            if(!this.visit||this.target?.key!==row.key||!this.routeReached(s,row)||
+                this.settings.autoTeam&&this.strictPlanning&&!this.farmingTeamHeld(s,now)||
+                s.road?.length&&s.road.join('|')!==s.team.join('|'))return;
+            this.visit.farmPlan={kind,row,rows,inputs:this.farmPlanningKey(s,kind),party:s.team.join('|'),deaths:totalDeaths(s,row)};
+        }
+        updateHeldFarmSample(s,sample,now){
+            const kind=this.settings.mode==='train'?'xp':'money',held=this.heldFarm(s,kind,now);
+            if(!held)return;
+            const amount=kind==='xp'?sample.xp:sample.net;
+            if(!Number.isFinite(amount)||!(sample.seconds>0))return;
+            const record=this.metrics[metricsKey(s,held.row,this.settings,now)+(kind==='xp'?trainingXpSuffix(trainingXpTargets(s,this.settings)):'')];
+            const seconds=kind==='xp'?record?.xpSeconds:record?.seconds,net=kind==='xp'?record?.xp:record?.net;
+            const rate=seconds>0&&Number.isFinite(net)?net/seconds*60:amount/sample.seconds*60;
+            const runs=kind==='xp'?record?.xpRuns:record?.runs;
+            held.row={...held.row,rate,actualRate:rate,measured:true,samples:runs??((held.row.samples||0)+1)};
+            held.rows=held.rows.map(row=>row.key===held.row.key?held.row:row).sort(compareYieldRows);
+        }
         rankedYieldRoutes(s,kind,cooldowns=this.cooldowns,now=Date.now(),view=false){
+            const held=this.heldFarm(s,kind,now);
+            if(held)return availableRankedRoutes(held.rows,cooldowns,now);
             const request=yieldRankingRequest(kind,s,this.settings,this.metrics,now,{separateMoney:true});
             const rows=this.evaluateRouteRanking(request,cooldowns,now,view);
             if(!rows?.length)return rows;
@@ -10682,7 +10994,6 @@
             const kind=request.cacheSlot||request.kind;
             if(view&&!request.background)this.releaseRankingView(kind==='money'?['money','money/projections']:kind);
             const stored=routeRankings.get(kind),cached=stored?.signature===request.signature?stored:null;
-            const refresh=cached&&request.refreshAfterMs&&now-cached.at>=request.refreshAfterMs;
             const available=job=>{
                 const previous=request.projectionOnly?stored?.rows:cached?.rows;
                 if(!job?.partial||!previous)return job?.partial||previous;
@@ -10695,7 +11006,7 @@
                 return ready?selectYieldRoutes(request,ready,cooldowns,now):null;
             }
             if(job&&job.signature!==request.signature){this.cancelRankingJob(kind);job=null;}
-            if(cached&&!refresh||!request.needsSlices){
+            if(cached||!request.needsSlices){
                 if(job)this.cancelRankingJob(kind);
                 return completeYieldRanking(request,cooldowns,now);
             }
@@ -10730,7 +11041,10 @@
                     }while(performance.now()<deadline);
                 }catch(error){job.error=error;}
                 if(!job.rows&&!job.error)this.queueCompute(job,advance,request.background?3:job.task?0:3);
-                else if(job.view)this.notifyView(true);
+                else{
+                    if(job.task&&this.running&&!this.manual&&(this.timer!=null||this.activeTick)&&kind!=='money/projections')this.schedule(0);
+                    if(job.view)this.notifyView(true);
+                }
             };
             this.queueCompute(job,advance,request.background?3:job.task?0:3);
             const ready=available();
@@ -10738,7 +11052,8 @@
         }
         farm(s, now, mode) {
             const rank=cooldowns=>mode==='item'?itemRanking(s,this.settings,this.metrics,cooldowns,now):this.rankedYieldRoutes(s,'xp',cooldowns,now);
-            const rows=rank(this.cooldowns);
+            const held=mode==='train'&&this.heldFarm(s,'xp',now);
+            const rows=held?.rows||rank(this.cooldowns);
             if(!rows){this.status='正在比较练级路线';this.lastProgress=now;return;}
             if (!rows.length) {
                 const eligible=rank({});
@@ -10766,16 +11081,13 @@
             const current = rows.find(row => row.key === this.target?.key);
             const label = mode === 'item' ? `${ITEMS.get(this.settings.itemId)?.name} · 本次 ${Math.max(0, itemCounter(s, this.settings.itemId) - this.startItems)}/${this.settings.itemQuantity}` : `练级至 Lv.${this.settings.trainLevel}`;
             if(mode==='train'&&current&&current.members.includes(s.adv.chapter)&&this.visit){
-                if(safe){
-                    const profile=trainingRouteFingerprint(s),previous=this.visit.trainingProfile,at=this.visit.trainingReviewAt??this.visit.started;
-                    if(!previous||previous!==profile||now-at>=30000){
-                        this.visit.trainingProfile=profile;this.visit.trainingReviewAt=now;
-                        const next=rows[0],due=previous&&previous!==profile||now-at>=30000;
-                        if(due&&this.routeWorthSwitch(s,current,next,now,'xp')){
-                            this.log(`练级效率重评：${current.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
-                            this.travel(next,now);return;
-                        }
+                if(!held){
+                    const next=rows[0],switchRoute=this.routeWorthSwitch(s,current,next,now,'xp');
+                    if(safe&&switchRoute){
+                        this.log(`选择练级路线：${current.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
+                        this.travel(next,now);return;
                     }
+                    if(!switchRoute)this.rememberFarm(s,'xp',current,rows,now);
                 }
                 this.status=`${label} · ${current.name} · ${current.measured?'实测':'预计'} ${Math.round(current.rate)} EXP/分钟`;
                 this.driver.nav('adventure');return;
@@ -10937,14 +11249,13 @@
             const routePlan=options.orderedRoutePlan?row.routePlan:null;
             if(!routePlan&&!options.zone&&!options.roamSettled&&this.ensurePrepared(s,battleContext(s,'map',{row,roamId:options.roamId}),{row:routeDescriptor(row),options},now))return;
             this.driver.pendingMap = { row, options, routePlan, started: now };
-            if(this.settings.mode==='train')this.driver.pendingMap.trainingProfile=trainingRouteFingerprint(s);
             this.telemetry.sample = null; this.status = `规划前往：${row.name}`;
         }
         routeReached(s,row){
             return !s.adv.event&&!s.adv.zone&&!s.adv.tower&&!s.adv.league&&CHAPTERS.get(s.adv.chapter)?.reg===row.reg&&
                 row.members.includes(s.adv.chapter)&&(s.adv.loops||[]).length===1&&String(s.adv.loops[0])===row.key;
         }
-        routeRequestValid(s,pending,now,arrived=false){
+        routeRequestValid(s,pending,now,arrived=false,finishingSwap=false){
             if(this.strictPlanning&&!localRulesKnown()&&['money','train','dex','shiny','item'].includes(this.settings.mode))return false;
             const {row,routePlan,options}=pending,mode=this.settings.mode,chapter=CHAPTERS.get(row.id);
             if(!chapter||row.reg!==chapter.reg||String(chapter.loop)!==row.key||!row.members?.includes(row.id)||
@@ -10959,13 +11270,15 @@
             }
             if(!routePlan)return true;
             if(this.strictPlanning&&(routePlan.sourceEpoch!==this.localSnapshot.sourceEpoch||routePlan.runId!==this.runId||!routePlan.verified))return false;
-            return !!this.routePlanState(s,row,routePlan,now,arrived);
+            return !!this.routePlanState(s,row,routePlan,now,arrived,finishingSwap);
         }
-        routePlanState(s,row,routePlan,now,arrived=false){
+        routePlanState(s,row,routePlan,now,arrived=false,finishingSwap=false){
             const cfg=this.settings,side=s.link?(row.reg===s.link.to?'to':'from'):null;
             const state=side===(s.link?.side??null)?s:otherMoneyParty(s);
             if(!state||side!==routePlan.scope||routePlan.setting!==routePlanSettings(cfg)||routePlan.identity!==routeIdentity(row)||
-                adventureRosterFingerprint(state,row.reg)!==routePlan.roster||(!arrived&&side!==(s.link?.side??null)&&cfg.moneyTarget>0))return null;
+                (!arrived&&side!==(s.link?.side??null)&&cfg.moneyTarget>0))return null;
+            if(finishingSwap)return side===(s.link?.side??null)&&legalAdventureParty(state,routePlan.party,row.reg)?state:null;
+            if(adventureRosterFingerprint(state,row.reg)!==routePlan.roster)return null;
             if((routePlan.threat||'')!==moneyRouteThreatKey(state,row,now))return null;
             if(!arrived&&(state.team.length!==routePlan.entryParty.length||!state.team.every((uid,i)=>uid===routePlan.entryParty[i])))return null;
             const party=partyMons(state,routePlan.party);
@@ -11014,8 +11327,7 @@
             const {row,routePlan,options}=pending;
             this.driver.pendingMap=null;this.target=row;
             this.visit={started:now,deaths:totalDeaths(s,row),runs:s.adv.runs||0};
-            if(this.settings.mode==='train')this.visit.trainingProfile=trainingRouteFingerprint(s);
-            if(routePlan)this.visit.routePlan={plan:routePlan,started:now};
+            if(routePlan)this.visit.routePlan={plan:routePlan,started:now,autoSwitch:s.autoSwitch!==false,link:s.link?.to,rows:pending.farmRows};
             this.telemetry.sample=null;
             if(options?.roamId){this.roamStarted??=now;if(options.restart)this.roamRestartAt=now;}
         }
@@ -11023,17 +11335,20 @@
             const pending=this.visit?.routePlan, row=this.target;
             if(!pending||!row)return false;
             const {plan}=pending;
-            if(!this.routeReached(s,row)||!this.routeRequestValid(s,{row,routePlan:plan},now,true)||now-pending.started>=120000||now<this.teamRetryAt){
+            const task=this.driver.teamTask,finishingSwap=pending.applied||task?.routePlan===plan&&task.hasDragged;
+            const same=uids=>plan.party.length===uids.length&&plan.party.every((uid,i)=>uid===uids[i]);
+            if(!this.routeReached(s,row)||pending.autoSwitch!==(s.autoSwitch!==false)||pending.link!==s.link?.to||pending.applied&&!same(s.team||[])||
+                !this.routeRequestValid(s,{row,routePlan:plan},now,true,finishingSwap)||now-pending.started>=120000||now<this.teamRetryAt){
                 if(this.driver.teamTask?.routePlan===plan)this.driver.teamTask=null;
                 delete this.visit.routePlan;this.telemetry.sample=null;return false;
             }
-            const same=uids=>plan.party.length===uids.length&&plan.party.every((uid,i)=>uid===uids[i]);
             if(!same(s.team||[])){
                 if(s.adv.pending||s.adv.battle){
+                    if(this.ordinaryBattleKey(s))this.moneyBoundaryUntil=now+2000;
                     this.status=`已到${row.name} · 等待当前遭遇或选择处理完毕`;
                     this.lastProgress=now;this.driver.nav('adventure');return true;
                 }
-                this.driver.teamTask??={chapter:s.adv.chapter,members:row.members,uids:plan.party,started:now,attempts:0,routePlan:plan};
+                this.driver.teamTask??={chapter:s.adv.chapter,members:row.members,uids:plan.party,started:now,attempts:0,routePlan:plan,partySignature:s.team.join('|')};
                 this.status=`已到${row.name} · 等待应用该地图的配队`;
                 this.lastProgress=now;return true;
             }
@@ -11043,8 +11358,13 @@
                 this.lastProgress=now;this.driver.nav('adventure');return true;
             }
             this.visit.routePlan=null;
-            this.visit.activeRoutePlan=plan;
-            this.visit.activeRouteDeaths=totalDeaths(s,row);
+            if(this.routeRequestValid(s,{row,routePlan:plan},now,true)){
+                this.visit.activeRoutePlan=plan;
+                this.visit.activeRouteDeaths=totalDeaths(s,row);
+                this.visit.activeFarmKey=this.farmPlanningKey(s,'money');
+                const chosen={...row,rate:row.projectedMoneyRate??row.rate,measured:false,samples:0};
+                this.rememberFarm(s,'money',chosen,pending.rows?.map(entry=>entry.key===row.key?chosen:entry)||[chosen],now);
+            }
             this.visit.started=now;
             this.telemetry.sample=null;
             return false;
@@ -11112,9 +11432,11 @@
             this.persist();
         }
         finishRaidReturn(now,s){
+            const kind=this.settings.mode==='train'?'xp':'money';
+            const returnToFarm=s?.adv&&this.heldFarm(s,kind,now);
             if(this.daily&&!this.daily.job&&this.daily.base.raids){
                 const rest=this.raidDailyStatus(s,now);
-                this.driver.raid=null;this.target=null;this.nextRaid=now;
+                this.driver.raid=null;if(!returnToFarm)this.target=null;this.nextRaid=now;
                 if(['adventure','raid'].includes(this.driver.navigation?.screen))this.driver.navigation=null;
                 this.raidCheckNote=rest?.reason||'每日异色团体战尚未确认完成，重新检查今日可挑战目标';
                 if(!rest)this.daily.checking=true;
@@ -11124,7 +11446,7 @@
                 this.nextRaid=now;this.driver.raid=null;this.target=null;this.raidCheckNote='团体战已结束，检查下一地区';this.log(this.raidCheckNote);return;
             }
             this.log('团体战已结束，返回主任务');this.nextRaid=raidRetryAt(now,this.driver.raid.date);
-            this.driver.raid=null;this.target=null;this.raidCheckNote='团体战已结束，继续原任务';
+            this.driver.raid=null;if(!returnToFarm)this.target=null;this.raidCheckNote='团体战已结束，继续原任务';
         }
         raidEntryBlock(s){
             if(!s.adv.badges?.includes('Maître'))return '尚未获得关都联盟冠军徽章';
@@ -11225,6 +11547,12 @@
         }
         money(s, now) {
             this.moneyBoundaryUntil=0;
+            const held=this.heldFarm(s,'money',now);
+            if(held){
+                if(!s.adv.battle&&!s.adv.pending&&this.automation.autoBuff(s,now,'money')){this.telemetry.sample=null;return;}
+                this.status=`刷钱 · ${held.row.name} · ${held.row.measured?'实测':'预计'} ${Math.round(held.row.rate)} ₽/分钟`;
+                this.driver.nav('adventure');return;
+            }
             const rows=this.rankedYieldRoutes(s,'money',this.cooldowns,now);
             if(!rows){
                 const chapter=CHAPTERS.get(s.adv.chapter);
@@ -11272,7 +11600,15 @@
             let usePlan=this.settings.mode==='money'&&!!winner.routePlan;
             let next=usePlan?{...winner,rate:winner.projectedMoneyRate,measured:false,samples:0}:winner;
             const stays=row=>current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,row,now,'money');
+            const settle=candidate=>{
+                // A newly adopted native loop has a short switch delay. Let the
+                // first comparison finish deciding before locking that loop.
+                if(candidate.key!==current.key&&this.visit&&now-this.visit.started<15000)return;
+                if(!this.rankingJobs.has('money/projections')&&!this.moneyProofReview&&!(this.moneyProofRetry?.until>now))
+                    this.rememberFarm(s,'money',current,rows,now);
+            };
             if(stays(next)&&!reviewing){
+                settle(next);
                 this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
             }
             if(usePlan&&this.strictPlanning&&!readyValid){
@@ -11281,13 +11617,14 @@
                 if(confirmed){this.moneyReadyRoute=winner=confirmed;next={...confirmed,rate:confirmed.projectedMoneyRate,measured:false,samples:0};}
                 else{winner=next=base;usePlan=false;}
                 if(stays(next)){
+                    if(confirmed!==undefined)settle(next);
                     const verification=this.moneyProofSearch?.verification;
                     const detail=verification?.total?` · 第 ${verification.passes} 轮 ${verification.checked}/${verification.total} 只`:'';
                     this.status=confirmed===undefined?`刷钱 · ${current.name} · 复核${reviewingName}阵容${detail}`:`保留刷钱路线 · ${current.name}`;
                     this.driver.nav('adventure');return;
                 }
             }
-            if(stays(next)){this.status=`保留刷钱路线 · ${current.name}`;this.driver.nav('adventure');return;}
+            if(stays(next)){settle(next);this.status=`保留刷钱路线 · ${current.name}`;this.driver.nav('adventure');return;}
             if (!this.canStartRoute(s)) {
                 if(this.ordinaryBattleKey(s))this.moneyBoundaryUntil=now+2000;
                 if(current?.battleFit?.roamingRisk&&!next.battleFit?.roamingRisk){
@@ -11297,7 +11634,10 @@
                 this.driver.nav('adventure');return;
             }
             this.travel(winner,now,usePlan?{orderedRoutePlan:true}:{});
-            if(this.driver.pendingMap?.row.key===winner.key)this.moneyReadyRoute=null;
+            if(this.driver.pendingMap?.row.key===winner.key){
+                if(usePlan)this.driver.pendingMap.farmRows=rows;
+                this.moneyReadyRoute=null;
+            }
         }
         moneyRouteProof(s,row,now){
             const base=row.routePlan,cfg=this.settings;
@@ -11305,7 +11645,7 @@
             if(!state)return null;
             const threat=moneyRouteThreatKey(state,row,now);
             if((base.threat||'')!==threat)return null;
-            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,base.roster,base.key,base.setting,state.team,threat];
+            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,base.roster,base.key,base.setting,state.team,threat,totalDeaths(state,row)];
             const signature='map-proof:'+JSON.stringify(stamp);
             const profitable=verified=>verified?.projectedMoneyRate>=base.minimumRate?verified:null;
             if(this.routeProof?.signature===signature)return profitable(this.routeProof.row);
@@ -13538,7 +13878,7 @@
                 engine.releaseRankingView();
                 viewSignature=null;dexPanel.renderRoutes(query('#view'),s,status,engine);return;
             }
-            let rows,signature=null,leagueNotes=[];
+            let rows,signature=null,leagueNotes=[],retained=false;
             if(FLOW_MODES.has(mode)||['legend','roam','shiny','item'].includes(mode))engine.releaseRankingView();
             if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
             else if(FLOW_MODES.has(mode))signature='flow:'+mode;
@@ -13546,12 +13886,19 @@
             else if(!['legend','roam'].includes(mode)){
                 const now=Date.now();
                 if(mode==='train'){
-                    const request=prep?preparationRankingRequest(s,engine.settings,prep,engine.metrics,now):yieldRankingRequest('xp',s,engine.settings,engine.metrics,now);
-                    const cooldowns=prep?(prep.avoid||{}):engine.cooldowns;
-                    rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
-                    if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
-                }else rows=mode==='item'?itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now)
-                    :engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);
+                    const held=prep?engine.coach.heldTrainingRoutes(s,prep):engine.heldFarm(s,'xp',now)?.rows;
+                    if(held){rows=held;retained=true;}
+                    else{
+                        const request=prep?preparationRankingRequest(s,engine.settings,prep,engine.metrics,now):yieldRankingRequest('xp',s,engine.settings,engine.metrics,now);
+                        const cooldowns=prep?(prep.avoid||{}):engine.cooldowns;
+                        rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
+                        if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
+                    }
+                }else if(mode==='item')rows=itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now);
+                else{
+                    retained=!!engine.heldFarm(s,'money',now);
+                    rows=engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);
+                }
                 if(rows===null){
                     const pending='pending:'+mode;
                     if(viewSignature!==pending){
@@ -13561,7 +13908,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
+                signature=JSON.stringify([mode,preview,!!prep,retained,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -13579,11 +13926,13 @@
                     const table=document.createElement('table');table.innerHTML='<thead><tr><th>地图</th><th>预计目标遭遇 / 轮</th></tr></thead><tbody></tbody>';
                     for(const row of shinyRoutes){const tr=document.createElement('tr');textCell(tr,row.name);textCell(tr,row.expected.toLocaleString('zh-CN',{maximumSignificantDigits:3}));table.tBodies[0].appendChild(tr);}view.appendChild(table);if(!shinyRoutes.length)view.append('当前范围、时段和地图退避条件下暂无可用路线。');
                 } else {
-                    if(mode==='train'&&rows.length){
+                    if(retained){
+                        const note=document.createElement('div');note.className='hint';note.textContent='沿用已规划的路线与队伍。继续记录整轮实测，战败后复评。';view.appendChild(note);
+                    }else if(mode==='train'&&rows.length){
                         const note=document.createElement('div');note.className='hint';note.textContent=preview?'按当前队伍比较各地图的每分钟经验。':trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
                     }
                     const coverage=mode==='money'&&rows[0]?.planCoverage;
-                    if(coverage){
+                    if(coverage&&!retained){
                         const note=document.createElement('div');note.className='hint';
                         note.textContent=`按当前队伍比较 ${coverage.total} 张图，另估算 ${coverage.evaluated} 张图的专用阵容。`;
                         view.appendChild(note);

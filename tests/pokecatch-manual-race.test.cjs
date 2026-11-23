@@ -74,6 +74,58 @@ test('explicit resume releases an abandoned PC input focus before checking hando
     e.manualInput(now);e.resumeManual(now+1000);assert.equal(focused,false);assert.equal(e.manual,null);assert.equal(e.running,true);e.stop();
 });
 
+test('immediate resume reuses a complete matching lineup and rechecks a changed roster',async t=>{
+    const {e,state,now,save}=runtime(t);
+    e.settings.autoTeam=true;e.strictPlanning=true;
+    state.mons[0].level=10;
+    for(const [i,id] of [19,16,13,10,11,9,150].entries())state.mons.push({uid:'reserve-'+i,id,level:i<5?20:100});
+    state.team=state.mons.slice(0,6).map(mon=>mon.uid);
+    state.adv.loops=[0];save();
+    e.fitTeam(e.read(),now);
+    const done=e.teamSearch;
+    for(let n=0;n<100&&!done.result&&!done.error;n++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.ifError(done.error);assert.equal(done.result?.verification?.status,'verified');
+    assert.ok(done.result.changed);
+    e.manualInput(now+1000);assert.equal(e.teamSearch,null);assert.equal(e.driver.teamTask,null);
+    e.resumeManual(now+1100);assert.equal(e.manual,null);
+    e.fitTeam(e.read(),now+1200);
+    assert.equal(e.teamSearch,null);assert.deepEqual(e.driver.teamTask.uids,done.result.uids);
+    e.manualInput(now+1300);
+    state.mons.at(-1).level=98;save();
+    e.resumeManual(now+1400);e.fitTeam(e.read(),now+1500);
+    assert.ok(e.teamSearch);assert.notEqual(e.teamSearch.signature,done.signature);assert.equal(e.driver.teamTask,null);
+    e.stop();
+});
+
+test('clean map and party transactions poll new receipts sooner and keep the wait cutoff',t=>{
+    const {e,now}=runtime(t);
+    e.driver.teamTask={started:now,pending:{at:now}};
+    assert.equal(e.nextDelay(now+300),350);
+    assert.equal(e.nextDelay(now+2200),1200);
+    delete e.driver.teamTask.pending;e.driver.lastClick=now;
+    assert.equal(e.nextDelay(now+350),350);
+    e.driver.teamTask=null;e.driver.pendingMap={started:now,arrival:{at:now}};
+    assert.equal(e.nextDelay(now+100),350);
+    global.document.hidden=true;assert.equal(e.nextDelay(now+100),6000);
+    e.stop();
+});
+
+test('idle resume keeps a fully computed map ranking that was waiting to be consumed',async t=>{
+    const {e,now}=runtime(t);let searches=0;
+    const rows=[{key:'1',rate:100}],request={kind:'test-handoff-ranking',signature:'matching map',needsSlices:true,
+        *search(){searches++;return rows;}};
+    assert.equal(e.evaluateRouteRanking(request,{},now),null);
+    const job=e.rankingJobs.get(request.kind);
+    for(let n=0;n<100&&!job.rows&&!job.error;n++)await new Promise(resolve=>setTimeout(resolve,5));
+    assert.ifError(job.error);assert.ok(job.rows);
+    e.manualInput(now+1000);assert.equal(e.rankingJobs.size,0);
+    assert.equal(e.manualStep(e.read(),now+20000),false);
+    assert.deepEqual(e.evaluateRouteRanking(request,{},now+20000),rows);
+    assert.equal(searches,1);
+    assert.equal(e.evaluateRouteRanking({...request,signature:'a changed map'},{},now+20000),null);
+    e.stop();
+});
+
 test('automatic idle recovery still waits while the user is holding input',t=>{
     const {e,now}=runtime(t);e.manualInput(now);e.inputHeld=true;assert.equal(e.manualStep(e.read(),now+16000),true);assert.match(e.status,/等待松开/);
     e.inputHeld=false;assert.equal(e.manualStep(e.read(),now+17000),false);assert.equal(e.manual,null);e.stop();

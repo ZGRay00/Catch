@@ -28,12 +28,12 @@ function fixture(){
 test('certification recovers a low-screening candidate and binds the exact UID and score',()=>{
     const {model,state,settings,ctx}=fixture();
     // This is the lower-panel candidate from the damage-multiplier counterexample.
-    const reference=model.planAdventureTeam(state,settings,['u65'],ctx);
+    const reference=model.planAdventureTeam({...state,team:['u65']},settings,[],ctx);
     const best=model.planAdventureTeam(state,settings,[],{...ctx,verifyAll:true});
     assert.deepEqual([...best.uids],['u65']);
     assert.equal(best.verification.status,'verified');assert.equal(best.verification.total,65);
     assert.deepEqual([...best.verification.uids],[...best.uids]);
-    assert.equal(best.verification.score,reference.score);assert.equal(best.selectedScore,reference.score);
+    assert.equal(best.verification.score,reference.currentScore);assert.equal(best.selectedScore,reference.currentScore);
     assert.equal(best.verification.members[0].uid,'u65');
 });
 
@@ -107,13 +107,14 @@ test('ordinary money finds the viable two-member replacement on a constrained de
 test('equal route performance replaces a weaker reserve while keeping fixed members',()=>{
     const {model,MONS,state,settings,ctx}=fixture();
     const mons=[...state.mons.slice(0,6),state.mons[64]];
-    for(const mon of mons)mon.level=mon.uid==='u1'?100:mon.uid==='u65'?60:59;
+    for(const mon of mons)mon.level=mon.uid==='u1'?100:mon.uid==='u65'?90:59;
     MONS.get(65).stats={...MONS.get(1).stats};
     Object.assign(MONS.get(100).stats,{hp:1,def:1});
     const s={...state,mons,autoSwitch:false,team:mons.slice(0,6).map(mon=>mon.uid)};
     const context={...ctx,force:false,size:6,verifyAll:true};
     const plan=model.planAdventureTeam(s,settings,['u2'],context);
-    assert.equal(plan.currentScore,plan.selectedScore);
+    assert.ok(plan.selectedScore>plan.currentScore);
+    assert.equal(plan.uids[0],s.team[0],'the same lead handles the route at the same speed');
     assert.ok(plan.changed);assert.ok(plan.uids.includes('u65'));assert.ok(plan.uids.includes('u2'));
     const retained=model.planAdventureTeam({...s,team:[...plan.uids]},settings,['u2'],context);
     assert.equal(retained.changed,false);assert.deepEqual([...retained.uids],[...plan.uids]);

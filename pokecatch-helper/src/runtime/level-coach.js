@@ -10,20 +10,35 @@
     }
     class LevelCoach {
         constructor(engine){this.e=engine;this.checked=null;this.combat=null;this.ready=null;this.planReview=null;}
-        partyProfile(s,uids=s.team||[]){
+        partyProfile(s,uids=s.team||[],ignoreLevels=false){
             const index=pokemonByUid(s);
-            return JSON.stringify([s.autoSwitch!==false,uids.map(uid=>{const mon=index.get(uid);return mon?[uid,...combatProfile({...mon,status:null})]:[uid];})]);
+            return JSON.stringify([s.autoSwitch!==false,uids.map(uid=>{const mon=index.get(uid);return mon?[uid,...combatProfile({...mon,level:ignoreLevels?0:mon.level,status:null})]:[uid];})]);
+        }
+        battleProgress(s){return {wins:Number(s.stats?.wins)||0,runs:Number(s.adv.runs)||0};}
+        advanced(s,baseline){
+            if(!baseline)return false;
+            const current=this.battleProgress(s);
+            return current.wins>=baseline.wins&&current.runs>=baseline.runs&&(current.wins>baseline.wins||current.runs>baseline.runs);
+        }
+        successfulTraining(s,p,review,scope){
+            const same=uids=>uids.length===p.uids.length&&p.uids.every((uid,i)=>uids[i]===uid);
+            return review?.preparation===p&&review.scope===scope&&p.phase==='train'&&!s.adv.event&&!s.adv.zone&&!s.adv.tower&&!s.adv.league&&p.route?.members?.includes(s.adv.chapter)&&
+                same(s.team)&&(!s.road?.length||same(s.road))&&this.advanced(s,review.progress);
         }
         trialFloor(s,uids=s.team||[]){
-            return uids.map(uid=>(s.mons||[]).find(mon=>mon.uid===uid)).filter(Boolean).map(mon=>({uid:mon.uid,id:mon.id,level:mon.level,rank:mon.rank||0,statMult:mon.statMult||1,hpMult:mon.hpMult||1,taste:tasteProfile(mon)}));
+            return partyMons(s,uids).map(mon=>({uid:mon.uid,id:mon.id,level:mon.level,rank:mon.rank||0,statMult:mon.statMult||1,hpMult:mon.hpMult||1,taste:tasteProfile(mon)}));
         }
         trialGrew(s,p){
             if(!p.trialFailure?.floor)return true;
             const old=new Map(p.trialFailure.floor.map(mon=>[mon.uid,mon]));
-            return(p.uids||[]).some(uid=>{
-                const mon=(s.mons||[]).find(mon=>mon.uid===uid),before=old.get(uid);if(!mon)return false;
+            return partyMons(s,p.uids||[]).some(mon=>{
+                const before=old.get(mon.uid);
                 return!before||mon.level>=before.level+2||mon.id!==before.id||(mon.rank||0)>before.rank||(mon.statMult||1)>before.statMult||(mon.hpMult||1)>before.hpMult||tasteProfile(mon)!==before.taste;
             });
+        }
+        trialRules(s){
+            const cfg=this.e.settings;
+            return JSON.stringify([s.adv.unlocked,s.link?.side,helperSwitchEnabled(s,cfg),cfg.mode,cfg.autoTeam,cfg.prepareMargin,cfg.prepareGap]);
         }
         conditions(s,context,now){
             const chapters=[...new Set((context.foes||[]).map(foe=>foe.chapter??s.adv.chapter))];
@@ -37,7 +52,7 @@
         rememberReady(s,context,targets,trial=false,now=Date.now()){
             const chapter=CHAPTERS.get(context.id),members=chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[context.id];
             this.ready={key:context.key,deaths:totalDeaths(s,{members}),team:[...s.team],conditions:this.conditions(s,rebuildPreparationContext(s,context),now),targets:trial?this.trialFloor(s).map(mon=>({uid:mon.uid,goal:mon.level})):targets.map(t=>({uid:t.uid,goal:t.goal}))};
-            if(trial)Object.assign(this.ready,{trial:true,profile:this.partyProfile(s)});
+            if(trial)Object.assign(this.ready,{trial:true,profile:this.partyProfile(s),levelIndependentProfile:this.partyProfile(s,s.team,true),progress:this.battleProgress(s),rules:this.trialRules(s)});
         }
         manualTrainingWait(s,targets,reg,now){
             if(this.e.settings.autoTeam!==false)return false;
@@ -70,7 +85,12 @@
                 const ready=this.ready;
                 const sameTeam=ready.team?.length===s.team.length&&ready.team.every((uid,i)=>s.team[i]===uid);
                 const applied=!s.road?.length||s.road.length===s.team.length&&s.road.every((uid,i)=>s.team[i]===uid);
-                if(ordinary&&ready.key===context.key&&deaths<=ready.deaths&&sameTeam&&applied&&ready.conditions===conditions&&(!ready.trial||ready.profile===this.partyProfile(s))&&ready.targets.every(t=>(s.mons||[]).some(m=>m.uid===t.uid&&m.level>=Math.min(t.goal,trainingCap(s,m)))))return false;
+                if(ordinary&&ready.key===context.key&&deaths<=ready.deaths&&sameTeam&&applied&&ready.conditions===conditions&&(!ready.rules||ready.rules===this.trialRules(s))){
+                    const wonOnRoute=chapter&&(chapter.id===s.adv.chapter||chapter.league&&chapter.loop===CHAPTERS.get(s.adv.chapter)?.loop)&&this.advanced(s,ready.progress);
+                    const sameTrialParty=!ready.trial||ready.profile===this.partyProfile(s)||wonOnRoute&&ready.levelIndependentProfile===this.partyProfile(s,s.team,true);
+                    const index=pokemonByUid(s);
+                    if(sameTrialParty&&ready.targets.every(t=>{const mon=index.get(t.uid);return mon&&mon.level>=Math.min(t.goal,trainingCap(s,mon));}))return false;
+                }
                 if(ordinary&&ready.key===context.key&&ready.trial&&deaths>ready.deaths)failedTrial={at:now,deaths,floor:this.trialFloor(s)};
                 this.ready=null;
             }
@@ -140,6 +160,7 @@
             if(outcome||a.event||a.zone||a.tower||a.league||e.raidProbe||e.raidReturn||FLOW_MODES.has(mode)||['legend','train'].includes(mode))return null;
             // Give the map/party transaction its own validation and receipt tick.
             if(mode==='money'&&(e.driver.pendingMap?.routePlan?.verified||e.visit?.routePlan?.plan?.verified))return null;
+            if(mode==='money'&&(e.heldFarm?.(s,'money',now)||e.verifiedFarmHeld?.(s,now)))return null;
             let row;
             if(isCollectionMap(mode,'map'))return null;
             if(mode==='progress'){
@@ -290,10 +311,12 @@
             const current=CHAPTERS.get(s.adv.chapter),fallback=current?.reg===p.context.reg?current:DATA.chapters.find(c=>c.reg===p.context.reg);
             const row=p.route?.reg===p.context.reg?p.route:fallback;
             const chapters=row?.members?.length?row.members:row?.league?DATA.chapters.filter(c=>c.loop===row.loop).map(c=>c.id):[row?.id??s.adv.chapter];
-            const weather=adventureTeamWeatherKey(s,chapters,now);
-            const fingerprint=()=>JSON.stringify([row?.key??row?.id,chapters,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),p.uids,s.autoSwitch!==false,weather,rosterFingerprint(s),helperSwitchEnabled(s,this.e.settings),s.buddy?.uid,s.adv.unlocked,s.adv.badges]);
-            const profile=fingerprint(),last=this.teamReview;
-            if(!repair&&last?.preparation===p&&last.profile===profile&&now-last.at<30000)return;
+            const scope=()=>JSON.stringify([row?.key??row?.id,chapters,p.context.key,p.context.reg,p.targets.map(t=>[t.uid,t.goal]),required,p.uids,
+                this.partyProfile(s,p.uids,true),helperSwitchEnabled(s,this.e.settings),s.adv.unlocked,s.adv.badges,s.link?.side,totalDeaths(s,{members:chapters})]);
+            const last=this.teamReview,key=scope();
+            if(!repair&&this.successfulTraining(s,p,last,key))return;
+            const exact=[adventureTeamWeatherKey(s,chapters,now),s.buddy?.uid,rosterFingerprint(s)],profile=JSON.stringify([key,exact]);
+            if(!repair&&last?.preparation===p&&last.profile===profile)return;
             const settings=this.e.settings,context={reg:p.context.reg,row,objective:'train',trainingGoals:p.targets,force:repair,now},state={...s,team:p.uids};
             const sliced=this.e.running&&s.mons.length>=24;
             const search=adventureTeamSearch(state,settings,required,context,sliced);
@@ -303,36 +326,43 @@
                 p.uids=plan.uids;this.e.telemetry.sample=null;p.routeCheck=0;p.routeProfile=null;
                 this.e.log(`补练配队重评：${plan.reason}${plan.gain>0?` · 综合评分 +${Math.round(plan.gain*100)}%`:''}`);
             }
-            this.teamReview={preparation:p,at:now,profile:fingerprint()};
+            const checked=scope();
+            this.teamReview={preparation:p,at:now,scope:checked,profile:JSON.stringify([checked,exact]),progress:this.battleProgress(s)};
         }
         reviewPreparation(s,p,now){
             const e=this.e;
             if(!['map','progress'].includes(p.context.kind)||!e.settings.autoTeam||e.settings.mode==='train'||p.phase==='exit'||p.phase==='travelFirst'||p.phase==='restore')return false;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid));
-            const prepared=p.uids.map(uid=>(s.mons||[]).find(mon=>mon.uid===uid)),identity=mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`;
-            const readyRosterValid=prepared.length>0&&prepared.every(mon=>mon&&teamEligible(s,mon,p.context.reg))&&new Set(prepared.map(identity)).size===prepared.length;
+            const readyRosterValid=legalAdventureParty(s,p.uids,p.context.reg);
             const readyApplied=p.uids.length===s.team.length&&p.uids.every((uid,i)=>s.team[i]===uid);
             // A ready roster is a pending native transaction, not a new search target.
             // Keep it stable until applied; unavailable members still force replanning.
             if(p.resumeReady&&readyRosterValid&&(!readyApplied||roadPending))return false;
             if(s.adv.battle||s.adv.pending||roadPending||e.driver.teamTask||e.driver.ownedDialog||p.candyTx||e.automation?.owner||e.automation?.buddyTask||e.automation?.buffUI||e.automation?.state?.resourceTx||e.automation?.state?.autoBuffTx||e.automation?.state?.resourceBuffTx)return false;
+            const chapter=CHAPTERS.get(p.context.id),chapters=chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[p.context.id];
+            const scope=JSON.stringify([p.context.key,p.context.level,p.context.roamId,p.route?.key,e.settings.mode,e.settings.autoEvolve,e.settings.prepareMargin,e.settings.prepareGap,
+                s.adv.unlocked,s.adv.badges,s.travel?.to,s.link?.side,s.autoSwitch!==false,helperSwitchEnabled(s,e.settings),s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),
+                totalDeaths(s,{members:chapters}),totalDeaths(s,{members:p.route?.members||[]})]);
+            const last=this.preparationReview,readinessOnly=readyRosterValid&&this.successfulTraining(s,p,last,scope);
+            const grew=this.trialGrew(s,p);
+            const readinessKey=JSON.stringify([this.partyProfile(s),grew]);
+            if(readinessOnly&&last.readinessKey===readinessKey)return false;
             const context=rebuildPreparationContext(s,p.context);if(!context?.foes?.length)return false;
-            const chapters=[...new Set(context.foes.map(foe=>foe.chapter??s.adv.chapter))],grew=this.trialGrew(s,p);
-            const profile=JSON.stringify([context.key,context.foes,e.settings.mode,e.settings.autoEvolve,e.settings.prepareMargin,e.settings.prepareGap,
-                s.adv.unlocked,s.adv.badges,s.travel?.to,phaseAt(s,now),adventureTeamWeatherKey(s,chapters,now),s.autoSwitch!==false,s.team,p.uids,p.targets.map(t=>[t.uid,t.goal]),
-                rosterFingerprint(s),lockedEvolutionItems(s),e.settings.autoEvolve&&reserveEvolutionKey(s),grew]),last=this.preparationReview;
-            if(last?.preparation===p&&last.profile===profile&&(now-last.at<30000||e.teamSearch?.signature.startsWith('trainees:')))return false;
+            const profile=readinessOnly?JSON.stringify([scope,readinessKey]):JSON.stringify([scope,readinessKey,context.foes,phaseAt(s,now),adventureTeamWeatherKey(s,chapters,now),
+                rosterFingerprint(s),lockedEvolutionItems(s),e.settings.autoEvolve&&reserveEvolutionKey(s)]);
+            if(last?.preparation===p&&last.profile===profile)return false;
             const sliced=e.running&&s.mons.length>=24;
-            const search=this.comparePreparation(s,p,{...context,now},grew,sliced);
+            const search=this.comparePreparation(s,p,{...context,now},grew,sliced,readinessOnly);
             const review=sliced?e.evaluateTeamSearch('review:'+profile,search):search.next().value;
             if(!review){e.status='正在复评补练目标 · '+p.context.label;p.phaseAt=now;return true;}
-            this.preparationReview={preparation:p,profile,at:now};
+            this.preparationReview={preparation:p,profile,scope,readinessKey,progress:readinessOnly?last.progress:this.battleProgress(s)};
             const {assessment,plan,equalCostAndQuality}=review,applied=readyApplied;
             p.assessment={ready:assessment.ready&&grew&&applied,reason:!applied?'等待目标队伍在治疗点实际上阵后重新评估':!grew?'上次试打战败，先补练获得可验证成长后再尝试':assessment.reason};
             if(assessment.fit)p.assessment.fit={turns:assessment.fit.turns,coverage:assessment.fit.coverage,deaths:assessment.fit.deaths};
             if(applied&&assessment.ready&&grew){
                 p.earlyReady=true;p.returnReason='当前战力已足够尝试原任务，提前结束补练';this.setPhase(p,'restore',now);return true;
             }
+            if(!plan)return false;
             if(!plan.uids.length){if(p.resumeReady){e.failTask('准备上阵的队伍已不可用，当前地区没有可替换成员');return true;}p.selection=plan.selection;return false;}
             if(review.same){p.selection=plan.selection;return false;}
             if(!review.worthwhile)return false;
@@ -341,12 +371,12 @@
             p.resumeReady=!plan.needed&&!plan.targets.length;this.teamReview=null;e.telemetry.sample=null;this.preparationReview=null;
             this.setPhase(p,'team',now);e.log(next?.ready?'发现无需额外补练的现成队伍，准备上阵后继续原任务':equalCostAndQuality?'补练队伍同分，优先选择进化道具已解锁或无需道具的成员':'补练计划重评：改用培养负担更低的队伍，保留原任务与预算');return true;
         }
-        *comparePreparation(s,p,context,grew,sliced){
+        *comparePreparation(s,p,context,grew,sliced,readinessOnly=false){
             const settings=this.e.settings,uids=[...p.uids];
             const targetKey=targets=>JSON.stringify(targets.map(t=>[t.uid,t.goal]).sort((a,b)=>String(a[0]).localeCompare(String(b[0]))));
             const oldTargets=targetKey(p.targets),noTargets=!p.targets.length;
             const assessment=yield* readinessSearch(s,settings,context,s.team,sliced);
-            if(assessment.ready&&grew&&uids.length===s.team.length&&uids.every((uid,i)=>uid===s.team[i]))return{assessment};
+            if(readinessOnly||assessment.ready&&grew&&uids.length===s.team.length&&uids.every((uid,i)=>uid===s.team[i]))return{assessment};
             const plan=yield* preparationSearch(s,settings,grew?context:{...context,forcePreparation:true},sliced);
             const same=targetKey(plan.targets)===oldTargets&&plan.uids.length===uids.length&&plan.uids.every((uid,i)=>uids[i]===uid);
             if(!plan.uids.length||same)return{assessment,plan,same};
@@ -369,6 +399,25 @@
             }
             return profile;
         }
+        trainingRouteScope(s,p){
+            const cfg=this.e.settings;
+            return JSON.stringify([p.context.key,p.route.key,p.route.members,p.routeCeiling,s.adv.loops,s.adv.unlocked,s.link?.side,s.link?.to,
+                cfg.mode,cfg.speed,cfg.autoTeam,this.partyProfile(s,p.uids,true),helperSwitchEnabled(s,cfg),p.targets.map(t=>[t.uid,t.goal]),totalDeaths(s,p.route)]);
+        }
+        heldTrainingRoutes(s,p){
+            const review=this.routeReview;
+            if(!p?.route||p.phase!=='train'||review?.preparation!==p||review.route!==p.route.key||!review.rows)return null;
+            if(review.pendingArrival)return review.rows;
+            const scope=this.trainingRouteScope(s,p);
+            return this.successfulTraining(s,p,review,scope)||review.scope===scope&&p.routeProfile===trainingRouteFingerprint(s,p.uids)?review.rows:null;
+        }
+        updateTrainingSample(s,p,sample,now){
+            const review=this.routeReview;
+            if(review?.preparation!==p||review.route!==p.route.key||!Number.isFinite(sample.xp)||!(sample.seconds>0))return;
+            const record=this.e.metrics[metricsKey(s,p.route,this.e.settings,now)+trainingXpSuffix(trainingXpTargets(s,this.e.settings,p.targets))];
+            const rate=record?.xpSeconds>0&&Number.isFinite(record.xp)?record.xp/record.xpSeconds*60:sample.xp/sample.seconds*60;
+            review.rows=review.rows.map(row=>row.key===p.route.key?{...row,rate,actualRate:rate,measured:true,samples:record?.xpRuns??(row.samples||0)+1}:row);
+        }
         routes(s,p,now,message,ceiling=p.routeCeiling){
             const e=this.e,options=ceiling===p.routeCeiling?p:{...p,routeCeiling:ceiling};
             const request=preparationRankingRequest(s,e.settings,options,e.metrics,now);
@@ -385,7 +434,7 @@
                 this.rememberReady(s,p.context,p.targets,!!p.earlyReady,now);
             }
             e.preparation=null;e.target=null;e.visit=null;e.telemetry.sample=null;e.driver.pendingMap=null;e.teamCheck=null;e.teamRetryAt=0;e.driver.recent?.clear();this.checked=null;
-            e.zoneId=null;e.zoneStarted=null;e.driver.raid=null;e.raidProbe=false;e.raidReturn=null;this.preparationReview=null;
+            e.zoneId=null;e.zoneStarted=null;e.driver.raid=null;e.raidProbe=false;e.raidReturn=null;this.preparationReview=null;this.teamReview=null;this.routeReview=null;
             if(p.terminalGoal){
                 if(p.terminalGoal.failed)e.failTask(p.terminalGoal.reason);
                 else e.completeTask(p.terminalGoal.reason);
@@ -446,14 +495,15 @@
             if(p.context.kind==='progress'&&s.adv.unlocked>(p.frontier??p.context.id)&&p.phase!=='restore'){
                 p.returnReason='补练期间原关卡已通过，继续推进后续主线';this.setPhase(p,'restore',now);
             }
-            if(this.reviewPreparation(s,p,now)&&p.phase!=='restore')return;
+            const graduated=p.phase==='restore'||p.targets.every(m=>index.get(m.uid).level>=m.goal);
+            if((!graduated||p.resumeReady)&&this.reviewPreparation(s,p,now)&&p.phase!=='restore')return;
             const applied=p.uids.length===s.team.length&&p.uids.every((uid,i)=>s.team[i]===uid)&&(!Array.isArray(s.road)||!s.road.length||s.road.length===s.team.length&&s.road.every((uid,i)=>uid===s.team[i]));
             if(p.phase!=='restore'&&p.resumeReady&&!applied){
                 p.lastGrowth=now;e.telemetry.sample=null;
                 if(p.uids.length!==s.team.length||p.uids.some((uid,i)=>s.team[i]!==uid)){this.team(s,p.uids,now);e.status='准备用现成战力继续原任务，等待队伍配置';}
                 else{e.status='现成战力已配置，等待治疗点应用后继续原任务';d.nav('adventure');}return;
             }
-            if(p.phase!=='restore'&&p.targets.every(m=>index.get(m.uid).level>=m.goal))this.setPhase(p,'restore',now);
+            if(p.phase!=='restore'&&graduated)this.setPhase(p,'restore',now);
             if(p.phase==='restore'){
                 if(!['map','progress'].includes(p.context.kind)&&p.originalLocation?.reg!==currentRegion(s)){d.map(p.originalLocation,s);return;}
                 const original=p.originalTeam.filter(uid=>index.has(uid)&&teamEligible(s,index.get(uid)));
@@ -482,7 +532,8 @@
                 e.status=`补练前往 ${row.name}${row.fallback?' · 起步地图自动重试':''}`;
                 if(d.map(row,s)){
                     if(p.phase==='travelFirst'){this.setPhase(p,'team',now);return;}
-                    p.route=routeDescriptor(row);p.visit={at:now,deaths:totalDeaths(s,row)};p.routeCheck=now;p.routeProfile=routeProfile;e.telemetry.sample=null;this.setPhase(p,'train',now);
+                    p.route=routeDescriptor(row);p.visit={at:now,deaths:totalDeaths(s,row)};p.routeCheck=now;p.routeProfile=routeProfile;
+                    this.routeReview={preparation:p,route:row.key,rows:routes,pendingArrival:true};e.telemetry.sample=null;this.setPhase(p,'train',now);
                 }return;
             }
             const growth=p.targets.map(m=>{const mon=index.get(m.uid);return `${m.uid}:${mon.level}:${mon.xp||0}:${mon.rank||0}`;}).join('|');
@@ -511,7 +562,8 @@
             else{
                 p.roadWait=null;p.roadRepairs=0;
                 if(!e.telemetry.sample)e.telemetry.begin(s,p.route,e.settings,now,p.targets);
-                const sample=e.telemetry.observe(s,p.route,e.settings,now,p.targets);if(sample?.valid)e.persist();
+                const sample=e.telemetry.observe(s,p.route,e.settings,now,p.targets);
+                if(sample?.valid){this.updateTrainingSample(s,p,sample,now);e.persist();}
             }
             const safe=!s.adv.battle&&!s.adv.pending;
             if(safe&&totalDeaths(s,p.route)-(p.visit?.deaths||0)>=Math.min(2,e.settings.lossLimit)){
@@ -521,14 +573,20 @@
                 if(alternatives.length){p.routeCeiling=ceiling;p.routeLimit={until:now+10*60000,profile:routeProfile};p.avoid[p.route.key]=now+10*60000;e.log(`${p.route.name}补练仍有战败，暂时降低难度，成长后重新评估`);this.setPhase(p,'travel',now);e.telemetry.sample=null;return;}
                 p.visit.deaths=totalDeaths(s,p.route);e.log('当前只有一张起步练级地图，继续获取经验后重试');
             }
-            if(safe&&!roadPending&&(p.routeProfile!==routeProfile||now-(p.routeCheck||0)>=30000)){
-                const rows=this.routes(s,p,now,'正在重新比较补练地图收益');
-                if(!rows)return;
-                p.routeCheck=now;p.routeProfile=routeProfile;
-                const next=rows[0],current=rows.find(row=>row.key===p.route.key);
-                if(shouldSwitchTrainingRoute(current,next)){
-                    e.log(`补练效率重评：${p.route.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
-                    this.setPhase(p,'travel',now);e.telemetry.sample=null;return;
+            if(safe&&!roadPending){
+                const scope=this.trainingRouteScope(s,p),review=this.routeReview;
+                if(review?.preparation===p&&review.pendingArrival)this.routeReview={...review,pendingArrival:false,scope,progress:this.battleProgress(s)};
+                const checked=this.routeReview,changed=checked?.preparation===p&&checked.scope!==scope;
+                if(!this.successfulTraining(s,p,checked,scope)&&(changed||p.routeProfile!==routeProfile||now-(p.routeCheck||0)>=30000)){
+                    const rows=this.routes(s,p,now,'正在重新比较补练地图收益');
+                    if(!rows)return;
+                    p.routeCheck=now;p.routeProfile=routeProfile;
+                    const next=rows[0],current=rows.find(row=>row.key===p.route.key);
+                    if(shouldSwitchTrainingRoute(current,next)){
+                        e.log(`补练效率重评：${p.route.name} → ${next.name} · ${Math.round(next.rate)} EXP/分钟`);
+                        this.setPhase(p,'travel',now);e.telemetry.sample=null;return;
+                    }
+                    this.routeReview={preparation:p,route:p.route.key,rows,scope,progress:checked?.preparation===p&&!changed?checked.progress:this.battleProgress(s)};
                 }
             }
             // Native member details and Buddy selection also work during ordinary combat.

@@ -953,7 +953,7 @@
                 engine.releaseRankingView();
                 viewSignature=null;dexPanel.renderRoutes(query('#view'),s,status,engine);return;
             }
-            let rows,signature=null,leagueNotes=[];
+            let rows,signature=null,leagueNotes=[],retained=false;
             if(FLOW_MODES.has(mode)||['legend','roam','shiny','item'].includes(mode))engine.releaseRankingView();
             if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
             else if(FLOW_MODES.has(mode))signature='flow:'+mode;
@@ -961,12 +961,19 @@
             else if(!['legend','roam'].includes(mode)){
                 const now=Date.now();
                 if(mode==='train'){
-                    const request=prep?preparationRankingRequest(s,engine.settings,prep,engine.metrics,now):yieldRankingRequest('xp',s,engine.settings,engine.metrics,now);
-                    const cooldowns=prep?(prep.avoid||{}):engine.cooldowns;
-                    rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
-                    if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
-                }else rows=mode==='item'?itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now)
-                    :engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);
+                    const held=prep?engine.coach.heldTrainingRoutes(s,prep):engine.heldFarm(s,'xp',now)?.rows;
+                    if(held){rows=held;retained=true;}
+                    else{
+                        const request=prep?preparationRankingRequest(s,engine.settings,prep,engine.metrics,now):yieldRankingRequest('xp',s,engine.settings,engine.metrics,now);
+                        const cooldowns=prep?(prep.avoid||{}):engine.cooldowns;
+                        rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
+                        if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
+                    }
+                }else if(mode==='item')rows=itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now);
+                else{
+                    retained=!!engine.heldFarm(s,'money',now);
+                    rows=engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);
+                }
                 if(rows===null){
                     const pending='pending:'+mode;
                     if(viewSignature!==pending){
@@ -976,7 +983,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
+                signature=JSON.stringify([mode,preview,!!prep,retained,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -994,11 +1001,13 @@
                     const table=document.createElement('table');table.innerHTML='<thead><tr><th>地图</th><th>预计目标遭遇 / 轮</th></tr></thead><tbody></tbody>';
                     for(const row of shinyRoutes){const tr=document.createElement('tr');textCell(tr,row.name);textCell(tr,row.expected.toLocaleString('zh-CN',{maximumSignificantDigits:3}));table.tBodies[0].appendChild(tr);}view.appendChild(table);if(!shinyRoutes.length)view.append('当前范围、时段和地图退避条件下暂无可用路线。');
                 } else {
-                    if(mode==='train'&&rows.length){
+                    if(retained){
+                        const note=document.createElement('div');note.className='hint';note.textContent='沿用已规划的路线与队伍。继续记录整轮实测，战败后复评。';view.appendChild(note);
+                    }else if(mode==='train'&&rows.length){
                         const note=document.createElement('div');note.className='hint';note.textContent=preview?'按当前队伍比较各地图的每分钟经验。':trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
                     }
                     const coverage=mode==='money'&&rows[0]?.planCoverage;
-                    if(coverage){
+                    if(coverage&&!retained){
                         const note=document.createElement('div');note.className='hint';
                         note.textContent=`按当前队伍比较 ${coverage.total} 张图，另估算 ${coverage.evaluated} 张图的专用阵容。`;
                         view.appendChild(note);

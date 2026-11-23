@@ -6,6 +6,7 @@
         return style.display !== 'none' && style.visibility !== 'hidden' && Number(style.opacity) > .05 && el.getClientRects().length > 0;
     }
     function enabled(el) { return visible(el) && !el.disabled && el.getAttribute('aria-disabled') !== 'true'; }
+    const GAME_ACTION_GAP=700;
     function highestShopCandy(s,cards,expected=shopCandyTier(s)){
         // An unlocked card still sets the tier if its price or button is unavailable.
         const shown=highestCandy(s,cards.filter(el=>!el.classList.contains('locked')).map(el=>({id:el.dataset.id,el})));
@@ -64,7 +65,7 @@
         }
         click(el, label, pointer = false, resuming = false) {
             const handoff=this.e.manual;
-            if (!enabled(el) || !this.e.running&&!this.e.nurseryAssist?.idleAccess || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || pageHidden() || Date.now() - this.lastClick < 700) return false;
+            if (!enabled(el) || !this.e.running&&!this.e.nurseryAssist?.idleAccess || handoff&&(!resuming||Date.now()<handoff.until||this.e.inputHeld||this.e.gameInputFocused?.()) || pageHidden() || Date.now() - this.lastClick < GAME_ACTION_GAP) return false;
             this.lastClick = Date.now();
             if (pointer) el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0 }));
             el.click(); this.e.action = label; return true;
@@ -101,11 +102,11 @@
             return navigate(tab);
         }
         input(el, value, label) {
-            if (!enabled(el) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<700) return false;
+            if (!enabled(el) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<GAME_ACTION_GAP) return false;
             this.lastClick=Date.now(); el.value=value; el.dispatchEvent(new Event('input',{bubbles:true})); this.e.action=label; return true;
         }
         drag(source, target, label) {
-            if (!enabled(source) || !enabled(target) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<700) return false;
+            if (!enabled(source) || !enabled(target) || !this.e.running || this.e.manual || pageHidden() || Date.now()-this.lastClick<GAME_ACTION_GAP) return false;
             const a=source.getBoundingClientRect(),b=target.getBoundingClientRect(),pointer={bubbles:true,pointerId:927,pointerType:'mouse',isPrimary:true,button:0};
             const from={clientX:a.left+a.width/2,clientY:a.top+a.height/2},to={clientX:b.left+b.width/2,clientY:b.top+b.height/2};
             this.lastClick=Date.now();
@@ -135,33 +136,52 @@
         }
         adventureTeam(s, now) {
             const task=this.teamTask; if(!task)return false;
-            if(task.fitBasis){
-                const b=task.fitBasis,e=this.e,pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
+            const e=this.e,b=task.fitBasis,farm=b?.farming,tracked=!!(farm||task.routePlan),signature=s.team.join('|');
+            const discard=()=>{
+                if(task.routePlan&&e.visit?.routePlan?.plan===task.routePlan)delete e.visit.routePlan;
+                this.teamTask=null;e.teamCheck=null;
+            };
+            const expected=task.pending?.before??task.partySignature;
+            if(tracked&&(e.manual||expected!=null&&expected!==signature&&task.pending?.after!==signature)){
+                discard();e.status='队伍已由其他操作变更，重新核对配队';return false;
+            }
+            if(tracked)task.partySignature??=signature;
+            if(b){
+                const pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
                 const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
                 const current=pokemonByUid(s),region=CHAPTERS.get(task.chapter)?.reg;
+                const hardFarmChange=farm&&(farm.mode!==e.settings.mode||farm.region!==e.settings.region||farm.side!==s.link?.side||farm.link!==s.link?.to||
+                    farm.switchEnabled!==helperSwitchEnabled(s,e.settings)||farm.pins!==pins.join('|')||farm.mode==='train'&&farm.trainLevel!==e.settings.trainLevel||
+                    !legalAdventureParty(s,task.uids,region,pins));
+                // Before the first drag require an exact plan. Afterwards, a changed Box or weather
+                // must not strand the team midway through a known legal sequence of native moves.
+                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
+                    b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
+                    !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now)));
                 if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
                     e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(e.settings).roamId)||
-                    !task.hasDragged&&b.party!==s.team.join('|')||b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
-                    b.autoSwitch!==(s.autoSwitch!==false)||b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
-                    !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now))||
+                    !task.hasDragged&&b.party!==signature||hardFarmChange||stalePlan||b.autoSwitch!==(s.autoSwitch!==false)||
                     task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
-                    this.teamTask=null;e.teamCheck=null;return false;
+                    discard();return false;
                 }
             }
-            const fail=reason=>{this.e.log(`自动配队暂缓：${reason}`);this.e.teamRetryAt=now+5*60000;this.e.teamCheck=null;this.teamTask=null;this.nav('adventure');};
-            if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){this.teamTask=null;this.e.teamCheck=null;return false;}
+            const fail=reason=>{e.log(`自动配队暂缓：${reason}`);e.teamRetryAt=now+5*60000;discard();this.nav('adventure');};
+            if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){discard();return false;}
             if(now-task.started>90000){fail('队伍页面操作超时，继续当前任务');return false;}
             const roster=pokemonByUid(s);
-            if(task.uids.some(uid=>!roster.has(uid))){this.teamTask=null;this.e.teamCheck=null;return false;}
-            const signature=s.team.join('|');
+            if(task.uids.some(uid=>!roster.has(uid))){discard();return false;}
             if(task.pending){
                 if(signature===task.pending.before&&now-task.pending.at<10000){this.e.status='冒险配队 · 等待游戏确认上一次拖放';this.e.lastProgress=now;return true;}
+                if(tracked)task.partySignature=signature;
                 delete task.pending;
             }
             const same=task.uids.length===s.team.length&&task.uids.every((uid,i)=>s.team[i]===uid);
             if(same){
                 const search=$('#screen-team.active #pc-search');
                 if(search&&task.searchBefore!==undefined&&search.value!==task.searchBefore){this.input(search,task.searchBefore,'恢复PC搜索');return true;}
+                const check=this.e.teamCheck;
+                if(task.fitBasis&&check?.expectedParty===signature&&check.roster===task.fitBasis.roster)check.party=signature;
+                if(task.routePlan&&e.visit?.routePlan?.plan===task.routePlan)e.visit.routePlan.applied=true;
                 this.teamTask=null;this.e.telemetry.sample=null;
                 if(this.e.target&&!task.routePlan)this.e.visit={started:now,deaths:totalDeaths(s,this.e.target),caught:dexStatus(s,this.e.settings).complete};
                 this.e.status='冒险队伍已适配，等待游戏治疗点应用';
@@ -173,34 +193,58 @@
             this.e.status=`适配冒险队伍 · ${task.uids.filter((uid,i)=>s.team[i]===uid).length}/${task.uids.length}`;
             if(task.signature!==signature){task.signature=signature;task.attempts=0;}
             if(task.attempts>=3){fail('游戏未接受拖放，请检查队伍地区限制');return false;}
-            const move=(source,target,label)=>{
-                if(this.drag(source,target,label)){task.attempts++;task.hasDragged=true;task.pending={before:signature,at:now};}
+            const move=(source,target,label,expected)=>{
+                if(this.drag(source,target,label)){task.attempts++;task.hasDragged=true;task.pending={before:signature,after:expected?.join('|'),at:now};}
                 return true;
             };
             const slotNodes=()=>{const mini=$('#team-mini.show');return [...(mini?.children||$('#team-slots')?.children||[])];};
             const mismatch=task.uids.findIndex((uid,i)=>s.team[i]!==uid);
             if(mismatch>=0){
                 const uid=task.uids[mismatch],oldIndex=s.team.indexOf(uid),mon=roster.get(uid);
-                if(oldIndex>=0){const slots=slotNodes();return move(slots[oldIndex],slots[mismatch],'调整冒险队伍顺序');}
-                const filters=$$('#pc-active [data-clear]').filter(enabled),other=filters.find(el=>el.dataset.clear!=='q');
-                if(other){this.click(filters.find(el=>el.dataset.clear==='all')||other,'清除PC筛选以配置队伍');return true;}
-                const search=$('#pc-search');if(!search){fail('找不到PC搜索框');return false;}
-                if(search.value!==String(mon.id)){this.input(search,String(mon.id),`查找配队成员：${MONS.get(mon.id)?.name}`);return true;}
-                const card=$$('#pc-grid .pc-cell[data-uid]').find(el=>el.dataset.uid===uid);
-                if(!card){this.e.status='等待PC列表显示配队成员';return true;}
+                if(oldIndex>=0){
+                    const slots=slotNodes(),next=s.team.slice();[next[oldIndex],next[mismatch]]=[next[mismatch],next[oldIndex]];
+                    return move(slots[oldIndex],slots[mismatch],'调整冒险队伍顺序',next);
+                }
+                const card=globalThis.CSS?.escape?$(`#pc-grid .pc-cell[data-uid="${CSS.escape(uid)}"]`):$$('#pc-grid .pc-cell[data-uid]').find(el=>el.dataset.uid===uid);
+                if(!enabled(card)){
+                    const filters=$$('#pc-active [data-clear]').filter(enabled),other=filters.find(el=>el.dataset.clear!=='q');
+                    if(other){this.click(filters.find(el=>el.dataset.clear==='all')||other,'清除PC筛选以配置队伍');return true;}
+                    const search=$('#pc-search');if(!search){fail('找不到PC搜索框');return false;}
+                    if(search.value!==String(mon.id)){this.input(search,String(mon.id),`查找配队成员：${MONS.get(mon.id)?.name}`);return true;}
+                    this.e.status='等待PC列表显示配队成员';return true;
+                }
                 const rect=card.getBoundingClientRect();
                 if(rect.top<0||rect.bottom>innerHeight){card.scrollIntoView({block:'center'});return true;}
                 // A PC drop replaces the occupant. Bring the newcomer onto the team
                 // first, then reorder within the team so retained trainees stay on it.
                 let destination=mismatch;
                 if(task.uids.includes(s.team[mismatch])){
-                    const outgoing=s.team.findIndex(member=>!task.uids.includes(member));
+                    let outgoing=s.team.findIndex(member=>!task.uids.includes(member));
+                    if(s.team.length===task.uids.length&&new Set(s.team).size===s.team.length&&new Set(task.uids).size===task.uids.length){
+                        // The target requests a newcomer here, so following retained members' slots cannot cycle.
+                        outgoing=mismatch;
+                        for(let at=task.uids.indexOf(s.team[outgoing]);at>=0;at=task.uids.indexOf(s.team[outgoing]))outgoing=at;
+                    }
                     destination=outgoing<0?s.team.length:outgoing;
                 }
-                return move(card,slotNodes()[destination],`派出${MONS.get(mon.id)?.name}`);
+                const next=s.team.slice();
+                if(tracked){
+                    const identity=member=>DATA.combat.singles[member.id]||`${member.id}:${+!!member.shiny}`;
+                    const key=identity(mon),conflicts=other=>{
+                        const member=roster.get(other);
+                        return other!==uid&&member&&(identity(member)===key||teamApart(mon,member));
+                    };
+                    // Native PC drops replace a slot and then eject the first remaining conflict.
+                    const conflict=next.findIndex(conflicts);
+                    if(conflict>=0)destination=conflict;
+                    if(next[destination])next[destination]=uid;else next.push(uid);
+                    const ejected=next.findIndex(conflicts);
+                    if(ejected>=0)next.splice(ejected,1);
+                }else next[destination]=uid;
+                return move(card,slotNodes()[destination],`派出${MONS.get(mon.id)?.name}`,next);
             }else{
                 const index=s.team.findIndex(uid=>!task.uids.includes(uid));
-                if(index>=0)return move(slotNodes()[index],$('#pc-grid'),'移出多余冒险队员');
+                if(index>=0)return move(slotNodes()[index],$('#pc-grid'),'移出多余冒险队员',s.team.filter((_,i)=>i!==index));
             }
             return true;
         }

@@ -35,20 +35,26 @@ test('a ready team awaiting the healing point keeps progressing, but a genuinely
     assert.equal(e.running,false);assert.match(e.status,/治疗点应用队伍/);
 });
 
-test('an unmeasured low training map is upgraded after a short review instead of being held for thirty minutes',t=>{
+test('the first training review can pick a faster map before collecting samples',t=>{
     const {s,e,now,farming}=fixture(t);farming(31000);e.farm(s,now,'train');
-    assert.ok(e.driver.pendingMap,'the low-level route must not wait for two complete samples');assert.ok(ace(e.driver.pendingMap.row)>37);assert.match(e.logs[0].text,/练级效率重评/);e.stop();
+    assert.ok(e.driver.pendingMap,'the first route choice must not wait for two complete samples');assert.ok(ace(e.driver.pendingMap.row)>37);assert.match(e.logs[0].text,/选择练级路线/);e.stop();
 });
-test('a level gain inside the same ten-level measurement bucket triggers an immediate training review',t=>{
-    const {s,e,now,farming,save}=fixture(t,{},40);farming();e.farm(s,now,'train');assert.equal(e.driver.pendingMap,null);
-    s.mons[0].level=53;save();e.farm(s,now+1200,'train');assert.ok(e.driver.pendingMap);assert.ok(ace(e.driver.pendingMap.row)>37);e.stop();
+test('a level gain keeps a completed route until a defeat triggers an immediate review',t=>{
+    const {s,e,now,farming,save}=fixture(t,{},40);farming();
+    const rows=H.xpRanking(s,e.settings,{}, {},now),selected=rows.find(row=>row.key==='35');
+    e.rememberFarm(s,'xp',selected,rows,now);
+    s.mons[0].level=53;save();e.farm(s,now+1200,'train');assert.equal(e.driver.pendingMap,null);
+    s.adv.deaths[35]=1;save();e.farm(s,now+2400,'train');assert.ok(e.driver.pendingMap);assert.ok(ace(e.driver.pendingMap.row)>37);e.stop();
 });
-test('XP ticks alone preserve the current training map until the periodic review',t=>{
-    const {s,e,now,farming}=fixture(t);farming();e.farm(s,now,'train');s.mons[4].xp=100;e.farm(s,now+1200,'train');
-    assert.equal(e.driver.pendingMap,null);e.farm(s,now+31000,'train');assert.ok(e.driver.pendingMap);e.stop();
+test('XP ticks and elapsed time preserve the confirmed training route',t=>{
+    const {s,e,now,farming}=fixture(t);farming();
+    const rows=H.xpRanking(s,e.settings,{}, {},now),selected=rows.find(row=>row.key==='35');
+    e.rememberFarm(s,'xp',selected,rows,now);
+    s.mons[4].xp=100;e.farm(s,now+1200,'train');
+    assert.equal(e.driver.pendingMap,null);e.farm(s,now+31000,'train');assert.equal(e.driver.pendingMap,null);e.stop();
 });
-test('an upgrade waits for the current native battle and then retains the pending growth review',t=>{
-    const {s,e,now,farming,save}=fixture(t,{},40);farming();e.farm(s,now,'train');s.mons[0].level=53;s.adv.battle={steps:1};save();e.farm(s,now+1200,'train');assert.equal(e.driver.pendingMap,null);
+test('the first route change waits for the current native battle to finish',t=>{
+    const {s,e,now,farming,save}=fixture(t,{},40);farming();s.adv.battle={steps:1};save();e.farm(s,now+1200,'train');assert.equal(e.driver.pendingMap,null);
     s.adv.battle=null;save();e.farm(s,now+2400,'train');assert.ok(e.driver.pendingMap);e.stop();
 });
 test('a planned strong party cannot authorize an upgrade before the native road party applies',t=>{

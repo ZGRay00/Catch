@@ -63,7 +63,7 @@ test('money replaces weak reserves with real box members without lowering estima
     assert.equal(plan.changed,true);
     assert.deepEqual(new Set(plan.uids),new Set(['a',...strong.map(mon=>mon.uid)]));
     assert.ok(plan.score>=plan.currentScore);
-    assert.match(plan.reason,/增强替补/);
+    assert.match(plan.reason,/增强替补|阵容战力/);
 });
 
 test('Giant Chasm compares an eligible backup party separately from the deployed party and measurements',()=>{

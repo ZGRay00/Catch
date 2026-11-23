@@ -10,8 +10,9 @@ const foe=()=>({id:19,level:50,weight:1,chapter:35,liveNode:true});
 const context=at=>({reg:'hoenn',foes:[foe()],size:1,force:true,objective:'money',now:at});
 
 test('production planning changes the selected counter for a verified native rainy encounter',()=>{
-    const s=fixture(),clear=H.planAdventureTeam(s,H.DEFAULTS,[],context(noon));
-    s.adv.nodes[0].weather='rain';const wet=H.planAdventureTeam(s,H.DEFAULTS,[],context(noon));
+    const s=fixture(),matchup={...context(noon),foes:[{...foe(),level:51}]};
+    const clear=H.planAdventureTeam(s,H.DEFAULTS,[],matchup);
+    s.adv.nodes[0].weather='rain';const wet=H.planAdventureTeam(s,H.DEFAULTS,[],matchup);
     assert.deepEqual(clear.uids,['fire']);assert.deepEqual(wet.uids,['water']);
     const detail=H.combatWeather(s,foe(),{},noon);assert.equal(detail.weather.water,1.1);assert.equal(detail.weather.fire,.9);
 });

@@ -76,8 +76,7 @@
                 if(!chosen.length||chosen.some(uid=>!index.has(uid)||!teamEligible(s,index.get(uid),context.reg))){e.failTask('手动队伍为空、成员已离开PC或不符合目标地区，请手动配置后继续');return true;}
             }
             const deaths=ordinary?totalDeaths(s,{members:chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[context.id]}):0;
-            // Engine.step runs this check before the native PC transaction. Let an
-            // already queued roster finish instead of replacing it or blocking it.
+            // A direct readiness call can also arrive during a prepared swap.
             if(ordinary&&e.driver.teamTask?.preparationReady)return false;
             const conditions=this.conditions(s,context,now);
             let failedTrial=null;
@@ -135,8 +134,15 @@
                         e.log('补练预检安排换队 · '+context.label+' · '+assessment.reason);
                         e.status=`使用现有战力挑战${context.label}，准备队伍上阵`;return true;
                     }
-                    if(roadPending){e.telemetry.sample=null;e.lastProgress=now;e.status='现有战力已足够，等待治疗点应用队伍';e.driver.nav('adventure');return true;}
-                    this.rememberReady(s,context,[],true,now);this.checked=fingerprint;return false;
+                    if(roadPending){
+                        // The native different-chapter launch heals and applies the planned party.
+                        const changesMoneyMap=e.strictPlanning&&e.settings.mode==='money'&&context.kind==='map'&&
+                            resume.row?.members?.length&&!resume.row.members.includes(s.adv.chapter);
+                        if(!changesMoneyMap){
+                            e.telemetry.sample=null;e.lastProgress=now;e.status='现有战力已足够，等待治疗点应用队伍';e.driver.nav('adventure');return true;
+                        }
+                    }else this.rememberReady(s,context,[],true,now);
+                    this.checked=fingerprint;return false;
                 }
             }
             const staleTower=context.kind==='tower'&&towerParty(s,{snapshot:true}).some(mon=>mon.level+e.settings.prepareGap<desired&&(s.mons||[]).some(real=>real.uid===mon.src&&real.level>mon.level));
@@ -161,6 +167,9 @@
             // Give the map/party transaction its own validation and receipt tick.
             if(mode==='money'&&(e.driver.pendingMap?.routePlan?.verified||e.visit?.routePlan?.plan?.verified))return null;
             if(mode==='money'&&(e.heldFarm?.(s,'money',now)||e.verifiedFarmHeld?.(s,now)))return null;
+            // The selected destination gets its own preflight in travel().
+            // The old map's healing point is not required to continue choosing it.
+            if(mode==='money'&&e.strictPlanning&&s.road?.length&&s.road.join('|')!==s.team.join('|'))return null;
             let row;
             if(isCollectionMap(mode,'map'))return null;
             if(mode==='progress'){

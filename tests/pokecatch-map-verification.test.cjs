@@ -160,6 +160,76 @@ test('money finishes its first choice before locking a newly adopted loop',t=>{
     assert.equal(e.driver.pendingMap.row.key,faster.key);
 });
 
+test('an ordinary money swap finishes its remaining drag before readiness can wait for healing or change maps',async t=>{
+    const {s,e,save}=fixture(t,{autoPrepare:true,autoTeam:true,autoEvolve:false,moneyBuff:false});
+    const current={...row(56),rate:9000},next={...row(75),rate:17000};
+    s.mons=[464,392,94,248,484,145].map((id,i)=>({uid:`fit-${i}`,id,level:100,reg:'sinnoh'}));
+    s.team=s.mons.map(mon=>mon.uid);s.travel.to=['sinnoh','unova'];
+    Object.assign(s.adv,{chapter:current.id,unlocked:76,loops:[current.key],deaths:{}});
+    const context={...H.battleContext(s,'map',{row:current}),now};
+    const middle=H.preparationPlan(s,e.settings,context).uids;
+    assert.equal(middle.length,6);assert.equal(H.preparationReadiness(s,e.settings,context,middle).ready,true);
+    const [lead,first,second,third,...tail]=middle;
+    const original=[third,first,second,lead,...tail],planned=[lead,second,first,third,...tail];
+    s.team=original.slice();s.road=original.slice();save();
+    e.strictPlanning=true;e.target=current;e.visit={started:now-20000,deaths:0};
+    e.rankedYieldRoutes=()=>[next,current];
+    e.automation.autoBuff=()=>false;
+    const evaluate=e.evaluateTeamSearch;
+    // Start an ordinary, verified fitting task with a fixed test result from the solver.
+    e.evaluateTeamSearch=()=>({uids:planned,changed:true,reason:'fixture',gain:.1,opponents:6,verification:{status:'verified',uids:planned}});
+    assert.equal(e.fitTeam(e.read(),now-1200),true);
+    e.evaluateTeamSearch=evaluate;
+    const task=e.driver.teamTask,drags=[],maps=[];
+    const slots=s.team.map((_,slot)=>({slot}));
+    global.document.querySelector=selector=>selector==='#team-slots'?{children:slots}:null;
+    e.driver.drag=(from,to)=>{
+        drags.push([from.slot,to.slot]);
+        [s.team[from.slot],s.team[to.slot]]=[s.team[to.slot],s.team[from.slot]];save();return true;
+    };
+    e.driver.map=target=>{maps.push(target.id);return true;};
+    assert.equal(e.driver.adventureTeam(e.read(),now-1200),true);
+    assert.deepEqual(s.team,middle);assert.deepEqual(s.road,original);
+    assert.deepEqual(H.preparationPlan(e.read(),e.settings,context).uids,middle,'readiness would otherwise wait on this legal intermediate order');
+
+    await e.step(now);
+    assert.deepEqual(drags,[[3,0],[2,1]],'the owned PC transaction must get a tick even while the native road roster is stale');
+    assert.equal(e.driver.teamTask,task);
+    assert.deepEqual(s.team,planned);assert.deepEqual(s.road,original);
+    await e.step(now+1200);assert.equal(e.driver.teamTask,null);assert.deepEqual(maps,[]);
+
+    await e.step(now+20000);assert.equal(e.driver.pendingMap?.row.id,next.id);
+    assert.deepEqual(s.road,original,'waiting for an old-map healing point must not obstruct a ready destination');
+    assert.equal(e.telemetry.sample,null,'the stale road party must not start a yield sample');
+    await e.step(now+21200);assert.deepEqual(maps,[next.id]);
+    assert.deepEqual(s.road,original,'the native save still owns road-party confirmation');
+    assert.equal(e.telemetry.sample,null);
+    s.road=planned.slice();
+    Object.assign(s.adv,{chapter:next.id,loops:[next.key],node:0});save();
+    await e.step(now+22400);assert.equal(e.target.id,next.id);assert.equal(e.driver.pendingMap,null);
+    assert.deepEqual(drags,[[3,0],[2,1]]);
+});
+
+test('a money swap timeout does not postpone the destination roster review',t=>{
+    const {s,e,save}=fixture(t,{autoTeam:true});
+    const current=row(56),destination=row(75);
+    e.strictPlanning=true;e.teamRetryAt=now+300000;e.teamRetryLoop=current.key;
+    s.travel.to=['sinnoh','unova'];
+    Object.assign(s.adv,{chapter:current.id,unlocked:83,loops:[current.key]});save();
+    e.confirmMapArrival(e.read(),{row:current},now);
+    let reviews=0;
+    e.evaluateTeamSearch=()=>{reviews++;};
+    assert.equal(e.fitTeam(e.read(),now+1000),false);
+    assert.equal(reviews,0);
+    assert.match(e.teamValidationNote,/配队暂缓/);
+
+    Object.assign(s.adv,{chapter:destination.id,loops:[destination.key]});save();
+    e.confirmMapArrival(e.read(),{row:destination},now+2000);
+    assert.equal(e.teamRetryAt,0);
+    e.fitTeam(e.read(),now+2000);
+    assert.equal(reviews,1,'the new map can begin its own review immediately');
+});
+
 test('a changed eligible box cancels an unexecuted money proof before considering preparation again',async t=>{
     const {s,e,save,verified}=verifiedMoneyTrip(t);
     e.target=row(75);

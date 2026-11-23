@@ -165,7 +165,11 @@
                     discard();return false;
                 }
             }
-            const fail=reason=>{e.log(`自动配队暂缓：${reason}`);e.teamRetryAt=now+5*60000;discard();this.nav('adventure');};
+            const fail=reason=>{
+                e.log(`自动配队暂缓：${reason}`);
+                e.teamRetryAt=now+5*60000;e.teamRetryLoop=String(CHAPTERS.get(task.chapter)?.loop??task.chapter);
+                discard();this.nav('adventure');
+            };
             if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){discard();return false;}
             if(now-task.started>90000){fail('队伍页面操作超时，继续当前任务');return false;}
             const roster=pokemonByUid(s);

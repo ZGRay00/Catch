@@ -322,6 +322,7 @@
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
             this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
+            this.teamRetryLoop=null;
             this.lastRoamAttempt=null;
             this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
             this.raidReturn=this.nextWake=this.modalWaitSince=this.modalWaitNode=null;
@@ -1265,16 +1266,20 @@
                     }
                 }
             }
+            // A planned party can differ from the road party as soon as the
+            // first drag is saved. Finish that transaction before checking readiness.
+            if(this.applyArrivalTeam(s,now)){
+                if(this.driver.teamTask)this.driver.adventureTeam(s,now);
+                return;
+            }
+            const startedSwap=this.driver.teamTask;
+            if((startedSwap?.hasDragged||startedSwap?.pending)&&this.driver.adventureTeam(s,now))return;
             if(!this.preparation&&!outcome&&this.settings.autoPrepare){
                 const context=this.coach.activity(s),zone=s.adv.zone&&DATA.zones.find(z=>z.id===s.adv.zone.id);
                 const resume=context?.kind==='raid'?{type:'raid'}:zone?{row:routeDescriptor({...zone,key:`Z${zone.id}`,members:[],name:zone.monName||zone.name}),options:{zone:true,tier:s.adv.zone.elite||0,optimize:this.settings.optimizeRaid}}:{};
                 if(context&&this.ensurePrepared(s,context,resume,now))return;
                 const adventure=!context&&this.coach.adventure(s,outcome,now);
                 if(adventure&&this.ensurePrepared(s,adventure.context,adventure.resume,now))return;
-            }
-            if(this.applyArrivalTeam(s,now)){
-                if(this.driver.teamTask)this.driver.adventureTeam(s,now);
-                return;
             }
             if(this.driver.teamTask&&this.driver.adventureTeam(s,now))return;
             if(!startingBattle&&!outcome&&this.settings.activeSwitch&&this.driver.switchInBattle(s,now))return;
@@ -1633,7 +1638,11 @@
             if(this.target?.requiredParty?.length&&!ownedItems(s,this.target.gateItem)&&this.target.members.includes(s.adv.chapter))return false;
             if(s.adv.battle?.pick||this.driver.lastSwitchFoe&&s.adv.battle?.foes?.includes(this.driver.lastSwitchFoe))return false;
             const roam=trackedRoamer||this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
-            const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam||now<this.teamRetryAt)return false;
+            const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam)return false;
+            if(now<this.teamRetryAt&&(!this.teamRetryLoop||this.teamRetryLoop===String(c.loop))){
+                this.teamValidationNote=`当前地图配队暂缓 · ${Math.ceil((this.teamRetryAt-now)/1000)} 秒后重试`;
+                return false;
+            }
             const frontier=this.settings.mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
             if(frontier&&c.id!==frontier.id&&!(c.league&&frontier.league&&c.loop===frontier.loop))return false;
             // Navigation owns an explicit destination; avoid swapping for the old route.
@@ -1686,7 +1695,7 @@
                 plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,this.adventureReview?.expiresAt);
             }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
             if(plan?.timedOut){
-                this.adventureReview=null;this.teamRetryAt=now+30000;
+                this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
                 if(!currentPartyIsLegal()){this.failTask('配队复核超时，当前无合规队伍');return true;}
                 this.teamValidationNote='配队复核超时，暂用当前合法队伍';
                 this.log(this.teamValidationNote);return false;
@@ -2244,6 +2253,9 @@
         confirmMapArrival(s,pending,now){
             const {row,routePlan,options}=pending;
             this.driver.pendingMap=null;this.target=row;
+            if(this.teamRetryLoop&&this.teamRetryLoop!==row.key){
+                this.teamRetryAt=0;this.teamRetryLoop=null;this.teamValidationNote='';
+            }
             this.visit={started:now,deaths:totalDeaths(s,row),runs:s.adv.runs||0};
             if(routePlan)this.visit.routePlan={plan:routePlan,started:now,autoSwitch:s.autoSwitch!==false,link:s.link?.to,rows:pending.farmRows};
             this.telemetry.sample=null;
@@ -2527,7 +2539,10 @@
             };
             if(stays(next)&&!reviewing){
                 settle(next);
-                this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
+                const roadPending=s.road?.length&&s.road.join('|')!==s.team.join('|');
+                this.status = roadPending?`刷钱 · ${current.name} · 等待治疗点应用新队伍`:
+                    `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`;
+                this.driver.nav('adventure'); return;
             }
             if(usePlan&&this.strictPlanning&&!readyValid){
                 const reviewingName=winner.name;

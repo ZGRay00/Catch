@@ -157,7 +157,7 @@ test('unconfirmed swaps retry only after their save window and eventually back o
     f.advance(10000);f.tick();f.advance(10000);f.tick();assert.equal(f.drags.length,3);
     f.advance(9999);f.tick();assert.equal(f.drags.length,3);assert.ok(f.e.driver.teamTask);
     f.advance(1);f.tick();assert.equal(f.e.driver.teamTask,null);assert.equal(f.e.teamCheck,null);
-    assert.equal(f.e.teamRetryAt,f.now()+300000);assert.equal(f.visits.at(-1),'adventure');assert.equal(f.e.running,true);
+    assert.equal(f.e.teamRetryAt,f.now()+300000);assert.equal(f.e.teamRetryLoop,'0');assert.equal(f.visits.at(-1),'adventure');assert.equal(f.e.running,true);
 });
 
 test('background suspension preserves the remaining party save confirmation window',t=>{

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      7.2.0
+// @version      7.2.1
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '7.2.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '7.2.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -424,7 +424,7 @@
     const MODE_NAMES = { dex: '补齐图鉴', money: '自动刷钱', legend: '指定传说战', roam: '游荡捕获', item: '指定道具', train: '目标练级', progress: '推进主线',
         breed:'繁殖孵蛋',shiny:'指定野生刷闪',underground:'地下通道',tower:'对战塔',candy:'糖果工厂',elite:'精英联盟',world:'世界首领',raid:'每日团体战',resource:'采购与使用' };
     const FLOW_MODES = new Set(['breed','underground','tower','candy','elite','world','resource']);
-    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','lastExplore'];
+    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','teamRetryLoop','lastExplore'];
     function raidIdentity(s,value=s?.adv?.event){
         if(!value?.raid)return null;
         return JSON.stringify([value.reg||currentRegion(s),value.id,value.date||parisDay()]);
@@ -6501,7 +6501,11 @@
                     discard();return false;
                 }
             }
-            const fail=reason=>{e.log(`自动配队暂缓：${reason}`);e.teamRetryAt=now+5*60000;discard();this.nav('adventure');};
+            const fail=reason=>{
+                e.log(`自动配队暂缓：${reason}`);
+                e.teamRetryAt=now+5*60000;e.teamRetryLoop=String(CHAPTERS.get(task.chapter)?.loop??task.chapter);
+                discard();this.nav('adventure');
+            };
             if(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||!task.members.includes(s.adv.chapter)){discard();return false;}
             if(now-task.started>90000){fail('队伍页面操作超时，继续当前任务');return false;}
             const roster=pokemonByUid(s);
@@ -8558,8 +8562,7 @@
                 if(!chosen.length||chosen.some(uid=>!index.has(uid)||!teamEligible(s,index.get(uid),context.reg))){e.failTask('手动队伍为空、成员已离开PC或不符合目标地区，请手动配置后继续');return true;}
             }
             const deaths=ordinary?totalDeaths(s,{members:chapter?.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[context.id]}):0;
-            // Engine.step runs this check before the native PC transaction. Let an
-            // already queued roster finish instead of replacing it or blocking it.
+            // A direct readiness call can also arrive during a prepared swap.
             if(ordinary&&e.driver.teamTask?.preparationReady)return false;
             const conditions=this.conditions(s,context,now);
             let failedTrial=null;
@@ -8617,8 +8620,15 @@
                         e.log('补练预检安排换队 · '+context.label+' · '+assessment.reason);
                         e.status=`使用现有战力挑战${context.label}，准备队伍上阵`;return true;
                     }
-                    if(roadPending){e.telemetry.sample=null;e.lastProgress=now;e.status='现有战力已足够，等待治疗点应用队伍';e.driver.nav('adventure');return true;}
-                    this.rememberReady(s,context,[],true,now);this.checked=fingerprint;return false;
+                    if(roadPending){
+                        // The native different-chapter launch heals and applies the planned party.
+                        const changesMoneyMap=e.strictPlanning&&e.settings.mode==='money'&&context.kind==='map'&&
+                            resume.row?.members?.length&&!resume.row.members.includes(s.adv.chapter);
+                        if(!changesMoneyMap){
+                            e.telemetry.sample=null;e.lastProgress=now;e.status='现有战力已足够，等待治疗点应用队伍';e.driver.nav('adventure');return true;
+                        }
+                    }else this.rememberReady(s,context,[],true,now);
+                    this.checked=fingerprint;return false;
                 }
             }
             const staleTower=context.kind==='tower'&&towerParty(s,{snapshot:true}).some(mon=>mon.level+e.settings.prepareGap<desired&&(s.mons||[]).some(real=>real.uid===mon.src&&real.level>mon.level));
@@ -8643,6 +8653,9 @@
             // Give the map/party transaction its own validation and receipt tick.
             if(mode==='money'&&(e.driver.pendingMap?.routePlan?.verified||e.visit?.routePlan?.plan?.verified))return null;
             if(mode==='money'&&(e.heldFarm?.(s,'money',now)||e.verifiedFarmHeld?.(s,now)))return null;
+            // The selected destination gets its own preflight in travel().
+            // The old map's healing point is not required to continue choosing it.
+            if(mode==='money'&&e.strictPlanning&&s.road?.length&&s.road.join('|')!==s.team.join('|'))return null;
             let row;
             if(isCollectionMap(mode,'map'))return null;
             if(mode==='progress'){
@@ -9404,6 +9417,7 @@
             this.weatherFarm=null;this.weatherEvidence=null;
             this.roamStarted=null;
             this.roamRestartAt=this.lastExplore=this.teamRetryAt=0;
+            this.teamRetryLoop=null;
             this.lastRoamAttempt=null;
             this.raidProbe=false;this.raidCheckNote='';this.raidBoundarySince=null;
             this.raidReturn=this.nextWake=this.modalWaitSince=this.modalWaitNode=null;
@@ -10347,16 +10361,20 @@
                     }
                 }
             }
+            // A planned party can differ from the road party as soon as the
+            // first drag is saved. Finish that transaction before checking readiness.
+            if(this.applyArrivalTeam(s,now)){
+                if(this.driver.teamTask)this.driver.adventureTeam(s,now);
+                return;
+            }
+            const startedSwap=this.driver.teamTask;
+            if((startedSwap?.hasDragged||startedSwap?.pending)&&this.driver.adventureTeam(s,now))return;
             if(!this.preparation&&!outcome&&this.settings.autoPrepare){
                 const context=this.coach.activity(s),zone=s.adv.zone&&DATA.zones.find(z=>z.id===s.adv.zone.id);
                 const resume=context?.kind==='raid'?{type:'raid'}:zone?{row:routeDescriptor({...zone,key:`Z${zone.id}`,members:[],name:zone.monName||zone.name}),options:{zone:true,tier:s.adv.zone.elite||0,optimize:this.settings.optimizeRaid}}:{};
                 if(context&&this.ensurePrepared(s,context,resume,now))return;
                 const adventure=!context&&this.coach.adventure(s,outcome,now);
                 if(adventure&&this.ensurePrepared(s,adventure.context,adventure.resume,now))return;
-            }
-            if(this.applyArrivalTeam(s,now)){
-                if(this.driver.teamTask)this.driver.adventureTeam(s,now);
-                return;
             }
             if(this.driver.teamTask&&this.driver.adventureTeam(s,now))return;
             if(!startingBattle&&!outcome&&this.settings.activeSwitch&&this.driver.switchInBattle(s,now))return;
@@ -10715,7 +10733,11 @@
             if(this.target?.requiredParty?.length&&!ownedItems(s,this.target.gateItem)&&this.target.members.includes(s.adv.chapter))return false;
             if(s.adv.battle?.pick||this.driver.lastSwitchFoe&&s.adv.battle?.foes?.includes(this.driver.lastSwitchFoe))return false;
             const roam=trackedRoamer||this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
-            const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam||now<this.teamRetryAt)return false;
+            const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam)return false;
+            if(now<this.teamRetryAt&&(!this.teamRetryLoop||this.teamRetryLoop===String(c.loop))){
+                this.teamValidationNote=`当前地图配队暂缓 · ${Math.ceil((this.teamRetryAt-now)/1000)} 秒后重试`;
+                return false;
+            }
             const frontier=this.settings.mode==='progress'&&CHAPTERS.get(s.adv.unlocked);
             if(frontier&&c.id!==frontier.id&&!(c.league&&frontier.league&&c.loop===frontier.loop))return false;
             // Navigation owns an explicit destination; avoid swapping for the old route.
@@ -10768,7 +10790,7 @@
                 plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,this.adventureReview?.expiresAt);
             }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
             if(plan?.timedOut){
-                this.adventureReview=null;this.teamRetryAt=now+30000;
+                this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
                 if(!currentPartyIsLegal()){this.failTask('配队复核超时，当前无合规队伍');return true;}
                 this.teamValidationNote='配队复核超时，暂用当前合法队伍';
                 this.log(this.teamValidationNote);return false;
@@ -11326,6 +11348,9 @@
         confirmMapArrival(s,pending,now){
             const {row,routePlan,options}=pending;
             this.driver.pendingMap=null;this.target=row;
+            if(this.teamRetryLoop&&this.teamRetryLoop!==row.key){
+                this.teamRetryAt=0;this.teamRetryLoop=null;this.teamValidationNote='';
+            }
             this.visit={started:now,deaths:totalDeaths(s,row),runs:s.adv.runs||0};
             if(routePlan)this.visit.routePlan={plan:routePlan,started:now,autoSwitch:s.autoSwitch!==false,link:s.link?.to,rows:pending.farmRows};
             this.telemetry.sample=null;
@@ -11609,7 +11634,10 @@
             };
             if(stays(next)&&!reviewing){
                 settle(next);
-                this.status = `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`; this.driver.nav('adventure'); return;
+                const roadPending=s.road?.length&&s.road.join('|')!==s.team.join('|');
+                this.status = roadPending?`刷钱 · ${current.name} · 等待治疗点应用新队伍`:
+                    `刷钱 · ${current.name} · ${current.measured ? '实测' : '预计'} ${Math.round(current.rate)} ₽/分钟`;
+                this.driver.nav('adventure'); return;
             }
             if(usePlan&&this.strictPlanning&&!readyValid){
                 const reviewingName=winner.name;

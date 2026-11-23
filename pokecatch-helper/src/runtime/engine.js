@@ -66,9 +66,11 @@
             this.metrics = readRouteHistory(saved.metrics);
             this.raidDraw=saved.raidDraw||null;
             this.daily=null;this.dailyMarks={};
-            for(const key of ['window','candy','world','attack','towerFirst','tower','elite']){
+            for(const key of ['window','candy','world','attack','tower','elite']){
                 if(Number.isFinite(saved.dailyMarks?.[key]))this.dailyMarks[key]=saved.dailyMarks[key];
             }
+            const towerFirst=saved.dailyMarks?.towerFirst;
+            if(Number.isFinite(towerFirst)&&towerFirst>(this.dailyMarks.tower||0))this.dailyMarks.tower=towerFirst;
             this.settings = normalizeSettings(saved.settings||{},switching?DEFAULTS:this.settings);
             this.refreshAutoPurchase();
             this.queue = normalizeJobs(saved.queue);
@@ -378,18 +380,33 @@
                 plan=dailyFacility(s,base,this.dailyMarks,now);
             }
             if(!plan)return false;
+            this.beginDailyJob(s,plan,now,!safe);
+            this.persist();return true;
+        }
+        beginDailyJob(s,plan,now,waitingForBattle=false){
             this.daily.checkpoint=this.progressSnapshot();
-            this.daily.job={kind:plan.kind,until:plan.until,started:now,waitingForBattle:!safe};
-            this.settings=this.taskSettings({...base,...plan.settings,autoPrepare:false,raids:false,
+            this.daily.job={kind:plan.kind,until:plan.until,started:now,waitingForBattle,
+                ...(plan.adoptedCandy?{adoptedCandy:true}:{})};
+            this.settings=this.taskSettings({...this.daily.base,...plan.settings,autoPrepare:false,raids:false,
                 ...(plan.kind==='window'?{autoTeam:false}:{})});
             this.beginTask(s,{budget:this.daily.checkpoint.budget},now,true);
-            this.status='通关日常 · '+MODE_NAMES[this.settings.mode];this.log(this.status);this.persist();return true;
+            if(plan.kind==='candy'&&s.candy?.run){
+                const {day,at,from}=s.candy.run;
+                this.automation.state.candyRun={day,at,from:from||1};
+            }
+            if(plan.kind==='tower'&&(s.adv.tower||towerProgress(s,now).run)){
+                this.daily.job.launched=true;
+                this.dailyMarks.tower=Math.max(this.dailyMarks.tower||0,nextParisReset(now));
+            }
+            const label=MODE_NAMES[this.settings.mode];
+            this.status=plan.adopted?'已接管当前'+label+' · 结算后继续通关日常':'通关日常 · '+label;
+            this.log(this.status);
         }
         returnFromDaily(reason,until=this.daily.job.until,now=Date.now()){
             const {base,checkpoint,job}=this.daily;
             const s=this.read();
             if(!s?.adv){this.stop('存档不可用，无法恢复挂机');return;}
-            this.dailyMarks[job.kind]=job.kind==='window'?now+30000:until;
+            this.dailyMarks[job.kind]=job.kind==='window'?now+30000:job.kind==='tower'?Math.max(this.dailyMarks.tower||0,until):until;
             this.settings=this.taskSettings(base);
             this.daily.job=null;this.daily.checking=true;delete this.daily.checkpoint;
             this.beginTask(s,{...checkpoint,budget:{used:this.budget.used,spent:this.budget.spent}},now,true);
@@ -583,10 +600,19 @@
                     if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');
                     if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
                 }
-                const leave=this.activityToLeave(s,{...this.settings,mode},cp,daily||!!cp?.daily);
+                const savedDaily=cp?.daily&&!this.queueRunning&&DAILY_BASE_MODES.has(cp.daily.base?.mode)?cp.daily:null;
+                const {tower,event,zone,league}=s.adv;
+                let adoptedFacility=null;
+                if((daily||savedDaily&&!savedDaily.job)&&!event&&!zone&&!league){
+                    if(tower)adoptedFacility=tower.kind==='candy'?'candy':'tower';
+                    else if(s.candy?.run)adoptedFacility='candy';
+                    else if(towerProgress(s).run)adoptedFacility='tower';
+                }
+                const firstMode=adoptedFacility||mode;
+                const leave=this.activityToLeave(s,{...this.settings,mode:firstMode},cp,daily||!!savedDaily);
                 const exitKey=leave?this.startActivityKey(s,leave):null;
                 if(resume&&leave&&(cp?.activity?.exit?.kind!==leave||cp.activity.exit.key!==exitKey))throw new Error('发现上次任务以外的活动，请点击开始确认切换');
-                if (!(s.team || []).length && !s.adv.event?.raid && !s.adv.zone && !FLOW_MODES.has(mode) && !['legend','raid'].includes(mode) && (!this.settings.autoTeam || !(s.mons||[]).length)) {
+                if (!(s.team || []).length && !s.adv.event?.raid && !s.adv.zone && !FLOW_MODES.has(firstMode) && !['legend','raid'].includes(firstMode) && (!this.settings.autoTeam || !(s.mons||[]).length)) {
                     const gift=this.driver.giftChoice?.(s);
                     if(!pendingRegionalStarter(s)&&!(gift?.reg&&gift.authorized))throw new Error('冒险队伍为空，请先配置队伍');
                 }
@@ -599,13 +625,18 @@
                 this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
                 this.errors=0;this.lastCheckpoint=0;this.saveUnavailableAt=null;
                 this.checkpoint=null;
-                this.daily=cp?.daily&&!this.queueRunning&&DAILY_BASE_MODES.has(cp.daily.base?.mode)?cp.daily:
-                    daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null,checking:true}:null;
+                this.daily=savedDaily||(daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null,checking:true}:null);
                 if(this.daily)this.daily.checking??=!this.daily.job;
                 if(daily)this.settings=this.taskSettings(this.daily.base);
+                if(this.daily?.job?.kind==='tower')this.settings={...this.settings,towerRuns:1};
                 this.dailyCheckAt=this.dailyWindowCheckAt=0;
                 this.beginTask(s,cp,this.started);
                 if(leave)this.startActivityExit={kind:leave,key:exitKey,started:this.started};
+                else if(adoptedFacility){
+                    const candy=adoptedFacility==='candy';
+                    this.beginDailyJob(s,{kind:adoptedFacility,until:nextParisReset(this.started),adopted:true,adoptedCandy:candy,
+                        settings:candy?{mode:'candy',candyRuns:1,candyFloor:0}:{mode:'tower',towerRuns:1}},this.started,!tower&&!safeRaidDeparture(s));
+                }
                 if(!leave&&!this.manual&&!this.adoptManualPreparation(s,Date.now(),true))return;
                 this.log(this.daily?'开始通关日常 · '+(this.daily.job?MODE_NAMES[this.settings.mode]:'检查待办'):`开始${MODE_NAMES[this.settings.mode]}`);
                 if(leave)this.status='已启动'+MODE_NAMES[this.settings.mode]+'，准备退出当前活动';
@@ -621,8 +652,8 @@
                     this.zoneId = s.adv.zone.id;this.zoneStarted=cp?.activity?.zone?.id===this.zoneId?clamp(cp.activity.zone.started,1,Date.now(),Date.now()):Date.now();
                     this.status = `已接管当前传说战 · ${MONS.get(s.adv.zone.foe || this.zoneId)?.name || this.zoneId}`;
                     this.log(this.status);
-                } else this.status = this.daily?.checking?'正在检查通关日常':'规划中';
-                if(cp){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
+                } else if(!adoptedFacility)this.status = this.daily?.checking?'正在检查通关日常':'规划中';
+                if(cp&&!adoptedFacility){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
                 this.persist(); this.schedule(50);
             } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(!controlDenied&&this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;}this.queueRunning=false;try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
         }
@@ -920,19 +951,22 @@
             const p=this.preparation;
             if(p){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;if(p.candyTx)p.candyTx.at+=duration;if(!delayed)p.lastTick=now;else if(p.lastTick!=null)p.lastTick+=duration;}
         }
-        serviceBackground(s,now=Date.now()){
+        serviceBackground(s,now=Date.now(),plan=null,phase='all'){
             if(!this.running||this.manual||pageHidden())return false;
-            const plan=parallelPlan(s,this,now),a=this.automation;
+            plan??=parallelPlan(s,this,now);
+            const a=this.automation;
             if(plan.active){
                 const handled=plan.active==='underground'?a.serviceUnderground(s,now):plan.active==='eggs'?a.serviceEggs(s,now):a.evolution(s,now);
                 if(handled&&!parallelPlan(s,this,now).active){this.services.lastCompleted[plan.active]=now;this.backgroundYield=true;}
                 return handled;
             }
             if(plan.mainComplete)return false;
-            if(this.backgroundYield){this.backgroundYield=false;return false;}
+            // Ready daily services can chain a receipt and a new expedition before a facility takes the page.
+            if(this.backgroundYield&&phase!=='daily'){this.backgroundYield=false;return false;}
             for(const id of plan.ready){
+                if(phase==='daily'&&id==='evolution'||phase==='evolution'&&id!=='evolution')continue;
                 const handled=id==='eggs'?a.serviceEggs(s,now):id==='underground'?a.serviceUnderground(s,now):a.evolution(s,now);
-                if(handled){this.services.lastStarted[id]=now;this.persist();return true;}
+                if(handled){this.backgroundYield=false;this.services.lastStarted[id]=now;this.persist();return true;}
             }
             return false;
         }
@@ -1039,10 +1073,12 @@
             if(this.daily&&!inActivity&&this.driver.raid&&!this.raidProbe&&!this.raidReturn&&!this.preparation){
                 this.finishRaidReturn(now,s);
             }
+            const dailyBackground=this.daily&&!inActivity?parallelPlan(s,this,now):null;
+            if(dailyBackground&&this.serviceBackground(s,now,dailyBackground,'daily'))return;
             if(!inActivity&&this.waitForDailyRaid(s,now))return;
             const reserved=this.daily?.job;
             if(reserved?.waitingForBattle&&!inActivity){
-                if(now>=reserved.until){this.returnFromDaily('日常时段已结束',now,now);return;}
+                if(now>=reserved.until&&!reserved.launched&&!reserved.adoptedCandy){this.returnFromDaily('日常时段已结束',now,now);return;}
                 if(!safeRaidDeparture(s)){
                     this.status='日常已排队 · '+MODE_NAMES[this.settings.mode]+' · 等待当前遭遇或选择结算';
                     this.lastProgress=now;this.driver.nav('adventure');return;
@@ -1080,7 +1116,8 @@
             if(!inActivity&&!outcome&&!this.preparation&&!this.raidProbe&&!this.raidReturn&&!settling&&!this.driver.teamTask&&this.followMarkedHunt(s,now))return;
             if(this.settings.mode!=='raid'&&!this.daily&&!foregroundFirst&&!inActivity&&scheduleDaily&&this.priorityRaid(s,now))return;
             const enteringFacility=this.daily?.job&&this.daily.job.kind!=='window'&&!inActivity;
-            if(!foregroundFirst&&(!enteringFacility||settling)&&this.serviceBackground(s,now))return;
+            if(!foregroundFirst&&(!enteringFacility||settling)&&
+                this.serviceBackground(s,now,dailyBackground,dailyBackground?'evolution':'all'))return;
             if(!inActivity&&!outcome&&!settling&&!this.daily?.job&&!this.preparation&&!this.driver.teamTask&&
                 !this.raidProbe&&!this.raidReturn&&!this.driver.raid&&this.weatherFarmStep(s,now))return;
             if(finishDaily&&!safeRaidDeparture(s)&&(dailyFacility(s,this.daily.base,this.dailyMarks,now)||this.raidBoundarySince!=null)){
@@ -1461,7 +1498,11 @@
             }
             const policy=adventureTeamPolicy(s,members,this.settings,pinned);
             if(last&&last.policy===policy&&last.chapter===c.id&&last.key===key&&last.weatherKey===weatherKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(this.driver.teamTask||last.expectedParty===s.team.join('|'))&&last.party===s.team.join('|')&&(!last.limited||now-last.at<5000)&&
-                last.roster===roster&&last.deaths===deaths)return false;
+                last.roster===roster&&last.deaths===deaths){
+                // Reuse a completed search whose inputs still match, including for underground dispatch.
+                if(!last.limited&&now-last.at>=this.settings.teamMinutes*60000)last.at=now;
+                return false;
+            }
             const foes=roamId?battleContext(s,'map',{row,roamId}).foes:(row.members||[c.id]).map(id=>CHAPTERS.get(id)).filter(Boolean).flatMap(chapter=>chapterCombatFoes(s,chapter));
             const context={reg:row.reg||c.reg,foes,objective,dexReplay,now,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
             let plan;

@@ -180,6 +180,38 @@ test('idle dispatch is ready during ordinary automatic combat but never changes 
     const f=fixture(t);f.s.adv.battle={steps:2,enemies:[{id:19,hp:50}]};const before=JSON.stringify(f.s);
     assert.ok(f.plan().ready.includes('underground'));assert.equal(JSON.stringify(f.s),before);
 });
+test('daily dispatch can refill a freed bay before the next facility and resume the original routine',async t=>{
+    const f=fixture(t,{dailyCandy:true}),{s,e,ui}=f;
+    const uids=['idle-0','idle-1','idle-2'];
+    const returning=[25,26,27].map((id,i)=>({uid:'returning-'+i,id,level:80,reg:'sinnoh'}));
+    s.under.slots=[{id:'returned',bay:0,end:f.now()-1,team:returning.map(mon=>mon.uid),mons:returning}];
+    s.under.sent=1;
+    s.under.used=Object.fromEntries(returning.map(mon=>[mon.uid,1]));
+    s.eventTeams['under:0']=uids;f.save();
+    f.nodes.set('#ug-root [data-ug-take]',[node({dataset:{ugTake:'0'},perform:()=>{
+        s.under.slots=[];s.mons.push(...returning);f.save();
+    }})]);
+    e.daily={base:{...e.settings},checking:true};
+    const tick=async()=>{await e.step(f.now());f.advance(1200);};
+    await tick();
+    assert.equal(e.services.underground?.tx?.id,'returned');
+    e.automation.owner=null;
+    await tick();
+    assert.equal(e.services.underClaimed,1);
+    assert.equal(ui.screen,'adventure');
+    await tick();
+    assert.deepEqual(e.services.underground?.launch?.uids,uids);
+    assert.equal(e.daily.job,undefined);
+    assert.equal(ui.screen,'underground');
+    f.commit();
+    await tick();
+    assert.equal(ui.screen,'adventure');
+    assert.equal(e.services.underDispatched,1);
+    assert.equal(e.settings.mode,'money');
+    assert.deepEqual(s.team,s.road);
+    await tick();
+    assert.equal(e.daily.job?.kind,'candy');
+});
 
 for(const field of ['pending','event','zone','tower','league'])test(`background dispatch yields to native ${field}`,t=>{
     const f=fixture(t);f.s.adv[field]={id:1};assert.ok(!f.plan().ready.includes('underground'));

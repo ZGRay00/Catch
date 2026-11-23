@@ -47,9 +47,9 @@ test('multi-legend elite goals require ordinary capture and the selected tier in
     s.dex[145]={caught:1};
     assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,145);
 });
-test('tower uses the weekly record, respects the configured limit and caps it at two',()=>{
+test('daily tower uses the weekly record and always schedules a single attempt',()=>{
     const s=save(),cfg=H.normalizeSettings({dailyCandy:false,dailyTower:true,towerFloor:20,towerRuns:5});
-    assert.equal(H.dailyFacility(s,cfg,{},now).settings.towerRuns,2);
+    assert.equal(H.dailyFacility(s,cfg,{},now).settings.towerRuns,1);
     s.tower={best:{week:H.towerWeek(now),floor:20}};assert.equal(H.dailyFacility(s,cfg,{},now),null);
 });
 test('ordinary legend yields only to an available facility; elite and world captures keep their session',()=>{

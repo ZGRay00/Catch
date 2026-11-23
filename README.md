@@ -1,8 +1,14 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **6.3.4**。
+适用于 [PokéCatch](https://pokecatch-online.netlify.app/) 的 Tampermonkey 用户脚本。当前版本 **6.3.7**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v6.3.4.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v6.3.7.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+6.3.7 · 通关日常每天最多安排一场对战塔。接续进行中或暂停的场次，等游戏结算后继续其他日常。跨周或页面与存档不同步时，等待游戏确认后再操作。
+
+6.3.6 · 开始通关日常时接续糖果工厂的现有场次，结算后继续日常。
+
+6.3.5 · 通关日常优先收成熟蛋、领取地下探险奖励并补派空闲队伍。
 
 6.3.4 · 孵蛋自动化新增「允许按旧规则预测自动喂果」，默认关闭。启用后，规则待核对时可按旧规则判断下一枚预计仅喂果才闪的自然蛋，仍使用库存，运行时计入道具额度。
 

@@ -55,8 +55,11 @@
         const open=kind=>!(marks[kind]>now),end=nextParisReset(now),day=parisDay(now);
         if(base.dailyCandy&&open('candy')&&(s.candy?.run||s.candy?.played!==day&&s.candy?.last?.day!==day))
             return {kind:'candy',until:end,settings:{mode:'candy',candyRuns:1,candyFloor:0}};
-        if(base.dailyTower&&open('tower')&&towerProgress(s,now).best<base.towerFloor)
-            return {kind:'tower',until:end,settings:{mode:'tower',towerRuns:Math.min(2,base.towerRuns)}};
+        if(base.dailyTower){
+            const tower=towerProgress(s,now);
+            if(tower.run||open('tower')&&tower.best<base.towerFloor)
+                return {kind:'tower',until:end,settings:{mode:'tower',towerRuns:1}};
+        }
         const edition=s.wb?.tryEd||s.wb?.ed;
         if(base.dailyWorld&&open('world')&&!(edition&&s.wb?.caught===edition))
             return {kind:'world',until:end,settings:{mode:'world',worldActions:1,worldCapture:true}};

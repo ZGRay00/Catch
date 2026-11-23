@@ -658,41 +658,58 @@
         }
         tower(s,now){
             const e=this.e,cfg=e.settings,d=e.driver,progress=towerProgress(s,now),{run,best,week}=progress,active=!!s.adv.tower;
+            const daily=e.daily?.job?.kind==='tower'?e.daily.job:null;
             if(s.adv.tower?.kind==='candy'){this.fail('当前为糖果工厂，请先结束该活动');return;}
-            if(this.state.towerWeek!==week){Object.assign(this.state,{towerWeek:week,towerAttempts:0,towerReached:false,towerWasActive:false});delete this.state.towerLaunch;e.persist();}
-            if(this.state.towerLaunch){
-                if(run&&active){delete this.state.towerLaunch;this.state.towerWasActive=true;e.persist();}
-                else if(now-this.state.towerLaunch.at<15000){this.wait('等待对战塔启动存档确认');return;}
-                else{delete this.state.towerLaunch;this.fail('对战塔启动未获确认，已暂停以免重复开启');return;}
-            }
+            if(this.state.towerWeek!==week){Object.assign(this.state,{towerWeek:week,towerAttempts:0,towerReached:false,towerWasActive:false});e.persist();}
             if(active&&!run){
-                if(!this.raidPage('tower'))return;
-                if(d.click($('#tower-root [data-tw-quit]'),'清理失效的对战塔活动'))this.own('confirm','.modal',{match:/(放弃|放棄|结束|Abandon|Quit|Give up)/i});
-                else this.wait('等待原生对战塔清理过期场次');return;
+                this.wait('对战塔仍在进行 · 等待游戏同步场次或确认周重置');
+                d.nav('adventure');return;
+            }
+            const launch=this.state.towerLaunch;
+            if(launch){
+                if(run&&active){delete this.state.towerLaunch;this.state.towerWasActive=true;e.persist();}
+                else if(now-launch.at<15000){this.wait('等待对战塔启动存档确认');return;}
+                else{delete this.state.towerLaunch;this.fail('对战塔启动未获确认，已暂停以免重复开启');return;}
             }
             if(this.state.towerWasActive&&!run&&!progress.expired){this.state.towerAttempts=(this.state.towerAttempts||0)+1;this.state.towerWasActive=false;e.persist();}
             if(!run&&s.tower?.gift){if(this.raidPage('tower'))this.wait('正在领取对战塔待结算奖励');return;}
             if(run){
                 this.state.towerWasActive=true;
-                if(progress.cleared>=cfg.towerFloor)this.state.towerReached=true;
-                if(this.state.towerReached){if(!this.raidPage('tower'))return;const quit=$('#tower-root [data-tw-quit]');if(d.click(quit,'达到楼层，结束本次爬塔'))this.own('confirm','.modal',{match:/(放弃|放棄|结束|Abandon|Quit|Give up)/i});return;}
-                if(active){this.wait(`对战塔进行中 · 已过 ${progress.cleared} 层 / 目标 ${cfg.towerFloor}`);d.nav('adventure');return;}
+                const cleared=progress.floor-1;
+                if(daily&&!daily.launched){
+                    daily.launched=true;
+                    e.dailyMarks.tower=Math.max(e.dailyMarks.tower||0,nextParisReset(launch?.at??now));
+                    e.persist();
+                }
+                if(!daily&&cleared>=cfg.towerFloor){
+                    this.state.towerReached=true;
+                    if(!this.raidPage('tower'))return;const quit=$('#tower-root [data-tw-quit]');if(d.click(quit,'达到楼层，结束本次爬塔'))this.own('confirm','.modal',{match:/(放弃|放棄|结束|Abandon|Quit|Give up)/i});return;
+                }
+                if(active){this.wait(`对战塔进行中 · 本场已过 ${cleared} 层${daily?' · 等待本场结算':' / 目标 '+cfg.towerFloor}`);d.nav('adventure');return;}
             }
-            if(!active&&!run&&(best>=cfg.towerFloor||this.state.towerReached)){this.done('对战塔目标楼层已完成');return;}
-            if(!run&&((this.state.towerAttempts||0)>=cfg.towerRuns||e.daily?.job?.kind==='tower'&&e.dailyMarks.tower>now)){
-                if(e.daily?.job?.kind==='tower')this.done('今日对战塔尝试已完成');
-                else this.fail('已达到对战塔尝试上限，目标楼层尚未完成');
+            if(!run&&daily&&(daily.launched||e.dailyMarks.tower>now||(this.state.towerAttempts||0)>=1)){this.done('今日对战塔已处理一场');return;}
+            if(!run&&(best>=cfg.towerFloor||this.state.towerReached)){this.done('对战塔目标楼层已完成');return;}
+            if(!run&&(this.state.towerAttempts||0)>=cfg.towerRuns){
+                this.fail('已达到对战塔尝试上限，目标楼层尚未完成');
                 return;
             }
             if(!this.raidPage('tower'))return;
+            if(progress.expired){this.wait('等待游戏确认旧周对战塔记录已重置');return;}
             const tab=$('#tower-root [data-tw-tab="tower"]:not(.on)');if(enabled(tab)){d.click(tab,'打开爬塔进度');return;}
             const go=$('#tower-root [data-tw-go]');if(enabled(go)){
+                // The native page shares one button for resume and fresh start. Only a live run renders Quit.
+                const canResume=!!$('#tower-root [data-tw-quit]');
+                if(!!run!==canResume){this.wait('对战塔页面与存档尚未同步，等待确认续跑或开场');return;}
                 if(!run&&e.ensurePrepared(s,battleContext(s,'tower',{floor:cfg.towerFloor}),{},now))return;
+                const previousMark=e.dailyMarks.tower;
+                if(!run&&daily)e.dailyMarks.tower=nextParisReset(now);
                 this.state.towerLaunch={at:now,week};e.persist();
-                if(!d.click(go,run?'继续本周对战塔':'开始本周对战塔'))delete this.state.towerLaunch;
-                else if(!run&&e.daily?.job?.kind==='tower'){
-                    const last=cfg.towerRuns===1||e.dailyMarks.towerFirst>now;
-                    e.dailyMarks[last?'tower':'towerFirst']=nextParisReset(now);
+                if(!d.click(go,run?'继续本周对战塔':'开始本周对战塔')){
+                    delete this.state.towerLaunch;
+                    if(!run&&daily){
+                        if(previousMark===undefined)delete e.dailyMarks.tower;
+                        else e.dailyMarks.tower=previousMark;
+                    }
                 }
                 e.persist();return;
             }
@@ -702,6 +719,7 @@
             const e=this.e,cfg=e.settings,d=e.driver,run=s.candy?.run,last=s.candy?.last;
             const identity=value=>value?`${value.day}|${value.at}|${value.from||1}`:'';
             if(s.adv.tower&&s.adv.tower.kind!=='candy'){this.fail('当前为对战塔，请先结束该活动');return;}
+            if(s.adv.tower?.kind==='candy'&&!run){this.wait('糖果工厂进行中 · 等待场次存档同步');d.nav('adventure');return;}
             const launch=this.state.candyLaunch;
             if(launch){
                 if(run&&s.adv.tower?.kind==='candy'){this.state.candyRun={day:run.day,at:run.at,from:run.from||1};delete this.state.candyLaunch;e.persist();}
@@ -737,6 +755,7 @@
                 e.preparation=p;e.persist();return;
             }
             if((this.state.candyDone||0)>=cfg.candyRuns){this.done('糖果工厂目标场次已完成，奖励已由游戏发放');return;}
+            if(e.daily?.job?.adoptedCandy){this.done('原糖果工厂场次已结束');return;}
             const day=parisDay(now),played=s.candy?.played===day;
             if(played&&e.daily?.job?.kind==='candy'){this.done('今日工厂机会已用');return;}
             const dailyKey=JSON.stringify([accountId(s),day,identity(last)]);

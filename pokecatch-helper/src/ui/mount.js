@@ -63,10 +63,10 @@
                     <label><input type="checkbox" id="daily-shiny-raid">每日异色团体战</label>
                     <label><input type="checkbox" data-setting="dailyRaidUntilCaught">开战后持续到捕获</label>
                     <label><input type="checkbox" data-setting="dailyWorld">世界首领攻击与捕获</label>
-                    <label><input type="checkbox" data-setting="dailyTower">每日至多两场对战塔</label>
+                    <label><input type="checkbox" data-setting="dailyTower">每天最多一场对战塔</label>
                     <label><input type="checkbox" data-setting="dailyElite">每日挑战一阶精英联盟（落败即跳过）</label>
                 </div>
-                <p class="hint">捕获窗口沿用补图鉴筛选。选择传说战后，助手会在日常待办结束后前往目标地图。</p>
+                <p class="hint">符合条件时，优先收成熟蛋、领地下归队奖励并补派空闲队伍，再继续日常或原任务。沿用自动收蛋、地下派遣和领取开关。捕获窗口沿用补图鉴筛选。</p>
             </section><div class="target" id="ordinary-target">
                 <div class="field" id="scope-field"><span>规划范围</span><select data-setting="region" aria-label="规划地区"><option value="current">当前地区</option><option value="all">所有已解锁地区</option></select></div>
                 <div data-fields="legend" class="hidden">

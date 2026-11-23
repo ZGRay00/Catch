@@ -193,6 +193,37 @@ test('a real completed side receipt yields exactly one foreground turn before st
     assert.equal(foregroundTurns,1);assert.equal(f.e.backgroundYield,false);assert.equal(f.actions.filter(action=>action.type==='click').length,1);
     assert.equal(f.service(),true);assert.equal(f.e.services.underground?.tx?.id,'ready-second');assert.equal(f.actions.filter(action=>action.type==='click').length,2);
 });
+test('daily routine claims mature eggs and returned expeditions before reserving the candy factory',async t=>{
+    const f=fixture(t,{autoUnderDispatch:false,dailyCandy:true});
+    const {s,e,ui}=f;
+    e.daily={base:{...e.settings},checking:true};
+    ui.deferCollection=false;
+    const click=e.driver.click;
+    e.driver.click=(el,label)=>{
+        if(el?.dataset.egg){
+            s.pension.eggs=s.pension.eggs.filter(egg=>egg.uid!==el.dataset.egg);
+            s.stats.hatched++;f.save();
+        }
+        return click(el,label);
+    };
+    const tick=async()=>{await e.step(f.now());f.advance(1200);};
+    await tick();
+    assert.equal(e.automation.state.eggService?.tx?.uid,'egg-ready');
+    assert.equal(e.daily.job,undefined);
+    await tick();
+    assert.equal(ui.screen,'adventure');
+    assert.equal(e.automation.state.autoHatched,1);
+    await tick();
+    assert.equal(e.services.underground?.tx?.id,'ready');
+    assert.equal(e.daily.job,undefined);
+    e.automation.owner=null;
+    await tick();
+    assert.equal(ui.screen,'adventure');
+    assert.equal(e.services.underClaimed,1);
+    assert.equal(e.settings.mode,'money');
+    await tick();
+    assert.equal(e.daily.job?.kind,'candy');
+});
 test('polling readiness alone does not rewrite fair-start timestamps or main wait deadlines',t=>{
     const f=fixture(t);f.e.nextWake=f.now()+600000;const old=JSON.stringify(f.e.services.lastStarted);
     f.plan();f.plan();assert.equal(JSON.stringify(f.e.services.lastStarted),old);assert.equal(f.e.nextWake,f.now()+600000);

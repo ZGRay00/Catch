@@ -142,6 +142,65 @@ test('an active factory follows the adventure screen without resubmitting its ex
     assert.equal(f.e.running,true);assert.equal(f.s.adv.tower.kind,'candy');
 });
 
+test('starting daily play keeps the active factory even with daily factory starts disabled',async t=>{
+    const f=fixture(t,{mode:'money',dailyMain:'money',dailyCandy:false,dailyTower:true,candyFloor:5}),{e,s}=f;
+    const run=f.candyRun(31);
+    f.show('#candy-root [data-cr-stop]',()=>assert.fail('quit an ongoing factory'));
+    f.show('#candy-root [data-cr-go]',()=>assert.fail('started another factory'));
+    e.running=false;e.automation.done=message=>e.completeTask(message);
+    const original=f.storage.getItem('gachamon-save-v1');
+    e.start(false,true);
+    assert.equal(e.running,true,e.status);assert.equal(e.startActivityExit,null);
+    assert.equal(e.daily.base.mode,'money');assert.equal(e.settings.mode,'candy');
+    assert.equal(e.settings.candyFloor,0);assert.equal(e.automation.state.candyRun.at,run.at);
+    await e.step(f.now());
+    assert.ok(f.pages.includes('adventure'));assert.equal(s.candy.run,run);
+    assert.equal(f.storage.getItem('gachamon-save-v1'),original);
+    f.settleCandy(run);f.advance(1200);await e.step(f.now());
+    assert.equal(e.settings.mode,'money');assert.equal(e.daily.job,null);
+    assert.equal(e.dailyMarks.candy,H.nextParisReset(f.now()));
+    f.advance(1200);await e.step(f.now());
+    assert.equal(e.daily.job.kind,'tower');
+});
+
+test('daily play resumes the saved factory at camp through its existing go control',async t=>{
+    const f=fixture(t,{mode:'money',dailyCandy:false}),{e,s}=f;
+    const run=f.candyRun(16,false);
+    const resume=f.show('#candy-root [data-cr-go]',()=>{s.adv.tower={kind:'candy',back:s.adv.chapter};f.save();});
+    f.show('#candy-root [data-cr-stop]',()=>assert.fail('stopped at camp'));
+    e.running=false;e.start(false,true);
+    await e.step(f.now());
+    assert.equal(f.clicks.length,1);assert.equal(f.clicks[0].el,resume);assert.match(f.clicks[0].label,/继续已有/);
+    f.advance(1200);await e.step(f.now());
+    assert.equal(f.clicks.length,1);assert.equal(s.candy.run,run);assert.ok(f.pages.includes('adventure'));
+});
+
+test('a factory that settles before the first daily tick can be confirmed after reload',async t=>{
+    const f=fixture(t,{mode:'money',dailyCandy:true,resumeOnReload:true}),{e,s}=f;
+    const run=f.candyRun(16);
+    e.running=false;e.start(false,true);e.suspend();
+    f.settleCandy(run);f.advance(1200);
+    const reload=new H.Engine(f.storage);reload.loadAccount(s);f.install(reload);
+    reload.automation.done=message=>reload.completeTask(message);
+    f.show('#candy-root [data-cr-go]',()=>assert.fail('resubmitted a settled factory'));
+    reload.start(true);assert.equal(reload.settings.mode,'candy');
+    await reload.step(f.now());
+    assert.equal(reload.settings.mode,'money');assert.equal(reload.daily.job,null);
+    assert.ok(reload.logs.some(entry=>entry.text.includes('糖果工厂结算')));
+    assert.equal(f.clicks.length,0);
+});
+
+test('daily play waits for a factory save while the native battle is already active',async t=>{
+    const f=fixture(t,{mode:'money'}),{e,s}=f;
+    s.adv.tower={kind:'candy',back:s.adv.chapter};f.save();
+    f.show('#candy-root [data-cr-go]',()=>assert.fail('started another factory'));
+    f.show('#candy-root [data-cr-stop]',()=>assert.fail('quit a factory while waiting for its save'));
+    e.running=false;e.start(false,true);
+    await e.step(f.now());assert.match(e.status,/等待场次存档同步/);
+    const run=f.candyRun(6);f.advance(1200);await e.step(f.now());
+    assert.equal(e.automation.state.candyRun.at,run.at);assert.equal(f.clicks.length,0);
+});
+
 test('factory resumes an existing run below its floor target without buying skip layers',t=>{
     const f=fixture(t,{candyFloor:50});f.candyRun(11,false);
     const follow=f.show('#candy-root [data-cr-go]'),skip=f.show('#candy-root [data-cr-skip]');f.candy();
@@ -212,7 +271,7 @@ test('an unconfirmed tower launch is not retried and does not spend an attempt',
 
 test('a suspended tower run is resumed without being counted as defeat',t=>{
     const f=fixture(t,{mode:'tower',towerRuns:1});f.towerRun(8,true);f.tower();f.s.adv.tower=null;
-    const go=f.show('#tower-root [data-tw-go]');f.advance(1200);f.tower();
+    const go=f.show('#tower-root [data-tw-go]');f.show('#tower-root [data-tw-quit]');f.advance(1200);f.tower();
     assert.equal(f.e.automation.state.towerAttempts||0,0);assert.equal(f.failed.length,0);assert.equal(f.clicks.filter(action=>action.el===go).length,1);
 });
 
@@ -227,6 +286,73 @@ test('a tower target uses completed floors and does not quit during the target f
     assert.equal(f.clicks.some(action=>action.el===quit),false);assert.equal(f.completed.length,0);
 });
 
+test('an older weekly tower record never ends the current standalone run early',t=>{
+    const f=fixture(t,{mode:'tower',towerFloor:20});
+    const run=f.towerRun(8,true);
+    f.s.tower.best={week:H.towerWeek(f.now()),floor:100};
+    const quit=f.show('#tower-root [data-tw-quit]');
+    f.tower();assert.match(f.e.status,/本场已过 7 层/);assert.equal(f.clicks.length,0);
+    run.floor=21;f.tower();assert.equal(f.clicks.at(-1).el,quit);
+});
+
+test('daily tower launches only once even across stopping and restarting the routine',async t=>{
+    const f=fixture(t,{mode:'money',dailyCandy:false,dailyTower:true,towerRuns:5}),{e,s}=f;
+    const go=f.show('#tower-root [data-tw-go]',()=>f.towerRun(1,true));
+    e.running=false;e.automation.done=message=>e.completeTask(message);e.start(false,true);
+    const tick=async()=>{await e.step(f.now());f.advance(1200);};
+    await tick();assert.equal(e.settings.towerRuns,1);
+    await tick();await tick();
+    assert.deepEqual(f.clicks.map(action=>action.el),[go]);
+    assert.equal(e.dailyMarks.tower,H.nextParisReset(f.now()));
+    s.adv.tower=null;s.tower.run=null;f.save();
+    await tick();assert.equal(e.settings.mode,'money');assert.equal(e.daily.job,null);
+    e.stop();e.start(false,true);await tick();await tick();
+    assert.equal(e.daily.job,null);assert.deepEqual(f.clicks.map(action=>action.el),[go]);
+});
+
+test('daily startup takes over an active tower and waits for the native week rollover and reward',async t=>{
+    const f=fixture(t,{mode:'money',dailyCandy:false,dailyTower:true,towerFloor:20}),{e,s}=f;
+    f.advance(Date.parse('2026-11-22T23:52:50Z')-f.now());
+    const run=f.towerRun(30,true),dailyEnd=H.nextParisReset(f.now());
+    f.show('#tower-root [data-tw-quit]',()=>assert.fail('daily tower quit before native settlement'));
+    f.show('#tower-root [data-tw-go]',()=>assert.fail('daily tower restarted on the UTC week boundary'));
+    e.running=false;e.automation.done=message=>e.completeTask(message);e.start(false,true);
+    assert.equal(e.startActivityExit,null);assert.equal(e.settings.mode,'tower');
+    await e.step(f.now());
+    assert.equal(s.tower.run,run);assert.match(e.status,/等待本场结算/);
+    f.advance(Date.parse('2026-11-23T00:01:00Z')-f.now());
+    await e.step(f.now());assert.match(e.status,/确认周重置/);
+    s.adv.tower=null;s.tower.run=null;s.tower.gift={items:[{kind:'bp',n:15}]};f.save();
+    f.advance(1200);await e.step(f.now());assert.match(e.status,/待结算奖励/);
+    s.tower.gift=null;f.save();f.advance(1200);await e.step(f.now());
+    assert.equal(e.settings.mode,'money');assert.equal(e.dailyMarks.tower,dailyEnd);
+    f.advance(1200);await e.step(f.now());assert.equal(e.daily.job,null);assert.equal(f.clicks.length,0);
+});
+
+test('daily startup resumes an existing paused tower even with new tower starts disabled',async t=>{
+    const f=fixture(t,{mode:'money',dailyCandy:false,dailyTower:false}),{e,s}=f;
+    const run=f.towerRun(8,false);
+    const go=f.show('#tower-root [data-tw-go]',()=>{s.adv.tower={back:s.adv.chapter};f.save();});
+    e.running=false;e.start(false,true);
+    assert.equal(e.daily.job.kind,'tower');assert.equal(e.daily.job.launched,true);
+    await e.step(f.now());assert.equal(f.clicks.length,0);assert.match(e.status,/尚未同步/);
+    f.show('#tower-root [data-tw-quit]',()=>assert.fail('quit a paused tower'));
+    f.advance(1200);await e.step(f.now());f.advance(1200);await e.step(f.now());
+    assert.deepEqual(f.clicks.map(action=>action.el),[go]);assert.match(f.clicks[0].label,/继续/);
+    assert.equal(s.tower.run,run);assert.match(e.status,/本场已过 7 层/);
+});
+
+test('the previous two-attempt daily mark still counts as one attempt after upgrading',async t=>{
+    const f=fixture(t,{mode:'money',dailyCandy:false,dailyTower:true}),{e,s}=f;
+    const end=H.nextParisReset(f.now());
+    e.dailyMarks={towerFirst:end};e.persist(false,false);e.release();
+    const reload=new H.Engine(f.storage);reload.loadAccount(s);f.install(reload);
+    assert.equal(reload.dailyMarks.tower,end);assert.equal(reload.dailyMarks.towerFirst,undefined);
+    f.show('#tower-root [data-tw-go]',()=>assert.fail('old daily attempt was ignored'));
+    reload.start(false,true);await reload.step(f.now());
+    assert.equal(reload.daily.job,null);assert.equal(f.clicks.length,0);
+});
+
 test('week rollover discards old reached flags and attempts instead of completing the new week',t=>{
     const f=fixture(t,{mode:'tower',towerFloor:100,towerRuns:1});f.e.automation.state.towerWeek='2026-11-09';f.e.automation.state.towerReached=true;f.e.automation.state.towerAttempts=1;
     f.show('#tower-root [data-tw-go]',null,{disabled:true});f.tower();assert.equal(f.completed.length,0);assert.equal(f.failed.length,0);assert.equal(f.e.automation.state.towerReached,false);assert.equal(f.e.automation.state.towerAttempts,0);
@@ -238,15 +364,20 @@ test('ordinary tower rejects a live factory instead of mixing its attempt and fl
 
 test('resuming a paused tower waits for activity confirmation even though its snapshot already exists',t=>{
     const f=fixture(t,{mode:'tower'});f.towerRun(8,false);const go=f.show('#tower-root [data-tw-go]');
+    f.show('#tower-root [data-tw-quit]');
     f.tower();for(let i=0;i<5;i++){f.advance(1200);f.tower();}
     assert.equal(f.clicks.filter(action=>action.el===go).length,1);assert.equal(f.e.automation.state.towerAttempts||0,0);
     assert.ok(f.e.automation.state.towerLaunch);f.s.adv.tower={back:42};f.advance(1200);f.tower();assert.equal(f.e.automation.state.towerLaunch,undefined);
 });
 
-test('a stale live tower exits through its native control before opening a fresh week',t=>{
+test('a stale live tower waits for native confirmation before opening a fresh week',t=>{
     const f=fixture(t,{mode:'tower'});f.towerRun(30,true);f.s.tower.run.week='2000-01-03';
-    const quit=f.show('#tower-root [data-tw-quit]'),go=f.show('#tower-root [data-tw-go]');f.tower();
-    assert.equal(f.clicks.filter(action=>action.el===quit).length,1);assert.equal(f.clicks.some(action=>action.el===go),false);assert.equal(f.e.automation.state.towerAttempts||0,0);
+    f.show('#tower-root [data-tw-quit]');const go=f.show('#tower-root [data-tw-go]');f.tower();
+    assert.equal(f.clicks.length,0);assert.match(f.e.status,/确认周重置/);
+    f.s.adv.tower=null;f.tower();assert.equal(f.clicks.length,0);
+    f.s.tower.run=null;f.tower();assert.equal(f.clicks.length,0);assert.match(f.e.status,/尚未同步/);
+    f.elements.delete('#tower-root [data-tw-quit]');f.tower();assert.deepEqual(f.clicks.map(action=>action.el),[go]);
+    assert.equal(f.e.automation.state.towerAttempts||0,0);
 });
 
 test('completed weekly tower targets await a pending native gift before ending the task',t=>{

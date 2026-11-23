@@ -1245,7 +1245,7 @@
                 const context=this.coach.activity(s),zone=s.adv.zone&&DATA.zones.find(z=>z.id===s.adv.zone.id);
                 const resume=context?.kind==='raid'?{type:'raid'}:zone?{row:routeDescriptor({...zone,key:`Z${zone.id}`,members:[],name:zone.monName||zone.name}),options:{zone:true,tier:s.adv.zone.elite||0,optimize:this.settings.optimizeRaid}}:{};
                 if(context&&this.ensurePrepared(s,context,resume,now))return;
-                const adventure=!context&&this.coach.adventure(s,outcome);
+                const adventure=!context&&this.coach.adventure(s,outcome,now);
                 if(adventure&&this.ensurePrepared(s,adventure.context,adventure.resume,now))return;
             }
             if(this.applyArrivalTeam(s,now)){
@@ -2177,6 +2177,7 @@
             }
             this.visit.routePlan=null;
             this.visit.activeRoutePlan=plan;
+            this.visit.activeRouteDeaths=totalDeaths(s,row);
             this.visit.started=now;
             this.telemetry.sample=null;
             return false;

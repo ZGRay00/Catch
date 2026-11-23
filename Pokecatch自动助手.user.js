@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      7.0.3
+// @version      7.0.4
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
@@ -23,7 +23,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '7.0.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '7.0.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -5134,8 +5134,25 @@
         const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true,now};
         const chapter=CHAPTERS.get(context.id);
         const dexReplay=context.kind==='map'&&!context.roamId&&!context.forcePreparation&&isDexReplay(s,settings,chapter)?chapter:null;
-        const actual=ordinary&&choose?yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool,dexReplay},sliced):null;
-        const ready=!!actual&&!context.forcePreparation&&(actual.retainedForHunt||!!preparationReadiness(s,settings,context,actual.uids)?.ready);
+        const currentFirst=context.kind==='map'&&settings.mode==='money'&&choose&&!context.forcePreparation;
+        let actual=null,ready=false;
+        if(currentFirst&&s.team?.length){
+            const fit=yield* readinessSearch(s,settings,context,s.team,sliced);
+            if(fit.ready){actual={uids:s.team};ready=true;}
+        }
+        if(ordinary&&choose&&!ready){
+            actual=yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool,dexReplay},sliced);
+            ready=!context.forcePreparation&&(actual.retainedForHunt||(yield* readinessSearch(s,settings,context,actual.uids,sliced)).ready);
+            if(currentFirst&&!ready){
+                // Try existing combat-ready members before scoring hypothetical Lv.100 builds.
+                const mature=pool.filter(mon=>mon.level+settings.prepareGap>=Math.min(desired,trainingCap(s,mon)));
+                if(mature.length<pool.length&&new Set(mature.map(forecastIdentity)).size>=Math.min(context.size||6,pool.length)){
+                    const alternative=yield* adventureTeamSearch(s,settings,[],{...planning,pool:mature,objective:'progress',lowBudget:true},sliced);
+                    const fit=yield* readinessSearch(s,settings,context,alternative.uids,sliced);
+                    if(fit.ready){actual=alternative;ready=true;}
+                }
+            }
+        }
         // A saved facility party takes precedence over every other candidate.
         // Its training preview only needs the individuals the native event will use.
         const fixedUids=configured.length?new Set(configured.slice(0,context.size||6)):null;
@@ -5151,7 +5168,8 @@
         else if(choose){
             if(ordinary){
                 if(ready){
-                    selected=actual.uids;selection={quality:actual.score,score:actual.score,cost:0,xp:0,source:'current',ready:true};
+                    selected=actual.uids;selection={cost:0,xp:0,source:'current',ready:true};
+                    if(Number.isFinite(actual.score))Object.assign(selection,{quality:actual.score,score:actual.score});
                 }else{
                     const training=preparationCosts(s,pool,desired),penalty=.16;
                     const projected=yield* adventureTeamSearch({...s,mons:future},settings,[],planning,sliced);
@@ -8442,9 +8460,11 @@
             e.log(`先为${context.label}补练：${plan.targets.map(m=>`${MONS.get(m.id)?.name} Lv.${m.level}→${m.goal}`).join('、')||'刷新爬塔阵容'}${plan.capLimited?'（受当前等级上限限制）':''}`);
             e.status=recovering?'战败后先补齐可提升等级，再继续原任务':'等级不足，准备补练后继续原任务';e.persist();return true;
         }
-        adventure(s,outcome=adventureTaskOutcome(s,this.e)){
+        adventure(s,outcome=adventureTaskOutcome(s,this.e),now=Date.now()){
             const e=this.e,mode=e.settings.mode,a=s.adv;
             if(outcome||a.event||a.zone||a.tower||a.league||e.raidProbe||e.raidReturn||FLOW_MODES.has(mode)||['legend','train'].includes(mode))return null;
+            // Give the map/party transaction its own validation and receipt tick.
+            if(mode==='money'&&(e.driver.pendingMap?.routePlan?.verified||e.visit?.routePlan?.plan?.verified))return null;
             let row;
             if(isCollectionMap(mode,'map'))return null;
             if(mode==='progress'){
@@ -8456,7 +8476,16 @@
             }
             // The tracker checks the live marker before preparing and skips preparation after a successful KO.
             if(e.driver.pendingMap?.options?.roamId||row.roamId)return null;
-            return{context:battleContext(s,mode==='progress'?'progress':'map',{row,roamId:mode==='roam'?e.settings.roamId:undefined}),resume:mode==='progress'?{}:{row:routeDescriptor(row),...mode==='roam'?{options:{roamId:e.settings.roamId}}:{}}};
+            const plan=e.visit?.activeRoutePlan,party=plan?.party?.join('|');
+            let failedBaseline;
+            if(mode==='money'&&plan?.verified&&party===s.team.join('|')&&(!s.road?.length||party===s.road.join('|'))&&e.routeReached(s,row)){
+                const deaths=totalDeaths(s,row),baseline=e.visit.activeRouteDeaths??e.visit.deaths;
+                if(deaths<=baseline&&e.routeRequestValid(s,{row,routePlan:plan},now,true))return null;
+                if(deaths>baseline)failedBaseline=baseline;
+            }
+            const context=battleContext(s,mode==='progress'?'progress':'map',{row,roamId:mode==='roam'?e.settings.roamId:undefined});
+            if(failedBaseline!=null&&(this.combat?.key!==context.key||this.combat.deaths<failedBaseline))this.combat={key:context.key,deaths:failedBaseline,failedAt:0};
+            return{context,resume:mode==='progress'?{}:{row:routeDescriptor(row),...mode==='roam'?{options:{roamId:e.settings.roamId}}:{}}};
         }
         activity(s){
             const a=s.adv;
@@ -10083,7 +10112,7 @@
                 const context=this.coach.activity(s),zone=s.adv.zone&&DATA.zones.find(z=>z.id===s.adv.zone.id);
                 const resume=context?.kind==='raid'?{type:'raid'}:zone?{row:routeDescriptor({...zone,key:`Z${zone.id}`,members:[],name:zone.monName||zone.name}),options:{zone:true,tier:s.adv.zone.elite||0,optimize:this.settings.optimizeRaid}}:{};
                 if(context&&this.ensurePrepared(s,context,resume,now))return;
-                const adventure=!context&&this.coach.adventure(s,outcome);
+                const adventure=!context&&this.coach.adventure(s,outcome,now);
                 if(adventure&&this.ensurePrepared(s,adventure.context,adventure.resume,now))return;
             }
             if(this.applyArrivalTeam(s,now)){
@@ -11015,6 +11044,7 @@
             }
             this.visit.routePlan=null;
             this.visit.activeRoutePlan=plan;
+            this.visit.activeRouteDeaths=totalDeaths(s,row);
             this.visit.started=now;
             this.telemetry.sample=null;
             return false;

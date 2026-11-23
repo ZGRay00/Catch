@@ -135,9 +135,11 @@
             e.log(`先为${context.label}补练：${plan.targets.map(m=>`${MONS.get(m.id)?.name} Lv.${m.level}→${m.goal}`).join('、')||'刷新爬塔阵容'}${plan.capLimited?'（受当前等级上限限制）':''}`);
             e.status=recovering?'战败后先补齐可提升等级，再继续原任务':'等级不足，准备补练后继续原任务';e.persist();return true;
         }
-        adventure(s,outcome=adventureTaskOutcome(s,this.e)){
+        adventure(s,outcome=adventureTaskOutcome(s,this.e),now=Date.now()){
             const e=this.e,mode=e.settings.mode,a=s.adv;
             if(outcome||a.event||a.zone||a.tower||a.league||e.raidProbe||e.raidReturn||FLOW_MODES.has(mode)||['legend','train'].includes(mode))return null;
+            // Give the map/party transaction its own validation and receipt tick.
+            if(mode==='money'&&(e.driver.pendingMap?.routePlan?.verified||e.visit?.routePlan?.plan?.verified))return null;
             let row;
             if(isCollectionMap(mode,'map'))return null;
             if(mode==='progress'){
@@ -149,7 +151,16 @@
             }
             // The tracker checks the live marker before preparing and skips preparation after a successful KO.
             if(e.driver.pendingMap?.options?.roamId||row.roamId)return null;
-            return{context:battleContext(s,mode==='progress'?'progress':'map',{row,roamId:mode==='roam'?e.settings.roamId:undefined}),resume:mode==='progress'?{}:{row:routeDescriptor(row),...mode==='roam'?{options:{roamId:e.settings.roamId}}:{}}};
+            const plan=e.visit?.activeRoutePlan,party=plan?.party?.join('|');
+            let failedBaseline;
+            if(mode==='money'&&plan?.verified&&party===s.team.join('|')&&(!s.road?.length||party===s.road.join('|'))&&e.routeReached(s,row)){
+                const deaths=totalDeaths(s,row),baseline=e.visit.activeRouteDeaths??e.visit.deaths;
+                if(deaths<=baseline&&e.routeRequestValid(s,{row,routePlan:plan},now,true))return null;
+                if(deaths>baseline)failedBaseline=baseline;
+            }
+            const context=battleContext(s,mode==='progress'?'progress':'map',{row,roamId:mode==='roam'?e.settings.roamId:undefined});
+            if(failedBaseline!=null&&(this.combat?.key!==context.key||this.combat.deaths<failedBaseline))this.combat={key:context.key,deaths:failedBaseline,failedAt:0};
+            return{context,resume:mode==='progress'?{}:{row:routeDescriptor(row),...mode==='roam'?{options:{roamId:e.settings.roamId}}:{}}};
         }
         activity(s){
             const a=s.adv;

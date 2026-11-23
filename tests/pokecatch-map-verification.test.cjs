@@ -63,6 +63,67 @@ test('linked travel confirms the destination wallet only after the native side c
     e.observeMapArrival(s,pending,now+2400);assert.equal(e.target,target);
 });
 
+function verifiedMoneyTrip(t){
+    const {s,e,save}=fixture(t,{autoPrepare:true,autoTeam:true,autoEvolve:false,moneyBuff:false});
+    const roster=[[370,97],[277,100],[465,100],[10,99],[289,100],[13,75],[635,100],[612,100],[534,100],[609,100],[598,100],[530,100],[637,100]];
+    s.mons=roster.map(([id,level],i)=>({id,level,uid:'m'+i,reg:'unova'}));
+    s.team=s.mons.slice(0,6).map(mon=>mon.uid);s.road=[...s.team];s.travel.to=['unova'];
+    Object.assign(s.adv,{chapter:75,unlocked:83,loops:['75'],deaths:{}});
+    save();e.strictPlanning=true;
+    const state=e.read(),projection=H.moneyRanking(state,e.settings,{}, {},now).find(candidate=>candidate.id===83);
+    assert.ok(projection?.routePlan,'synthetic box has an independently scored destination party');
+    const evaluate=e.evaluateTeamSearch;
+    // Drain the real proof synchronously to isolate native map and team receipts.
+    e.evaluateTeamSearch=(_signature,search)=>{let step=search.next();while(!step.done)step=search.next();return step.value;};
+    let verified;
+    try{verified=e.moneyRouteProof(state,projection,now);}finally{e.evaluateTeamSearch=evaluate;}
+    assert.ok(verified?.routePlan.verified);
+    assert.equal(e.routeRequestValid(state,{row:verified,routePlan:verified.routePlan},now),true);
+    return {s,e,save,verified};
+}
+
+test('a verified money trip takes precedence over training through native arrival and team application',async t=>{
+    const {s,e,save,verified}=verifiedMoneyTrip(t),specialist=verified.routePlan.party;
+    const readiness=H.preparationReadiness(e.read(),e.settings,H.battleContext(e.read(),'map',{row:verified,now}));
+    assert.equal(readiness.ready,false,'the departing party does not satisfy the destination training preflight');
+    let navigation=0,swaps=0;
+    e.driver.map=()=>{navigation++;return true;};
+    e.driver.adventureTeam=()=>{
+        assert.deepEqual(e.driver.teamTask.uids,specialist);
+        s.team=[...specialist];save();e.driver.teamTask=null;swaps++;return true;
+    };
+    e.money=()=>{};
+    e.travel(verified,now,{orderedRoutePlan:true});
+    assert.equal(e.coach.adventure(e.read(),null,now),null,'pending verified departure skips the second preflight');
+    await e.step(now);
+    assert.equal(navigation,1);assert.equal(e.preparation,null);
+    Object.assign(s.adv,{chapter:verified.id,loops:[verified.key],node:0});save();
+    await e.step(now+1200);
+    assert.equal(e.target,verified);assert.equal(e.visit.routePlan.plan,verified.routePlan);
+    await e.step(now+2400);
+    assert.equal(swaps,1);assert.equal(e.preparation,null);
+    await e.step(now+3600);
+    assert.match(e.status,/等待治疗点/);
+    s.road=[...specialist];save();
+    await e.step(now+4800);
+    assert.equal(e.visit.activeRoutePlan,verified.routePlan);assert.equal(e.preparation,null);
+    assert.equal(e.coach.adventure(e.read(),null,now+4800),null,'an applied proof must not immediately be routed through the same preflight');
+    s.adv.deaths[verified.id]=1;save();
+    assert.equal(e.coach.adventure(e.read(),null,now+6000)?.context.id,verified.id,'fresh defeat releases the optimistic proof');
+});
+
+test('a changed eligible box cancels an unexecuted money proof before considering preparation again',async t=>{
+    const {s,e,save,verified}=verifiedMoneyTrip(t);
+    e.target=row(75);
+    e.travel(verified,now,{orderedRoutePlan:true});
+    s.mons=s.mons.filter(mon=>mon.uid!==verified.routePlan.party.find(uid=>!s.team.includes(uid)));save();
+    assert.equal(e.routeRequestValid(e.read(),e.driver.pendingMap,now+1200),false);
+    e.driver.map=()=>assert.fail('a stale proof must not initiate the map change');
+    await e.step(now+1200);
+    assert.equal(e.driver.pendingMap,null);assert.equal(e.preparation,null);
+    assert.equal(e.coach.adventure(e.read(),null,now+2400)?.context.id,75);
+});
+
 test('learners use goal-truncated UID observations, separate from historical party XP',t=>{
     const {s,e}=fixture(t,{mode:'train',trainUid:'selected',trainUids:['a'],trainLevel:31});
     const target=row(0),key=H.metricsKey(s,target,e.settings,now),samples=e.metrics;

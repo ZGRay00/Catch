@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "7.0.3",
-  "scriptSha256": "1acd11dc63e1f95148ccbc45f40ca86f2acceeaf2bc61e8d57532669bae06194",
-  "metadataSha256": "929f88eb3980e208c300070796ef19dca645f7a84ad6744df2fe44c6e4bb447a",
+  "version": "7.0.4",
+  "scriptSha256": "353c29337c882de5912045bb2f9109f77a302c1d857031a27b322f823db15182",
+  "metadataSha256": "a7111be58a7969cb46811b69a8cdf72f00395abd33226ffe8a835a5407f58dec",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "121e83ad4f1ad80f6fecefb9cc538fd065ec4c0345cdf4f64dd45930a75c6935"
+      "sha256": "899863d325ca2efcae5010a323405820b46ea1fedbd533df5d8e1f067040af81"
     },
     {
       "file": "build.manifest.json",
@@ -130,7 +130,7 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "0a9f1316395fb9aa2767c930d9fc6851faa4677ec9e3e22641a248ed21dca8d6"
+      "sha256": "8465f3ea611d1df91c3c7a20bf72f716f59d30fbd98967fce1dd6bb832dc9f53"
     },
     {
       "file": "src/models/legend-requirements.js",
@@ -154,11 +154,11 @@
     },
     {
       "file": "src/runtime/level-coach.js",
-      "sha256": "5f884b071846d585dd633f6e4c4a67ac25e1162d954349a4c41f772f97a64829"
+      "sha256": "0b10091693c0fc59af3e7e03872048fb42620d8243f3265be3fb2493d75fa596"
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "86a0aa741d8f9a40cfdfb1fb89ab57ff2d9eb1f0dbc8b75a5c4b7333f6f2b8d1"
+      "sha256": "1e980f0a4e92cb71818251169022d06b3e791c718da6180319666f37b98fbe3a"
     },
     {
       "file": "src/runtime/node-exports.js",

@@ -77,3 +77,16 @@ test('temporary event copies cannot be counted as ordinary adventure members',()
         assert.equal(check(s,settings,context).ready,false,prefix);
     }
 });
+
+test('money preflight keeps a capable live Giant Chasm party ahead of box projections',()=>{
+    const now=Date.parse('2026-11-23T12:00:00+08:00');
+    const ids=[609,464,145,484,392,282,32,65,68,103,248,289,369,402,464,476,483,487,448,638,647,645,646,377,382,384,529,637,598];
+    const mons=ids.map((id,i)=>({uid:'candidate'+i,id,level:i<6?100:35+i*2,reg:'unova'})),team=mons.slice(0,6).map(mon=>mon.uid);
+    const s={mons,team,road:[...team],autoSwitch:true,travel:{to:['unova']},adv:{chapter:75,unlocked:83,loops:['75'],badges:[],gifts:{}}};
+    const row=H.DATA.chapters.find(chapter=>chapter.id===83),context=H.battleContext(s,'map',{row,now});
+    const settings={...H.DEFAULTS,mode:'money',autoTeam:true,autoEvolve:false};
+    assert.equal(check(s,settings,context).ready,true,'the actual six satisfy conservative destination readiness');
+    const plan=H.preparationPlan(s,settings,context);
+    assert.deepEqual(plan.uids,team,'preflight can approve the existing party before shopping for replacement trainees');
+    assert.equal(plan.needed,false);assert.deepEqual(plan.targets,[]);
+});

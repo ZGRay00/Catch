@@ -618,8 +618,25 @@
         const planning={reg:context.reg,foes:context.foes,size:context.size,speciesUnique:context.speciesUnique,force:true,now};
         const chapter=CHAPTERS.get(context.id);
         const dexReplay=context.kind==='map'&&!context.roamId&&!context.forcePreparation&&isDexReplay(s,settings,chapter)?chapter:null;
-        const actual=ordinary&&choose?yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool,dexReplay},sliced):null;
-        const ready=!!actual&&!context.forcePreparation&&(actual.retainedForHunt||!!preparationReadiness(s,settings,context,actual.uids)?.ready);
+        const currentFirst=context.kind==='map'&&settings.mode==='money'&&choose&&!context.forcePreparation;
+        let actual=null,ready=false;
+        if(currentFirst&&s.team?.length){
+            const fit=yield* readinessSearch(s,settings,context,s.team,sliced);
+            if(fit.ready){actual={uids:s.team};ready=true;}
+        }
+        if(ordinary&&choose&&!ready){
+            actual=yield* adventureTeamSearch({...s,mons:pool},settings,[],{...planning,pool,dexReplay},sliced);
+            ready=!context.forcePreparation&&(actual.retainedForHunt||(yield* readinessSearch(s,settings,context,actual.uids,sliced)).ready);
+            if(currentFirst&&!ready){
+                // Try existing combat-ready members before scoring hypothetical Lv.100 builds.
+                const mature=pool.filter(mon=>mon.level+settings.prepareGap>=Math.min(desired,trainingCap(s,mon)));
+                if(mature.length<pool.length&&new Set(mature.map(forecastIdentity)).size>=Math.min(context.size||6,pool.length)){
+                    const alternative=yield* adventureTeamSearch(s,settings,[],{...planning,pool:mature,objective:'progress',lowBudget:true},sliced);
+                    const fit=yield* readinessSearch(s,settings,context,alternative.uids,sliced);
+                    if(fit.ready){actual=alternative;ready=true;}
+                }
+            }
+        }
         // A saved facility party takes precedence over every other candidate.
         // Its training preview only needs the individuals the native event will use.
         const fixedUids=configured.length?new Set(configured.slice(0,context.size||6)):null;
@@ -635,7 +652,8 @@
         else if(choose){
             if(ordinary){
                 if(ready){
-                    selected=actual.uids;selection={quality:actual.score,score:actual.score,cost:0,xp:0,source:'current',ready:true};
+                    selected=actual.uids;selection={cost:0,xp:0,source:'current',ready:true};
+                    if(Number.isFinite(actual.score))Object.assign(selection,{quality:actual.score,score:actual.score});
                 }else{
                     const training=preparationCosts(s,pool,desired),penalty=.16;
                     const projected=yield* adventureTeamSearch({...s,mons:future},settings,[],planning,sliced);

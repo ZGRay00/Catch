@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "7.2.2",
-  "scriptSha256": "e5e4073977e400e3f6a541791cda90e4ac6a5d8f646a55fbf87d09080377c027",
-  "metadataSha256": "c77dd2bce301d9ca3e98e7d16aa28937bf078ac20f9b632435dec4d2e8d963a7",
+  "version": "7.2.3",
+  "scriptSha256": "e0d74ad69b33f8d79d310f03e979d715cfe19972097810ba7f8366e09c546e88",
+  "metadataSha256": "ffa8080e4fa5e8a5a37f3ed584e634a5acc4f3ba96663af365f65ad777e11af4",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "bdc3dc753588e3c785e2aa4cc08aed9112dc5cfbed71f1f56e4981bc7061281c"
+      "sha256": "10fe9dad4e872fe165c9d1e986004c752dc693dade369624d2e87d981b443f3f"
     },
     {
       "file": "build.manifest.json",
@@ -26,7 +26,7 @@
     },
     {
       "file": "data/game.json",
-      "sha256": "fc33eae5fe8089d0e2ff41582cc85a59b4e8c7145f2c414ede7ce9761b4df7ef"
+      "sha256": "c6b300a75844d6269aed2f92ab879818abcb70ee928543d9270e099440c71e25"
     },
     {
       "file": "src/data/game-after.js",
@@ -54,7 +54,7 @@
     },
     {
       "file": "src/models/facilities.js",
-      "sha256": "f86a24e63448703fa9116a39690a7f4e9bf9e818a0620b7304a0a664d74d3432"
+      "sha256": "965b21e847df2ad63e3188aeb3cca27a6aaf6d3e21d83f07420d2cc0729d6edc"
     },
     {
       "file": "src/models/task-goals.js",
@@ -74,7 +74,7 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "9a62fd92a6cd583544a97cd720bcebdbe7dae15bc1aac31a96e33d175227ca03"
+      "sha256": "1961541cffda35ef93f561dc9697165f45f34a8d5e063f3a150abf50f901f5f5"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -90,7 +90,7 @@
     },
     {
       "file": "data/weather.json",
-      "sha256": "cb0b4002481f5dd133c9cf758a256f0cdadbb7a6741d9862fa13cad7fcc67943"
+      "sha256": "6e96e6bdaafa00fb8e5483847008f9c379cb7c1edb36f86acddcff91e15abca4"
     },
     {
       "file": "src/data/weather-after.js",
@@ -130,7 +130,7 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "c756023cc6ca3f4fefed9c8293e63d9abe272d4640839c08eb6e6e083a8575c1"
+      "sha256": "49495e3151b34bf1f875941c796c682239db8ee8c2fa304f9d22c5db9d9c8ddc"
     },
     {
       "file": "src/models/legend-requirements.js",
@@ -138,7 +138,7 @@
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "71b6cf8b79d0262c8684840418baf1db153a0c76570b1e09a9b88fb62f63834f"
+      "sha256": "0e12bf3fde5e3cfb7d496a4cb12d68e828d8021b6cf730fc8ca0d913da1c5b5c"
     },
     {
       "file": "src/core/telemetry.js",
@@ -162,7 +162,7 @@
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "54785ef0a75d6f2d44130ba9708ea43e10695cdb6d5b8b6b9f263e303b5123e3"
+      "sha256": "e23cf0dbcbc8327598d5462babc4e4663d586fbcb664762e0e251247335bf049"
     },
     {
       "file": "src/ui/panel-style.js",
@@ -190,7 +190,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "97b2fc09cad2108e62da408aa860f1d72eac73c44a764a49c131f88d113720f6"
+      "sha256": "276ad711d84f08b143e90b4a8af9f529be126bf41be9aa788fa011044ca19f62"
     }
   ]
 }

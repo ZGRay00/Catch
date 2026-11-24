@@ -602,11 +602,15 @@
             }
         }else if(kind==='zone'||kind==='raid'||kind==='worldCapture'){
             id=kind==='worldCapture'?493:id;level=level||zone?.level||DATA.automation.levels.raid;foes=[{id,level,weight:1}];size=kind==='raid'?2:6;
+            if(kind==='raid'){
+                const {hp,power}=raidBossFactors(id);
+                Object.assign(foes[0],{hpMult:hp*(1+RAID_ALLY.enemyHp*(RAID_ALLY.team-1)),damageMult:power});
+            }
             label=options.label||({zone:'传说战',raid:'每日团体战',worldCapture:'世界首领捕获'}[kind]+' · '+(MONS.get(id)?.name||id));
         }else{
             const chapter=c?.reg===reg?c:DATA.chapters.filter(c=>c.reg===reg&&c.id<=s.adv.unlocked).at(-1);
             const all=chapter?chapterThreats({...s,adv:{...s.adv,battle:null}},chapter.id):[];
-            level=level||(kind==='tower'?Math.min(DATA.automation.levels.towerMax,Math.floor(DATA.automation.levels.towerStart+(options.floor-1)*DATA.automation.levels.towerStep)+(options.floor%10===0?3:0)):100);
+            level=level||(kind==='tower'?towerFloorProfile(options.floor).level:100);
             foes=all.map(m=>({...m,level,gymCount:0}));
             label=options.label||({elite:'精英联盟',tower:'对战塔',worldAttack:'世界首领攻击'}[kind]||kind);
         }

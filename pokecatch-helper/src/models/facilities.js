@@ -1,4 +1,23 @@
     function towerWeek(now=Date.now()){const date=new Date(now);return new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth(),date.getUTCDate()-(date.getUTCDay()+6)%7)).toISOString().slice(0,10);}
+    const TOWER_RULES=Object.freeze({eggFloors:[80,150,200],bossEvery:10,bossLevel:3,
+        rankCurve:[[35,0],[65,3],[85,6],[160,15]],bossRanks:2,maxRank:5,foes:3,overflow:.1});
+    function towerFloorProfile(floor=1){
+        floor=Math.max(1,Math.trunc(Number(floor)||1));
+        const {towerStart,towerStep,towerMax}=DATA.automation.levels;
+        const baseLevel=Math.min(towerMax,Math.floor(towerStart+(floor-1)*towerStep));
+        const {rankCurve,bossEvery,bossLevel,bossRanks,maxRank,foes,overflow}=TOWER_RULES;
+        const boss=floor%bossEvery===0;
+        let points=0;
+        if(floor>rankCurve[0][0]){
+            let end=rankCurve.findIndex(([at])=>at>=floor);
+            if(end<0)end=rankCurve.length-1;
+            const [[from,start],[to,finish]]=rankCurve.slice(end-1,end+1);
+            points=Math.floor(start+(floor-from)*(finish-start)/(to-from))+(boss?bossRanks:0);
+        }
+        const allocated=Math.min(points,maxRank*foes);
+        const ranks=Array.from({length:foes},(_,i)=>Math.floor(allocated/foes)+(i<allocated%foes?1:0));
+        return{baseLevel,level:Math.min(towerMax,baseLevel+(boss?bossLevel:0)),ranks,statMult:1+overflow*(points-allocated)};
+    }
     let resetDay, resetAt;
     function nextParisReset(now=Date.now()){
         const day=parisDay(now);
@@ -82,7 +101,7 @@
     function towerParty(s,options={}){
         const progress=towerProgress(s,options.now),snapshot=!!options.snapshot;
         const floor=Math.max(1,Number(options.floor??(snapshot?progress.floor:1))||1);
-        const level=Math.min(DATA.automation.levels.towerMax,Math.floor(DATA.automation.levels.towerStart+(floor-1)*DATA.automation.levels.towerStep));
+        const level=towerFloorProfile(floor).baseLevel;
         const copy=mon=>({uid:mon.uid,src:mon.src||mon.uid,id:mon.id,level:Math.min(100,Number(mon.level)||1),shiny:!!mon.shiny,...mon.rank?{rank:mon.rank}:{},...mon.taste?{taste:mon.taste}:{},reg:monRegion(mon)});
         let roster;
         if(snapshot)roster=(progress.run?.mons||[]).filter(mon=>mon&&MONS.has(mon.id)).map(mon=>({...copy(mon),uid:mon.src||mon.uid,towerUid:mon.uid,...mon.hp!=null?{hp:mon.hp}:{}}));

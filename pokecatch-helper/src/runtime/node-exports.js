@@ -6,6 +6,7 @@
         Object.assign(module.exports,{roamingCombatFoe,routeRoamingFoes,routeCombatFoes,roamingBattle});
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,worldAttackParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
+        Object.assign(module.exports,{TOWER_RULES,towerFloorProfile,raidBossFactors,raidParalysisTurns,localRulesKnown});
         Object.assign(module.exports,{shopCandyTier});
         Object.assign(module.exports,{boxSnapshot,pokemonByUid,rosterLocations,eligibleRoster});
         Object.assign(module.exports,{trainingXpTargets,trainingXpSuffix,routeIdentity});

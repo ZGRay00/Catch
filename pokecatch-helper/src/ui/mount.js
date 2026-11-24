@@ -903,7 +903,17 @@
                 hint='请在游戏中手动寄养百变怪和目标亲本。'+(settings.breedShiny?'助手会优先孵化已确认的目标闪蛋。':'助手会按游戏确认的孵化数量记录进度。');
             }
             else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按派遣位的主题配队，领取归队奖励后更新纪录。`;}
-            else if(mode==='tower'){const p=towerProgress(s,now),reached=Math.max(p.best,p.cleared);primary=`${reached}/${settings.towerFloor}`;primaryLabel='本周已过楼层';goalLabel='已结束尝试';goalValue=`${engine.automation.state.towerWeek===p.week?engine.automation.state.towerAttempts||0:0}/${settings.towerRuns}`;percent=reached/settings.towerFloor*100;hint='按原生收藏排序、同种族限制和休息等级核对实际前六名，只为真正会上场的成员补练。暂停场次继续，不计失败；周记录与尝试次数按 UTC 周一重置，奖励结算后再结束任务。';}
+            else if(mode==='tower'){
+                const {week,cleared}=towerProgress(s,now),goal=settings.towerFloor;
+                primary=`${cleared}/${goal}`;primaryLabel='本周已过楼层';
+                const attempts=engine.automation.state.towerWeek===week?engine.automation.state.towerAttempts||0:0;
+                goalLabel='已结束尝试';goalValue=`${attempts}/${settings.towerRuns}`;percent=cleared/goal*100;
+                const {level,ranks,statMult}=towerFloorProfile(goal);
+                const paid=Number(s.tower?.paid?.[week])||0;
+                const nextEgg=TOWER_RULES.eggFloors.find(floor=>floor>Math.max(cleared,paid));
+                hint=`目标层敌方 Lv.${level} · 阶级 ${ranks.join('/')}${statMult>1?' · 属性 ×'+statMult.toFixed(2):''}。`;
+                if(nextEgg)hint+=`本周下一处蛋奖励在第 ${nextEgg} 层。`;
+            }
             else if(mode==='candy'){const run=s.candy?.run,flow=engine.automation.state,cleared=Math.max(0,run?run.floor-1:flow.candyResult?.floor||0);primary=settings.candyFloor?`${cleared}/${Math.ceil(settings.candyFloor/5)*5}`:String(cleared);primaryLabel='本场已过楼层';goalLabel=`完成场次 ${flow.candyDone||0}/${settings.candyRuns}`;goalValue=run?`今日${DATA.types[run.type]?.fr||run.type}主题 · 已获糖果保留`:'每日一次 · 巴黎时间刷新';percent=(flow.candyDone||0)/settings.candyRuns*100;hint='按今日主题、实际招式与耐久配置六人专属队伍；需要时先补练再入场，入场后保留克隆阵容。目标层向上取整至五层营地，0 表示尽力挑战；不购买跳层，失败仍按真实结算计一局。25枚神奇糖果日上限后仍可获得经验糖果。';}
             else if(mode==='elite'){const reg=settings.eliteRegion==='current'?currentRegion(s):settings.eliteRegion,best=s.eliteLeague?.[reg]?.t||0;primary=`${best}/${settings.eliteTier}`;primaryLabel='精英联盟阶级';goalLabel=DATA.regions.find(r=>r.key===reg)?.name;goalValue='逐阶挑战并领取宝石';percent=best/settings.eliteTier*100;hint=`${settings.optimizeRaid?'按本地区首领、阶级和最难对局选择队员':'使用本地区已保存的手动队伍'}。胜利后领取宝石，首次战败即退出并跳过本项。`;}
             else if(mode==='world'){primary=`${engine.automation.state.worldDone||0}/${settings.worldActions}`;primaryLabel='本次首领攻击';goalLabel='世界首领';goalValue=settings.worldCapture?'攻击 → 等待 → 捕获':'攻击目标完成即结束';percent=(engine.automation.state.worldDone||0)/settings.worldActions*100;hint='使用原生推荐的可攻击成员，每日次数和登录条件由服务器校验。捕获阶段可能需要等待；没有开放时不会反复提交攻击。';}

@@ -1,6 +1,6 @@
 (function () {
   'use strict';
-  const origins = ['https://pokecatch-online.netlify.app', 'https://pokecatch-online.pages.dev'];
+  const origins = ['https://pokecatch-online.app', 'https://pokecatch-online.netlify.app', 'https://pokecatch-online.pages.dev'];
   if (!origins.includes(location.origin)) return;
   const attribute = 'data-pc-helper-background-at', ttl = 90000;
   function active() {

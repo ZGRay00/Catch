@@ -1,7 +1,8 @@
 'use strict';
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm');
 const root=path.resolve(__dirname,'../extension'),source=name=>fs.readFileSync(path.join(root,name),'utf8');
-const ATTR='data-pc-helper-background-at',ORIGIN='https://pokecatch-online.netlify.app';
+const ATTR='data-pc-helper-background-at',ORIGIN='https://pokecatch-online.app';
+const MATCHES=[ORIGIN+'/*','https://pokecatch-online.netlify.app/*','https://pokecatch-online.pages.dev/*'];
 const drain=()=>new Promise(resolve=>setImmediate(resolve));
 function page(origin=ORIGIN){
   const attributes=new Map(),events=[],documentListeners={},windowListeners={},intervals=[];let now=1000000;
@@ -16,9 +17,9 @@ function page(origin=ORIGIN){
   const context=vm.createContext({Document,document,location:{origin},Date:Clock,Event:class{constructor(type){this.type=type;}},window:{addEventListener:(name,fn)=>{windowListeners[name]=fn;}},setInterval:(fn,ms)=>{intervals.push({fn,ms});return intervals.length;}});
   return{context,document,Document,attributes,events,intervals,documentListeners,windowListeners,setNow:value=>{now=value;},now:()=>now};
 }
-test('manifest is MV3, defaults to two origins, and keeps power optional',()=>{
+test('manifest is MV3, targets all three game origins, and keeps power optional',()=>{
   const manifest=JSON.parse(source('manifest.json'));assert.equal(manifest.manifest_version,3);assert.deepEqual(manifest.permissions,['storage','tabs','alarms']);assert.deepEqual(manifest.optional_permissions,['power']);
-  assert.deepEqual(manifest.host_permissions,[ORIGIN+'/*','https://pokecatch-online.pages.dev/*']);assert.equal(manifest.content_scripts.length,2);
+  assert.deepEqual(manifest.host_permissions,MATCHES);assert.equal(manifest.content_scripts.length,2);
   for(const item of manifest.content_scripts){assert.deepEqual(item.matches,manifest.host_permissions);assert.equal(item.run_at,'document_start');assert.ok(!item.all_frames);}
   assert.deepEqual(manifest.content_scripts.map(item=>item.world),['MAIN','ISOLATED']);
 });
@@ -51,7 +52,7 @@ test('heartbeat rejects truthy settings and an old initial storage read cannot o
 function extensionHarness(initial={}){
   const state={...initial},updates=[],power=[],alarms=[],listeners={},tabs=[{id:7,url:ORIGIN+'/'}],failures=new Set(),missing=new Set();let granted=false;
   const event=name=>({addListener:fn=>{listeners[name]=fn;}});
-  const chrome={storage:{local:{get:async defaults=>({...defaults,...state}),set:async values=>{Object.assign(state,values);}},onChanged:event('storage')},tabs:{query:async query=>{assert.deepEqual(Array.from(query.url),[ORIGIN+'/*','https://pokecatch-online.pages.dev/*']);return [...tabs];},get:async id=>{if(missing.has(id))throw Error('tab no longer exists');return{id};},update:async(id,values)=>{updates.push({id,...values});if(failures.has(id))throw Error('temporary update failure');},onUpdated:event('updated'),onRemoved:event('removed')},alarms:{create:async(name,values)=>{alarms.push({name,...values});},clear:async name=>{alarms.push({clear:name});},onAlarm:event('alarm')},permissions:{contains:async()=>granted,onRemoved:event('permissionRemoved')},power:{requestKeepAwake:value=>power.push(value),releaseKeepAwake:()=>power.push('release')},runtime:{onInstalled:event('installed'),onStartup:event('startup'),onMessage:event('message')}};
+  const chrome={storage:{local:{get:async defaults=>({...defaults,...state}),set:async values=>{Object.assign(state,values);}},onChanged:event('storage')},tabs:{query:async query=>{assert.deepEqual(Array.from(query.url),MATCHES);return [...tabs];},get:async id=>{if(missing.has(id))throw Error('tab no longer exists');return{id};},update:async(id,values)=>{updates.push({id,...values});if(failures.has(id))throw Error('temporary update failure');},onUpdated:event('updated'),onRemoved:event('removed')},alarms:{create:async(name,values)=>{alarms.push({name,...values});},clear:async name=>{alarms.push({clear:name});},onAlarm:event('alarm')},permissions:{contains:async()=>granted,onRemoved:event('permissionRemoved')},power:{requestKeepAwake:value=>power.push(value),releaseKeepAwake:()=>power.push('release')},runtime:{onInstalled:event('installed'),onStartup:event('startup'),onMessage:event('message')}};
   vm.runInNewContext(source('background.js'),{chrome});
   const sync=()=>new Promise(resolve=>listeners.message({type:'pokecatch-support-status'}, {}, resolve));
   return{state,updates,power,alarms,listeners,tabs,failures,missing,sync,grant:value=>{granted=value;}};

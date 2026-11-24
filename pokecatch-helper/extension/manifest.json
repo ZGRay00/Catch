@@ -1,22 +1,22 @@
 {
   "manifest_version": 3,
   "name": "PokéCatch 可选保持激活",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "仅对 PokéCatch 提供可选后台可见性和防止自动丢弃支持，默认关闭。",
   "permissions": ["storage", "tabs", "alarms"],
   "optional_permissions": ["power"],
-  "host_permissions": ["https://pokecatch-online.netlify.app/*", "https://pokecatch-online.pages.dev/*"],
+  "host_permissions": ["https://pokecatch-online.app/*", "https://pokecatch-online.netlify.app/*", "https://pokecatch-online.pages.dev/*"],
   "background": {"service_worker": "background.js"},
   "action": {"default_title": "PokéCatch 保持激活", "default_popup": "popup.html"},
   "content_scripts": [
     {
-      "matches": ["https://pokecatch-online.netlify.app/*", "https://pokecatch-online.pages.dev/*"],
+      "matches": ["https://pokecatch-online.app/*", "https://pokecatch-online.netlify.app/*", "https://pokecatch-online.pages.dev/*"],
       "js": ["visibility-main.js"],
       "run_at": "document_start",
       "world": "MAIN"
     },
     {
-      "matches": ["https://pokecatch-online.netlify.app/*", "https://pokecatch-online.pages.dev/*"],
+      "matches": ["https://pokecatch-online.app/*", "https://pokecatch-online.netlify.app/*", "https://pokecatch-online.pages.dev/*"],
       "js": ["heartbeat.js"],
       "run_at": "document_start",
       "world": "ISOLATED"

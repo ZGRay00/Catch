@@ -1,5 +1,6 @@
 'use strict';
 
+const GAME_ORIGINS = ['https://pokecatch-online.app', 'https://pokecatch-online.netlify.app'];
 const status = document.getElementById('status');
 const enable = document.getElementById('enable');
 const disable = document.getElementById('disable');
@@ -37,6 +38,6 @@ disable.addEventListener('click', () => run('disable'));
 (async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   tabId = tab?.id;
-  try { currentIsGame = new URL(tab?.url).origin === 'https://pokecatch-online.netlify.app'; } catch { /* Other page. */ }
+  try { currentIsGame = GAME_ORIGINS.includes(new URL(tab?.url).origin); } catch { /* Other page. */ }
   await run('status');
 })().catch(error => { status.textContent = error.message; });

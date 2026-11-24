@@ -14,6 +14,7 @@ test('release metadata and runtime use the repository named by the user',()=>{
     assert.match(H.VERSION,/^\d+\.\d+\.\d+$/);assert.equal(H.parseUpdateScript(source).version,H.VERSION);
     assert.ok(source.includes('@updateURL    https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.meta.js'));
     assert.ok(source.includes('@downloadURL  '+H.UPDATE_RELEASE.download));assert.equal(H.UPDATE_RELEASE.repository,'ZGRay00/Catch');
+    for(const host of ['pokecatch-online.app','pokecatch-online.netlify.app','pokecatch-online.pages.dev'])assert.match(source,new RegExp(`^// @match\\s+https://${host.replaceAll('.','\\.')}/\\*$`,'m'));
     assert.ok(!source.includes('@connect      *'));
 });
 test('update URLs permit only the fixed repository, file and branch or commit',()=>{
@@ -26,8 +27,9 @@ test('versions compare numerical segments and prereleases without precision loss
     assert.equal(compare('3.2','3.2.0'),0);assert.equal(compare('3.2.0+abc','3.2.0+def'),0);
     for(const value of ['',null,'latest','3.x.0','v3.2.0','3.2.0-','3.2.0+','-1.2','3.2.0\n@match *'])assert.throws(()=>compare(value,'3.2.0'));
 });
-test('script validation accepts BOM, CRLF, either game hostname and actual matching runtime version',()=>{
-    for(const source of [release(), '\uFEFF'+release().replaceAll('\n','\r\n'), release(H.VERSION,{match:'https://pokecatch-online.pages.dev/*'})])assert.equal(H.parseUpdateScript(source).version,H.VERSION);
+test('script validation accepts BOM, CRLF and each supported game hostname',()=>{
+    for(const source of [release(), '\uFEFF'+release().replaceAll('\n','\r\n'), release(H.VERSION,{match:'https://pokecatch-online.pages.dev/*'}), release(H.VERSION,{match:'https://pokecatch-online.app/*'})])assert.equal(H.parseUpdateScript(source).version,H.VERSION);
+    assert.throws(()=>H.parseUpdateScript(release(H.VERSION,{match:'https://pokecatch-online.app.example.test/*'})),/适用网址/);
 });
 test('script validation rejects HTML, wrong identities, missing metadata and truncated or metadata-only files',()=>{
     for(const source of ['', '<!doctype html><h1>404</h1>',release(newer,{name:'other'}),release(newer,{namespace:'other'}),release(newer,{match:'https://example.test/*'}),release().replace('// @version '+H.VERSION,'// @version latest'),release().replace('// @version '+H.VERSION,''),release().replace('// ==/UserScript==','// @description // ==/UserScript=='),release(newer,{runtime:H.VERSION}),release().slice(0,-4),release(newer,{body:''}),release(newer,{body:'// function temporary placeholder\n'.repeat(30)}),release(newer,{body:'/* const placeholder = function(){} */'.repeat(20)}),release(newer,{body:'/* unfinished comment'}),release().replace('// @version '+H.VERSION,'// @version '+H.VERSION+'\n// @version '+H.VERSION)])assert.throws(()=>H.parseUpdateScript(source));

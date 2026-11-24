@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "7.2.1",
-  "scriptSha256": "f56d26277e4c845a2889931e010adcf72efe939dfa5e3a354aac6686d6c36398",
-  "metadataSha256": "ae4def22fce8243e7f9aa6a7d43abf5958cddaed49bfe26d18011b2715cc902f",
+  "version": "7.2.2",
+  "scriptSha256": "e5e4073977e400e3f6a541791cda90e4ac6a5d8f646a55fbf87d09080377c027",
+  "metadataSha256": "c77dd2bce301d9ca3e98e7d16aa28937bf078ac20f9b632435dec4d2e8d963a7",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "3e7fa6df7c29d9e08afa036ebd82d706006e15f832c2c27e6fd5afa2246142f6"
+      "sha256": "bdc3dc753588e3c785e2aa4cc08aed9112dc5cfbed71f1f56e4981bc7061281c"
     },
     {
       "file": "build.manifest.json",
@@ -14,7 +14,7 @@
     },
     {
       "file": "userscript.header.txt",
-      "sha256": "1439f0ab9123ead8369afa009380ef8ea3b01149a7aa1023ed6215bf4989b6b4"
+      "sha256": "f0bf126f6cd5a3a8d20f03712ab62f2d25f4207a72df4f64637707e288835560"
     },
     {
       "file": "src/00-bootstrap.js",
@@ -22,7 +22,7 @@
     },
     {
       "file": "src/core/updates.js",
-      "sha256": "a4d3297b5eae6cc6f86fd6b405a215f4bb9b5a1cbd8e71bb5cfd787d1d571fd2"
+      "sha256": "70d4e53f6745fd605f4dbcb8d501e9c8c2cc9ee9e4a460f5fbece28a80c83b89"
     },
     {
       "file": "data/game.json",

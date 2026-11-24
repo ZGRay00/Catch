@@ -5,7 +5,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const source = fs.readFileSync(path.join(__dirname, '..', 'background.js'), 'utf8');
-const GAME = 'https://pokecatch-online.netlify.app/';
+const GAME = 'https://pokecatch-online.app/';
+const LEGACY_GAME = 'https://pokecatch-online.netlify.app/';
 
 function event() {
   const listeners = [];
@@ -14,7 +15,7 @@ function event() {
 
 async function fixture({ enabled = false, saved = null, existing = [] } = {}) {
   const local = { enabled }, session = saved ? { keeperState: saved } : {};
-  const tabs = new Map([[1, { id: 1, url: GAME, active: true }], [2, { id: 2, url: GAME }], [3, { id: 3, url: 'https://example.com/' }]]);
+  const tabs = new Map([[1, { id: 1, url: GAME, active: true }], [2, { id: 2, url: LEGACY_GAME }], [3, { id: 3, url: 'https://pokecatch-online.app.example.com/' }]]);
   const attached = new Set(existing), focus = new Set(), calls = [];
   let refuseAttach = false;
   const area = object => ({ get: async key => ({ [key]: structuredClone(object[key]) }), set: async update => Object.assign(object, structuredClone(update)) });
@@ -23,7 +24,10 @@ async function fixture({ enabled = false, saved = null, existing = [] } = {}) {
     action: { setBadgeText: async value => calls.push(['badge', value.text]), setBadgeBackgroundColor: async () => {}, setTitle: async () => {} },
     tabs: {
       get: async id => { if (!tabs.has(id)) throw new Error('No tab'); return tabs.get(id); },
-      query: async () => [...tabs.values()].filter(tab => tab.url.startsWith(GAME)),
+      query: async ({ url }) => {
+        assert.deepEqual(Array.from(url), [GAME + '*', LEGACY_GAME + '*']);
+        return [...tabs.values()].filter(tab => url.some(pattern => tab.url.startsWith(pattern.slice(0, -1))));
+      },
       onUpdated: event(), onRemoved: event(),
     },
     debugger: {

@@ -1,7 +1,7 @@
 'use strict';
 
-const GAME_ORIGIN = 'https://pokecatch-online.netlify.app';
-const GAME_PATTERN = `${GAME_ORIGIN}/*`;
+const GAME_ORIGINS = ['https://pokecatch-online.app', 'https://pokecatch-online.netlify.app'];
+const GAME_PATTERNS = GAME_ORIGINS.map(origin => `${origin}/*`);
 const FOCUS_COMMAND = 'Emulation.setFocusEmulationEnabled';
 let state = { enabled: false, tabId: null, attached: false, error: '' };
 let queue = Promise.resolve();
@@ -14,7 +14,7 @@ const ready = Promise.all([
 });
 
 function isGame(url) {
-  try { return new URL(url).origin === GAME_ORIGIN; } catch { return false; }
+  try { return GAME_ORIGINS.includes(new URL(url).origin); } catch { return false; }
 }
 
 function enqueue(work) {
@@ -87,7 +87,7 @@ async function restore() {
     if (tab && isGame(tab.url)) return attachTo(tab.id);
     await detachCurrent();
   }
-  const tabs = await chrome.tabs.query({ url: GAME_PATTERN });
+  const tabs = await chrome.tabs.query({ url: GAME_PATTERNS });
   tabs.sort((a, b) => Number(b.active) - Number(a.active) || (b.lastAccessed || 0) - (a.lastAccessed || 0));
   if (tabs[0]) return attachTo(tabs[0].id);
   await saveState();

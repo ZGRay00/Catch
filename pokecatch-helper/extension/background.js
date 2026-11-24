@@ -1,5 +1,5 @@
 'use strict';
-const GAME_URLS = ['https://pokecatch-online.netlify.app/*', 'https://pokecatch-online.pages.dev/*'];
+const GAME_URLS = ['https://pokecatch-online.app/*', 'https://pokecatch-online.netlify.app/*', 'https://pokecatch-online.pages.dev/*'];
 const ALARM = 'pokecatch-background-support';
 let sequence = Promise.resolve(), status = { enabled: false, tabs: 0, systemAwake: false, error: '' };
 const closedTabIds = new Set();

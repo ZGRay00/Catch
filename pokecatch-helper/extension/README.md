@@ -9,7 +9,7 @@
 3. 已打开的游戏页请手动刷新一次，使 `document_start` 内容脚本生效。
 4. 点击扩展图标，开启“启用后台支持”。需要防止系统休眠时再单独勾选第二项。
 
-仅支持 `https://pokecatch-online.netlify.app/` 和 `https://pokecatch-online.pages.dev/`。扩展不会刷新游戏、主动登录、调整游戏捕获率/随机数/速度、切换页面焦点或控制其他站点。
+支持 `https://pokecatch-online.app/`、`https://pokecatch-online.netlify.app/` 和 `https://pokecatch-online.pages.dev/`。扩展不会刷新游戏、主动登录、调整游戏捕获率/随机数/速度、切换页面焦点或控制其他站点。
 
 ## 工作方式
 

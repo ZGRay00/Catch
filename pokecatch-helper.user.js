@@ -1,8 +1,9 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      7.2.1
+// @version      7.2.2
 // @description  智能配队、季节与天气限定收集、每日团体战、闪蛋计数与预测、后台孵蛋和地下探险，支持在线更新。
+// @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
 // @match        https://pokecatch-online.pages.dev/*
 // @grant        GM_registerMenuCommand
@@ -23,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '7.2.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '7.2.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -134,7 +135,7 @@
         const name=values('name'),namespace=values('namespace'),version=values('version');
         if(name.length!==1||name[0]!==UPDATE_RELEASE.name||namespace.length!==1||namespace[0]!==UPDATE_RELEASE.namespace)throw new Error('更新文件名称或 namespace 与当前助手不匹配');
         if(version.length!==1)throw new Error('更新文件缺少唯一版本号');updateVersionParts(version[0]);
-        if(!values('match').some(value=>/^https:\/\/pokecatch-online\.(?:netlify\.app|pages\.dev)\//.test(value)))throw new Error('更新文件缺少 PokéCatch 适用网址');
+        if(!values('match').some(value=>/^https:\/\/pokecatch-online\.(?:app|netlify\.app|pages\.dev)\//.test(value)))throw new Error('更新文件缺少 PokéCatch 适用网址');
         let body=text.slice(end.index+end[0].length).trim();
         // Only consume leading comments. A comment containing "function" is not a script body.
         for(;;){if(body.startsWith('//')){const at=body.indexOf('\n');body=at<0?'':body.slice(at+1).trimStart();continue;}

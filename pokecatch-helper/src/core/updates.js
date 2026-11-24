@@ -59,7 +59,7 @@
         const name=values('name'),namespace=values('namespace'),version=values('version');
         if(name.length!==1||name[0]!==UPDATE_RELEASE.name||namespace.length!==1||namespace[0]!==UPDATE_RELEASE.namespace)throw new Error('更新文件名称或 namespace 与当前助手不匹配');
         if(version.length!==1)throw new Error('更新文件缺少唯一版本号');updateVersionParts(version[0]);
-        if(!values('match').some(value=>/^https:\/\/pokecatch-online\.(?:netlify\.app|pages\.dev)\//.test(value)))throw new Error('更新文件缺少 PokéCatch 适用网址');
+        if(!values('match').some(value=>/^https:\/\/pokecatch-online\.(?:app|netlify\.app|pages\.dev)\//.test(value)))throw new Error('更新文件缺少 PokéCatch 适用网址');
         let body=text.slice(end.index+end[0].length).trim();
         // Only consume leading comments. A comment containing "function" is not a script body.
         for(;;){if(body.startsWith('//')){const at=body.indexOf('\n');body=at<0?'':body.slice(at+1).trimStart();continue;}

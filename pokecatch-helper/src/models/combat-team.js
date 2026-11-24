@@ -226,7 +226,16 @@
             hit*=repeats;minHit*=randomCount?2:repeats;maxHit*=randomCount?5:repeats;
         }
         const damage=hit*accuracy,turnAccuracy=1/(2-accuracy);
-        return options.details?{key,damage,sustainedDamage:hit*turnAccuracy,hit,minHit,maxHit,singleRollMax,accuracy,turnAccuracy,type:move.type,choice}:options.capDamage?Math.min(defense.hp,hit)*accuracy:damage;
+        if(!options.details)return options.capDamage?Math.min(defense.hp,hit)*accuracy:damage;
+        const result={key,damage,sustainedDamage:hit*turnAccuracy,hit,minHit,maxHit,singleRollMax,accuracy,turnAccuracy,type:move.type,choice};
+        // The native finisher checks one minimum roll with aggregate power, even for multi-hit moves.
+        // For random 2–5-hit moves it uses the power of two strikes.
+        if(options.knockoutFloor){
+            const power=randomCount?2*Math.round(move.power/repeats):move.power;
+            const raw=baseDamage(power,attack,weakened,resistance,stab,type,weather)*gap;
+            result.knockoutFloor=type>0?Math.max(1,Math.floor(raw*.85)):0;
+        }
+        return result;
     }
     function matchupScore(mon,foe,stats=effectiveStats(mon),defense=effectiveStats(foe)){
         const attack=expectedDamage(mon,foe,stats,defense,{capDamage:true});
@@ -283,6 +292,16 @@
             hp=Math.max(.01,hp-dealt);turns+=Math.min(60,Number.isFinite(survives)?survives:60)+1;deaths++;
         }
         return{turns:Math.max(150,turns*2),coverage:Math.min(.5,Math.max(0,1-hp/details[0].foeHp)*.5),deaths};
+    }
+    function battleWithReserves(details,autoSwitch,lastVictory,foeIndex){
+        if(autoSwitch)details.sort((a,b)=>b.deployment-a.deployment);
+        const previous=lastVictory[foeIndex];
+        // Reserves after the winning member never enter this encounter. Reuse
+        // only when every deployed matchup is identical and in the same order.
+        if(previous&&previous.deployed.length<=details.length&&previous.deployed.every((member,j)=>member===details[j]))return previous.result;
+        const result=deployedBattle(details,false);
+        if(result.coverage===1)lastVictory[foeIndex]={deployed:details.slice(0,result.deaths+1),result};
+        return result;
     }
     // Native roaming fights put the entire party on the field. Approximate random
     // single-target hits by spreading their expected damage across living allies.
@@ -633,6 +652,7 @@
         const roomOf=eliteRooms.length?weights.map(foe=>eliteRooms.indexOf(foe.chapter)):[];
         const roomWeights=eliteRooms.map(ch=>weights.reduce((n,foe)=>n+(foe.chapter===ch?foe.weight:0),0));
         const roomScores=new Float64Array(eliteRooms.length);
+        const lastVictory=new Array(weights.length);
         const encounterUtility = (team,summary,nativeBasis,inserted,insertAt,scoredRows) => {
             const rows=scoredRows||team.map(values);
             if(farming&&!rows.length)return 0;
@@ -720,7 +740,7 @@
                 const solo=lead?.solo[i];
                 const order=allowRescue&&lead!==rows[0]?[lead,...rows.filter(r=>r!==lead)]:rows;
                 const battle=foe.roaming?roamingBattle(rows.map(row=>row.details[i]),foe):
-                    solo&&(solo.coverage===1||rows.length===1)?solo:deployedBattle(order.map(row=>row.details[i]),s.autoSwitch!==false);
+                    solo&&(solo.coverage===1||rows.length===1)?solo:battleWithReserves(order.map(row=>row.details[i]),s.autoSwitch!==false,lastVictory,i);
                 if(foe.roaming)roamingLoss=Math.max(roamingLoss,battle.deaths);
                 if(summary){
                     turns+=foe.weight*battle.turns;worst=Math.max(worst,battle.turns);deaths+=foe.weight*battle.deaths;

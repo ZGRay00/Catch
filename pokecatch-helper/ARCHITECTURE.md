@@ -34,6 +34,9 @@
 | `src/models/evolution.js` | 免费进化候选与执行前检查 |
 | `src/models/combat-team.js` | 招式伤害、行动序列、配队与战斗期望 |
 | `src/models/routes-training.js` | 物资、练级、补练与地图收益评估 |
+| `src/models/field-insights.js`、`data/geode-rules.json` | 本轮道具入账、分槽派遣记录、按游戏构建核对的晶洞序列和账号重抽历史 |
+| `src/models/gameplay-insights.js`、`src/data/move-advice.js` | 实际持有个体的路线对比与只读招式建议 |
+| `src/ui/field-insights.js`、`src/ui/gameplay-insights.js`、`src/ui/panel-controls.js` | 玩法详情、原生图鉴增强、窗口外观、迷你条和健康诊断 |
 | `src/models/collection.js` | 传说、游荡目标、图鉴和特殊条件 |
 | `src/core/telemetry.js` | 真实整轮采样、队伍/地图/收益上下文 |
 | `src/runtime/dom-driver.js` | 可见性检查、原生控件操作与导航 |

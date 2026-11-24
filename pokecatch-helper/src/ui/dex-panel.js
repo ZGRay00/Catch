@@ -1,11 +1,22 @@
-    function mountDexPanel(root,refresh){
+    function mountDexPanel(root,refresh,showDex=refresh){
         const panel=root.querySelector('#dex-panel');
-        panel.innerHTML='<div class="dex-searchbar"><input id="dex-search" type="search" aria-label="搜索宝可梦的获取方式" placeholder="搜索名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>返回缺失列表</button></div><div class="list" id="dex-results" tabindex="-1" aria-label="图鉴结果"></div>';
+        panel.innerHTML='<div data-insight-catalog><div class="dex-searchbar"><input id="dex-search" type="search" aria-label="搜索宝可梦的获取方式" placeholder="搜索名称、英文名或编号" autocomplete="off" aria-controls="dex-results"><button type="button" id="dex-clear" hidden>返回缺失列表</button></div><div class="list" id="dex-results" tabindex="-1" aria-label="图鉴结果"></div></div>';
         const input=panel.querySelector('#dex-search'),results=panel.querySelector('#dex-results'),clear=panel.querySelector('#dex-clear');
+        const insights=mountGameInsights(panel,refresh);
+        const syncNative=mountNativeFamily(id=>search('#'+id,showDex),(id,uid)=>{
+            input.value='#'+id;returnSpecies=null;results.scrollTop=0;
+            openMember(uid,'compare',showDex);
+        });
         const methods={wild:'野生遭遇',questWild:'解锁后野生遭遇',static:'固定遭遇',gift:'赠送',egg:'赠蛋',lootEgg:'探索得蛋',phenomenon:'特殊现象',incubating:'孵化',breed:'繁殖',trade:'交换／复原',underground:'探险奖励',evolution:'进化',legend:'传说战',roam:'游荡'};
         let signature=null,returnSpecies=null;
+        function openMember(uid,view,showResults=refresh){
+            insights.selectMember(uid,view);showResults();
+            const destination=panel.querySelector(view==='advice'?'#insight-advice-title':'[data-insight="b"]');
+            destination?.focus({preventScroll:true});destination?.scrollIntoView({block:'nearest'});
+        }
         function search(value, showResults = refresh){
             if(showResults!==refresh)returnSpecies=null;
+            insights.setView('catalog');
             input.value=value;
             results.scrollTop=0;
             showResults();
@@ -33,6 +44,39 @@
             const button=label('button',text,'chip');button.type='button';button.dataset.species=String(mon.id);
             return button;
         }
+        const ownedTools=label('div','','dex-owned-tools'),ownedField=label('label','','field');
+        const ownedTitle=label('span','持有个体'),ownedSelect=document.createElement('select');
+        const ownedActions=label('div','','row dex-owned-actions'),ownedNote=label('p','','hint');
+        ownedField.append(ownedTitle,ownedSelect);
+        for(const [view,title] of [['advice','查看禁招建议'],['compare','对比个体']]){
+            const button=label('button',title);button.type='button';button.dataset.ownedView=view;
+            button.onclick=()=>{if(ownedSelect.value)openMember(ownedSelect.value,view);};
+            ownedActions.append(button);
+        }
+        let ownedSave=null,ownedRoster=[],ownedSpecies=null,ownedAccount=null,ownedKey=null;
+        function updateOwned(s,id,caught){
+            if(s===ownedSave&&id===ownedSpecies)return;
+            const account=accountId(s),sameSpecies=account===ownedAccount&&id===ownedSpecies;
+            if(s!==ownedSave)ownedRoster=insightRoster(s);
+            const members=ownedRoster.filter(mon=>mon.id===id);
+            const rows=members.map(mon=>[String(mon.uid),(mon.shiny?'✦ 异色':'普通')+' · Lv.'+mon.level+' · '+mon.uid]);
+            const key=JSON.stringify([account,id,caught,rows]);
+            ownedSave=s;ownedAccount=account;ownedSpecies=id;
+            if(key===ownedKey)return;
+            ownedKey=key;
+            const selected=sameSpecies?ownedSelect.value:'',options=document.createDocumentFragment();
+            for(const [uid,name] of rows){const option=label('option',name);option.value=uid;options.append(option);}
+            ownedSelect.replaceChildren(options);
+            if(rows.some(([uid])=>uid===selected))ownedSelect.value=selected;
+            ownedTools.hidden=!caught&&!rows.length;
+            if(rows.length){
+                ownedTitle.textContent='持有个体（'+rows.length+'）';
+                if(ownedTools.firstChild!==ownedField)ownedTools.replaceChildren(ownedField,ownedActions);
+            }else{
+                ownedNote.textContent=caught?'图鉴已登记，当前没有可预览的持有个体。':'';
+                if(ownedTools.firstChild!==ownedNote)ownedTools.replaceChildren(ownedNote);
+            }
+        }
         function searchSpecies(value){
             const term=value.normalize('NFKC').trim().toLowerCase();
             if(/^#?\d+$/.test(term)){
@@ -49,6 +93,7 @@
             signature=key;results.replaceChildren();return true;
         }
         function renderDex(s,settings,now){
+            if(insights.render(s,now)!=='catalog')return;
             const term=input.value.trim();
             clear.hidden=!term;
             if(!term){
@@ -107,9 +152,10 @@
             const sources=acquisitionSources(s,mon.id,now).sort((a,b)=>Number(!!b.marked)-Number(!!a.marked));
             const spirit=mon.id===spiritEvent.id?spiritProgress(s):null;
             const gates=legendRequirements(s,[mon.id]);
+            updateOwned(s,mon.id,caught);
             if(!changed(['detail',gates?.lines,gates?.notes,mon.id,caught,chainComplete,forms?.forms,currentSeason,spirit?.missing,sources.map(row=>[row.kind,row.chapter,row.place,row.available,row.marked,row.detail])]))return;
             const heading=label('h3','#'+mon.id+' '+mon.name+' · '+(caught?'已捕获':'未捕获'),'dex-heading');
-            heading.tabIndex=-1;results.append(heading);
+            heading.tabIndex=-1;results.append(heading,ownedTools);
             const family=label('div','基础形态 '+base.name+' · '+(chainComplete?'进化链已完成':'进化链待收集'),'hint');
             if(base.id!==mon.id)family.append(' ',speciesButton(base,'查'+base.name+'来源'));
             results.append(family);
@@ -239,5 +285,5 @@
                 (next||section?.querySelector('summary'))?.focus({preventScroll:true});
             }
         }
-        return {renderDex,renderRoutes,search};
+        return {renderDex,renderRoutes,search,syncNative};
     }

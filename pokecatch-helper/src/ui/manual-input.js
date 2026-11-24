@@ -1,4 +1,8 @@
-    function bindManualInput(engine,host,paint,showHelper){
+    function bindManualInput(engine,host,paint,showHelper,signal){
+        function listen(target,name,handler,options=false){
+            if(signal)options=typeof options==='boolean'?{capture:options,signal}:{...options,signal};
+            target.addEventListener(name,handler,options);
+        }
         const pointers=new Map(), keys=new Map();
         const modifierNames=new Set(['Alt','AltGraph','Control','Meta','Shift']);
         let composing=null,dragAt=null;
@@ -21,9 +25,9 @@
             clear();
             if(held&&engine.manual)engine.manualInput();
         }
-        window.addEventListener('blur',leavePage);
-        document.addEventListener('visibilitychange',()=>{if(document.hidden)leavePage();});
-        document.addEventListener('freeze',leavePage);
+        listen(window,'blur',leavePage);
+        listen(document,'visibilitychange',()=>{if(document.hidden)leavePage();});
+        listen(document,'freeze',leavePage);
 
         function manualEvent(event){
             if(!engine.running&&!engine.nurseryAssist?.enabled||!outside(event))return;
@@ -46,20 +50,20 @@
             }
             paint(changed||previousHeld!==engine.inputHeld);
         }
-        for(const name of ['pointerdown','input','compositionstart','dragstart'])document.addEventListener(name,manualEvent,true);
-        document.addEventListener('wheel',manualEvent,{capture:true,passive:true});
-        window.addEventListener('keydown',event=>{
+        for(const name of ['pointerdown','input','compositionstart','dragstart'])listen(document,name,manualEvent,true);
+        listen(document,'wheel',manualEvent,{capture:true,passive:true});
+        listen(window,'keydown',event=>{
             if(event.isTrusted&&event.altKey&&event.shiftKey&&event.code==='KeyP'){event.preventDefault();event.stopPropagation();showHelper();}
         },true);
-        document.addEventListener('keydown',event=>{
+        listen(document,'keydown',event=>{
             if(event.isTrusted&&event.key==='Escape'&&engine.running){engine.nurseryAssist?.userInput();engine.stop('Esc 停止助手');paint(true);return;}
             manualEvent(event);
         },true);
-        window.addEventListener('keyup',event=>{
+        listen(window,'keyup',event=>{
             if(event.isTrusted&&keys.delete(event.code||event.key))released();
         },true);
         // Chromium can report a native compositionend as untrusted. Match its active editing target.
-        window.addEventListener('compositionend',event=>{
+        listen(window,'compositionend',event=>{
             if(!composing||event.target!==composing)return;
             composing=null;keys.delete('Process');keys.delete('Unidentified');released();paint(true);
         },true);
@@ -74,7 +78,7 @@
             }
             if(changed)released();
         }
-        for(const name of ['keydown','keyup','pointerdown','pointermove','wheel'])window.addEventListener(name,modifierSnapshot,{capture:true,passive:true});
+        for(const name of ['keydown','keyup','pointerdown','pointermove','wheel'])listen(window,name,modifierSnapshot,{capture:true,passive:true});
 
         function pointerState(event){
             if(!event.isTrusted)return;
@@ -90,7 +94,7 @@
                 if(held.primary&&!held.active)held.active=activePress();
             }
         }
-        for(const name of ['pointerup','pointercancel','lostpointercapture','pointermove','pointerover'])window.addEventListener(name,pointerState,{capture:true,passive:true});
+        for(const name of ['pointerup','pointercancel','lostpointercapture','pointermove','pointerover'])listen(window,name,pointerState,{capture:true,passive:true});
         function releaseType(type){
             let changed=false;
             for(const [id,held] of pointers)if(held.type===type){pointers.delete(id);changed=true;}
@@ -102,14 +106,14 @@
             if(event.type!=='mouseup'&&(event.detail===0||event.pointerType&&event.pointerType!=='mouse'))return;
             releaseType('mouse');
         }
-        for(const name of ['mouseup','click','auxclick'])window.addEventListener(name,mouseRelease,true);
-        for(const name of ['touchend','touchcancel'])window.addEventListener(name,event=>{
+        for(const name of ['mouseup','click','auxclick'])listen(window,name,mouseRelease,true);
+        for(const name of ['touchend','touchcancel'])listen(window,name,event=>{
             if(event.isTrusted&&event.touches.length===0)releaseType('touch');
         },{capture:true,passive:true});
-        for(const name of ['drag','dragover'])window.addEventListener(name,event=>{
+        for(const name of ['drag','dragover'])listen(window,name,event=>{
             if(event.isTrusted&&dragAt!==null)dragAt=Date.now();
         },{capture:true,passive:true});
-        for(const name of ['dragend','drop'])window.addEventListener(name,event=>{
+        for(const name of ['dragend','drop'])listen(window,name,event=>{
             if(event.isTrusted&&dragAt!==null){dragAt=null;released();}
         },true);
 

@@ -59,7 +59,14 @@ function compileProject(projectRoot=DEFAULT_PROJECT){
     else if(entry.kind==='json'){
       if(!/^[A-Z][A-Z0-9_]*$/.test(entry.constant||'')||constants.has(entry.constant))throw Error('Invalid or duplicate data constant');
       constants.add(entry.constant);const data=JSON.parse(content);validateData(entry.constant,data);
-      parts.push('    const '+entry.constant+' = '+JSON.stringify(data)+';');
+      const json=JSON.stringify(data);
+      // Let the native JSON reader build the two large catalogs instead of compiling
+      // tens of thousands of nested array and object literals as JavaScript.
+      const largeCatalog=entry.constant==='DATA'||entry.constant==='WEATHER_DATA';
+      const value=largeCatalog
+        ? "JSON.parse('"+json.replace(/[\\']/g,'\\$&').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029')+"')"
+        : json;
+      parts.push('    const '+entry.constant+' = '+value+';');
     }else throw Error('Unknown manifest entry kind: '+entry.kind);
   }
   if(!constants.has('DATA')||!constants.has('EVOLUTION_DATA'))throw Error('DATA and EVOLUTION_DATA must be independent data entries');

@@ -41,7 +41,7 @@
         eliteRegion:'current',eliteTier:1,worldActions:3,worldCapture:true,
         resourceItem:'exp-candy-m',resourceAction:'buy',resourceQuantity:1,useUid:'',
         autoPurchase:true,spendBudget:0,dailySpendBudget:0,moneyReserve:10000,useBudget:20,
-        autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,
+        autoTravel:false,progressUntil:DATA.chapters.at(-1).id,resumeOnReload:true,autoRecover:false,
         dailyMain:'current',dailyRaidRegions:[],dailyRaidUntilCaught:true,dailyWindow:true,dailyCandy:true,dailyWorld:false,dailyTower:false,dailyElite:false,
         huntWeatherFallback:'wait',
     });

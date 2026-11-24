@@ -24,6 +24,22 @@
     function localRulesKnown(build=typeof window==='undefined'?null:window.BUILD){
         return !build||[DATA.build,DATA.combat.build,DATA.economy.build,WEATHER_DATA.build].includes(build);
     }
+    function logLevel(text){
+        if(/失败|异常|不匹配|损坏/.test(text))return 'error';
+        if(/超时|未确认|暂缓|已暂停|不可用|没有游戏进展|接管了游戏|需手动/.test(text))return 'warn';
+        return /已完成|已领取|已捕获|已结算/.test(text)?'ok':'info';
+    }
+    function safeLogText(text){
+        return String(text??'').replace(/https?:\/\/[^\s，。]+/gi,'[地址]').replace(/\b(?:bearer\s+[^\s,]+|(?:token|apikey|authorization|password|cookie)\s*[=:]\s*[^\s,;&]+)/gi,'[已隐去]').slice(0,360);
+    }
+    function journalRows(rows){
+        if(!Array.isArray(rows))return [];
+        return rows.slice(0,80).filter(row=>typeof row?.text==='string').map(row=>({
+            text:safeLogText(row.text), time:String(row.time||'').slice(0,16),ts:Number(row.ts)||0,
+            level:['info','warn','error','ok'].includes(row.level)?row.level:'info',module:safeLogText(row.module||'运行').slice(0,32),
+            count:Math.max(1,Math.min(99999,Number(row.count)||1))
+        }));
+    }
     class Engine {
         constructor(storage, settings = {}) {
             this.storage = storage; this.settings = normalizeSettings(settings); this.running = false;
@@ -31,6 +47,7 @@
             this.metrics = {}; this.telemetry = new Telemetry(this.metrics); this.cooldowns = {}; this.raidCooldown = {};
             this.rankingJobs=new Map();
             this.completedTeamSearch=new Map();
+            this.searchRosters=new Map();
             this.target = null; this.visit = null; this.nextRaid = 0; this.raidProbe = false; this.raidCheckNote=''; this.raw = null;
             this.progressSignature = ''; this.lastProgress = Date.now(); this.driver = new DOMDriver(this);
             this.timer = null; this.runId = 0; this.nextLegend = 0; this.lease = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -39,13 +56,104 @@
             this.teamCheck = null; this.teamRetryAt = 0;
             this.automation=new Automation(this);this.services=normalizeServiceState();this.backgroundYield=false;this.budget=new Budget(this);this.queue=[];this.queueIndex=0;this.queueRunning=false;this.checkpoint=null;this.nextWake=null;
             this.nurseryMonitor=new NurseryMonitor(this);
+            this.itemRound=new ItemRoundTracker();
             this.nurseryAssist=new NurseryAssist(this);
             this.daily=null;this.dailyMarks={};this.dailyCheckAt=0;
             this.coach=new LevelCoach(this);this.preparation=null;this.raidPreparation=null;
             this.localSnapshot={status:'empty',revision:0,sourceEpoch:0};this.localFailure=null;this.localDirty=true;
+            this.health={};this.lastStop=null;this.archivedLogs=[];this.journalAccount=null;this.recoveryPending=null;
             this.computePending=new Map();this.computeTimer=null;this.computeWindow=0;this.computeCpu=0;this.computeTurn=0;
         }
-        log(text) { this.logs.unshift({ time: new Date().toLocaleTimeString('zh-CN', { hour12: false }), text }); this.logs.length = Math.min(60, this.logs.length); }
+        log(message,level=null,module=null,ts=Date.now()){
+            const text=safeLogText(message);
+            if(!text)return;
+            level=level||logLevel(text);module=module||MODE_NAMES[this.settings.mode]||'运行';
+            const prior=this.logs.find(row=>row.text===text&&row.level===level&&row.module===module&&ts>=row.ts&&ts-row.ts<=10000);
+            if(prior)this.logs.splice(this.logs.indexOf(prior),1);
+            const row={time:new Date(ts).toLocaleTimeString('zh-CN',{hour12:false}),ts,text,level,module,count:Math.min(99999,(prior?.count||0)+1)};
+            this.logs.unshift(row);this.logs.length=Math.min(80,this.logs.length);
+            // Stops and warnings persist the surrounding activity as context. Routine ticks stay in memory.
+            if(level!=='info')this.saveJournal();
+            return row;
+        }
+        saveJournal(){
+            if(!this.account||this.account!==this.journalAccount||!this.mayPersist())return;
+            try{this.storage.setItem(PREFIX+'journal:'+this.account,JSON.stringify({logs:this.logHistory(),lastStop:this.lastStop}));}catch{}
+        }
+        logHistory(){return this.logs.concat(this.archivedLogs).slice(0,80);}
+        loadJournal(id){
+            if(this.journalAccount===id)return;
+            this.journalAccount=id;this.logs=[];this.archivedLogs=[];this.lastStop=null;this.health={};this.shinySettlement=null;this.clearFrameProbe();
+            try{
+                const record=JSON.parse(this.storage.getItem(PREFIX+'journal:'+id)||'{}');
+                this.archivedLogs=journalRows(record.logs);
+                if(Number.isFinite(record.lastStop?.ts)&&typeof record.lastStop.reason==='string'){
+                    this.lastStop={...record.lastStop,reason:safeLogText(record.lastStop.reason),logs:journalRows(record.lastStop.logs).slice(0,12)};
+                }
+            }catch{}
+            this.observeGameRequests();
+        }
+        observeGameRequests(){
+            this.networkObserver?.disconnect();this.networkObserver=null;
+            if(typeof window==='undefined'||typeof PerformanceObserver!=='function')return;
+            const account=this.account,began=performance.now();
+            try{
+                this.networkObserver=new PerformanceObserver(list=>{
+                    if(this.account!==account)return;
+                    for(const entry of list.getEntries()){
+                        if(entry.startTime>=began)this.observeGameResponse(entry,Math.round(performance.timeOrigin+entry.responseEnd));
+                    }
+                });
+                this.networkObserver.observe({type:'resource',buffered:false});
+            }catch{this.networkObserver?.disconnect();this.networkObserver=null;}
+        }
+        observeGameResponse(entry,ts){
+            if(!Number.isFinite(ts)||!['fetch','xmlhttprequest'].includes(entry?.initiatorType))return;
+            const status=Number(entry.responseStatus);
+            // Resource Timing exposes no response body or headers. A hidden status (zero) is unknown.
+            if(!Number.isInteger(status)||status<100||status>599)return;
+            let url;try{url=new URL(String(entry.name).split(/[?#]/,1)[0]);}catch{return;}
+            const service=/^[a-z0-9-]+\.supabase\.co$/.test(url.hostname)&&/^\/rest\/v1\/rpc\/(?:raid_|world_|session_|cloud_)[a-z_]+$/.test(url.pathname);
+            if(!service||url.protocol!=='https:'||url.port||ts<(this.health.networkAt||0))return;
+            const failures=this.health.networkFailures||0,previous=this.health.networkAt;
+            this.health.networkFailures=status>=500?(previous&&ts-previous<=60000?failures+1:1):0;
+            this.health.networkAt=ts;this.health.networkStatus=status;
+            if(this.health.networkFailures===2)this.log('游戏服务连续返回 HTTP '+status,'warn','连接',ts);
+        }
+        healthReport(now=Date.now()){
+            const doc=typeof document==='undefined'?null:document,build=typeof window==='undefined'?null:window.BUILD;
+            const heartbeat=Number(doc?.documentElement?.getAttribute?.('data-pc-helper-background-at'));
+            const nativeVisibility=heartbeat>0&&now>=heartbeat&&now-heartbeat<90000?doc?.documentElement?.getAttribute?.('data-pc-helper-native-visibility'):null;
+            let socket={};
+            if(heartbeat>0&&now>=heartbeat&&now-heartbeat<90000){
+                try{
+                    const live=JSON.parse(doc.documentElement.getAttribute('data-pc-helper-realtime'));
+                    if(live&&['connecting','open','closed-client','closed-clean','closed-abnormal'].includes(live.state)&&Number.isFinite(live.at)&&live.at>0&&live.at<=now)socket=live;
+                }catch{}
+            }
+            const adv=this.state?.adv,observed=this.health;
+            const controls=doc?.querySelector?.('#screen-adventure')&&doc?.querySelector?.('#tabs [data-screen="adventure"]');
+            const active=doc?.querySelector?.('.screen.active')?.id;
+            const pages={};
+            for(const [id,selector] of Object.entries({map:'#map-root .rg[data-rg],#map-root .mp-row,#map-root [data-zone]',
+                raid:'#raid-root [data-raid-page],#raid-root .rc-card,#raid-root .map-body,#raid-root [data-raid-draw]',
+                underground:'#ug-root [data-ug-tab],#ug-root [data-ug-go],#ug-root [data-ug-take]'})){
+                pages[id]=active!=='screen-'+id?'未进入':doc?.querySelector?.(selector)?'已识别':'控件缺失';
+            }
+            return {frameAt:observed.frameAt??null,saveReadAt:observed.saveReadAt??null,saveState:this.localSnapshot.status,
+                saveChangedAt:this.localSnapshot.publishedAt??null,progressAt:observed.progressAt??null,
+                networkAt:observed.networkAt??null,networkStatus:observed.networkStatus??null,networkFailures:observed.networkFailures||0,
+                socketState:socket.state||'unknown',socketAt:socket.at||null,socketFailures:Math.max(0,Math.min(999,Number(socket.failures)||0)),
+                offlineAt:observed.offlineAt??null,onlineAt:observed.onlineAt??null,
+                online:typeof navigator!=='undefined'&&typeof navigator.onLine==='boolean'?navigator.onLine:null,
+                heartbeatAt:heartbeat>0&&heartbeat<=now?heartbeat:null,hidden:nativeVisibility==='hidden'?true:nativeVisibility==='visible'?false:doc?!!doc.hidden:null,
+                compatibility:{pages,layout:!adv||this.localSnapshot.status!=='ready'?'未读取':adv.layout===DATA.layout?'匹配':'不匹配',build:!build?'未读取':localRulesKnown(build)?'已识别':'待核对',controls:!doc?'未读取':controls?'已识别':'未就绪'}};
+        }
+        captureStop(reason,level=logLevel(reason),ts=Date.now()){
+            this.lastStop={ts,reason:safeLogText(reason),level,mode:this.settings.mode,action:safeLogText(this.action),
+                status:safeLogText(this.status),signals:this.healthReport(ts),logs:this.logHistory().slice(0,12).map(row=>({...row}))};
+            this.log(reason,level,'运行',ts);if(level==='info')this.saveJournal();
+        }
         getSnapshot(){return this.localSnapshot;}
         markLocalDirty(){this.localDirty=true;}
         readForView(now=Date.now()){
@@ -92,6 +200,7 @@
                     combatKey:box.roster.fingerprint,availability,scene,checkedAt:now,publishedAt:now,rebuiltProfiles:box.roster.rebuilt};
                 this.state=state;this.raw=raw;this.localFailure=null;
                 this.nurseryMonitor.observe(state,now,false);
+                this.itemRound.observe(state,this);
             }else{
                 this.localFailure=null;
                 if(this.localSnapshot.status!=='ready')this.localSnapshot={...this.localSnapshot,status:'ready',reason:undefined};
@@ -101,6 +210,7 @@
                 const balance=combinedWalletMoney(this.state);
                 if(balance!==null){this.startMoney=balance;this.walletScope='rebased';}
             }
+            this.health.saveReadAt=now;
             return this.state;
         }
         sessionMoneyNet(s){
@@ -128,6 +238,7 @@
             }
             if(switching)this.raidCheckNote='';
             this.account = id;
+            this.loadJournal(id);
             this.lastPersistedRecord = null;this.lastPersistedAt=null;this.checkpointError=null;this.lastCheckpoint=0;
             let saved = {};
             try { saved = JSON.parse(this.storage.getItem(PREFIX + id) || '{}') || {}; } catch {}
@@ -331,7 +442,9 @@
             this.lastProgress=now;
             this.action='';
             this.automation.begin(s);
-            if(!cp)return;
+            // Adjacent jobs can share both an item ID and the engine's runId.
+            this.itemRound.round=null;
+            if(!cp){this.itemRound.observe(s,this);return;}
 
             // A queued job can have its own older checkpoint. Keep the current run's
             // wallet baseline, start time and original loops when handing off to it.
@@ -363,6 +476,7 @@
             }
             if(Array.isArray(cp.preparationReady?.targets))this.coach.ready=cp.preparationReady;
             this.raidReturn=cp.raidReturn||null;
+            this.itemRound.observe(s,this);
             if(this.manual)return;
             // Older breeding runs could leave a pending confirmation to withdraw a parent.
             if(!(cfg.mode==='breed'&&cp.flowOwner?.kind==='confirm'&&cp.flowOwner.match?.includes('取回')))this.automation.restoreOwner(cp.flowOwner);
@@ -505,6 +619,7 @@
         suspend(){
             if(!this.running)return;
             if(!this.mayPersist()){this.stop('另一个标签页接管了游戏',{persist:false});return;}
+            if(this.logs.length)this.saveJournal();
             const now=Date.now();
             this.suspended=this.restoring?null:{at:now,queueRunning:this.queueRunning,queueIndex:this.queueIndex};
             this.hiddenAt??=now;
@@ -542,6 +657,7 @@
                 // transaction/session rather than restarting it from initial task settings.
                 this.running=true;this.runId++;this.queueRunning=suspended.queueRunning;this.queueIndex=suspended.queueIndex;
                 this.suspended=null;this.inputHeld=false;this.clearHeldInput?.();this.stoppedAt=null;
+                this.itemRound.observe(s,this);
                 this.lastProgress=now;this.progressSignature='';
                 this.status=this.manual?'页面已返回，继续检查手动控制状态':'页面已返回，继续原任务';this.log(this.status);
                 this.persist();this.schedule(50);return true;
@@ -698,7 +814,7 @@
                 this.manual = cp?.manual||null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.startMoney=combinedWalletMoney(s);this.walletScope='all';
                 this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
-                this.errors=0;this.lastCheckpoint=0;this.saveUnavailableAt=null;
+                this.errors=0;this.lastCheckpoint=0;this.saveUnavailableAt=null;this.recoveryPending=null;this.shinySettlement=null;
                 this.checkpoint=null;
                 this.daily=savedDaily||(daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null,checking:true}:null);
                 if(this.daily)this.daily.checking??=!this.daily.job;
@@ -730,10 +846,11 @@
                 } else if(!adoptedFacility)this.status = this.daily?.checking?'正在检查通关日常':'规划中';
                 if(cp&&!adoptedFacility){this.status='已从上次记录续跑 · '+MODE_NAMES[this.settings.mode];this.log(this.status);}
                 this.persist(); this.schedule(50);
-            } catch (err) { this.status = err.message; this.log(err.message); this.running = false;this.checkpoint=null;if(!controlDenied&&this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;}this.queueRunning=false;try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
+            } catch (err) { this.captureStop(err.message,'error');this.status=err.message;this.running=false;this.checkpoint=null;if(!controlDenied&&this.queueRunning&&this.queue[this.queueIndex]){this.queue[this.queueIndex].status='failed';this.queue[this.queueIndex].result=err.message;}this.queueRunning=false;try{if(!controlDenied)this.persist(false);}catch{}finally{this.release();} }
         }
         stop(reason = '已停止助手',options={}) {
             const save=options.persist!==false&&this.mayPersist();
+            this.captureStop(reason,options.level);this.shinySettlement=null;this.recoveryPending=null;
             if((this.running||this.suspended)&&this.started&&!this.endedTotals){
                 let s=this.state;
                 try{s=this.read()||s;}catch{}
@@ -761,7 +878,7 @@
             this.checkpoint=null;this.automation.owner=null;this.automation.buddyTask=null;this.automation.buffUI=null;this.nextWake=null;this.modalWaitSince=null;
             this.telemetry.sample = null; this.driver.pendingMap = null; this.driver.ownedDialog = null;
             this.driver.teamTask=null;this.driver.navigation=null;
-            this.status = reason; this.log(reason);
+            this.status = reason;
             // Expose the stopped checkpoint before a waiting page can claim the lease.
             try { if(save)this.persist(false,false); } catch {} finally { this.release(); }
         }
@@ -894,6 +1011,7 @@
             if (!zone) { this.zoneId = null; this.zoneStarted = null; }
             this.lastProgress = now; this.progressSignature = ''; this.errors = 0; this.lastExplore = 0;
             this.status = `已恢复${MODE_NAMES[this.settings.mode]}，核对上次规划`; this.action = '';
+            this.itemRound.round=null;this.itemRound.observe(s,this);
             this.log(this.status); return false;
         }
         resumeManual(now = Date.now()) {
@@ -976,6 +1094,8 @@
         }
         nextDelay(now=Date.now()){
             if(pageHidden())return 6000;
+            if(this.connectionPausedAt!=null)return 6000;
+            if(this.connectionCheckAt>now)return Math.min(6000,Math.max(100,this.connectionCheckAt-now));
             if(this.saveUnavailableAt!=null)return 3000;
             if(this.manual){const left=Number(this.manual.until)-now;return left>0?Math.min(1200,Math.max(50,left)):1200;}
             if(Number.isFinite(this.driver.pendingMap?.started)||Number.isFinite(this.driver.teamTask?.started)){
@@ -1003,13 +1123,87 @@
             if(probe&&typeof cancelAnimationFrame==='function')cancelAnimationFrame(probe.frame);
         }
         backgroundFramesStalled(now){
-            if(!backgroundKeepalive(now)||typeof requestAnimationFrame!=='function'){this.clearFrameProbe();return false;}
+            if(typeof requestAnimationFrame!=='function'){this.clearFrameProbe();return false;}
             if(this.frameProbe==null){
                 const probe={at:now};
                 this.frameProbe=probe;
-                probe.frame=requestAnimationFrame(()=>{if(this.frameProbe===probe)this.frameProbe=null;});
+                probe.frame=requestAnimationFrame(()=>{if(this.frameProbe===probe){this.frameProbe=null;this.health.frameAt=Date.now();}});
             }
-            return now-this.frameProbe.at>=8000;
+            return backgroundKeepalive(now)&&now-this.frameProbe.at>=8000;
+        }
+        tryRecoverStall(s,now){
+            if(!this.settings.autoRecover||!this.settings.resumeOnReload||!this.running||!this.account||!this.mayPersist(now))return false;
+            if(this.manual||this.suspended||this.restoring||this.inputHeld||this.gameInputFocused?.()||this.hiddenAt!=null||this.nextWake>now||
+                this.saveUnavailableAt!=null||this.preparation||this.automation.owner||this.driver.ownedDialog||this.driver.teamTask||
+                this.driver.pendingMap||this.driver.navigation||this.services.underground||this.automation.state.eggService||this.automation.state.evolution||
+                this.automation.buddyTask||this.automation.buffUI||this.shinySettlement||this.raidProbe||this.raidReturn||
+                this.startActivityExit||this.daily||FLOW_MODES.has(this.settings.mode))return false;
+            const flow=this.automation.state;
+            if([flow.resourceTx,flow.autoBuffTx,flow.resourceBuffTx,flow.hatch,flow.underLaunch,flow.underCollect,flow.towerLaunch,
+                flow.candyLaunch,flow.departure,flow.rankReceipt,flow.pensionPurchase].some(Boolean))return false;
+            const a=s?.adv,doc=typeof document==='undefined'?null:document;
+            if(!a||accountId(s)!==this.account||a.paused||a.pending||a.event||a.zone||a.tower||a.league||wildShinyEncounter(s)||
+                !doc||doc.hidden||doc.hasFocus?.()!==true||doc.documentElement?.classList?.contains('sleeping')||visible($('.sleep-fx'))||
+                visible($('.title-fx'))||visible($('#modal-root.open'))||visible($('#evt-pick')))return false;
+            const h=this.healthReport(now);
+            const httpFailure=h.networkFailures>=2&&h.networkStatus>=500&&h.networkAt>=h.progressAt&&now-h.networkAt>=0&&now-h.networkAt<=60000;
+            const afterReconnect=h.onlineAt!=null&&h.offlineAt!=null&&h.onlineAt>=h.offlineAt&&now-h.onlineAt>=30000&&now-h.onlineAt<=300000;
+            const socketFailure=h.socketState==='closed-abnormal'&&h.socketAt>=h.progressAt&&now-h.socketAt<=300000&&
+                (h.socketFailures>=2||afterReconnect&&h.socketAt>=h.offlineAt);
+            const requiredStall=socketFailure&&afterReconnect?30000:180000;
+            // A quiet game, background throttling, loss of connectivity, or an opaque response alone never confirms this case.
+            if(h.compatibility.layout!=='匹配'||h.compatibility.build!=='已识别'||h.compatibility.controls!=='已识别'||h.online!==true||h.hidden!==false||
+                Object.values(h.compatibility.pages).includes('控件缺失')||h.frameAt==null||now-h.frameAt<0||now-h.frameAt>8000||
+                h.progressAt==null||now-h.progressAt<requiredStall||!httpFailure&&!socketFailure)return false;
+            try{
+                if(typeof sessionStorage==='undefined'||typeof location==='undefined'||typeof location.reload!=='function')return false;
+                const key=PREFIX+'recovery-window',raw=sessionStorage.getItem(key);
+                const stored=raw===null?[]:JSON.parse(raw);
+                if(!Array.isArray(stored)||stored.some(at=>!Number.isFinite(at)||at>now))return false;
+                const attempts=stored.filter(at=>now-at<3600000);
+                if(attempts.length>=2||attempts.some(at=>now-at<600000))return false;
+                // Check durable readback and ownership immediately before consuming this tab's shared quota.
+                if(!this.persist(true,true))return false;
+                const saved=JSON.parse(this.storage.getItem(PREFIX+this.account));
+                if(saved?.resume?.account!==this.account||saved.resume.build!==DATA.build||!saved.resume.wanted||!this.mayPersist(now))return false;
+                sessionStorage.setItem(key,JSON.stringify([...attempts,now]));
+                this.captureStop((httpFailure?'进度停滞且连续收到游戏服务错误':'进度停滞且游戏实时连接异常中断')+'，检查点已保存，正在重新载入','warn',now);
+                this.status=this.lastStop.reason;this.recoveryPending=now;location.reload();return true;
+            }catch{this.recoveryPending=null;return false;}
+        }
+        stopStalled(s,now){
+            if(!this.tryRecoverStall(s,now))this.stop('3 分钟没有游戏进展，请检查网络、待选项或队伍',{level:'warn'});
+        }
+        offlineWait(now){
+            if(typeof navigator==='undefined'||typeof navigator.onLine!=='boolean')return false;
+            if(navigator.onLine){
+                if(this.connectionPausedAt!=null){
+                    this.health.onlineAt=now;this.connectionPausedAt=null;this.connectionCheckAt=now+5000;this.reconnectDelay=5000;
+                    this.log('浏览器已恢复联网，等待游戏自行重连','info','连接',now);
+                }
+                return false;
+            }
+            if(this.connectionPausedAt==null){
+                this.health.offlineAt=now;this.connectionPausedAt=now;this.connectionCheckAt=null;
+                this.log('浏览器报告断网，已暂缓自动操作','warn','连接',now);
+            }
+            this.checkpointTick(now,true);this.telemetry.sample=null;this.hiddenAt??=now;
+            if(!this.manual)this.status='浏览器离线，等待网络恢复';
+            return true;
+        }
+        reconnectWait(s,now){
+            if(this.connectionCheckAt==null)return false;
+            if(now<this.connectionCheckAt){this.hiddenAt??=now;this.telemetry.sample=null;this.status='网络已恢复，等待游戏重新连接';return true;}
+            const h=this.healthReport(now);
+            if(h.socketState==='closed-abnormal'&&h.socketAt>=h.offlineAt&&h.progressAt<=h.onlineAt){
+                if(this.tryRecoverStall(s,now))return true;
+                if(now-h.onlineAt<60000){
+                    this.reconnectDelay=Math.min(30000,this.reconnectDelay*2);this.connectionCheckAt=now+this.reconnectDelay;
+                    this.hiddenAt??=now;this.telemetry.sample=null;
+                    this.status='游戏实时连接仍未恢复，等待游戏自行重连';return true;
+                }
+            }
+            this.connectionCheckAt=null;return false;
         }
         resumeUIClock(now,delayed=false){
             if(this.hiddenAt==null)return;
@@ -1068,8 +1262,10 @@
         async step(now = Date.now()) {
             if (!this.running) return;
             if (this.storage.getItem('pokecatch-tab') !== this.tabToken || !this.acquire(now)) { this.stop('另一个标签页接管了游戏',{persist:false}); return; }
+            if(this.recoveryPending!=null){if(now-this.recoveryPending>=15000)this.stop('重新载入未完成，请手动检查当前页面',{level:'warn'});return;}
             if (this.settings.stopMinutes && now - this.started >= this.settings.stopMinutes * 60000) { this.stop('达到定时运行上限'); return; }
             if (pageHidden()) { this.checkpointTick(now,true);this.clearFrameProbe();this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
+            if(this.offlineWait(now))return;
             let s;
             try{s=this.read();}
             catch(error){if(error?.name==='UnsupportedGameSaveError'){this.stop(error.message,{persist:false});return;}}
@@ -1101,7 +1297,9 @@
                 return;
             }
             const signature = JSON.stringify([s.adv.chapter, s.adv.node, s.adv.runs, s.stats?.battles, s.stats?.wins, s.stats?.caught, s.adv.event?.loops, s.adv.zone?.loops, s.adv.battle?.steps, s.adv.battle?.enemies?.map(m => m.hp)]);
-            if (signature !== this.progressSignature) { this.progressSignature = signature; this.lastProgress = now; }
+            if (signature !== this.progressSignature) { this.progressSignature = signature; this.lastProgress = now;this.health.progressAt=now; }
+            if(this.reconnectWait(s,now))return;
+            if((this.shinySettlement||wildShinyEncounter(s))&&this.holdWildShiny(s,now))return;
             const zoneRequest=this.driver.pendingMap;
             if(zoneRequest?.options?.zone&&zoneRequest.arrival&&this.observeZoneArrival(s,zoneRequest,now))return;
             if(s.adv.zone?.riddle&&s.adv.zone.id===this.zoneId&&['dex','legend'].includes(this.settings.mode)){
@@ -1286,7 +1484,7 @@
             if(this.preparation){this.coach.step(s,now);return;}
             if(this.raidReturn&&this.raidProbe&&!s.adv.event?.raid){this.probeRaid(s,now);return;}
             if (s.adv.event?.raid) {
-                if (now - this.lastProgress > 180000) { this.stop('3 分钟没有游戏进展，请检查网络、待选项或队伍'); return; }
+                if (now - this.lastProgress > 180000) { this.stopStalled(s,now);return; }
                 this.raidProbe = false; this.raidReturn=null; this.telemetry.sample = null;
                 const raid = this.driver.raid;
                 if (!raid) { this.stop('团体战尚未接管，请点击开始助手'); return; }
@@ -1315,7 +1513,7 @@
             }
             if(FLOW_MODES.has(this.settings.mode)){this.automation.step(s,now);return;}
             if(this.farmWait?.mode===this.settings.mode){this.lastProgress=now;this.farmWait=null;}
-            if (now - this.lastProgress > 180000&&!this.driver.pendingMap?.waiting) { this.stop('3 分钟没有游戏进展，请检查网络、待选项或队伍'); return; }
+            if (now - this.lastProgress > 180000&&!this.driver.pendingMap?.waiting) { this.stopStalled(s,now);return; }
             if (s.adv.zone) {
                 this.telemetry.sample = null;
                 if (this.zoneId !== s.adv.zone.id) { this.stop('检测到手动传说战，已交还控制'); return; }
@@ -1564,8 +1762,16 @@
             if(!slot||slot==='teamSearch')this.teamContinuation=null;
             if(!slot){
                 this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;
-                if(!preserveCompleted){this.completedTeamSearch.clear();this.routeProof=null;this.handoffPlanning=null;}
+                if(!preserveCompleted){this.completedTeamSearch.clear();this.searchRosters.clear();this.routeProof=null;this.handoffPlanning=null;}
             }
+        }
+        searchRosterRevision(slot,fingerprint){
+            // Keep the exact comparison, but don't serialize the whole PC into every poll's search key.
+            const prior=this.searchRosters.get(slot);
+            if(prior&&prior.fingerprint===fingerprint)return prior.revision;
+            const revision=(prior?.revision||0)+1;
+            this.searchRosters.set(slot,{fingerprint,revision});
+            return revision;
         }
         evaluateTeamSearch(signature,search,slot='teamSearch',strict=false,expiresAt=Infinity){
             let job=this[slot];
@@ -1689,7 +1895,7 @@
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:makeFoes().length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,roster,partyKey,strict,deaths]);
+                const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,this.searchRosterRevision('teamSearch',roster),partyKey,strict,deaths]);
                 const settings=this.settings;
                 function* search(){return yield* adventureTeamSearch(s,settings,pinned,{...context,foes:makeFoes(),progressive:true},true);}
                 plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,this.adventureReview?.expiresAt);
@@ -2154,12 +2360,33 @@
         }
         holdWildShiny(s,now=Date.now()) {
             const shiny=wildShinyEncounter(s),seasonal=shiny?null:seasonalDexEncounter(s,this.settings);
+            if(!shiny&&this.shinySettlement&&this.running){
+                const wait=this.shinySettlement;
+                wait.endedAt??=now;
+                if(now-wait.endedAt<6000){
+                    this.hiddenAt??=now;this.telemetry.sample=null;this.status='野生异色战斗已结束，等待捕获结算';return true;
+                }
+                this.shinySettlement=null;this.wildShinyProtected=null;
+                this.log('野生异色结算缓冲已结束，继续原任务','info','异色保护',now);
+            }
             const prerequisite=this.target?.gateRoute&&['dex','legend'].includes(this.settings.mode)&&
                 wildEncounter(s,mon=>this.target.targets?.some(hit=>hit.id===mon.id));
             const encounter=shiny||seasonal||targetDexEncounter(s,this.settings)||prerequisite;
-            if(!encounter){this.wildShinyProtected=null;return false;}
+            if(!encounter){this.wildShinyProtected=null;this.shinySettlement=null;return false;}
             const label=shiny?'野生异色':seasonal?'季节图鉴目标':prerequisite?'前置图鉴目标':'图鉴目标',names=encounter.enemies.map(mon=>MONS.get(mon.id)?.name||mon.id).join('、');
             if(this.wildShinyProtected!==encounter.key){this.wildShinyProtected=encounter.key;this.log('优先完成'+label+'捕获：'+names);}
+            if(shiny){
+                // Count observed active time only. A sleeping browser cannot demonstrate a stuck encounter.
+                const b=s.adv.battle,progress=JSON.stringify([b.steps,b.enemies?.map(mon=>mon.hp),s.adv.pending?.type]);
+                let wait=this.shinySettlement;
+                if(!wait||wait.key!==encounter.key)wait=this.shinySettlement={key:encounter.key,progress,at:now,ms:0,idle:0};
+                wait.endedAt=null;
+                const delta=Math.max(0,Math.min(6000,now-wait.at));wait.at=now;wait.ms+=delta;
+                wait.idle=progress===wait.progress?wait.idle+delta:0;wait.progress=progress;
+                if(wait.idle>=120000||wait.ms>=600000){
+                    this.stop('异色遭遇仍未结算，已保留当前战斗，请检查后继续',{level:'warn'});return true;
+                }
+            }else this.shinySettlement=null;
             this.telemetry.sample=null;
             this.status='保护'+label+' · '+names+' · 捕获结算后继续原任务';
             // Helper UI transactions are suspended while the native capture runs;
@@ -2578,7 +2805,7 @@
             if(!state)return null;
             const threat=moneyRouteThreatKey(state,row,now);
             if((base.threat||'')!==threat)return null;
-            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,base.roster,base.key,base.setting,state.team,threat,totalDeaths(state,row)];
+            const stamp=[this.localSnapshot.sourceEpoch,this.runId,base.identity,this.searchRosterRevision('moneyProofSearch',base.roster),base.key,base.setting,state.team,threat,totalDeaths(state,row)];
             const signature='map-proof:'+JSON.stringify(stamp);
             const profitable=verified=>verified?.projectedMoneyRate>=base.minimumRate?verified:null;
             if(this.routeProof?.signature===signature)return profitable(this.routeProof.row);

@@ -99,6 +99,47 @@
     .dex-searchbar { display:flex; align-items:center; gap:6px; margin:2px 0 12px }
     .dex-searchbar input { flex:1; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #465b70; border-radius:8px; background:#0f1927; color:#edf4f8 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
+    .insight-nav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; margin:0 0 12px; padding:3px; border:1px solid #36485c; border-radius:11px; background:#101a29 }
+    .insight-nav button { min-width:0; min-height:36px; padding:4px 2px; border:1px solid transparent; background:transparent; color:#b7c8d7; font-weight:600; border-radius:8px }
+    .insight-nav button[aria-pressed=true] { background:#213d42; color:#b4f3df; border-color:#47716b }
+    #dex-panel [hidden] { display:none!important }
+    #game-insights { min-width:0; color:#dce7ef; font-size:13px }
+    .insight-controls,.dex-owned-tools { display:grid; gap:8px; padding:10px; border:1px solid #35485c; border-radius:11px; background:#172536 }
+    .insight-field { display:grid; gap:3px; min-width:0; color:#c0d1de; font-size:12px }
+    .insight-field select,.insight-field input,.dex-owned-tools select { width:100%; min-width:0; max-width:100%; min-height:35px; padding:5px 7px; border:1px solid #4a6072; border-radius:7px; background:#111e2d; color:#edf4f8; font-size:13px; text-overflow:ellipsis }
+    .insight-picks { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(130px,100%),1fr)); gap:8px }
+    .insight-pages,.insight-actions,.dex-owned-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px }
+    .insight-pages { justify-content:space-between; font-size:12px; color:#b4c6d4 }
+    .insight-pages button,.insight-actions button,.dex-owned-actions button { min-height:32px; padding:4px 9px; font-size:12px }
+    .dex-owned-tools { margin:8px 0 10px }
+    #game-insights .insight-title { margin:13px 0 2px; font-size:16px; line-height:1.4; overflow-wrap:anywhere; color:#e2edea }
+    .insight-context,.insight-note,.insight-notice { margin:2px 0 9px; line-height:1.5; color:#afc3d1; font-size:12px; overflow-wrap:anywhere }
+    .insight-notice { color:#eacc91; padding:6px 9px; border-left:3px solid #bda162; background:#2a2c29 }
+    #game-insights .insight-metrics { width:100%; table-layout:fixed; border-collapse:separate; border-spacing:0; border:1px solid #3b4f60; border-radius:10px; overflow:hidden; margin:6px 0 }
+    .insight-metrics th,.insight-metrics td { position:static; padding:7px 6px; background:transparent; color:#dce7ef; overflow-wrap:anywhere; border:0; border-bottom:1px solid #344657; vertical-align:middle; font-variant-numeric:tabular-nums }
+    .insight-metrics thead th { font-size:11px; font-weight:650; background:#203142; text-align:right; color:#c5d5df }
+    .insight-metrics thead th span,.insight-metrics tbody th small { display:block; line-height:1.35 }
+    .insight-metrics thead th:first-child,.insight-metrics tbody th { text-align:left; width:32%; }
+    .insight-metrics tbody th { font-size:12px; font-weight:600 }
+    .insight-metrics tbody th small { margin-top:2px; color:#a4bbca; font-size:10px; font-weight:400 }
+    .insight-metrics tbody td { font-size:15px; font-weight:650; text-align:right }
+    .insight-metrics tbody td.insight-leading { color:#a2efd2; background:#1b3437 }
+    .insight-metrics tbody tr:last-child>* { border-bottom:0 }
+    #game-insights .insight-detail,#game-insights .insight-move-group { padding:0; margin:7px 0; border:1px solid #35485c; border-radius:9px; background:#152231; overflow:hidden }
+    #game-insights details>summary { min-height:34px; padding:7px 9px; color:#c3d9e3; font-size:12px; font-weight:600; cursor:pointer }
+    #game-insights details>summary:focus-visible { outline-offset:-3px }
+    .insight-detail .insight-note,.insight-breakdown { margin:0; padding:7px 10px; border-top:1px solid #334456 }
+    .insight-breakdown p { margin:2px 0; color:#b5c9d5; font-size:12px }
+    .insight-move-group[data-move-group=consider]>summary { color:#f0cf91!important }
+    .insight-count { margin-left:6px; border-radius:8px; padding:0 6px; color:#d6e3eb; background:#304457; font-variant-numeric:tabular-nums }
+    .insight-move-group ul { list-style:none; margin:0; padding:0 }
+    .insight-move-group li { padding:7px 10px; border-top:1px solid #344657; overflow-wrap:anywhere }
+    .insight-move-line { display:flex; justify-content:space-between; gap:8px; align-items:baseline }
+    .insight-move-line span,.insight-move-group small { color:#afc5d3; font-size:11px }
+    .insight-move-group p { margin:3px 0 0; color:#c4d4dd; font-size:12px }
+    @media(pointer:coarse) {
+        .insight-nav button,.insight-field select,.insight-field input,.insight-actions button,.insight-pages button,.dex-owned-actions button,.dex-owned-tools select,#game-insights details>summary { min-height:44px }
+    }
     #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
     .roam-ball-control:not([hidden]) { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:8px 0; padding:7px 8px; border:1px solid #3b4e63; border-radius:8px }
     .roam-ball-control > strong { margin-inline-start:auto; color:#b1e6d6; font-size:11px; font-variant-numeric:tabular-nums }
@@ -275,4 +316,67 @@
         .service-detail { grid-column:1/-1 }
         .setting input[type=number],.setting select { width:40% }
     }
+    :host(.pc-full-panel) {
+        top:0!important; left:0!important; right:0!important; bottom:0!important;
+        width:100%!important; max-width:none!important; height:100dvh!important;
+    }
+    :host(.pc-full-panel) .panel {
+        width:100%; height:100%; max-width:none; max-height:none; border-radius:0;
+        padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    }
+    :host(.pc-full-panel) .content { width:min(100%,860px); margin-inline:auto; flex:auto }
+    .mini-bar { display:flex; flex-wrap:wrap; gap:4px; align-items:center; max-width:min(480px,calc(100vw - 24px)); width:max-content }
+    .mini-bar .mini { min-width:0; overflow:hidden; max-width:100% }
+    .mini-links { display:flex; flex-wrap:wrap; gap:3px; max-width:100% }
+    .mini-links button { border-radius:12px; font-size:11px; padding:4px 7px; background:#162839; color:#b1e6d6 }
+    .mini-links button[hidden],#log-tools[hidden],.decision-list[hidden] { display:none!important }
+    .decision-list { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 9px; margin:7px 0; font-size:12px }
+    .decision-list dt { color:#a7bdc9 }
+    .decision-list dd { margin:0; overflow-wrap:anywhere }
+    .log-controls { display:flex; flex-wrap:wrap; gap:6px; align-items:end; margin:8px 0 }
+    .log-controls label { display:grid; gap:3px; font-size:11px; flex:1 }
+    .log-controls select { width:100%; min-width:0 }
+    #log-tools textarea { width:100%; min-height:6em }
+    #copy-stop-result { font-size:11px }
+    .log-source { margin-right:7px; color:#9fb7c8 }
+    .game-item-icon { width:20px; height:20px; vertical-align:middle; object-fit:contain; margin-inline-end:5px; image-rendering:pixelated }
+    #under-field-insight label { display:inline-flex; align-items:center; flex-wrap:wrap; gap:4px; margin:4px 8px 4px 0 }
+    #under-field-insight ol { max-height:18em; overflow:auto; padding-inline-start:2em }
+    #under-field-insight li { padding:2px 0 }
+    #under-field-insight .reached { color:#a8ddca }
+    #under-field-insight .upcoming { color:#c3cfde }
+    .log[data-level=warn] .log-source { color:#efc47c }
+    .log[data-level=error] .log-source { color:#ef9999 }
+    @media(pointer:coarse) {
+        .workspace-nav { display:flex; overflow-x:auto; scrollbar-width:thin }
+        .workspace-nav button { flex:1 0 auto; min-width:44px; min-height:44px; padding:4px 7px; font-size:12px }
+        header button,.mini-bar button,.commandbar .row button,.queue-job-actions button,.log-controls button,.categories button,.modes button { min-height:44px }
+        header button,.mini-links button { min-width:44px }
+        .setting,.checks label { min-height:40px; align-items:center }
+        .log-controls select, #panel-theme { min-height:40px }
+    }
     `;
+
+    // The existing sections share a dark palette. Reverse the luminance of their
+    // paint colors while keeping the hue of success, error and selection states.
+    // Render a separate stylesheet so game sprites and native inputs are untouched.
+    function lightPanelStyles(dark){
+        const palette=new Map();
+        function paint(value){
+            if(palette.has(value))return palette.get(value);
+            let hex=value.slice(1);
+            if(hex.length<=4)hex=Array.from(hex,digit=>digit+digit).join('');
+            const [r,g,b]=[0,2,4].map(i=>parseInt(hex.slice(i,i+2),16)/255);
+            const high=Math.max(r,g,b),low=Math.min(r,g,b),delta=high-low,l=(high+low)/2;
+            const saturation=delta?delta/(1-Math.abs(2*l-1)):0;
+            let hue=delta===0?0:high===r?(g-b)/delta:high===g?(b-r)/delta+2:(r-g)/delta+4;
+            hue=(hue*60+360)%360;
+            const light=Math.max(10,Math.min(99,104-1.12*l*100));
+            const alpha=hex.length===8?parseInt(hex.slice(6),16)/255:1;
+            const color=alpha<1&&l<0.09?'rgba(25,40,55,'+(alpha*0.38).toFixed(3)+')':
+                'hsla('+Math.round(hue)+','+Math.round(Math.min(saturation,0.7)*100)+'%,'+light.toFixed(1)+'%,'+alpha.toFixed(3)+')';
+            palette.set(value,color);return color;
+        }
+        return dark.replace(/#[a-f\d]{8}(?![\w-])|#[a-f\d]{6}(?![\w-])|#[a-f\d]{4}(?![\w-])|#[a-f\d]{3}(?![\w-])/gi,paint)
+            .replace('color-scheme:dark','color-scheme:light');
+    }

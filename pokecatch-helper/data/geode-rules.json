@@ -1,0 +1,442 @@
+{
+  "build": "bd1d674523",
+  "bundle": "f1ef0dd44e",
+  "stepMs": 2800,
+  "maxFloors": 300,
+  "upgrade": [
+    0.1,
+    0.06,
+    0.03
+  ],
+  "regions": [
+    {
+      "key": "kanto",
+      "first": 0,
+      "open": true,
+      "last": 13,
+      "badges": [
+        "Maître"
+      ],
+      "pools": [
+        [
+          "bug",
+          "poison",
+          "normal",
+          "flying",
+          "electric",
+          "ground",
+          "fairy",
+          "fire",
+          "grass",
+          "water",
+          "fighting",
+          "psychic",
+          "rock",
+          "steel",
+          "ghost"
+        ],
+        [
+          "bug",
+          "poison",
+          "normal",
+          "flying",
+          "electric",
+          "ground",
+          "fairy",
+          "grass",
+          "fighting",
+          "water",
+          "psychic",
+          "rock",
+          "steel",
+          "ice",
+          "ghost"
+        ],
+        [
+          "grass",
+          "poison",
+          "fire",
+          "flying",
+          "water",
+          "bug",
+          "normal",
+          "ground",
+          "fairy",
+          "fighting",
+          "psychic",
+          "rock",
+          "ice",
+          "ghost",
+          "electric",
+          "dragon"
+        ],
+        [
+          "ice",
+          "flying",
+          "electric",
+          "fire",
+          "psychic"
+        ]
+      ]
+    },
+    {
+      "key": "johto",
+      "first": 14,
+      "open": false,
+      "last": 29,
+      "badges": [
+        "Maître Johto"
+      ],
+      "pools": [
+        [
+          "normal",
+          "flying",
+          "bug",
+          "poison",
+          "water",
+          "electric",
+          "fairy",
+          "psychic",
+          "grass",
+          "ground",
+          "fire",
+          "ice"
+        ],
+        [
+          "normal",
+          "flying",
+          "bug",
+          "poison",
+          "water",
+          "electric",
+          "psychic",
+          "fairy",
+          "rock",
+          "grass",
+          "ground",
+          "steel",
+          "dark",
+          "ice",
+          "fire",
+          "fighting"
+        ],
+        [
+          "grass",
+          "fire",
+          "water",
+          "poison",
+          "flying",
+          "fairy",
+          "electric",
+          "normal",
+          "psychic",
+          "dark",
+          "ghost",
+          "steel",
+          "ground",
+          "bug",
+          "rock",
+          "fighting",
+          "ice",
+          "dragon"
+        ],
+        [
+          "electric",
+          "fire",
+          "water",
+          "psychic",
+          "flying",
+          "grass"
+        ]
+      ]
+    },
+    {
+      "key": "hoenn",
+      "first": 31,
+      "open": false,
+      "last": 47,
+      "badges": [
+        "Maître Hoenn"
+      ],
+      "pools": [
+        [
+          "dark",
+          "normal",
+          "bug",
+          "water",
+          "grass",
+          "flying",
+          "psychic",
+          "fairy",
+          "ground",
+          "fighting",
+          "rock",
+          "steel",
+          "electric",
+          "poison",
+          "fire",
+          "ghost",
+          "ice"
+        ],
+        [
+          "dark",
+          "normal",
+          "bug",
+          "water",
+          "grass",
+          "psychic",
+          "fairy",
+          "flying",
+          "fighting",
+          "steel",
+          "rock",
+          "electric",
+          "poison",
+          "fire",
+          "ground",
+          "dragon",
+          "ghost",
+          "ice"
+        ],
+        [
+          "grass",
+          "fire",
+          "fighting",
+          "water",
+          "ground",
+          "bug",
+          "flying",
+          "poison",
+          "dark",
+          "normal",
+          "psychic",
+          "fairy",
+          "ghost",
+          "steel",
+          "rock",
+          "electric",
+          "dragon",
+          "ice"
+        ],
+        [
+          "rock",
+          "ice",
+          "steel",
+          "dragon",
+          "psychic",
+          "water",
+          "ground",
+          "flying"
+        ]
+      ]
+    },
+    {
+      "key": "sinnoh",
+      "first": 48,
+      "open": false,
+      "last": 64,
+      "badges": [
+        "Maître Sinnoh"
+      ],
+      "pools": [
+        [
+          "normal",
+          "flying",
+          "bug",
+          "electric",
+          "grass",
+          "poison",
+          "water",
+          "ghost",
+          "dark",
+          "steel",
+          "psychic",
+          "rock",
+          "fairy",
+          "ground",
+          "fighting"
+        ],
+        [
+          "normal",
+          "flying",
+          "water",
+          "electric",
+          "bug",
+          "grass",
+          "ground",
+          "ghost",
+          "psychic",
+          "poison",
+          "dark",
+          "fighting",
+          "ice"
+        ],
+        [
+          "grass",
+          "ground",
+          "fire",
+          "fighting",
+          "water",
+          "steel",
+          "normal",
+          "flying",
+          "bug",
+          "electric",
+          "poison",
+          "rock",
+          "ghost",
+          "dark",
+          "psychic",
+          "dragon",
+          "ice",
+          "fairy"
+        ],
+        [
+          "psychic",
+          "steel",
+          "dragon",
+          "water",
+          "fire",
+          "normal",
+          "ghost",
+          "dark",
+          "grass"
+        ]
+      ]
+    },
+    {
+      "key": "unova",
+      "first": 66,
+      "open": false,
+      "last": 82,
+      "badges": [
+        "Maître Unys"
+      ],
+      "pools": [
+        [
+          "normal",
+          "dark",
+          "psychic",
+          "flying",
+          "electric",
+          "rock",
+          "fighting",
+          "water",
+          "bug",
+          "grass",
+          "poison",
+          "fairy",
+          "ground",
+          "ghost",
+          "ice",
+          "steel",
+          "fire"
+        ],
+        [
+          "normal",
+          "dark",
+          "psychic",
+          "flying",
+          "electric",
+          "rock",
+          "fighting",
+          "water",
+          "ground",
+          "bug",
+          "grass",
+          "poison",
+          "fairy",
+          "fire",
+          "ghost",
+          "ice",
+          "steel"
+        ],
+        [
+          "grass",
+          "fire",
+          "fighting",
+          "water",
+          "normal",
+          "flying",
+          "rock",
+          "psychic",
+          "ground",
+          "steel",
+          "bug",
+          "poison",
+          "dark",
+          "ice",
+          "electric",
+          "ghost",
+          "dragon"
+        ],
+        [
+          "psychic",
+          "fire",
+          "steel",
+          "fighting",
+          "rock",
+          "grass",
+          "flying",
+          "electric",
+          "dragon",
+          "ground",
+          "ice",
+          "water",
+          "normal",
+          "bug"
+        ]
+      ]
+    }
+  ],
+  "plates": {
+    "49301": [
+      "fire"
+    ],
+    "49302": [
+      "water"
+    ],
+    "49303": [
+      "grass"
+    ],
+    "49304": [
+      "electric"
+    ],
+    "49305": [
+      "ice"
+    ],
+    "49306": [
+      "fighting"
+    ],
+    "49307": [
+      "poison"
+    ],
+    "49308": [
+      "ground"
+    ],
+    "49309": [
+      "flying"
+    ],
+    "49310": [
+      "psychic"
+    ],
+    "49311": [
+      "bug"
+    ],
+    "49312": [
+      "rock"
+    ],
+    "49313": [
+      "ghost"
+    ],
+    "49314": [
+      "dragon"
+    ],
+    "49315": [
+      "dark"
+    ],
+    "49316": [
+      "steel"
+    ]
+  }
+}

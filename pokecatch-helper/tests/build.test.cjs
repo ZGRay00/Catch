@@ -1,5 +1,5 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),zlib=require('node:zlib');
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),zlib=require('node:zlib'),vm=require('node:vm');
 const {compileProject,build,validateData,localFile}=require('../tools/build.cjs');
 const {extractJSON}=require('../tools/import-legacy.cjs');
 const {zip,crc32,collectFiles}=require('../tools/package.cjs');
@@ -26,6 +26,20 @@ test('manifest rejects traversal, duplicates, missing modules and damaged startu
   f.manifest.entries.push(f.manifest.entries[0]);f.put('build.manifest.json',f.manifest);assert.throws(()=>compileProject(f.project),/Duplicate module/);
   f.manifest.entries.pop();f.manifest.entries[0].file='src/missing.js';f.put('build.manifest.json',f.manifest);assert.throws(()=>compileProject(f.project),/ENOENT/);
   f.manifest.entries[0].file='src/bootstrap.js';f.put('build.manifest.json',f.manifest);f.put('src/runtime.js',"\nmodule.exports = {}; const value = typeof document === 'undefined';\n})();\n");assert.throws(()=>compileProject(f.project),/mount hook/);
+});
+test('large catalogs round-trip through the generated script, including quoted and multiline data',t=>{
+  const f=fixture(t);
+  f.data.mons[0].name="Farfetch'd \"text\" \\ path\n\u2028\u2029";
+  f.put('data/game.json',f.data);
+  const context={module:{exports:{}}};
+  new vm.Script(compileProject(f.project).script).runInNewContext(context);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.module.exports.DATA)),f.data);
+  const root=path.resolve(__dirname,'..');
+  const installed=require(path.join(root,'../Pokecatch自动助手.user.js'));
+  for(const [key,file] of [['DATA','game.json'],['WEATHER_DATA','weather.json']]){
+    const original=JSON.parse(fs.readFileSync(path.join(root,'data',file),'utf8'));
+    assert.deepEqual(installed[key],original);
+  }
 });
 test('data schema rejects duplicate ids, malformed learnsets and invalid stats',t=>{
   const {data}=fixture(t);assert.doesNotThrow(()=>validateData('DATA',data));

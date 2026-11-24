@@ -19,7 +19,7 @@ async function main(){
         async function start(name,setup='',inject=true,scriptSource=source){
             const html=path.join(taskDir,name+'.html'),script=`localStorage.clear();window.intervalCount=0;const nativeInterval=window.setInterval;window.setInterval=(...args)=>{window.intervalCount++;return nativeInterval(...args)};${setup}`;
             fs.writeFileSync(html,`<!doctype html><meta charset="utf-8"><body><script>${script}</script>${inject?`<script>${scriptSource.replace(/<\/script/gi,'<\\/script')}</script>`:''}</body>`);await send('Page.navigate',{url:pathToFileURL(html).href});
-            const initialized=inject?'typeof window.__pokecatchHelper?.ready==="boolean" || !!document.querySelector("#pokecatch-helper-recovery")':'document.readyState==="complete"';
+            const initialized=inject?'document.readyState!=="loading" && (typeof window.__pokecatchHelper?.ready==="boolean" || !!document.querySelector("#pokecatch-helper-recovery"))':'document.readyState==="complete"';
             for(let i=0;i<60&&!await evaluate(initialized);i++)await delay(50);
         }
         const state=()=>evaluate(`(()=>{const api=window.__pokecatchHelper,host=document.querySelector('#pokecatch-auto-helper'),r=host?.getBoundingClientRect(),root=host?.shadowRoot;return{ready:api?.ready,host:!!host,visible:!!r&&r.width>0&&r.height>0&&r.left>=0&&r.top>=0&&r.right<=innerWidth&&r.bottom<=innerHeight,folded:root?.querySelector('.panel').classList.contains('hidden'),status:root?.querySelector('#status').textContent,recovery:document.querySelector('#pokecatch-helper-recovery')?.textContent,intervals:window.intervalCount}})()`);
@@ -31,6 +31,15 @@ async function main(){
         await evaluate('document.querySelector("#pokecatch-auto-helper").remove()');await delay(2700);assert.equal((await state()).host,true);checks.push('periodic render restores a removed host');
         await start('corrupt-save',`localStorage.setItem('gachamon-save-v1','{');`);result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);assert.ok(result.status);checks.push('malformed save leaves a visible status panel');
         await start('stale-marker',`window.legacyStopped=0;window.__pokecatchHelper={version:'2.11.1',stop(){legacyStopped++;}};`);result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);assert.equal(await evaluate('window.legacyStopped'),1);checks.push('a legacy marker without a host cannot suppress mounting');
+        await start('failed-marker',`window.__pokecatchHelper={ready:false,show(){},stop(){}};`);
+        result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);assert.equal(result.intervals,1);checks.push('a stale failed marker with a show function does not suppress mounting');
+        await start('legacy-callbacks',`window.legacyHost=document.createElement('div');legacyHost.id='pokecatch-auto-helper';document.addEventListener('visibilitychange',()=>document.body.appendChild(legacyHost));window.legacyMenu=()=>{document.getElementById('pokecatch-auto-helper')?.remove();const error=document.createElement('div');error.id='pokecatch-helper-recovery';document.body.appendChild(error)};window.__pokecatchHelper={ready:false,show:legacyMenu,stop(){}};`);
+        await evaluate('window.realHost=document.getElementById("pokecatch-auto-helper");document.dispatchEvent(new Event("visibilitychange"))');
+        assert.equal(await evaluate('document.querySelectorAll("#pokecatch-auto-helper").length===1&&realHost.isConnected'),true);
+        await evaluate('legacyMenu()');assert.equal(await evaluate('document.getElementById("pokecatch-auto-helper")===realHost&&!document.getElementById("pokecatch-helper-recovery")'),true);
+        checks.push('legacy visibility and menu callbacks cannot replace a healthy recovered panel or leave a false error');
+        await start('broken-restore',`window.oldStops=0;window.__pokecatchHelper={ready:true,show(){return true},stop(){oldStops++}};`);
+        result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);assert.equal(await evaluate('oldStops'),1);checks.push('a legacy success return without a connected panel is retried after stopping the stale instance');
         await start('folded-offscreen',`localStorage.setItem('pokecatch-helper:v1:ui',JSON.stringify({folded:true,mini:{x:999999,y:-999999},panel:{x:-999999,y:999999}}));`);result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);assert.equal(result.folded,true);await evaluate('__pokecatchHelper.show()');result=await state();assert.equal(result.visible,true);assert.equal(result.folded,false);checks.push('saved folded/offscreen positions stay reachable and reset on show');
         await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector("#fold").click();window.nativeSleepKey=event=>event.stopPropagation();window.addEventListener("keydown",nativeSleepKey,true)');
         await send('Input.dispatchKeyEvent',{type:'keyDown',key:'P',code:'KeyP',modifiers:9});await send('Input.dispatchKeyEvent',{type:'keyUp',key:'P',code:'KeyP',modifiers:9});
@@ -42,6 +51,12 @@ async function main(){
         await evaluate('helperMenus["助手启动诊断"]()');const diagnosis=await evaluate('window.lastHelperAlert');assert.match(diagnosis,/启动阶段：已显示/);assert.match(diagnosis,/游戏休眠：是/);checks.push('the userscript menu exposes its execution phase and real computed visibility');
         await start('storage-denied',`Object.defineProperty(window,'localStorage',{configurable:true,get(){throw new DOMException('denied','SecurityError')}});`);result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);assert.match(result.status,/存储不可用/);checks.push('denied storage shows its reason through an in-memory helper');
         await start('shadow-failure',`Element.prototype.attachShadow=function(){throw Error('fixture shadow failure')};`);result=await state();assert.equal(result.ready,false);assert.match(result.recovery,/fixture shadow failure/);assert.equal(result.host,false);checks.push('mount failures produce a visible recovery notice');
+        await start('late-mount-failure',`window.fixtureFailure=true;const originalInterval=window.setInterval;window.setInterval=(...args)=>{if(fixtureFailure)throw Error('fixture late failure');return originalInterval(...args)};`);
+        assert.match((await state()).recovery,/fixture late failure/);
+        await evaluate('window.failedHelper=window.__pokecatchHelper;window.fixtureFailure=false;');
+        await evaluate(source);await evaluate('failedHelper.show();dispatchEvent(new Event("pageshow"));document.dispatchEvent(new Event("visibilitychange"));');
+        result=await state();assert.equal(result.visible,true);assert.equal(result.intervals,1);assert.equal(result.recovery,undefined);
+        assert.equal(await evaluate('document.querySelectorAll("#pokecatch-auto-helper").length'),1);checks.push('retry after a late mount failure owns one panel and heartbeat, and old recovery callbacks leave it live');
         await start('model-failure',`window.helperMenus={};window.GM_registerMenuCommand=(name,fn)=>{helperMenus[name]=fn};window.alert=message=>window.lastHelperAlert=message;window.Map=class{constructor(){throw Error('fixture early model failure')}};`);
         const failure=await evaluate('({text:document.querySelector("#pokecatch-helper-recovery")?.textContent,menus:Object.keys(helperMenus)})');assert.match(failure.text,/fixture early model failure/);assert.equal(failure.menus.length,2);
         await evaluate('helperMenus["助手启动诊断"]()');assert.match(await evaluate('window.lastHelperAlert'),/初始化失败[\s\S]*fixture early model failure/);checks.push('failures before mounting retain both a visible reason and the userscript diagnostic menu');
@@ -67,6 +82,35 @@ async function main(){
         const isolated=await send('Runtime.evaluate',{expression:source,contextId:world.executionContextId,returnByValue:true});assert.equal(isolated.exceptionDetails,undefined);
         const isolatedState=await send('Runtime.evaluate',{expression:'({ready:window.__pokecatchHelper.ready,visible:document.getElementById("pokecatch-auto-helper").getBoundingClientRect().width>0})',contextId:world.executionContextId,returnByValue:true});
         assert.deepEqual(isolatedState.result.value,{ready:true,visible:true});assert.equal(await evaluate('typeof window.__pokecatchHelper'),'undefined');assert.equal(await evaluate('localStorage.getItem("gachamon-save-v1")'),before);checks.push('DOM-isolated execution mounts against the shared game save without relying on page globals or modifying the save');
+        const another=await send('Page.createIsolatedWorld',{frameId:tree.frameTree.frame.id,worldName:'pokecatch-userscript-second'});
+        const injectedAgain=await send('Runtime.evaluate',{expression:'window.GM_registerMenuCommand=(name,fn)=>(window.menus??={})[name]=fn;\n'+source,contextId:another.executionContextId,returnByValue:true});
+        assert.equal(injectedAgain.exceptionDetails,undefined);
+        await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector("#fold").click()');
+        await send('Runtime.evaluate',{expression:'menus["显示 / 复位助手面板"]()',contextId:another.executionContextId});
+        assert.equal(await evaluate('document.querySelectorAll("#pokecatch-auto-helper").length'),1);
+        assert.equal(await evaluate('document.querySelector("#pokecatch-auto-helper").shadowRoot.querySelector(".panel").classList.contains("hidden")'),false);
+        const secondApi=await send('Runtime.evaluate',{expression:'typeof window.__pokecatchHelper',contextId:another.executionContextId,returnByValue:true});
+        assert.equal(secondApi.result.value,'undefined');checks.push('a second independent world reuses the live owner and its restore menu without starting another engine');
+        await start('wrapped-top-window',`
+            window.helperMenus={};
+            window.GM_registerMenuCommand=(name,fn)=>{helperMenus[name]=fn;};
+            window.alert=message=>{window.diagnostic=message;};
+            window.scriptWindow=new Proxy({},{
+                get(target,key){
+                    if(key==='self')return scriptWindow;
+                    if(Object.hasOwn(target,key))return target[key];
+                    const value=window[key];
+                    return typeof value==='function'?value.bind(window):value;
+                }
+            });
+        `,false);
+        assert.equal(await evaluate('scriptWindow.self===scriptWindow.top'),false);
+        await evaluate('(function(window){\n'+source+'\n})(scriptWindow)');
+        assert.equal(await evaluate('scriptWindow.__pokecatchHelper.ready'),true);
+        assert.equal((await state()).visible,true);
+        await evaluate('helperMenus["助手启动诊断"]()');
+        assert.match(await evaluate('diagnostic'),/启动阶段：已显示/);
+        checks.push('a wrapped top window shows the panel and working diagnostic menu even when self and top differ');
         console.log('PASS: '+checks.length+' startup/recovery checks: '+checks.join('; '));console.log('Artifacts: '+taskDir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

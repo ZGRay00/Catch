@@ -86,6 +86,12 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
+        await require('./fixtures/pokecatch-insights-ui.cjs')({send,evaluate});
+        if(process.argv.includes('--insights-only')){
+            assert.deepEqual(errors,[]);
+            console.log('PASS: individual move advice, route comparisons, keyboard navigation and 320px layout.');
+            return;
+        }
         const boxDownload=await evaluate(`(async()=>{
             const root=document.querySelector('#pokecatch-auto-helper').shadowRoot;
             root.querySelector('[data-workspace="settings"]').click();
@@ -134,10 +140,15 @@ async function main() {
             const available=search('594');const readyHeading=results.querySelector('.dex-section')?.textContent;
             e.settings={...before,mode:'shiny',shinyId:594,region:'current'};tab('maps');
             const shinySelect=root.querySelector('#hunt-picker');
-            const rareSpecies=['424','41301'].every(id=>shinySelect.querySelector('option[value="'+id+'"]'));
+            if(shinySelect.length)throw Error('Unopened species picker built hidden options');
             const projected=[...root.querySelectorAll('#view tbody tr')].map(tr=>tr.lastElementChild.textContent);
             workspace('tasks');
+            const speciesDetails=shinySelect.closest('details'),speciesOpened=new Promise(resolve=>speciesDetails.addEventListener('toggle',resolve,{once:true}));
+            speciesDetails.querySelector('summary').click();await speciesOpened;
+            const rareSpecies=['424','41301'].every(id=>shinySelect.querySelector('option[value="'+id+'"]'));
+            const firstOption=shinySelect.options[0];
             root.querySelector('#hunt-regions input[value="unova"]').click();
+            if(shinySelect.options[0]!==firstOption)throw Error('Unrelated filters rebuilt the open species picker');
             root.querySelector('#hunt-weather input[value="rain"]').click();
             root.querySelector('#hunt-weather input[value="storm"]').click();
             root.querySelector('#hunt-search').value='皮卡丘';root.querySelector('#hunt-search').dispatchEvent(new Event('input'));

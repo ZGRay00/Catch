@@ -2,6 +2,17 @@
     'use strict';
 
     const VERSION = '{{VERSION}}', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
+    function isTopGameDocument(doc){
+        try{
+            const view=doc.defaultView;
+            if(!view)return false;
+            const top=view.top;
+            // A userscript sandbox can expose different Window wrappers for the same document.
+            return view===top||doc===top.document||doc.isSameNode(top.document);
+        }catch{return false;} // Cross-origin top documents are intentionally inaccessible.
+    }
+    if(hasGameDocument&&!isTopGameDocument(document))return;
     function backgroundKeepalive(now=Date.now()) {
         if(typeof document==='undefined')return false;
         const stamp=Number(document.documentElement?.getAttribute?.('data-pc-helper-background-at'));
@@ -46,7 +57,7 @@
         restorePanel=show;show();
     }
     // Register before loading the data/model so the menu also diagnoses early failures.
-    if(typeof GM_registerMenuCommand==='function'&&typeof window!=='undefined'&&window.top===window.self){
+    if(typeof GM_registerMenuCommand==='function'&&hasGameDocument){
         try{GM_registerMenuCommand('显示 / 复位助手面板',()=>restorePanel());GM_registerMenuCommand('助手启动诊断',()=>alert(startupReport()));}catch(err){console.warn('[PokéCatch 自动助手] 菜单不可用',err);}
     }
     try{

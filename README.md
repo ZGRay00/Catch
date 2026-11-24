@@ -1,8 +1,12 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **7.2.3**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.1.1**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v7.2.3.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.1.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+8.1.1 · 在「图鉴 → 路线对比」选定路线后，可并排比较两只宝可梦的首击输出、命中率和满血耐久。点 A 或 B 可查看该个体的禁招建议。当前游戏版本的规则待核对时，列表顶部提示一次，并按上次核对的规则继续列出候选和理由。
+
+本次更新也包含 8.0 系列的启动修复、面板与大盒子配队性能优化，以及运行诊断、实测掉落和触屏界面改进。
 
 7.2.3 · 适配已核对的新版孵蛋、合众普通遇敌表、团体战首领参数和对战塔阶级，对战塔显示目标层难度与蛋奖励楼层。
 

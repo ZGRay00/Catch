@@ -5,7 +5,7 @@
   "description": "通过浏览器原生模拟聚焦功能，让一个 PokéCatch 标签页在切走或最小化后保持激活。",
   "minimum_chrome_version": "118",
   "permissions": ["debugger", "storage"],
-  "host_permissions": ["https://pokecatch-online.app/*", "https://pokecatch-online.netlify.app/*"],
+  "host_permissions": ["https://pokecatch-online.app/*", "https://pokecatch-online.netlify.app/*", "https://pokecatch-online.pages.dev/*"],
   "background": { "service_worker": "background.js" },
   "action": {
     "default_title": "PokéCatch 保持激活",

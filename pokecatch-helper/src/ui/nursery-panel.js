@@ -30,6 +30,7 @@
             <div class="hint">闪蛋统计从首次观测开始。清空后从当前孵化器重新计数。</div>
             <details><summary>最近孵化与观测</summary><div id="nursery-recent"></div><div id="nursery-events"></div></details>`;
         root.querySelector('#pane-eggs').appendChild(box);
+        box.querySelector('.nursery-title h3').prepend(gameItemIcon('egg'));
         const nodes=new Map([...box.querySelectorAll('[id]')].map(node=>['#'+node.id,node]));
         const query=selector=>nodes.get(selector),hints=query('#nursery-hints');hints.checked=preferences.nurseryHints!==false;
         function write(selector,value){

@@ -1,10 +1,42 @@
-    if (window.top !== window.self) return;
+    // Userscript worlds have separate window properties but share the document.
+    // A live listener, unlike a saved marker, disappears with its world.
+    const ownerEvent='pokecatch-helper:owner',showEvent='pokecatch-helper:show';
+    const requestOwner=type=>!document.dispatchEvent(new Event(type,{cancelable:true}));
+    const mountedHost=()=>{
+        const node=document.getElementById('pokecatch-auto-helper'),shadow=node?.shadowRoot;
+        return node?.isConnected&&shadow?.querySelector('.panel #fold')&&shadow.querySelector('.mini')?node:null;
+    };
     const previousHelper=window.__pokecatchHelper;
-    if(previousHelper&&document.getElementById('pokecatch-auto-helper')?.isConnected){if(typeof previousHelper.show==='function')restorePanel=previousHelper.show;startupPhase='复用已挂载实例';return;}
-    if(previousHelper&&typeof previousHelper.show==='function'){restorePanel=previousHelper.show;startupPhase='恢复已有实例';previousHelper.show();return;}
-    // Older builds created this marker before mounting. A marker without a panel is
-    // not a working instance and must not prevent a new installation from appearing.
-    try{previousHelper?.stop?.();}catch{}
+    function showExisting(){
+        if(requestOwner(showEvent))return true;
+        if(typeof previousHelper?.show==='function'){
+            try{previousHelper.show();}catch{}
+        }
+        const node=mountedHost();
+        if(!node)return false;
+        revealHost(node);
+        if(node.shadowRoot.querySelector('.panel').classList.contains('hidden'))node.shadowRoot.querySelector('.mini').click();
+        return true;
+    }
+    if(requestOwner(ownerEvent)){
+        restorePanel=showExisting;startupPhase='复用已挂载实例';
+        if(!mountedHost())requestOwner(showEvent);
+        return;
+    }
+    // A 7.x/8.0 host in another world has no public JS API in this one.
+    if(previousHelper?.ready!==false&&(mountedHost()||previousHelper?.show&&showExisting())){
+        restorePanel=showExisting;startupPhase='复用已挂载实例';return;
+    }
+    const recoveringLegacy=!!previousHelper||!!document.getElementById('pokecatch-helper-recovery');
+    if(previousHelper){
+        try{previousHelper.stop?.();}catch(error){
+            if(previousHelper.ready===true)throw new Error('旧实例无法停止，请刷新游戏页重新加载助手');
+        }
+        if(previousHelper.ready===false){
+            try{previousHelper.show=()=>requestOwner(showEvent);}catch{}
+        }
+    }
+    document.getElementById('pokecatch-auto-helper')?.remove();
     let helperStorage,storageError;
     try{helperStorage=window.localStorage;helperStorage.getItem(SAVE_KEY);}
     catch(err){
@@ -14,13 +46,21 @@
     const engine = new Engine(helperStorage);
     if(storageError)engine.status=storageError;
     const helperAPI={version:VERSION,ready:false,stop:()=>engine.stop('手动停止助手')};
+    const life=new AbortController();
+    let ownedHost=null,heartbeatTimer=null;
+    document.addEventListener(ownerEvent,event=>event.preventDefault(),{signal:life.signal});
+    document.addEventListener(showEvent,event=>{
+        event.preventDefault();
+        if(helperAPI.ready)helperAPI.show();
+    },{signal:life.signal});
     window.__pokecatchHelper=helperAPI;
     startupPhase='准备挂载面板';
 
     function mount() {
+        if(life.signal.aborted)return;
         if (!document.body){startupPhase='等待页面主体';return setTimeout(mount,500);}
         try{
-        const host = document.createElement('div'); host.id = 'pokecatch-auto-helper';
+        const host = document.createElement('div');ownedHost=host;host.id = 'pokecatch-auto-helper';
         host.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;position:fixed;right:14px;top:86px;z-index:2147483000;max-width:calc(100vw - 20px);';
         const root = host.attachShadow({ mode: 'open' });
         const underStartControls = `<label class="field"><span>地下探险出发层</span><select data-setting="underStartChoice"><option value="auto">最高已解锁层</option>${UNDER_START_FLOORS.map(n=>`<option value="${n}">第 ${n} 层</option>`).join('')}</select></label><div class="hint" data-under-start-note></div><label class="field"><span>地下自动配队目标</span><select data-setting="underGoal"><option value="depth">冲层 · 优先连战和守卫</option><option value="money">刷金币 · 优先每小时收益</option></select></label>`;
@@ -33,8 +73,8 @@
             <strong data-roam-ball-stock="${mode}"></strong>
             <p class="hint" id="roam-ball-${mode}">赢下游荡战时，游戏会自动用掉背包里的 1 个大师球并必中。关闭时，助手跳过会用球的主动追踪。异色团体战的保底单独计数。</p>
         </div>`;
-        root.innerHTML = `<style>${PANEL_STYLE}</style><button class="mini hidden" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><section class="panel">
-            <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="fold" aria-label="收起助手">−</button></header>
+        root.innerHTML = `<style>${PANEL_STYLE}</style><div class="mini-bar hidden"><button class="mini" aria-controls="helper-panel" title="展开助手">ϟ PokéCatch <span id="mini-state">待命</span></button><div class="mini-links" aria-label="待办与进度"><button data-mini-link="logs" hidden></button><button data-mini-link="eggs" hidden></button><button data-mini-link="underground" hidden></button><button data-mini-link="queue" hidden></button><button data-mini-link="next" hidden></button><button data-mini-link="gain" hidden></button></div></div><section class="panel" id="helper-panel">
+            <header title="拖动标题栏移动面板"><span class="logo">ϟ</span><b>PokéCatch 自动助手</b><span class="tag">${VERSION}</span><button id="check-update" title="检查 Catch 仓库的在线更新">在线更新</button><button id="panel-expand" type="button" aria-pressed="false">铺满</button><button id="fold" aria-label="收起助手">−</button></header>
             <nav class="workspace-nav" aria-label="助手面板">
                 <button data-workspace="tasks" aria-controls="pane-tasks">任务</button>
                 <button data-workspace="queue" aria-controls="pane-queue">任务队列</button>
@@ -57,6 +97,7 @@
                 <div id="daily-legend-fields"></div>
                 <div class="sub" id="daily-state"></div>
                 <button type="button" id="daily-edit-goal">打开主线目标设置</button>
+                <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
                 <div class="checks">
                     <label><input type="checkbox" data-setting="dailyWindow">抢即将结束的图鉴窗口</label>
                     <label><input type="checkbox" data-setting="dailyCandy">糖果工厂免费场</label>
@@ -85,7 +126,7 @@
                     ${roamingBallControl('legend')}<div class="hint" id="legend-elite-team-hint" hidden></div><div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div>
                 </div>
                 <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限（分钟）</span><input data-setting="roamMinutes" type="number" min="0" max="720" aria-label="游荡搜寻时限，0 为不限时"></div>${roamingBallControl('roam')}<div class="hint">填 0 持续在线追踪，或填 5–720 分钟限时。捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。</div></div>
-                <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div></div>
+                <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div><div id="item-field-insight"></div></div>
                 <div data-fields="train" class="hidden"><div class="field"><span>练级对象</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><div id="train-members" class="checks"></div><label id="train-pc-field" class="field"><span>从电脑添加（最多六只）</span><select id="train-pc" aria-label="从电脑添加培育目标"><option value="">选择成员…</option></select></label><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div><label><input data-setting="trainGems" type="checkbox">使用库存宝石升阶（指定目标 · Lv.100）</label><div id="train-rank-settings"><label class="field"><span>目标阶数</span><input type="number" data-setting="trainRank" min="1" max="5"></label><small>仅对指定的最终形态生效。目标等级设为 100 后，升阶会回到 Lv.5，再练至 Lv.100。每颗宝石占一份道具额度。</small></div></div>
                 <div data-fields="progress" class="hidden"><div class="field"><span>完成章节</span><select data-setting="progressUntil" aria-label="主线目标章节"></select></div><label class="setting"><span><input type="checkbox" data-setting="autoTravel">达到条件后自动跨地区开局</span></label></div>
                 <fieldset id="hunt-filters" style="min-width:0;margin:8px 0;padding:9px;border:1px solid #40516a;border-radius:8px">
@@ -113,7 +154,7 @@
                     <div class="hint" id="task-purchase-policy"></div>
                     <div class="purchase-budget"><span data-purchase-status></span><button type="button" id="purchase-edit-budget">查看预算</button></div>
                 </section>
-                <div class="hint" id="target-hint"></div><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+                <div class="hint" id="target-hint"></div><dl class="decision-list" id="task-decision" hidden><dt>当前目标</dt><dd></dd><dt>选择依据</dt><dd></dd><dt>下一步</dt><dd></dd></dl><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
             </section>
             <section id="pane-queue" aria-label="任务队列" hidden>
@@ -125,7 +166,13 @@
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
+            <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
+            <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
+            <details id="health-insight"><summary>运行健康与兼容性</summary><dl class="decision-list" id="health-facts"></dl></details>
             <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="logs" aria-controls="view">日志</button></div>
+            <div id="log-tools" hidden><div class="log-controls">
+                <label>级别<select id="log-level"><option value="">全部级别</option><option value="issues">警告与错误</option><option value="error">错误</option><option value="warn">警告</option><option value="ok">完成</option><option value="info">信息</option></select></label>
+                <label>模块<select id="log-module"><option value="">全部模块</option></select></label><button type="button" id="copy-stop">复制最近停机过程</button></div><span role="status" id="copy-stop-result"></span><textarea aria-label="最近停机过程" readonly hidden></textarea></div>
             <div id="yield-metric" role="group" aria-label="地图收益显示方式" hidden>
                 <button type="button" data-yield-view="task" aria-controls="view">跟随任务</button>
                 <button type="button" data-yield-view="money" aria-controls="view">金币</button>
@@ -133,10 +180,11 @@
             </div><div id="view" class="list"></div>
             </section>
             <p id="lookup-empty" role="status" hidden>进入游戏并载入存档后即可查询。</p>
-            <section id="pane-dex" aria-label="图鉴" hidden><div id="dex-panel"></div></section>
+            <section id="pane-dex" aria-label="图鉴" hidden><p id="dex-waiting" class="hint" hidden>载入游戏存档后，可查看图鉴、比较路线和预览持有个体的禁招建议。</p><div id="dex-panel"></div></section>
             <section id="pane-weather" aria-label="天气" hidden><div id="weather-panel" aria-label="地区天气预报"></div></section>
             <section id="pane-eggs" aria-label="孵蛋" hidden></section>
             <section id="pane-settings" aria-label="设置" hidden>
+            <label class="setting">助手外观<select id="panel-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
             <section id="settings-purchase" class="purchase-card">
                 ${purchaseToggle}
                 <div class="hint">控制本账号的道具采购、主线补练买糖和寄养扩容，已入队任务也遵循此开关。</div>
@@ -162,6 +210,7 @@
             <label class="setting"><span><input type="checkbox" data-setting="trainBuddy">练级 / 补练自动选择经验搭档 Buddy</span></label><div class="hint">搭档获得 1.3 倍经验。当前搭档仍需培养时会保留，更换会重置搭档的击倒计数。</div>
             <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div><div class="caption">后台服务 · 不替换当前任务</div><div class="checks background-toggles"><label title="优先领取成熟蛋，可在普通战斗期间处理，完成后返回原任务"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="进入神奥后仅用空闲队员自动组队派遣；保护主队、Buddy、培养对象与活动队员"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
             ${underStartControls}<div class="hint">地下主任务和后台派遣共用起点。归队领取后按最高纪录开放 25、50、75、100 层。跳过的楼层没有经验和掉落。</div>
+            <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
             <h3>孵蛋自动化</h3>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="idleHatch">待命时自动领取成熟蛋</span></label>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="autoFeed">下一枚自然蛋喂果才闪时自动喂靛莓果</span></label>
@@ -191,6 +240,7 @@
                 <label class="setting">地图失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
                 <label class="setting">定时停止（分钟，0 不限）<input data-setting="stopMinutes" type="number" min="0" max="1440"></label>
                 <label class="setting"><span><input type="checkbox" data-setting="resumeOnReload">刷新后自动恢复未停止的任务</span></label>
+                <label class="setting"><span><input type="checkbox" data-setting="autoRecover" aria-describedby="recovery-hint">连接异常且任务停滞时尝试恢复</span></label><div class="hint" id="recovery-hint">先启用刷新后续跑；在运行实况查看恢复依据。</div>
                 <div class="hint">自动收蛋默认开启：在安全间隙孵化成熟蛋，完成后返回当前任务；支持补练和独立任务空闲期。新蛋由游戏自动进入孵化器，不购买槽位、不更换亲本。</div>
                 <label class="setting">图鉴完成后<select data-setting="afterDex"><option value="money">继续刷钱</option><option value="stop">停止助手</option></select></label>
                 <label class="setting"><span><input type="checkbox" data-setting="progress">无图鉴目标时推进主线</span></label>
@@ -230,6 +280,9 @@
         // Version 1.1.0 used a single position; migrate it only to the expanded panel.
         if (!ui.panel && Number.isFinite(ui.x) && Number.isFinite(ui.y)) ui.panel = { x: ui.x, y: ui.y };
         function saveUI() { try { localStorage.setItem(PREFIX + 'ui', JSON.stringify(ui)); } catch {} }
+        const applyPanelAppearance=mountPanelAppearance(root,host,ui,saveUI);
+        const logPanel=mountPanelLogs(root,engine,()=>{viewSignature=null;render();});
+        const fieldInsights=mountFieldInsights(root,engine,life.signal);
         const metricGroup=query('#yield-metric');
         function selectYieldView(value) {
             ui.yieldView=['money','train'].includes(value)?value:'task';
@@ -239,8 +292,13 @@
         }
         selectYieldView(ui.yieldView);
         const workspaces = [...root.querySelectorAll('[data-workspace]')];
+        const content=query('.content');
+        const workspaceScroll=ui.scroll&&typeof ui.scroll==='object'?ui.scroll:{};
+        ui.scroll=workspaceScroll;
+        function rememberWorkspaceScroll(){if(!ui.folded&&ui.workspace)workspaceScroll[ui.workspace]=content.scrollTop;}
         function selectWorkspace(name, refresh = true) {
             const active = workspaces.find(button => button.dataset.workspace === name) || workspaces[0];
+            if(refresh)rememberWorkspaceScroll();
             for (const button of workspaces) {
                 const selected = button === active;
                 button.setAttribute('aria-pressed', String(selected));
@@ -249,7 +307,23 @@
             ui.workspace = active.dataset.workspace;
             query('.panel').classList.toggle('lookup-page', ['dex','weather','eggs'].includes(ui.workspace));
             query('.panel').classList.toggle('queue-page', ui.workspace==='queue');
-            if (refresh) { query('.content').scrollTop = 0; saveUI(); render(); place(); }
+            if (refresh) {
+                render();place();content.scrollTop=Number(workspaceScroll[ui.workspace])||0;
+                const nav=active.parentElement,box=active.getBoundingClientRect(),bounds=nav.getBoundingClientRect();
+                if(box.right>bounds.right)nav.scrollLeft+=box.right-bounds.right;
+                else if(box.left<bounds.left)nav.scrollLeft+=box.left-bounds.left;
+                saveUI();
+            }
+        }
+        function jumpTo(workspace,selector){
+            if(ui.folded)fold(false);
+            selectWorkspace(workspace);
+            const target=selector&&query(selector);if(!target)return;
+            if(target.tagName==='DETAILS')target.open=true;
+            for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;
+            const focus=target.tagName==='DETAILS'?target.querySelector('summary'):target;
+            if(!focus.matches('button,input,select,textarea,summary,[tabindex]'))focus.tabIndex=-1;
+            focus.focus({preventScroll:true});focus.scrollIntoView({block:'nearest'});
         }
         for (const button of workspaces) button.onclick = () => selectWorkspace(button.dataset.workspace);
         query('#open-queue').onclick=()=>selectWorkspace('queue');
@@ -268,7 +342,7 @@
             selectWorkspace('tasks');showCategory('collect');
             query('[data-setting="breedId"]').focus();
         };
-        const dexPanel=mountDexPanel(root,render);
+        const dexPanel=mountDexPanel(root,render,()=>{if(ui.folded)fold(false);selectWorkspace('dex');});
         const weatherPanel=mountWeatherPanel(query('#weather-panel'),ui,saveUI,render);
         const renderSeason=mountSeasonCalendar(query('#season-calendar'));
         query('#hunt-forecast').onclick=()=>{
@@ -296,7 +370,12 @@
             } else if (ui.folded) { host.style.top = 'auto'; host.style.bottom = 'max(14px, env(safe-area-inset-bottom))'; }
             else host.style.top = innerWidth <= 450 || innerHeight <= 560 ? '12px' : '86px';
         }
-        function fold(value) { const changed=!!ui.folded!==value;ui.folded = value; query('.panel').classList.toggle('hidden', value); query('.mini').classList.toggle('hidden', !value); saveUI();if(changed)render();place(); }
+        function fold(value) {
+            const changed=!!ui.folded!==value;if(value&&!ui.folded)rememberWorkspaceScroll();
+            ui.folded=value;query('.panel').classList.toggle('hidden',value);query('.mini-bar').classList.toggle('hidden',!value);query('.mini').classList.toggle('hidden',!value);
+            query('.mini').setAttribute('aria-expanded',String(!value));applyPanelAppearance();saveUI();if(changed)render();place();
+            if(changed&&!value)content.scrollTop=Number(workspaceScroll[ui.workspace])||0;
+        }
         function renderEnvironment(now){
             const node=query('#execution-environment');
             const text=backgroundKeepalive(now)?'保活扩展已启用，心跳有效，助手拥有后台运行许可。浏览器冻结时会保留任务并等待恢复。':document.hidden?'当前标签在后台，等待回到游戏后继续。可在游戏页启用包内的保持激活扩展。':'当前游戏页面可操作。切走后要继续推图，可加载完整包里的 pokecatch-keep-active，并在游戏页开启。';
@@ -337,6 +416,7 @@
             return model;
         }
         helperAPI.show=()=>{
+            if(life.signal.aborted)return requestOwner(showEvent);
             revealHost(host);delete ui.panel;
             fold(false);render();place();return true;
         };
@@ -421,18 +501,24 @@
         huntChecks('#hunt-regions','Regions',DATA.regions.map(r=>[r.key,r.name]));
         huntChecks('#hunt-weather','Weather',Object.entries(WEATHER_LABELS));
         function selectedSpecies(cfg){return cfg.mode==='shiny'?shinyGoals(cfg):cfg.dexSpecies;}
+        const huntSearch=query('#hunt-search'),huntPicker=query('#hunt-picker'),speciesDetails=huntSearch.closest('details');
+        let speciesOptionsKey=null;
         function filterSpecies(){
-            const cfg=engine.settings,term=query('#hunt-search').value.trim().toLowerCase().replace(/^#/,'');
-            const picker=query('#hunt-picker'),selected=new Set(selectedSpecies(cfg));
-            picker.replaceChildren();
+            const cfg=engine.settings,term=huntSearch.value.trim().toLowerCase().replace(/^#/,'');
+            const ids=selectedSpecies(cfg),key=JSON.stringify([cfg.mode,term,ids]);
+            if(key===speciesOptionsKey)return;
+            const selected=new Set(ids),options=document.createDocumentFragment();
             for(const mon of DATA.mons){
                 if(selected.has(mon.id)||cfg.mode==='shiny'&&(!WILD_SHINY_IDS.has(mon.id)||mon.legend))continue;
                 if(term&&!mon.name.includes(term)&&!mon.key?.includes(term)&&!String(mon.id).startsWith(term))continue;
-                addOption(picker,mon.id,'#'+mon.id+' '+mon.name);
+                addOption(options,mon.id,'#'+mon.id+' '+mon.name);
             }
-            query('#hunt-add').disabled=!picker.value;
+            huntPicker.replaceChildren(options);
+            query('#hunt-add').disabled=!huntPicker.value;
+            speciesOptionsKey=key;
         }
-        query('#hunt-search').oninput=filterSpecies;
+        huntSearch.oninput=filterSpecies;
+        speciesDetails.addEventListener('toggle',()=>{if(speciesDetails.open)filterSpecies();});
         query('#hunt-add').onclick=()=>{
             const cfg=engine.settings,id=Number(query('#hunt-picker').value);
             if(id)changeSetting(cfg.mode+'Species',[...selectedSpecies(cfg),id]);
@@ -454,7 +540,7 @@
                 button.disabled=mode==='shiny'&&species.length===1;
                 button.onclick=()=>changeSetting(mode+'Species',species.filter(value=>value!==id));wrap.append(button);
             }
-            filterSpecies();
+            if(speciesDetails.open)filterSpecies();
         }
         let eggRegionKey = '';
         function updateBreedingOptions(s) {
@@ -665,6 +751,7 @@
         const taskState=()=>[engine.runId,engine.running,!!engine.manual,!!engine.suspended,engine.queueIndex,engine.settings.mode].join('|');
         const paintDue=()=>taskState()!==paintedTask||performance.now()-lastPaint>=2000;
         function render(reuseLocalSnapshot=false) {
+            if(life.signal.aborted)return;
             lastPaint=performance.now();
             if(ui.workspace==='activity'&&!ui.folded)renderEnvironment(Date.now());
             if(document.hidden){engine.releaseRankingView();return;}
@@ -673,10 +760,12 @@
                 engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
+            if(helperAPI.ready)dexPanel.syncNative(s);
             query('#export-box').disabled=!s?.adv;
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             paintedTask=taskState();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
+            const insights=fieldInsights.update(s,now,ui);
             if(wait?.reason==='ready'&&engine.running&&!pageHidden()&&!engine.timer)engine.schedule(50);
             if(ui.folded||ui.workspace!=='activity'||tab!=='maps'||!s?.adv)engine.releaseRankingView();
             if(ui.workspace==='settings'&&!ui.folded){
@@ -733,13 +822,16 @@
             }
             const queueStep=engine.queueRunning&&engine.running?`${engine.queueIndex+1}/${engine.queue.length}`:'';
             query('#run-state').textContent = engine.suspended?'PAUSED · 页面已挂起':engine.manual ? 'PAUSED · 手动控制' : nativePaused?'PAUSED · 游戏暂停':engine.running ? queueStep?`队列 ${queueStep} · 运行中`:'RUNNING · 运行中' : 'READY · 已停止';
-            query('#mini-state').textContent = wait ? `${engine.suspended?'挂起':'手动'} · ${wait.mini}` : nativePaused?'游戏已暂停':engine.running ? (engine.preparation?'补练 → ':'')+activeLabel+(queueStep?' '+queueStep:'') : '待命';
-            if(ui.folded){
-                const pendingCount=Number(readyBackgroundEggs(s,now).length>0)+Number(!!s?.under?.slots?.length&&undergroundStatus(s,now).ready.length>0);
-                if(pendingCount)query('#mini-state').textContent+=` · 待办 ${pendingCount}`;
-            }else if(ui.workspace==='activity')renderExecution(s,now);
-            const nursery=nurseryPanel.render(s,now);if(nursery?.counts.shiny)query('#mini-state').textContent+=` · ✦蛋${nursery.counts.shiny}`;
-            if(nursery?.counts.estimatedShiny)query('#mini-state').textContent+=` · 预计闪蛋${nursery.counts.estimatedShiny}`;
+            const miniState=query('#mini-state');
+            const miniBase=wait ? `${engine.suspended?'挂起':'手动'} · ${wait.mini}` : nativePaused?'游戏已暂停':engine.running?(engine.preparation?'补练 → ':'')+activeLabel+(queueStep?' '+queueStep:''):engine.lastStop?.reason?'已停 · '+engine.lastStop.reason:'待命';
+            if(ui.folded)updateMiniActions(root,engine,s,now,insights.itemSummary);
+            else if(ui.workspace==='activity'){
+                renderExecution(s,now);
+                if(query('#health-insight').open)renderHealthFacts(query('#health-facts'),engine.healthReport(now),now);
+            }
+            const nursery=nurseryPanel.render(s,now),miniText=miniBase+(nursery?.counts.shiny?' · ✦蛋'+nursery.counts.shiny:'')+(nursery?.counts.estimatedShiny?' · 预计闪蛋'+nursery.counts.estimatedShiny:'');
+            if(miniState.textContent!==miniText)miniState.textContent=miniText;
+            miniState.title=miniText;
             if(lastMode!==selectedCard()||settingsViewKey!==JSON.stringify(engine.settings))syncSettings();
             if(ui.folded)return;
             renderSeason(now);
@@ -802,15 +894,26 @@
             }
             const lookup = ['dex','weather','eggs'].includes(ui.workspace);
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
+            logPanel.controls(ui.workspace==='activity'&&tab==='logs');
             metricGroup.hidden = !s?.adv || tab!=='maps';
+            const decision=query('#task-decision');
+            decision.hidden=ui.workspace!=='tasks'||!s?.adv;
+            if(ui.workspace==='settings')query('[data-setting="autoRecover"]').disabled=!engine.settings.resumeOnReload||locked;
             if(ui.workspace==='queue'){drawQueue(s,locked,pending,editingJob,queueError);return;}
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;query('#weather-panel').hidden=true;
-                const view=query('#view');view.hidden=false;viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';return;
+                query('#dex-waiting').hidden=ui.workspace!=='dex';
+                const view=query('#view');view.hidden=false;
+                if(ui.workspace==='activity'&&tab==='logs'){
+                    const key=JSON.stringify(['offline-logs',logPanel.filterKey(),engine.logHistory()]);
+                    if(key!==viewSignature){view.replaceChildren();logPanel.draw(view);viewSignature=key;}
+                }else{viewSignature=null;view.textContent='进入游戏并载入存档后可查看任务和图鉴。';}
+                return;
             }
             if (lookup) {
                 if(ui.workspace==='eggs')return;
                 if (ui.workspace === 'dex') {
+                    query('#dex-waiting').hidden = true;
                     query('#dex-panel').hidden = false;
                     dexPanel.renderDex(s,engine.settings,now);
                 } else {
@@ -921,6 +1024,7 @@
             else if(mode==='progress'){primary=`${Math.min(settings.progressUntil,s.adv.unlocked)}/${settings.progressUntil}`;primaryLabel='主线章节';goalLabel=CHAPTERS.get(settings.progressUntil)?.name;goalValue=`当前 ${CHAPTERS.get(s.adv.chapter)?.name||s.adv.chapter}`;percent=s.adv.unlocked/Math.max(1,settings.progressUntil)*100;}
             query('#dex-value').textContent = primary; query('#primary-label').textContent = primaryLabel; query('#target-hint').textContent = hint;
             query('#goal-label').textContent = goalLabel; query('#goal-value').textContent = goalValue;
+            if(!decision.hidden)renderTaskExplanation(decision,engine,{goalLabel,goalValue,hint,actionText,activeLabel,wait});
             percent = Math.max(0,Math.min(100,percent || 0)); query('#task-progress i').style.width = `${percent}%`; query('#task-progress').setAttribute('aria-valuenow', String(Math.round(percent)));
             const buildInfo=query('#build'),liveBuild=window.BUILD;
             const planningVerified=!!liveBuild&&[DATA.combat.build,DATA.economy.build,WEATHER_DATA.build].every(build=>build===liveBuild);
@@ -937,15 +1041,18 @@
             const adjacent=id=>rows.find(row=>row.reg===current.reg&&row.members.includes(id));
             const previous=adjacent(Math.min(...current.members)-1),next=adjacent(Math.max(...current.members)+1);
             function relativeRate(from,to){
+                if(!Number.isFinite(from.rate)||!Number.isFinite(to.rate))return '暂待计算';
+                if(from.rate<=0)return to.rate>0?'高，参考图当前经验估算为 0':'均为 0';
                 const difference=(to.rate/from.rate-1)*100;
                 return Math.abs(difference)<.05?'几乎持平':(difference>0?'高 ':'低 ')+Math.abs(difference).toFixed(1)+'%';
             }
             const comparisons=[];
-            if(previous?.rate>0)comparisons.push(current.name+'比上一图'+previous.name+'的每分钟经验'+relativeRate(previous,current));
-            if(next&&current.rate>0)comparisons.push('下一图'+next.name+'比当前图'+relativeRate(current,next));
+            if(previous)comparisons.push(current.name+'与上一图'+previous.name+'比较，当前图每分钟经验'+relativeRate(previous,current));
+            if(next)comparisons.push('下一图'+next.name+'比当前图的每分钟经验'+relativeRate(current,next));
             const best=rows[0];
             let decision='当前在'+current.name+'，已是候选中每分钟经验最高的地图。';
-            if(best.key!==current.key){
+            if(!rows.some(row=>row.rate>0))decision='当前在'+current.name+'，候选路线暂无正的每分钟经验估算。';
+            else if(best.key!==current.key){
                 const margin=trainingSwitchMargin(current,best);
                 const gain=current.rate>0?'（'+relativeRate(current,best)+'）':'';
                 decision='当前在'+current.name+'，'+best.name+'排名第一'+gain+'。'+
@@ -965,7 +1072,7 @@
             }
             let rows,signature=null,leagueNotes=[],retained=false;
             if(FLOW_MODES.has(mode)||['legend','roam','shiny','item'].includes(mode))engine.releaseRankingView();
-            if(tab==='logs')signature=JSON.stringify([tab,engine.logs]);
+            if(tab==='logs')signature=JSON.stringify([tab,logPanel.filterKey(),engine.logHistory()]);
             else if(FLOW_MODES.has(mode))signature='flow:'+mode;
             else if(mode==='shiny')signature=JSON.stringify([mode,shinyRoutes.map(row=>[row.key,row.name,row.expected])]);
             else if(!['legend','roam'].includes(mode)){
@@ -1063,8 +1170,7 @@
                     view.appendChild(table); if (!rows.length) { const empty = document.createElement('div'); empty.className = 'empty'; empty.textContent = '当前范围没有可规划地图，请检查解锁、来源条件或目标。'; view.appendChild(empty); }
                 }
             } else {
-                for (const item of engine.logs) { const el = document.createElement('div'); el.className = 'log'; const time = document.createElement('time'); time.textContent = item.time; el.append(time,item.text); view.appendChild(el); }
-                if (!engine.logs.length) view.append('开始运行后将在这里记录切图、收益与停止原因。');
+                logPanel.draw(view);
             }
             view.scrollTop = scroll;
         }
@@ -1174,7 +1280,7 @@
         query('#item-search').addEventListener('input',itemOptions);
         function beginDrag(event) {
             const mini = event.currentTarget === query('.mini');
-            if (event.button !== 0 || !mini && event.target.closest('button')) return;
+            if (event.button !== 0 || !mini&&ui.expanded || !mini && event.target.closest('button')) return;
             const box = host.getBoundingClientRect();
             drag = { key: mini ? 'mini' : 'panel', pointer: event.pointerId, x: event.clientX, y: event.clientY, dx: event.clientX-box.left, dy: event.clientY-box.top, moved: false };
             event.currentTarget.setPointerCapture(event.pointerId); event.preventDefault();
@@ -1194,9 +1300,24 @@
             handle.addEventListener('pointerdown',beginDrag); handle.addEventListener('pointermove',moveDrag);
             handle.addEventListener('pointerup',endDrag); handle.addEventListener('pointercancel',endDrag); handle.addEventListener('lostpointercapture',endDrag);
         }
-        window.addEventListener('resize',place);
-        query('#fold').onclick=()=>fold(true);
-        query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);};
+        window.addEventListener('resize',place,{signal:life.signal});
+        query('.mini-links').onclick=event=>{
+            const button=event.target.closest('[data-mini-link]');if(!button)return;
+            const key=button.dataset.miniLink==='next'?button.dataset.nextTarget:button.dataset.miniLink;
+            if(key==='logs'){selectActivityTab('logs');jumpTo('activity','#log-tools');}
+            else if(key==='underground')jumpTo('activity','#underground-insight');
+            else if(key==='eggs')jumpTo('eggs','#nursery-info');
+            else if(key==='queue')jumpTo('queue','#queue-list');
+            else if(key==='gain'&&engine.settings.mode==='item')jumpTo('tasks','#item-field-insight');
+            else if(key==='gain'){selectActivityTab('maps');jumpTo('activity','#view');}
+            else jumpTo('activity','#execution-info');
+        };
+        query('#health-insight').addEventListener('toggle',()=>{if(query('#health-insight').open)render();});
+        query('#underground-insight').addEventListener('toggle',()=>{if(query('#underground-insight').open)render();});
+        query('#raid-insight').addEventListener('toggle',()=>{if(query('#raid-insight').open)render();});
+        for(const button of root.querySelectorAll('[data-open-raid-insight]'))button.onclick=()=>jumpTo('activity','#raid-insight');
+        query('#fold').onclick=()=>{fold(true);query('.mini').focus({preventScroll:true});};
+        query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);query('#fold').focus({preventScroll:true});};
         function finishQueueEdit(){
             if(!editingJob)return;
             engine.settings=engine.taskSettings(engine.queueDraftBase);
@@ -1290,7 +1411,8 @@
             }catch(error){result.textContent='盒子导出失败 · '+error.message;}
         };
         query('#export').onclick=()=>{
-            const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logs};
+            const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logHistory()};
+            diagnostic.health=engine.healthReport();diagnostic.lastStop=engine.lastStop;
             downloadJson(diagnostic,'pokecatch-helper-diagnostic.json');
         };
         query('#probability-info').addEventListener('toggle',()=>{if(query('#probability-info').open)render();});
@@ -1333,7 +1455,7 @@
             } catch (err) { if (epoch === engine.runId) engine.stop(err.message); }
             render();
         };
-        bindManualInput(engine,host,force=>{if(force||performance.now()-lastPaint>=500)render();},()=>helperAPI.show());
+
         document.addEventListener('visibilitychange',()=>{
             if(document.hidden){
                 if(pageHidden()&&engine.running)engine.hiddenAt??=Date.now();
@@ -1344,7 +1466,7 @@
             if(engine.suspended)engine.resumeSuspended();
             else if(engine.running&&!engine.restoring)engine.schedule(50);
             engine.notifyView(true);place();
-        });
+        },{signal:life.signal});
         engine.gameInputFocused = () => {
             const active = document.activeElement;
             return !!active&&active!==host&&active!==document.body&&(active.isContentEditable||active.tagName==='TEXTAREA'||active.tagName==='INPUT'&&['text','search','password','email','url','tel','number'].includes(active.type));
@@ -1357,9 +1479,9 @@
             return false;
         };
         window.addEventListener('pagehide', () => {
-            try{commitBudgetDrafts();}
+            try{rememberWorkspaceScroll();saveUI();commitBudgetDrafts();}
             finally{engine.releaseRankingView();engine.nurseryAssist.cancelIdle();engine.suspend();}
-        });
+        },{signal:life.signal});
         window.addEventListener('storage',event=>{
             if((event.key===SAVE_KEY||event.key===null)&&event.storageArea===engine.storage)engine.markLocalDirty();
             if(engine.nurseryAssist.key&&event.key===engine.nurseryAssist.key){
@@ -1368,22 +1490,40 @@
             if(!engine.account||event.key!==PREFIX+'purchase:'+engine.account)return;
             engine.refreshAutoPurchase();
             syncSettings();render();
-        });
-        window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();engine.notifyView(true);}});
+        },{signal:life.signal});
+        window.addEventListener('pageshow',()=>{if(engine.suspended){engine.resumeSuspended();engine.notifyView(true);}},{signal:life.signal});
         engine.onChange = (force=true) => {if(force||paintDue())render(!force);};
-        itemOptions(); syncSettings(); render(); fold(!!ui.folded);
-        setInterval(()=>{
+        itemOptions(); syncSettings(); render(); fold(!!ui.folded);if(!ui.folded)content.scrollTop=Number(workspaceScroll[ui.workspace])||0;
+        bindManualInput(engine,host,force=>{if(force||performance.now()-lastPaint>=500)render();},()=>helperAPI.show(),life.signal);
+        heartbeatTimer=setInterval(()=>{
             if(!document.hidden&&engine.settings.resumeOnReload&&engine.suspended?.retryAt<=Date.now())engine.resumeSuspended();
             try{engine.nurseryAssist.idleStep();}
             catch(error){engine.nurseryAssist.cancelIdle();engine.nurseryAssist.note='待命孵蛋暂停 · '+error.message;}
             if(!document.hidden&&paintDue())engine.notifyView();
         },2500);
         helperAPI.ready=true;startupPhase='已显示';
+        document.getElementById('pokecatch-helper-recovery')?.remove();
+        if(recoveringLegacy){
+            // Older releases kept their own menus and visibility listeners after a failed mount.
+            const legacyNodes=new MutationObserver(changes=>{
+                for(const change of changes)for(const node of change.addedNodes){
+                    if(node!==host&&node.isConnected&&(node.id==='pokecatch-auto-helper'||node.id==='pokecatch-helper-recovery'))node.remove();
+                }
+                if(!host.isConnected&&document.body)document.body.appendChild(host);
+            });
+            legacyNodes.observe(document.body,{childList:true});
+            life.signal.addEventListener('abort',()=>legacyNodes.disconnect(),{once:true});
+        }
+        dexPanel.syncNative(engine.state);
         }catch(err){
             const reason='助手界面初始化失败：'+(err?.message||err);
-            try{engine.stop(reason);}catch{}
-            helperAPI.ready=false;helperAPI.error=reason;
-            showStartupError(err);helperAPI.show=()=>restorePanel();
+            life.abort();clearInterval(heartbeatTimer);
+            helperAPI.ready=false;helperAPI.error=reason;engine.onChange=null;
+            engine.networkObserver?.disconnect();engine.nurseryAssist.cancelIdle();ownedHost?.remove();
+            try{engine.stop(reason,{persist:false});}catch{}
+            showStartupError(err);
+            const showFailure=restorePanel;
+            helperAPI.show=restorePanel=()=>requestOwner(showEvent)||showFailure();
         }
     }
     mount();

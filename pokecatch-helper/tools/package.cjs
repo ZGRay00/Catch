@@ -44,6 +44,8 @@ function collectFiles(projectRoot=DEFAULT_PROJECT,version){
     }}walk(root);
   }
   addFile(path.join(workspace,'Pokecatch自动助手.user.js'),'Pokecatch自动助手.user.js');
+  const manual=path.join(workspace,'Pokecatch自动助手使用说明.txt');
+  if(fs.existsSync(manual))addFile(manual,'Pokecatch自动助手使用说明.txt');
   for(const name of ['package.json','README.md','ARCHITECTURE.md','build.manifest.json','userscript.header.txt'])addFile(localFile(project,name),'pokecatch-helper/'+name);
   for(const relative of ['src','data','tools','tests','docs'])tree(relative,file=>/\.(?:js|cjs|mjs|json|txt|md)$/.test(file));
   for(const name of ['pokecatch-helper.user.js','pokecatch-helper.meta.js','build-info.json'])addFile(path.join(project,'dist',name),'pokecatch-helper/dist/'+name);

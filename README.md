@@ -1,8 +1,12 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.1.1**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.1.3**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.1.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.1.3.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+8.1.3 · 「传说目标」的「全选」旁新增「取消」，可一次清空所有地区的目标，包括搜索时隐藏的项目。刷新后会保留空选，可重新勾选或全选。
+
+8.1.2 · 原生详情的「家族」按钮跟随游戏配色，按名称、普通或异色和等级区分持有个体。窄屏上按钮自动换行，较长的进化链可左右滑动。
 
 8.1.1 · 在「图鉴 → 路线对比」选定路线后，可并排比较两只宝可梦的首击输出、命中率和满血耐久。点 A 或 B 可查看该个体的禁招建议。当前游戏版本的规则待核对时，列表顶部提示一次，并按上次核对的规则继续列出候选和理由。
 

@@ -116,10 +116,11 @@
                         <div class="legend-tools">
                             <input type="search" id="legend-search" placeholder="搜宝可梦、地点或地区" aria-label="搜索传说目标">
                             <button type="button" id="legend-all" title="选中所有地区的传说目标">全选</button>
+                            <button type="button" id="legend-clear" title="取消所有地区的已选传说目标" aria-label="取消全部已选传说目标">取消</button>
                         </div>
                         <div id="legend-checks" class="legend-list"></div>
                         <div id="legend-empty" class="hint" role="status" hidden>没有匹配的传说目标。</div>
-                        <div class="legend-footer"><span id="legend-count" role="status"></span><span>按地图顺序挑战，跳过已完成目标</span></div>
+                        <div class="legend-footer"><span id="legend-count" role="status"></span><span id="legend-instruction"></span></div>
                     </details>
                     <div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div>
                     <div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>
@@ -449,12 +450,12 @@
         }
         legendChecks.onchange=()=>{
             const ids=[...legendEntries].filter(([,entry])=>entry.input.checked).map(([id])=>id);
-            if(ids.length)changeSetting('legendIds',ids);
-            else syncSettings();
+            changeSetting('legendIds',ids);
         };
-        const legendAll=query('#legend-all');
+        const legendAll=query('#legend-all'),legendClear=query('#legend-clear');
         legendAll.textContent='全选 '+legendEntries.size+' 项';
         legendAll.onclick=()=>changeSetting('legendIds',[...legendEntries.keys()]);
+        legendClear.onclick=()=>changeSetting('legendIds',[]);
         function filterLegendTargets(){
             const words=legendSearch.value.trim().toLowerCase().split(/\s+/);
             let found=false;
@@ -476,13 +477,15 @@
             const selected=new Set(selectedLegendIds(cfg));
             for(const [id,entry] of legendEntries){
                 const picked=selected.has(id),last=picked&&selected.size===1;
-                entry.input.checked=picked;entry.input.disabled=locked||last;entry.only.disabled=locked||last;
+                entry.input.checked=picked;entry.input.disabled=locked;entry.only.disabled=locked||last;
                 entry.row.classList.toggle('selected',picked);
             }
             const single=selected.size===1&&legendEntries.get(cfg.legendId);
             query('#legend-selection').textContent=single?`${single.name} · ${single.place}`:selected.size===legendEntries.size?'全部目标':`已选 ${selected.size} 项`;
             query('#legend-count').textContent=`已选 ${selected.size} / ${legendEntries.size}`;
+            query('#legend-instruction').textContent=selected.size?'按地图顺序挑战，跳过已完成目标':LEGEND_TARGET_REQUIRED;
             legendAll.disabled=locked||selected.size===legendEntries.size;
+            legendClear.disabled=locked||selected.size===0;
         }
         function addOption(select,value,label){const el=document.createElement('option');el.value=String(value);el.textContent=label;select.appendChild(el);}
         for(const group of ROAMING_DATA.groups){const options=document.createElement('optgroup');options.label=DATA.regions.find(region=>region.key===group.reg)?.name||group.reg;for(const id of group.ids)addOption(options,id,`#${id} ${MONS.get(id)?.name||id}`);query('[data-setting="roamId"]').appendChild(options);}
@@ -845,8 +848,10 @@
             const dailyBase=engine.daily?.base||engine.settings,baseMode=engine.daily?.base.mode||dailyMainMode(dailyBase);
             const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
             const dailyCard=selectedCard()==='daily';
+            const cardSettings=dailyCard?dailyBase:engine.settings;
+            const missingLegendTarget=(dailyCard?baseMode:cardSettings.mode)==='legend'&&cardSettings.legendId===null;
             if(ui.workspace==='tasks'){
-                const cfg=dailyCard?dailyBase:engine.settings,ids=selectedLegendIds(cfg);
+                const cfg=cardSettings,ids=selectedLegendIds(cfg);
                 for(const el of roamingStock){
                     const roaming=el.dataset.roamBallStock==='roam';
                     const target=roaming?cfg.roamId:!cfg.legendTier&&ids.length===1?ids[0]:null;
@@ -860,7 +865,7 @@
                     if(el.textContent!==value)el.textContent=value;
                 }
             }
-            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily);
+            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily)||missingLegendTarget;
             query('#daily-edit-goal').hidden=locked||baseMode==='legend'||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
             const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
@@ -874,7 +879,7 @@
             query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
             const pending=engine.queue.filter(queueJobPending),nextJob=pending[0];
             query('#queue-count').textContent=pending.length;
-            query('#add-job').disabled=locked||dailyCard||!s?.adv;
+            query('#add-job').disabled=locked||dailyCard||!s?.adv||missingLegendTarget;
             query('#start-queue').disabled=locked||!!editingJob||!nextJob||!s?.adv;
             query('#start-queue').classList.toggle('hidden',locked);
             query('#start-queue').textContent=engine.running&&engine.queueRunning?'任务队列运行中':nextJob?.progress?'继续任务队列':'运行任务队列';
@@ -974,7 +979,10 @@
                 goalValue = `${status.missing.length} 只待捕获`;
                 hint = '按所选物种各自的捕获记录计数。助手会在符合地区和地图天气的路线中寻找剩余目标。';
             }
-            if (mode === 'legend') {
+            if (mode==='legend'&&settings.legendId===null){
+                primary='0 项';primaryLabel='已选传说目标';goalLabel='传说目标';goalValue='未选择';percent=0;
+                hint=LEGEND_TARGET_REQUIRED;
+            } else if (mode === 'legend') {
                 const p = legendProgress(s, settings);
                 primary = settings.legendTier ? `${p.tier}/${settings.legendTier}` : p.done ? '已完成' : '待捕获'; primaryLabel = settings.legendTier ? '精英阶级' : '普通捕获'; goalLabel = p.zone.monName || p.zone.name; goalValue = settings.legendTier ? `推进至 ${settings.legendTier} 阶` : '全部轮换形态'; percent = p.done ? 100 : settings.legendTier ? p.tier / settings.legendTier * 100 : 0;
                 if(settings.legendIds?.length>1){
@@ -1107,7 +1115,7 @@
             if (tab === 'maps') {
                 if (mode === 'legend') {
                     const p = legendProgress(s,engine.settings), el = document.createElement('div'); el.className = 'empty';
-                    el.textContent = `${p.zone.monName || p.zone.name} · ${DATA.regions.find(r=>r.key===p.zone.reg)?.name} / ${p.zone.name}。${p.done ? '所选目标已完成。' : `当前精英 ${p.tier} 阶。${p.zone.condition || '请查看游戏开放条件。'}`}`; view.appendChild(el);
+                    el.textContent = p.zone?`${p.zone.monName || p.zone.name} · ${DATA.regions.find(r=>r.key===p.zone.reg)?.name} / ${p.zone.name}。${p.done ? '所选目标已完成。' : `当前精英 ${p.tier} 阶。${p.zone.condition || '请查看游戏开放条件。'}`}`:LEGEND_TARGET_REQUIRED; view.appendChild(el);
                 } else if(mode==='roam'){
                     const p=roamingProgress(s,engine.settings,Date.now()),el=document.createElement('div');el.className='empty';
                     const map=CHAPTERS.get(p.location?.ch);el.textContent=`${MONS.get(engine.settings.roamId)?.name||engine.settings.roamId} · ${p.captured?'目标已捕获':p.unlocked?'已满足地区冠军条件':'需先获得对应地区冠军徽章'}。${map?'当前驻留：'+map.name+'。':'暂无有效驻留记录，按原生踪迹查找。'}普通色目标，基础捕获率 4%，捕获树果可提高捕获率。`;view.appendChild(el);
@@ -1187,6 +1195,7 @@
             if (engine.running||engine.suspended) return false;
             const previous=engine.settings;
             const patch=key==='underStartChoice'?{underAutoStart:value==='auto',underFrom:value==='auto'?previous.underFrom:Number(value)}:{[key]:value};
+            if(key==='legendIds'&&!value.length)patch.legendId=null;
             engine.settings=normalizeSettings({...previous,...patch});
             try {
                 if(engine.account&&!editingJob&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');

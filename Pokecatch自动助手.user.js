@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.1.1
+// @version      8.1.3
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.1.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.1.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -535,7 +535,9 @@
         }
         if(RESOURCE_IDS.has(raw.resourceItem))out.resourceItem=raw.resourceItem;
         if(typeof raw.useUid==='string'&&raw.useUid.length<120)out.useUid=raw.useUid;
-        if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
+        // Older single-target profiles store an empty list and the selected numeric ID.
+        if (raw.legendId===null) out.legendId=null;
+        else if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
         const selectedZones=new Set(Array.isArray(raw.legendIds)?raw.legendIds.map(Number):[]);
         if(selectedZones.size)out.legendIds=DATA.regions.flatMap(region=>
             DATA.zones.filter(zone=>zone.reg===region.key&&selectedZones.has(zone.id)).map(zone=>zone.id));
@@ -732,9 +734,12 @@
         case 'progress':
             if(e.progressReached?.(s))reason='主线目标章节已完成';
             break;
-        case 'legend':
-            if(legendGoals(s,cfg).every(goal=>goal.done))reason='指定传说战目标已完成';
+        case 'legend': {
+            const goals=legendGoals(s,cfg);
+            if(!goals.length)return {failed:true,reason:LEGEND_TARGET_REQUIRED};
+            if(goals.every(goal=>goal.done))reason='指定传说战目标已完成';
             break;
+        }
         case 'roam':
             if(roamingProgress(s,cfg,now).done)reason='指定游荡宝可梦已确认捕获';
             break;
@@ -5733,8 +5738,10 @@
             prepNote:note+' · 累计地区训练家胜场'
         })).filter(r=>r.score>0).sort((a,b)=>b.score-a.score);
     }
+    const LEGEND_TARGET_REQUIRED='请先选择至少一个传说目标';
     function selectedLegendIds(settings){
-        return settings.legendIds?.length?settings.legendIds:[settings.legendId];
+        if(settings.legendIds?.length)return settings.legendIds;
+        return settings.legendId==null?[]:[settings.legendId];
     }
     function legendProgress(s, settings, id=settings.legendId, ownedIds) {
         const zone = DATA.zones.find(z => z.id === id);
@@ -5749,6 +5756,7 @@
     }
     function legendSelectionLabel(cfg){
         const ids=selectedLegendIds(cfg);
+        if(!ids.length)return '未选择传说目标';
         const names=ids.slice(0,2).map(id=>DATA.zones.find(z=>z.id===id)?.monName||MONS.get(id)?.name||id);
         return names.join('、')+(ids.length>2?' 等 '+ids.length+' 个目标':'');
     }
@@ -11056,6 +11064,7 @@
             this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
             const s=state,now=Date.now();
             this.beginTask(s,next.progress,now,true);
+            if(this.settings.mode==='legend'&&!selectedLegendIds(this.settings).length){this.failTask(LEGEND_TARGET_REQUIRED);return;}
             if(!this.adoptManualPreparation(s,now,true))return;
             this.status=`队列 ${index+1}/${this.queue.length} · ${next.title}`;this.persist();this.notifyView();
         }
@@ -11236,6 +11245,7 @@
                     if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
                 }
                 const savedDaily=cp?.daily&&!this.queueRunning&&DAILY_BASE_MODES.has(cp.daily.base?.mode)?cp.daily:null;
+                if((savedDaily?.base.mode??mode)==='legend'&&!selectedLegendIds(savedDaily?normalizeSettings(savedDaily.base):this.settings).length)throw new Error(LEGEND_TARGET_REQUIRED);
                 const {tower,event,zone,league}=s.adv;
                 let adoptedFacility=null;
                 if((daily||savedDaily&&!savedDaily.job)&&!event&&!zone&&!league){
@@ -12415,7 +12425,9 @@
         }
         selectLegendTarget(s,now){
             const cfg=this.settings,regions=new Set(['kanto',currentRegion(s),...(s.travel?.to||[])]);
-            const remaining=legendGoals(s,cfg).filter(goal=>!goal.done);
+            const goals=legendGoals(s,cfg);
+            if(!goals.length){this.failTask(LEGEND_TARGET_REQUIRED);return false;}
+            const remaining=goals.filter(goal=>!goal.done);
             if(!remaining.length){this.completeTask('所选传说战目标已全部完成');return false;}
             const eligible=remaining.filter(({zone,captured})=>regions.has(zone.reg)&&(!cfg.legendTier||captured)&&
                 !(this.cooldowns['legend:'+zone.id]>now));
@@ -13645,7 +13657,7 @@
     .legend-picker > summary strong { color:#e4eff9 }
     #legend-selection { color:#a8e5d4; text-align:right; overflow-wrap:anywhere }
     .legend-tools { display:flex; gap:6px; padding:8px; border-top:1px solid #30485d }
-    .legend-tools input { flex:1; min-height:40px }
+    .legend-tools input { flex:1; min-width:0; min-height:40px }
     .legend-tools button { flex:none; min-width:52px }
     .legend-list { max-height:min(36dvh,300px); overflow:auto; padding:0 8px; scrollbar-width:thin }
     .legend-list[hidden] { display:none }
@@ -14067,7 +14079,42 @@
         const tileActions=new WeakMap();
         let openedDex=null;
         const style=document.createElement('style');
-        style.textContent='.pch-hide-captured{display:none!important}.pch-native-family{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.pch-native-family button,.pch-native-filter{min-height:36px;max-width:100%;white-space:normal}.pch-family-tile{cursor:pointer}.pch-family-tile:focus-visible{outline:2px solid currentColor}';
+        style.textContent=`
+            .pch-hide-captured { display:none!important }
+            .pch-native-filter { min-height:36px;max-width:100%;white-space:normal }
+            .pch-family-section { min-inline-size:0 }
+            .pch-family-section > .evo-chain {
+                box-sizing:border-box;max-inline-size:100%;min-inline-size:0;overflow-x:auto;
+                justify-content:safe flex-start;flex-wrap:nowrap;overscroll-behavior-x:contain;scrollbar-width:thin
+            }
+            .pch-family-section > .evo-chain > :is(.evo,.arrow,.evo-branches) { flex-shrink:0 }
+            .pch-family-tile { cursor:pointer }
+            .pch-family-tile:focus-visible { outline:2px solid var(--text,#f2f5ff);outline-offset:-3px }
+            .pch-native-family {
+                display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr));
+                gap:8px;margin-block-start:10px;min-inline-size:0
+            }
+            .pch-native-family > .pch-family-link {
+                appearance:none;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto;
+                align-items:center;column-gap:8px;width:100%;min-width:0;min-height:44px;margin:0;padding:8px 12px;
+                border:1px solid var(--line,#485570);border-radius:8px;background:var(--panel-2,#28334b);
+                color:var(--text,#f2f5ff);font-family:inherit;font-size:14px;font-weight:650;line-height:1.35;
+                text-align:start;white-space:normal;text-shadow:none;box-shadow:none;cursor:pointer;touch-action:manipulation
+            }
+            .pch-family-link .pch-family-copy { display:grid;gap:2px;min-width:0;overflow-wrap:anywhere }
+            .pch-family-link .pch-family-meta {
+                color:var(--muted,#c3cde0);font-size:12px;font-weight:500
+            }
+            .pch-family-link::after {
+                content:"";width:7px;height:7px;
+                border:solid currentColor;border-width:2px 2px 0 0;transform:rotate(45deg);justify-self:end
+            }
+            .pch-native-family > .pch-family-link:focus-visible { outline:2px solid var(--text,#f2f5ff);outline-offset:2px }
+            @media (hover:hover) {
+                .pch-native-family > .pch-family-link:hover { border-color:currentColor }
+            }
+            .pch-native-family > .pch-family-link:active { border-color:currentColor;background:var(--panel,#1d273b) }
+        `;
         document.head?.append(style);
         function currentCard(){return document.querySelector('#modal-root.open .dexcard-modal .dexcard,#modal-root.open .mon-card');}
         function ensureRoster(){
@@ -14121,19 +14168,12 @@
                 if(!owned){entries.push([candidate,null]);continue;}
                 for(const match of ownedById.get(candidate.id)||[])if(match)entries.push([candidate,match]);
             }
-            const key=JSON.stringify([account,owned,current,entries.map(([m,individual])=>[m.id,individual?.uid,individual?.level])]);
+            const key=JSON.stringify([account,owned,current,entries.map(([m,individual])=>[m.id,individual?.uid,individual?.level,!!individual?.shiny])]);
             previousCardSave=save;
             if(familyNode===family&&key===familyKey&&(!entries.length||family.querySelector('.pch-native-family')))return;
+            if(familyNode!==family)family.classList.add('pch-family-section');
             familyNode=family;familyKey=key;
             family.querySelector('.pch-native-family')?.remove();
-            if(!entries.length)return;
-            const nav=document.createElement('div');nav.className='pch-native-family';nav.setAttribute('aria-label','查看同家族形态');
-            for(const [model,mon] of entries){
-                const button=document.createElement('button');button.type='button';
-                button.textContent='查看'+(mon?(mon.shiny?'✦ 异色':'普通'):'')+model.name+(mon?' Lv.'+mon.level:'');
-                button.addEventListener('click',event=>{event.stopPropagation();choose(model.id,mon,card,current);});
-                nav.append(button);
-            }
             for(const {tile,id} of tiles){
                 if(tile.matches('button,a')||tile.onclick||tile.querySelector('button,a'))continue;
                 const shiny=!!tile.querySelector('img[src*="/shiny/"],.shiny-ico');
@@ -14152,7 +14192,24 @@
                     tile.addEventListener('keydown',event=>{if(action.run&&(event.key==='Enter'||event.key===' ')){event.preventDefault();tile.click();}});
                 }
             }
-            family.append(nav);
+            if(!entries.length)return;
+            const nav=document.createElement('div');nav.className='pch-native-family';nav.setAttribute('role','navigation');nav.setAttribute('aria-label','查看同家族形态');
+            for(const [model,mon] of entries){
+                const button=document.createElement('button'),copy=document.createElement('span'),name=document.createElement('span');
+                button.type='button';button.className='pch-family-link';
+                copy.className='pch-family-copy';name.textContent=model.name;copy.append(name);button.append(copy);
+                let label='查看'+model.name;
+                if(mon){
+                    const meta=document.createElement('span');
+                    meta.className='pch-family-meta';meta.textContent=(mon.shiny?'✦ 异色':'普通')+' · Lv.'+mon.level;
+                    copy.append(meta);label+='，'+meta.textContent;
+                }
+                button.setAttribute('aria-label',label);
+                button.addEventListener('click',event=>{event.stopPropagation();choose(model.id,mon,card,current);});
+                nav.append(button);
+            }
+            const chain=family.querySelector('.evo-chain');
+            if(chain?.parentElement===family)chain.after(nav);else family.append(nav);
         }
         function syncDex(force=false){
             const native=document.querySelector('#dex-shiny'),list=document.querySelector('#dex-regions,#dex-list');
@@ -15477,10 +15534,11 @@
                         <div class="legend-tools">
                             <input type="search" id="legend-search" placeholder="搜宝可梦、地点或地区" aria-label="搜索传说目标">
                             <button type="button" id="legend-all" title="选中所有地区的传说目标">全选</button>
+                            <button type="button" id="legend-clear" title="取消所有地区的已选传说目标" aria-label="取消全部已选传说目标">取消</button>
                         </div>
                         <div id="legend-checks" class="legend-list"></div>
                         <div id="legend-empty" class="hint" role="status" hidden>没有匹配的传说目标。</div>
-                        <div class="legend-footer"><span id="legend-count" role="status"></span><span>按地图顺序挑战，跳过已完成目标</span></div>
+                        <div class="legend-footer"><span id="legend-count" role="status"></span><span id="legend-instruction"></span></div>
                     </details>
                     <div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div>
                     <div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>
@@ -15810,12 +15868,12 @@
         }
         legendChecks.onchange=()=>{
             const ids=[...legendEntries].filter(([,entry])=>entry.input.checked).map(([id])=>id);
-            if(ids.length)changeSetting('legendIds',ids);
-            else syncSettings();
+            changeSetting('legendIds',ids);
         };
-        const legendAll=query('#legend-all');
+        const legendAll=query('#legend-all'),legendClear=query('#legend-clear');
         legendAll.textContent='全选 '+legendEntries.size+' 项';
         legendAll.onclick=()=>changeSetting('legendIds',[...legendEntries.keys()]);
+        legendClear.onclick=()=>changeSetting('legendIds',[]);
         function filterLegendTargets(){
             const words=legendSearch.value.trim().toLowerCase().split(/\s+/);
             let found=false;
@@ -15837,13 +15895,15 @@
             const selected=new Set(selectedLegendIds(cfg));
             for(const [id,entry] of legendEntries){
                 const picked=selected.has(id),last=picked&&selected.size===1;
-                entry.input.checked=picked;entry.input.disabled=locked||last;entry.only.disabled=locked||last;
+                entry.input.checked=picked;entry.input.disabled=locked;entry.only.disabled=locked||last;
                 entry.row.classList.toggle('selected',picked);
             }
             const single=selected.size===1&&legendEntries.get(cfg.legendId);
             query('#legend-selection').textContent=single?`${single.name} · ${single.place}`:selected.size===legendEntries.size?'全部目标':`已选 ${selected.size} 项`;
             query('#legend-count').textContent=`已选 ${selected.size} / ${legendEntries.size}`;
+            query('#legend-instruction').textContent=selected.size?'按地图顺序挑战，跳过已完成目标':LEGEND_TARGET_REQUIRED;
             legendAll.disabled=locked||selected.size===legendEntries.size;
+            legendClear.disabled=locked||selected.size===0;
         }
         function addOption(select,value,label){const el=document.createElement('option');el.value=String(value);el.textContent=label;select.appendChild(el);}
         for(const group of ROAMING_DATA.groups){const options=document.createElement('optgroup');options.label=DATA.regions.find(region=>region.key===group.reg)?.name||group.reg;for(const id of group.ids)addOption(options,id,`#${id} ${MONS.get(id)?.name||id}`);query('[data-setting="roamId"]').appendChild(options);}
@@ -16206,8 +16266,10 @@
             const dailyBase=engine.daily?.base||engine.settings,baseMode=engine.daily?.base.mode||dailyMainMode(dailyBase);
             const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
             const dailyCard=selectedCard()==='daily';
+            const cardSettings=dailyCard?dailyBase:engine.settings;
+            const missingLegendTarget=(dailyCard?baseMode:cardSettings.mode)==='legend'&&cardSettings.legendId===null;
             if(ui.workspace==='tasks'){
-                const cfg=dailyCard?dailyBase:engine.settings,ids=selectedLegendIds(cfg);
+                const cfg=cardSettings,ids=selectedLegendIds(cfg);
                 for(const el of roamingStock){
                     const roaming=el.dataset.roamBallStock==='roam';
                     const target=roaming?cfg.roamId:!cfg.legendTier&&ids.length===1?ids[0]:null;
@@ -16221,7 +16283,7 @@
                     if(el.textContent!==value)el.textContent=value;
                 }
             }
-            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily);
+            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily)||missingLegendTarget;
             query('#daily-edit-goal').hidden=locked||baseMode==='legend'||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
             const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
@@ -16235,7 +16297,7 @@
             query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
             const pending=engine.queue.filter(queueJobPending),nextJob=pending[0];
             query('#queue-count').textContent=pending.length;
-            query('#add-job').disabled=locked||dailyCard||!s?.adv;
+            query('#add-job').disabled=locked||dailyCard||!s?.adv||missingLegendTarget;
             query('#start-queue').disabled=locked||!!editingJob||!nextJob||!s?.adv;
             query('#start-queue').classList.toggle('hidden',locked);
             query('#start-queue').textContent=engine.running&&engine.queueRunning?'任务队列运行中':nextJob?.progress?'继续任务队列':'运行任务队列';
@@ -16335,7 +16397,10 @@
                 goalValue = `${status.missing.length} 只待捕获`;
                 hint = '按所选物种各自的捕获记录计数。助手会在符合地区和地图天气的路线中寻找剩余目标。';
             }
-            if (mode === 'legend') {
+            if (mode==='legend'&&settings.legendId===null){
+                primary='0 项';primaryLabel='已选传说目标';goalLabel='传说目标';goalValue='未选择';percent=0;
+                hint=LEGEND_TARGET_REQUIRED;
+            } else if (mode === 'legend') {
                 const p = legendProgress(s, settings);
                 primary = settings.legendTier ? `${p.tier}/${settings.legendTier}` : p.done ? '已完成' : '待捕获'; primaryLabel = settings.legendTier ? '精英阶级' : '普通捕获'; goalLabel = p.zone.monName || p.zone.name; goalValue = settings.legendTier ? `推进至 ${settings.legendTier} 阶` : '全部轮换形态'; percent = p.done ? 100 : settings.legendTier ? p.tier / settings.legendTier * 100 : 0;
                 if(settings.legendIds?.length>1){
@@ -16468,7 +16533,7 @@
             if (tab === 'maps') {
                 if (mode === 'legend') {
                     const p = legendProgress(s,engine.settings), el = document.createElement('div'); el.className = 'empty';
-                    el.textContent = `${p.zone.monName || p.zone.name} · ${DATA.regions.find(r=>r.key===p.zone.reg)?.name} / ${p.zone.name}。${p.done ? '所选目标已完成。' : `当前精英 ${p.tier} 阶。${p.zone.condition || '请查看游戏开放条件。'}`}`; view.appendChild(el);
+                    el.textContent = p.zone?`${p.zone.monName || p.zone.name} · ${DATA.regions.find(r=>r.key===p.zone.reg)?.name} / ${p.zone.name}。${p.done ? '所选目标已完成。' : `当前精英 ${p.tier} 阶。${p.zone.condition || '请查看游戏开放条件。'}`}`:LEGEND_TARGET_REQUIRED; view.appendChild(el);
                 } else if(mode==='roam'){
                     const p=roamingProgress(s,engine.settings,Date.now()),el=document.createElement('div');el.className='empty';
                     const map=CHAPTERS.get(p.location?.ch);el.textContent=`${MONS.get(engine.settings.roamId)?.name||engine.settings.roamId} · ${p.captured?'目标已捕获':p.unlocked?'已满足地区冠军条件':'需先获得对应地区冠军徽章'}。${map?'当前驻留：'+map.name+'。':'暂无有效驻留记录，按原生踪迹查找。'}普通色目标，基础捕获率 4%，捕获树果可提高捕获率。`;view.appendChild(el);
@@ -16548,6 +16613,7 @@
             if (engine.running||engine.suspended) return false;
             const previous=engine.settings;
             const patch=key==='underStartChoice'?{underAutoStart:value==='auto',underFrom:value==='auto'?previous.underFrom:Number(value)}:{[key]:value};
+            if(key==='legendIds'&&!value.length)patch.legendId=null;
             engine.settings=normalizeSettings({...previous,...patch});
             try {
                 if(engine.account&&!editingJob&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');

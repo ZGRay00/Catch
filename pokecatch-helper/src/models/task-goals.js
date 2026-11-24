@@ -20,9 +20,12 @@
         case 'progress':
             if(e.progressReached?.(s))reason='主线目标章节已完成';
             break;
-        case 'legend':
-            if(legendGoals(s,cfg).every(goal=>goal.done))reason='指定传说战目标已完成';
+        case 'legend': {
+            const goals=legendGoals(s,cfg);
+            if(!goals.length)return {failed:true,reason:LEGEND_TARGET_REQUIRED};
+            if(goals.every(goal=>goal.done))reason='指定传说战目标已完成';
             break;
+        }
         case 'roam':
             if(roamingProgress(s,cfg,now).done)reason='指定游荡宝可梦已确认捕获';
             break;

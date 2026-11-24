@@ -139,9 +139,31 @@ async function main(){
                 if(e.settings.legendIds.length!==checks.querySelectorAll('input').length)throw Error('Select all missed a region');
                 const profile=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id));
                 if(profile.settings.legendIds.length!==e.settings.legendIds.length)throw Error('Legendary selection not persisted');
+                const clear=picker.querySelector('#legend-clear');
+                if(clear.textContent.trim()!=='取消'||!clear.getClientRects().length)throw Error('Missing visible clear selection control');
+                clear.click();
+                if(!picker.open||search.value!=='关都'||!clear.disabled||checks.querySelector('input:checked')||
+                    !r.querySelector('#legend-count').textContent.includes('0 / '+checks.querySelectorAll('input').length))
+                    throw Error('Clearing filtered targets must deselect all regions and keep the search open');
+                const empty=JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings;
+                if(empty.legendId!==null||empty.legendIds.length)throw Error('Empty selection not saved');
+                e.loadAccount(e.read());e.onChange();
+                r.querySelector('[data-mode="legend"]').click();
+                if(!picker.closest('#ordinary-target')||checks.querySelector('input:checked')||e.settings.legendId!==null)
+                    throw Error('Reloading the profile or switching to standalone mode restored a cancelled target');
+                r.querySelector('#start').click();
+                if(e.running)throw Error('Standalone hunt started without a selected legendary target');
+                r.querySelector('[data-mode="daily"]').click();
+                picker.open=true;
+                filter('385');checks.querySelector('[value="385"]').click();
+                if(e.settings.legendId!==385||clear.disabled)throw Error('Cannot select one target after clearing');
+                checks.querySelector('[value="385"]').click();
+                if(e.settings.legendId!==null||checks.querySelector('input:checked'))throw Error('Unchecking the last target must clear the selection');
+                r.querySelector('#legend-all').click();
+                if(e.settings.legendIds.length!==checks.querySelectorAll('input').length)throw Error('Select all failed to restore cleared targets');
                 filter('no matching pokémon');if(r.querySelector('#legend-empty').hidden||!checks.hidden)throw Error('Missing empty search state');
                 filter('385');only(385).click();filter('');
-                if(e.settings.legendIds.length||e.settings.legendId!==385||!checks.querySelector('[value="385"]').disabled)throw Error('Single legendary target was not retained');
+                if(e.settings.legendIds.length||e.settings.legendId!==385||!checks.querySelector('[value="385"]').checked||checks.querySelector('[value="385"]').disabled)throw Error('Single legendary target should remain selected and editable');
                 // One selected goal is already registered, the other still needs a map visit.
                 const oldDex=structuredClone(fixtureState.dex);
                 fixtureState.dex[145]={caught:1};
@@ -181,6 +203,7 @@ async function main(){
             }finally{if(e.running)e.stop();delete fixtureState.raids;e.dailyMarks=marks;e.settings=initial;e.persist();commitExecution();}
         })()`);
         assert.deepEqual(legendMain,[385,'candy','legend',false,385]);
+        checks.push('clearing filtered legendary targets persists across daily and standalone modes, unchecking the last target works, and the user can select targets again');
         checks.push('daily shiny raids use the saved switch and run after the factory, then the daily legendary main routes to Jirachi');
         const dailyMain=await evaluate(`(async()=>{
             const r=${root},e=__pcExecutionTest.engine;
@@ -371,12 +394,13 @@ async function main(){
                 const rows=[...picker.querySelectorAll('.legend-option')],content=r.querySelector('.content');
                 return {solo:summary.textContent.includes('雷吉奇卡斯'),ordinary:!!picker.closest('#ordinary-target'),
                     fits:content.scrollWidth<=content.clientWidth+1&&rows.every(row=>row.offsetHeight>=44&&row.scrollWidth<=row.clientWidth+1),
+                    clearFits:picker.querySelector('#legend-clear').getBoundingClientRect().right<=picker.getBoundingClientRect().right+1,
                     distinctLocations:rows.every(row=>!!row.querySelector('small').textContent)};
             }finally{
                 picker.open=false;e.settings=original;e.persist();e.onChange();r.querySelector('[data-workspace="activity"]').click();
             }
         })()`);
-        assert.deepEqual(legendaryMobile,{solo:true,ordinary:true,fits:true,distinctLocations:true});
+        assert.deepEqual(legendaryMobile,{solo:true,ordinary:true,fits:true,clearFits:true,distinctLocations:true});
         checks.push('a legacy single target is shown in the shared standalone picker and its full rows fit a 360-pixel viewport');
         const queuedLegend=await evaluate(`(()=>{
             const r=${root},e=__pcExecutionTest.engine,before={settings:e.settings,queue:e.queue,index:e.queueIndex};

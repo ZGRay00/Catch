@@ -37,6 +37,29 @@ test('new and unlimited legend settings survive normalization while saved time l
         }
     }
 });
+
+test('a cleared selection stops a standalone legend or daily legend main before acquiring game control',t=>{
+    const {e,s,storage,clicks}=fixture(t,{legendId:null,legendIds:[]});
+    s.adv.badges=['Maître'];storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    let acquisitions=0;e.acquire=()=>{acquisitions++;return false;};
+    for(const daily of [false,true]){
+        e.running=false;e.settings=H.normalizeSettings({mode:daily?'money':'legend',dailyMain:'legend',legendId:null,legendIds:[]});
+        e.start(false,daily);
+        assert.equal(e.running,false);assert.match(e.status,/选择至少一个传说目标/);
+    }
+    assert.equal(acquisitions,0);assert.deepEqual(clicks,[]);
+});
+
+test('a queued empty legend fails without queuing a map or reporting the target completed',t=>{
+    const {e,clicks}=fixture(t);e.driver.pendingMap=null;
+    const empty=H.normalizeSettings({mode:'legend',legendId:null,legendIds:[]});
+    e.queue=[{id:'first',status:'running',settings:e.settings},{id:'second',status:'pending',settings:empty}];
+    e.queueRunning=true;e.queueIndex=0;
+    e.completeTask('第一项目标已完成');
+    assert.equal(e.queue[0].status,'done');assert.equal(e.queue[1].status,'failed');
+    assert.match(e.queue[1].result,/选择至少一个传说目标/);
+    assert.equal(e.running,false);assert.equal(e.driver.pendingMap,null);assert.deepEqual(clicks,[]);
+});
 test('an active legendary hunt can continue overnight beyond 150 attempts; explicit timers still stop it',async t=>{
     const {e,s,now,storage}=fixture(t,{legendIds:[145,144]});
     const hour=3600000;

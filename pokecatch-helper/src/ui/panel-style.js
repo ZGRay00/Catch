@@ -215,7 +215,7 @@
     .legend-picker > summary strong { color:#e4eff9 }
     #legend-selection { color:#a8e5d4; text-align:right; overflow-wrap:anywhere }
     .legend-tools { display:flex; gap:6px; padding:8px; border-top:1px solid #30485d }
-    .legend-tools input { flex:1; min-height:40px }
+    .legend-tools input { flex:1; min-width:0; min-height:40px }
     .legend-tools button { flex:none; min-width:52px }
     .legend-list { max-height:min(36dvh,300px); overflow:auto; padding:0 8px; scrollbar-width:thin }
     .legend-list[hidden] { display:none }

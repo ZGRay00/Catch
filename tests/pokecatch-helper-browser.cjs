@@ -86,6 +86,19 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
+        if(!process.argv.includes('--insights-only')){
+            await require('./fixtures/pokecatch-family-ui.cjs')({send,evaluate});
+            if(process.argv.includes('--family-only')){
+                assert.deepEqual(errors,[]);
+                console.log('PASS: native family actions, text contrast, 320px layout, keyboard and adjacent dex navigation.');
+                return;
+            }
+            // Opening an owned form changes the in-memory A/B selections. Start the remaining scenarios in a fresh document.
+            await evaluate('window.familyFixtureFinished=true');
+            await send('Page.reload',{ignoreCache:true});
+            for(let n=0;n<60&&!await evaluate('!!window.__pcTest&&!window.familyFixtureFinished');n++)await delay(100);
+            assert.ok(await evaluate('!!window.__pcTest&&!window.familyFixtureFinished'));
+        }
         await require('./fixtures/pokecatch-insights-ui.cjs')({send,evaluate});
         if(process.argv.includes('--insights-only')){
             assert.deepEqual(errors,[]);

@@ -255,7 +255,42 @@
         const tileActions=new WeakMap();
         let openedDex=null;
         const style=document.createElement('style');
-        style.textContent='.pch-hide-captured{display:none!important}.pch-native-family{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}.pch-native-family button,.pch-native-filter{min-height:36px;max-width:100%;white-space:normal}.pch-family-tile{cursor:pointer}.pch-family-tile:focus-visible{outline:2px solid currentColor}';
+        style.textContent=`
+            .pch-hide-captured { display:none!important }
+            .pch-native-filter { min-height:36px;max-width:100%;white-space:normal }
+            .pch-family-section { min-inline-size:0 }
+            .pch-family-section > .evo-chain {
+                box-sizing:border-box;max-inline-size:100%;min-inline-size:0;overflow-x:auto;
+                justify-content:safe flex-start;flex-wrap:nowrap;overscroll-behavior-x:contain;scrollbar-width:thin
+            }
+            .pch-family-section > .evo-chain > :is(.evo,.arrow,.evo-branches) { flex-shrink:0 }
+            .pch-family-tile { cursor:pointer }
+            .pch-family-tile:focus-visible { outline:2px solid var(--text,#f2f5ff);outline-offset:-3px }
+            .pch-native-family {
+                display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr));
+                gap:8px;margin-block-start:10px;min-inline-size:0
+            }
+            .pch-native-family > .pch-family-link {
+                appearance:none;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,1fr) auto;
+                align-items:center;column-gap:8px;width:100%;min-width:0;min-height:44px;margin:0;padding:8px 12px;
+                border:1px solid var(--line,#485570);border-radius:8px;background:var(--panel-2,#28334b);
+                color:var(--text,#f2f5ff);font-family:inherit;font-size:14px;font-weight:650;line-height:1.35;
+                text-align:start;white-space:normal;text-shadow:none;box-shadow:none;cursor:pointer;touch-action:manipulation
+            }
+            .pch-family-link .pch-family-copy { display:grid;gap:2px;min-width:0;overflow-wrap:anywhere }
+            .pch-family-link .pch-family-meta {
+                color:var(--muted,#c3cde0);font-size:12px;font-weight:500
+            }
+            .pch-family-link::after {
+                content:"";width:7px;height:7px;
+                border:solid currentColor;border-width:2px 2px 0 0;transform:rotate(45deg);justify-self:end
+            }
+            .pch-native-family > .pch-family-link:focus-visible { outline:2px solid var(--text,#f2f5ff);outline-offset:2px }
+            @media (hover:hover) {
+                .pch-native-family > .pch-family-link:hover { border-color:currentColor }
+            }
+            .pch-native-family > .pch-family-link:active { border-color:currentColor;background:var(--panel,#1d273b) }
+        `;
         document.head?.append(style);
         function currentCard(){return document.querySelector('#modal-root.open .dexcard-modal .dexcard,#modal-root.open .mon-card');}
         function ensureRoster(){
@@ -309,19 +344,12 @@
                 if(!owned){entries.push([candidate,null]);continue;}
                 for(const match of ownedById.get(candidate.id)||[])if(match)entries.push([candidate,match]);
             }
-            const key=JSON.stringify([account,owned,current,entries.map(([m,individual])=>[m.id,individual?.uid,individual?.level])]);
+            const key=JSON.stringify([account,owned,current,entries.map(([m,individual])=>[m.id,individual?.uid,individual?.level,!!individual?.shiny])]);
             previousCardSave=save;
             if(familyNode===family&&key===familyKey&&(!entries.length||family.querySelector('.pch-native-family')))return;
+            if(familyNode!==family)family.classList.add('pch-family-section');
             familyNode=family;familyKey=key;
             family.querySelector('.pch-native-family')?.remove();
-            if(!entries.length)return;
-            const nav=document.createElement('div');nav.className='pch-native-family';nav.setAttribute('aria-label','查看同家族形态');
-            for(const [model,mon] of entries){
-                const button=document.createElement('button');button.type='button';
-                button.textContent='查看'+(mon?(mon.shiny?'✦ 异色':'普通'):'')+model.name+(mon?' Lv.'+mon.level:'');
-                button.addEventListener('click',event=>{event.stopPropagation();choose(model.id,mon,card,current);});
-                nav.append(button);
-            }
             for(const {tile,id} of tiles){
                 if(tile.matches('button,a')||tile.onclick||tile.querySelector('button,a'))continue;
                 const shiny=!!tile.querySelector('img[src*="/shiny/"],.shiny-ico');
@@ -340,7 +368,24 @@
                     tile.addEventListener('keydown',event=>{if(action.run&&(event.key==='Enter'||event.key===' ')){event.preventDefault();tile.click();}});
                 }
             }
-            family.append(nav);
+            if(!entries.length)return;
+            const nav=document.createElement('div');nav.className='pch-native-family';nav.setAttribute('role','navigation');nav.setAttribute('aria-label','查看同家族形态');
+            for(const [model,mon] of entries){
+                const button=document.createElement('button'),copy=document.createElement('span'),name=document.createElement('span');
+                button.type='button';button.className='pch-family-link';
+                copy.className='pch-family-copy';name.textContent=model.name;copy.append(name);button.append(copy);
+                let label='查看'+model.name;
+                if(mon){
+                    const meta=document.createElement('span');
+                    meta.className='pch-family-meta';meta.textContent=(mon.shiny?'✦ 异色':'普通')+' · Lv.'+mon.level;
+                    copy.append(meta);label+='，'+meta.textContent;
+                }
+                button.setAttribute('aria-label',label);
+                button.addEventListener('click',event=>{event.stopPropagation();choose(model.id,mon,card,current);});
+                nav.append(button);
+            }
+            const chain=family.querySelector('.evo-chain');
+            if(chain?.parentElement===family)chain.after(nav);else family.append(nav);
         }
         function syncDex(force=false){
             const native=document.querySelector('#dex-shiny'),list=document.querySelector('#dex-regions,#dex-list');

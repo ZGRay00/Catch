@@ -612,6 +612,7 @@
             this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
             const s=state,now=Date.now();
             this.beginTask(s,next.progress,now,true);
+            if(this.settings.mode==='legend'&&!selectedLegendIds(this.settings).length){this.failTask(LEGEND_TARGET_REQUIRED);return;}
             if(!this.adoptManualPreparation(s,now,true))return;
             this.status=`队列 ${index+1}/${this.queue.length} · ${next.title}`;this.persist();this.notifyView();
         }
@@ -792,6 +793,7 @@
                     if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
                 }
                 const savedDaily=cp?.daily&&!this.queueRunning&&DAILY_BASE_MODES.has(cp.daily.base?.mode)?cp.daily:null;
+                if((savedDaily?.base.mode??mode)==='legend'&&!selectedLegendIds(savedDaily?normalizeSettings(savedDaily.base):this.settings).length)throw new Error(LEGEND_TARGET_REQUIRED);
                 const {tower,event,zone,league}=s.adv;
                 let adoptedFacility=null;
                 if((daily||savedDaily&&!savedDaily.job)&&!event&&!zone&&!league){
@@ -1971,7 +1973,9 @@
         }
         selectLegendTarget(s,now){
             const cfg=this.settings,regions=new Set(['kanto',currentRegion(s),...(s.travel?.to||[])]);
-            const remaining=legendGoals(s,cfg).filter(goal=>!goal.done);
+            const goals=legendGoals(s,cfg);
+            if(!goals.length){this.failTask(LEGEND_TARGET_REQUIRED);return false;}
+            const remaining=goals.filter(goal=>!goal.done);
             if(!remaining.length){this.completeTask('所选传说战目标已全部完成');return false;}
             const eligible=remaining.filter(({zone,captured})=>regions.has(zone.reg)&&(!cfg.legendTier||captured)&&
                 !(this.cooldowns['legend:'+zone.id]>now));

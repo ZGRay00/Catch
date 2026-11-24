@@ -100,7 +100,9 @@
         }
         if(RESOURCE_IDS.has(raw.resourceItem))out.resourceItem=raw.resourceItem;
         if(typeof raw.useUid==='string'&&raw.useUid.length<120)out.useUid=raw.useUid;
-        if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
+        // Older single-target profiles store an empty list and the selected numeric ID.
+        if (raw.legendId===null) out.legendId=null;
+        else if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
         const selectedZones=new Set(Array.isArray(raw.legendIds)?raw.legendIds.map(Number):[]);
         if(selectedZones.size)out.legendIds=DATA.regions.flatMap(region=>
             DATA.zones.filter(zone=>zone.reg===region.key&&selectedZones.has(zone.id)).map(zone=>zone.id));

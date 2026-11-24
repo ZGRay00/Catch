@@ -1,5 +1,7 @@
+    const LEGEND_TARGET_REQUIRED='请先选择至少一个传说目标';
     function selectedLegendIds(settings){
-        return settings.legendIds?.length?settings.legendIds:[settings.legendId];
+        if(settings.legendIds?.length)return settings.legendIds;
+        return settings.legendId==null?[]:[settings.legendId];
     }
     function legendProgress(s, settings, id=settings.legendId, ownedIds) {
         const zone = DATA.zones.find(z => z.id === id);
@@ -14,6 +16,7 @@
     }
     function legendSelectionLabel(cfg){
         const ids=selectedLegendIds(cfg);
+        if(!ids.length)return '未选择传说目标';
         const names=ids.slice(0,2).map(id=>DATA.zones.find(z=>z.id===id)?.monName||MONS.get(id)?.name||id);
         return names.join('、')+(ids.length>2?' 等 '+ids.length+' 个目标':'');
     }

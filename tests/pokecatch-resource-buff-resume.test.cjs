@@ -34,3 +34,25 @@ test('a delayed berry confirmation reconciles the reserved serving before contin
     for(let i=0;i<3;i++){advance(1200);tick(e);}
     assert.equal(e.running,false);assert.equal(actions.length,3);assert.equal(e.budget.used,3);assert.equal(s.stats.itemOut['lansat-berry'],3);assert.equal(s.items['lansat-berry'],7);assert.equal(e.queue[0].status,'done');assert.equal(e.queue[0].progress,undefined);
 });
+
+test('game update reload keeps an in-flight berry receipt and resumes its queue without a second use',async t=>{
+    const {s,e,storage,actions,driver,tick,nativeUse}=fixture(t);
+    const prior=Object.getOwnPropertyDescriptor(globalThis,'sessionStorage'),marker=new Map();
+    Object.defineProperty(globalThis,'sessionStorage',{configurable:true,value:{
+        getItem:key=>marker.get(key)??null,setItem:(key,value)=>marker.set(key,value)
+    }});
+    t.after(()=>{if(prior)Object.defineProperty(globalThis,'sessionStorage',prior);else delete globalThis.sessionStorage;});
+    e.settings.resourceQuantity=1;e.queue[0].settings.resourceQuantity=1;
+    tick(e);assert.equal(actions.length,1);assert.equal(e.budget.used,1);
+    let clicks=0;
+    e.tabToken=null;e.driver.gameUpdatePrompt=()=>({click(){
+        const cp=JSON.parse(storage.getItem('pokecatch-helper:v1:'+s.trainer.id)).resume;
+        assert.equal(cp.queueJobId,e.queue[0].id);assert.ok(cp.flow.resourceBuffTx);assert.equal(cp.budget.used,1);
+        clicks++;
+    }});
+    await e.step();assert.equal(clicks,1);e.suspend();nativeUse();
+    const resumed=new H.Engine(storage);driver(resumed);resumed.loadAccount(s);resumed.tryResume();
+    assert.ok(resumed.running,resumed.status);assert.ok(resumed.queueRunning);assert.equal(resumed.queueIndex,0);
+    tick(resumed);assert.equal(actions.length,1);assert.equal(resumed.budget.used,1);
+    assert.equal(resumed.automation.state.resourceUsed,1);
+});

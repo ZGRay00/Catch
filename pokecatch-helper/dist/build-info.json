@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.1.3",
-  "scriptSha256": "39cbe12b8dafc969df1f1b40ee89239adc54064d7c51e86ea72482a844447e53",
-  "metadataSha256": "342e9ba5df7629547d6a6ece8ff1f839518ffb29af3e192f8e699a5b24c6fc34",
+  "version": "8.1.5",
+  "scriptSha256": "062794478dae6df357bf9c3f63f25eeb047803086f3730a6a6c4094ec48aac59",
+  "metadataSha256": "1da920b501ec63be7e9c7fe14187ceb92dff52bdd625a64e24b7ad249f8e14b3",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "b73bea826838671957c1a4bff8f15307608540d2c7a813072411da1c8b09e932"
+      "sha256": "81cf5bc0f6039ea46925f17e6918887ab15715c99ad5ae7b0a8383d887b3e187"
     },
     {
       "file": "build.manifest.json",
@@ -162,7 +162,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "d638cfe9ec89e76b4851e24c7797534a956716a52c7488b41a04bd82fcb4e1e1"
+      "sha256": "d87d0f3b5f52acc0508a64f22ea7ca67ca5f059e5b973eecd3b7fbd3bc4fafe6"
     },
     {
       "file": "src/runtime/automation.js",
@@ -174,7 +174,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "8a4092f7f46e113ec141fa30052d4620c18b8bcc85d6f6a2cde1b00c0bb4aac4"
+      "sha256": "c4b9044913839e8eda4b25755669cda4731efacb15b8f505c5ef099d6af13d3a"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -186,7 +186,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "30558530b3bb10931c707112e4458053462a35ab41c9a4e7b9201763fee3474d"
+      "sha256": "36b807920c80c4ab3d3cd95fe4182946757332e14251f71428eda8a18929e4aa"
     },
     {
       "file": "src/ui/gameplay-insights.js",
@@ -222,7 +222,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "680464a87324f47b2c88966d8f19b86f80f745d0728034ed753c015f1251dff9"
+      "sha256": "1336b3bffe324214e662ca180ea9b272db4fe1b1db7a80317aecba35e4842ba6"
     }
   ]
 }

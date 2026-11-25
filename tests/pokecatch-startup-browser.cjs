@@ -17,7 +17,7 @@ async function main(){
         const evaluate=async expression=>{const result=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(result.exceptionDetails)throw Error(result.exceptionDetails.exception?.description||result.exceptionDetails.text);return result.result.value;};
         await send('Runtime.enable');await send('Page.enable');await send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
         async function start(name,setup='',inject=true,scriptSource=source){
-            const html=path.join(taskDir,name+'.html'),script=`localStorage.clear();window.intervalCount=0;const nativeInterval=window.setInterval;window.setInterval=(...args)=>{window.intervalCount++;return nativeInterval(...args)};${setup}`;
+            const html=path.join(taskDir,name+'.html'),script=`if(performance.getEntriesByType('navigation')[0]?.type!=='reload')localStorage.clear();window.intervalCount=0;const nativeInterval=window.setInterval;window.setInterval=(...args)=>{window.intervalCount++;return nativeInterval(...args)};${setup}`;
             fs.writeFileSync(html,`<!doctype html><meta charset="utf-8"><body><script>${script}</script>${inject?`<script>${scriptSource.replace(/<\/script/gi,'<\\/script')}</script>`:''}</body>`);await send('Page.navigate',{url:pathToFileURL(html).href});
             const initialized=inject?'document.readyState!=="loading" && (typeof window.__pokecatchHelper?.ready==="boolean" || !!document.querySelector("#pokecatch-helper-recovery"))':'document.readyState==="complete"';
             for(let i=0;i<60&&!await evaluate(initialized);i++)await delay(50);
@@ -26,6 +26,28 @@ async function main(){
         await start('no-save');let result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);
         assert.deepEqual(await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').shadowRoot,tools=r.querySelector('#update-tools'),source=r.querySelector('#update-source');return{start:!!r.querySelector('.commandbar #start'),stop:!!r.querySelector('.commandbar #stop'),sourceInTools:source.closest('#update-tools')===tools,toolsHidden:tools.classList.contains('hidden'),sourceVisible:source.getClientRects().length>0}})()`),{start:true,stop:true,sourceInTools:true,toolsHidden:true,sourceVisible:false});
         checks.push('no save shows a visible helper with task controls in the command bar and unused update tools hidden');
+        await start('mini-drag',`localStorage.setItem('pokecatch-helper:v1:ui',JSON.stringify({folded:true,mini:{x:10,y:32}}))`);
+        const miniSetup=await evaluate(`(async()=>{
+            const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,mini=root.querySelector('.mini');
+            root.querySelector('#mini-state').textContent='已停 · 弹窗等待超时，请处理后继续';
+            for(const [key,label] of [['logs','停机记录'],['next','孵蛋 11月25日 09:29'],['queue','队列需处理 2']]){
+                const button=root.querySelector('[data-mini-link="'+key+'"]');button.textContent=label;button.hidden=false;
+            }
+            await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+            const box=mini.getBoundingClientRect();return {x:box.left+box.width/2,y:box.top+box.height/2,width:innerWidth};
+        })()`);
+        await send('Input.dispatchMouseEvent',{type:'mouseMoved',x:miniSetup.x,y:miniSetup.y});
+        await send('Input.dispatchMouseEvent',{type:'mousePressed',button:'left',buttons:1,clickCount:1,x:miniSetup.x,y:miniSetup.y});
+        for(let x=miniSetup.x+12;x<miniSetup.width;x+=80)await send('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x,y:miniSetup.y});
+        await send('Input.dispatchMouseEvent',{type:'mouseMoved',button:'left',buttons:1,x:miniSetup.width-1,y:miniSetup.y});
+        await send('Input.dispatchMouseEvent',{type:'mouseReleased',button:'left',clickCount:1,x:miniSetup.width-1,y:miniSetup.y});
+        const miniGap=()=>evaluate(`innerWidth-document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('.mini').getBoundingClientRect().right`);
+        const edgeGap=await miniGap();
+        assert.ok(Math.abs(edgeGap-6)<2,'Expected a 6px right margin after dragging, measured '+edgeGap+'px');
+        await evaluate(`const r=document.querySelector('#pokecatch-auto-helper').shadowRoot;r.querySelector('#mini-state').textContent='待命';r.querySelectorAll('[data-mini-link]').forEach(b=>b.hidden=true)`);
+        assert.ok(Math.abs(await miniGap()-6)<2,'A shorter status stays at the dragged right margin');
+        checks.push('collapsed bar reaches the right edge and stays there as its content changes');
+        await start('no-save-again');
         await evaluate(source);result=await state();assert.equal(result.intervals,1);assert.equal(await evaluate('document.querySelectorAll("#pokecatch-auto-helper").length'),1);checks.push('duplicate injection creates no second panel or interval');
         await evaluate('window.__pokecatchHelper.show();document.querySelector("#pokecatch-auto-helper").remove();window.__pokecatchHelper.show()');result=await state();assert.equal(result.visible,true);assert.equal(result.folded,false);checks.push('show reattaches and reveals a removed host');
         await evaluate('document.querySelector("#pokecatch-auto-helper").remove()');await delay(2700);assert.equal((await state()).host,true);checks.push('periodic render restores a removed host');
@@ -76,6 +98,7 @@ async function main(){
         await evaluate(`document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#resume').click()`);life=await lifecycleState();assert.equal(life.running,true);assert.equal(life.suspended,false);assert.equal(life.spent,321);assert.equal(life.used,3);checks.push('disabled reload resume keeps the suspended task reviewable and Continue resumes it without resetting its budget');
         await evaluate(`dispatchEvent(new PageTransitionEvent('pagehide',{persisted:true}));dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}));document.querySelector('#pokecatch-auto-helper').shadowRoot.querySelector('#stop').click();dispatchEvent(new PageTransitionEvent('pageshow',{persisted:true}))`);
         life=await lifecycleState();assert.equal(life.running,false);assert.equal(life.suspended,false);assert.equal(life.manual,false);checks.push('Stop cancels a suspended BFCache task and future pageshow events cannot revive it');
+        await require('./fixtures/pokecatch-native-update-browser.cjs')({start,evaluate,checks,lifecycleSetup,lifecycleSource});
         const game={trainer:{id:'isolated-startup'},mons:[{uid:'a',id:6,level:20}],team:['a'],dex:{},money:1000,stats:{},travel:{to:[]},adv:{layout:6,chapter:0,unlocked:8,node:0,runs:0,speed:4,badges:[],loops:[]}};
         await start('isolated-world',`localStorage.setItem('gachamon-save-v1',${JSON.stringify(JSON.stringify(game))});`,false);const before=await evaluate('localStorage.getItem("gachamon-save-v1")');
         const tree=await send('Page.getFrameTree'),world=await send('Page.createIsolatedWorld',{frameId:tree.frameTree.frame.id,worldName:'pokecatch-userscript-dom'});

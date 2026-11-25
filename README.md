@@ -1,8 +1,12 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.1.3**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.1.5**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.1.3.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.1.5.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+8.1.5 · 收起的迷你条可拖到距右边缘 6 像素处。状态文字缩短或快捷按钮消失后，仍保持贴边。
+
+8.1.4 · 启用「刷新后自动恢复未停止的任务」后，助手遇到游戏更新弹窗会保存进度并重新加载，读到同一账号的兼容存档后继续当前任务。
 
 8.1.3 · 「传说目标」的「全选」旁新增「取消」，可一次清空所有地区的目标，包括搜索时隐藏的项目。刷新后会保留空选，可重新勾选或全选。
 

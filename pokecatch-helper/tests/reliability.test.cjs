@@ -20,6 +20,50 @@ function session(s=game(),storage=memory()){
     const e=new H.Engine(storage,{mode:'money'});e.loadAccount(s);e.read();e.tabToken='A';
     return {e,s,storage};
 }
+
+test('a game update can interrupt a daily wait and retains its checkpoint through a failed navigation',async t=>{
+    const {e,s,storage}=session(),now=Date.now(),tab=memory();let clicks=0;
+    install(t,'document',{hidden:false,querySelector:()=>null,querySelectorAll:()=>[]});
+    install(t,'sessionStorage',tab);install(t,'window',{BUILD:'current-game'});
+    e.running=true;e.started=now-30000;e.nextWake=now+360000;
+    e.daily={base:{...e.settings,mode:'money'},menuMode:'money',checking:true};
+    e.driver.gameUpdatePrompt=()=>({click(){
+        const cp=JSON.parse(storage.getItem('pokecatch-helper:v1:first')).resume;
+        assert.ok(cp.wanted);assert.equal(cp.daily.base.mode,'money');assert.equal(cp.session.started,e.started);
+        assert.ok(tab.getItem('pokecatch-helper:v1:game-update'));clicks++;
+    }});
+    await e.step(now);assert.equal(clicks,1);assert.equal(e.settings.autoRecover,false);
+    await e.step(now+20000);assert.equal(clicks,1);assert.ok(e.running);assert.match(e.status,/手动刷新/);
+    e.suspend();
+    const resumed=new H.Engine(storage);resumed.schedule=()=>{};resumed.loadAccount(s);resumed.tryResume();
+    assert.ok(resumed.running,resumed.status);assert.ok(resumed.daily);assert.equal(resumed.started,e.started);
+    resumed.driver.gameUpdatePrompt=e.driver.gameUpdatePrompt;
+    await resumed.step(now+3600000);assert.equal(clicks,1);assert.match(resumed.status,/再次提示/);
+});
+
+test('native update stays pending while manual control, shiny encounter or durable storage prevents a safe reload',t=>{
+    const {e,s}=session(),now=Date.now(),tab=memory();let clicks=0;
+    install(t,'sessionStorage',tab);install(t,'window',{BUILD:'current-game'});
+    e.running=true;e.started=now;e.driver.gameUpdatePrompt=()=>({click:()=>clicks++});
+    e.settings.resumeOnReload=false;assert.ok(e.handleGameUpdate(s,now));assert.equal(clicks,0);
+    e.settings.resumeOnReload=true;e.manual={until:now+3000};e.handleGameUpdate(s,now);assert.equal(clicks,0);
+    e.manual=null;s.adv.battle={kind:'wild',enemies:[{id:25,shiny:true,hp:2}]};
+    e.handleGameUpdate(s,now);assert.equal(clicks,0);delete s.adv.battle;
+    const persist=e.persist;e.persist=()=>false;e.handleGameUpdate(s,now);assert.equal(clicks,0);
+    e.persist=persist;tab.setItem=()=>{};e.handleGameUpdate(s,now);assert.equal(clicks,0);
+    e.driver.gameUpdatePrompt=()=>null;assert.equal(e.handleGameUpdate(s,now),false);
+});
+
+test('a different app bundle behind the same launcher can update after the cooldown',t=>{
+    const {e,s}=session(),now=Date.now(),tab=memory();let bundle='aaaaaaaaaa',clicks=0;
+    install(t,'sessionStorage',tab);install(t,'window',{BUILD:'same-launcher'});
+    install(t,'document',{querySelector:()=>({getAttribute:()=>'bundle/app.'+bundle+'.js'})});
+    e.running=true;e.started=now-2000;e.driver.gameUpdatePrompt=()=>({click:()=>clicks++});
+    e.handleGameUpdate(s,now);assert.equal(clicks,1);
+    bundle='bbbbbbbbbb';
+    e.handleGameUpdate(s,now+1000);assert.equal(clicks,1);
+    e.handleGameUpdate(s,now+600001);assert.equal(clicks,2);
+});
 test('critical journal preserves bounded context and counts per account across reload',()=>{
     const {e,s,storage}=session();
     e.log('换图','info','路线',1000);e.log('暂缓','warn','连接',2000);e.log('暂缓','warn','连接',3000);

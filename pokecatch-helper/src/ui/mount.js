@@ -240,7 +240,7 @@
                 <div class="hint">通关日常勾选「开战后持续到捕获」时，已进入的当日异色团体战会等到捕获确认或每日刷新。普通挂机仍按时限退出。</div>
                 <label class="setting">地图失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
                 <label class="setting">定时停止（分钟，0 不限）<input data-setting="stopMinutes" type="number" min="0" max="1440"></label>
-                <label class="setting"><span><input type="checkbox" data-setting="resumeOnReload">刷新后自动恢复未停止的任务</span></label>
+                <label class="setting"><span><input type="checkbox" data-setting="resumeOnReload" aria-describedby="resume-update-hint">刷新后自动恢复未停止的任务</span></label><div class="hint" id="resume-update-hint">任务运行中遇到游戏更新提示时，助手会先保存任务，再确认游戏更新。重新载入后继续原任务。</div>
                 <label class="setting"><span><input type="checkbox" data-setting="autoRecover" aria-describedby="recovery-hint">连接异常且任务停滞时尝试恢复</span></label><div class="hint" id="recovery-hint">先启用刷新后续跑；在运行实况查看恢复依据。</div>
                 <div class="hint">自动收蛋默认开启：在安全间隙孵化成熟蛋，完成后返回当前任务；支持补练和独立任务空闲期。新蛋由游戏自动进入孵化器，不购买槽位、不更换亲本。</div>
                 <label class="setting">图鉴完成后<select data-setting="afterDex"><option value="money">继续刷钱</option><option value="stop">停止助手</option></select></label>
@@ -365,8 +365,13 @@
             const position = ui.folded ? ui.mini : ui.panel;
             host.style.left = 'auto'; host.style.right = '14px'; host.style.bottom = 'auto';
             if (position && Number.isFinite(position.x) && Number.isFinite(position.y)) {
-                const box = host.getBoundingClientRect(); host.style.right = 'auto';
-                host.style.left = `${Math.max(6, Math.min(position.x, innerWidth - box.width - 6))}px`;
+                const box = host.getBoundingClientRect(),maxX=innerWidth-box.width-6;
+                if(ui.folded&&drag?.key==='mini'&&drag.moved)position.right=position.x>=maxX;
+                if(ui.folded&&position.right===true)host.style.right='6px';
+                else {
+                    host.style.right='auto';
+                    host.style.left=`${Math.max(6,Math.min(position.x,maxX))}px`;
+                }
                 host.style.top = `${Math.max(6, Math.min(position.y, innerHeight - box.height - 6))}px`;
             } else if (ui.folded) { host.style.top = 'auto'; host.style.bottom = 'max(14px, env(safe-area-inset-bottom))'; }
             else host.style.top = innerWidth <= 450 || innerHeight <= 560 ? '12px' : '86px';

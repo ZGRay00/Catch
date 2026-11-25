@@ -70,6 +70,15 @@
             if (pointer) el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, pointerId: 1, pointerType: 'mouse', button: 0 }));
             el.click(); this.e.action = label; return true;
         }
+        gameUpdatePrompt(){
+            if(typeof document==='undefined')return null;
+            // The native update dialog saves the game before reloading. Other dialogs
+            // (including cloud conflicts) also use primary buttons in the same modal root.
+            const modal=$('#modal-root.open')?.firstElementChild;
+            if(!modal?.matches('.modal.dexcard-modal.up-modal:only-child'))return null;
+            const button=modal.querySelector(':scope > .modal-actions:last-child > button.btn.primary:only-child');
+            return enabled(button)?button:null;
+        }
         nav(screen) {
             if (visible($(`#screen-${screen}.active`))) {this.navigation=null;return true;}
             const tab = $(`#tabs [data-screen="${screen}"]`);

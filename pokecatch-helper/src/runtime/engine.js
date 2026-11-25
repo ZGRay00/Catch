@@ -61,7 +61,7 @@
             this.daily=null;this.dailyMarks={};this.dailyCheckAt=0;
             this.coach=new LevelCoach(this);this.preparation=null;this.raidPreparation=null;
             this.localSnapshot={status:'empty',revision:0,sourceEpoch:0};this.localFailure=null;this.localDirty=true;
-            this.health={};this.lastStop=null;this.archivedLogs=[];this.journalAccount=null;this.recoveryPending=null;
+            this.health={};this.lastStop=null;this.archivedLogs=[];this.journalAccount=null;this.recoveryPending=null;this.gameUpdateAt=null;
             this.computePending=new Map();this.computeTimer=null;this.computeWindow=0;this.computeCpu=0;this.computeTurn=0;
         }
         log(message,level=null,module=null,ts=Date.now()){
@@ -816,7 +816,7 @@
                 this.manual = cp?.manual||null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.startMoney=combinedWalletMoney(s);this.walletScope='all';
                 this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
-                this.errors=0;this.lastCheckpoint=0;this.saveUnavailableAt=null;this.recoveryPending=null;this.shinySettlement=null;
+                this.errors=0;this.lastCheckpoint=0;this.saveUnavailableAt=null;this.recoveryPending=null;this.gameUpdateAt=null;this.shinySettlement=null;
                 this.checkpoint=null;
                 this.daily=savedDaily||(daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null,checking:true}:null);
                 if(this.daily)this.daily.checking??=!this.daily.job;
@@ -1133,6 +1133,42 @@
             }
             return backgroundKeepalive(now)&&now-this.frameProbe.at>=8000;
         }
+        handleGameUpdate(s,now){
+            const button=this.driver.gameUpdatePrompt?.();
+            if(!button)return false;
+            this.lastProgress=now;this.telemetry.sample=null;
+            if(!this.settings.resumeOnReload){this.status='游戏有更新，刷新后续跑已关闭，请手动处理更新';return true;}
+            if(this.restoring||this.inputHeld||this.inputComposing||this.manual?.until>now||
+                this.gameInputFocused?.()&&!(this.manual&&this.releaseIdleGameInput?.())){
+                this.status='游戏有更新，等待手动操作结束后保存并更新';return true;
+            }
+            if(wildShinyEncounter(s)){this.status='游戏有更新，等待当前异色遭遇结算后更新';return true;}
+            try{
+                const key=PREFIX+'game-update';
+                const previous=JSON.parse(sessionStorage.getItem(key));
+                const launcher=typeof window!=='undefined'&&typeof window.BUILD==='string'?window.BUILD:'';
+                const script=typeof document!=='undefined'&&document.querySelector('script[src*="bundle/app."]');
+                const bundle=/(?:^|\/)bundle\/app\.([a-f0-9]+)\.js(?:[?#]|$)/.exec(script?.getAttribute?.('src')||'')?.[1];
+                const source=[launcher,bundle].filter(Boolean).join(':');
+                if(previous?.account===this.account&&(now-previous.at<600000||source&&previous.started===this.started&&previous.source===source)){
+                    this.status='游戏再次提示更新，已保留续跑进度，请手动检查版本后刷新';return true;
+                }
+                if(!this.persist(true,true))throw Error('当前标签页无法保存');
+                const record=this.storage.getItem(PREFIX+this.account),saved=JSON.parse(record);
+                if(record!==this.lastPersistedRecord||!saved?.resume?.wanted||saved.resume.account!==this.account||!this.mayPersist(now))
+                    throw Error('续跑记录未确认');
+                const marker=JSON.stringify({account:this.account,at:now,source,started:this.started});
+                sessionStorage.setItem(key,marker);
+                if(sessionStorage.getItem(key)!==marker)throw Error('更新记录未确认');
+            }catch{
+                this.status='游戏有更新，续跑进度或刷新记录未保存，稍后重试';return true;
+            }
+            this.status='已保存任务，正在重新加载游戏更新';this.log(this.status,'info','更新',now);
+            this.gameUpdateAt=now;
+            // The game's own button saves its latest state and marks this update before reloading.
+            try{button.click();}catch{this.status='已保存任务，游戏更新按钮未响应，可手动刷新后继续';}
+            return true;
+        }
         tryRecoverStall(s,now){
             if(!this.settings.autoRecover||!this.settings.resumeOnReload||!this.running||!this.account||!this.mayPersist(now))return false;
             if(this.manual||this.suspended||this.restoring||this.inputHeld||this.gameInputFocused?.()||this.hiddenAt!=null||this.nextWake>now||
@@ -1266,6 +1302,10 @@
             if (this.storage.getItem('pokecatch-tab') !== this.tabToken || !this.acquire(now)) { this.stop('另一个标签页接管了游戏',{persist:false}); return; }
             if(this.recoveryPending!=null){if(now-this.recoveryPending>=15000)this.stop('重新载入未完成，请手动检查当前页面',{level:'warn'});return;}
             if (this.settings.stopMinutes && now - this.started >= this.settings.stopMinutes * 60000) { this.stop('达到定时运行上限'); return; }
+            if(this.gameUpdateAt!=null){
+                if(now-this.gameUpdateAt>=15000)this.status='游戏更新尚未完成，已保留续跑进度，可手动刷新后继续';
+                return;
+            }
             if (pageHidden()) { this.checkpointTick(now,true);this.clearFrameProbe();this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
             if(this.offlineWait(now))return;
             let s;
@@ -1281,6 +1321,7 @@
             if (accountId(s) !== this.account || s.adv.layout !== DATA.layout) { this.stop('账号或游戏版本发生变化，请刷新检查',{persist:false}); return; }
             this.saveUnavailableAt=null;
             this.checkpointTick(now,FLOW_MODES.has(this.settings.mode)&&this.nextWake>now);
+            if(this.handleGameUpdate(s,now))return;
             if(this.backgroundFramesStalled(now)){
                 this.hiddenAt??=now;this.status='浏览器已暂停游戏画面，等待恢复渲染后继续补练或原任务';
                 this.lastProgress=now;this.telemetry.sample=null;return;

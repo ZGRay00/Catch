@@ -325,9 +325,10 @@
         padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     }
     :host(.pc-full-panel) .content { width:min(100%,860px); margin-inline:auto; flex:auto }
-    .mini-bar { display:flex; flex-wrap:wrap; gap:4px; align-items:center; max-width:min(480px,calc(100vw - 24px)); width:max-content }
+    .mini-bar { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; max-width:min(480px,calc(100vw - 24px)); width:max-content }
     .mini-bar .mini { min-width:0; overflow:hidden; max-width:100% }
     .mini-links { display:flex; flex-wrap:wrap; gap:3px; max-width:100% }
+    .mini-links:not(:has(button:not([hidden]))) { display:none }
     .mini-links button { border-radius:12px; font-size:11px; padding:4px 7px; background:#162839; color:#b1e6d6 }
     .mini-links button[hidden],#log-tools[hidden],.decision-list[hidden] { display:none!important }
     .decision-list { display:grid; grid-template-columns:max-content minmax(0,1fr); gap:5px 9px; margin:7px 0; font-size:12px }

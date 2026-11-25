@@ -72,17 +72,22 @@
         const metricKey=routeMetricKey(s,settings,now);
         const roamingOpen=ROAMING_DATA.groups.some(group=>s.adv.badges?.includes(group.badge));
         const sourceYield=source=>roamingOpen?source.expected:source.beforeRoaming??source.expected;
-        return candidates(s, {...settings,mode:'item'}).filter(row => (cooldowns[row.key] || 0) <= now).map(row => {
+        const eligible=[];
+        for(const row of candidates(s,{...settings,mode:'item'})){
+            if(cooldowns[row.key]>now)continue;
             const sources = item.sources.filter(source => row.members.includes(source.ch) && sourceYield(source)>0 && sourceAvailable(s, source, item.id, now));
-            const seconds = estimatedRouteSeconds(row,settings.speed);
+            if(sources.length)eligible.push({row,sources,metric:metrics[metricKey(row)]});
+        }
+        // Compare the same kind of loop time across all eligible maps. A dry or lucky roll
+        // changes the displayed observation, not the game's probability at the next node.
+        const useMeasuredTime=eligible.every(({metric})=>metric?.itemRuns>=2&&metric.itemSeconds>0);
+        return eligible.map(({row,sources,metric})=>{
+            const seconds=useMeasuredTime?metric.itemSeconds/metric.itemRuns:estimatedRouteSeconds(row,settings.speed);
             const expected = sources.reduce((n, source) => n + sourceYield(source) * (source.kind === 'town' ? Math.min(1, seconds * 1000 / Math.max(1, DATA.townCooldown || 1)) : 1), 0);
-            const m = metrics[metricKey(row)], measured = m?.itemSeconds > 0;
-            const count = Number(m?.itemCounts?.[item.id]) || 0;
-            const estimate = expected / seconds * 60;
-            // A zero-drop trial cannot make a rare but valid source look impossible.
-            const rate = measured ? (count + expected * 2) / (m.itemSeconds + seconds * 2) * 60 : estimate;
-            return { ...row, rate, expected, measured, actualRate: measured ? count / m.itemSeconds * 60 : null, samples: m?.itemRuns || 0, sources };
-        }).filter(row => row.expected > 0).sort((a, b) => b.rate - a.rate || a.id - b.id);
+            const measured=metric?.itemSeconds>0,count=Number(metric?.itemCounts?.[item.id])||0;
+            return {...row,rate:expected/seconds*60,expected,measured,useMeasuredTime,
+                actualRate:measured?count/metric.itemSeconds*60:null,samples:metric?.itemRuns||0,sources};
+        }).sort((a,b)=>b.rate-a.rate||a.id-b.id);
     }
     const leagueBadgesByRegion = new Map(DATA.regions.map(region => [region.key,
         DATA.chapters.filter(chapter => chapter.reg === region.key && chapter.league).flatMap(chapter => chapter.badges || [])]));

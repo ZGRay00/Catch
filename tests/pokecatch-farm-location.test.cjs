@@ -23,3 +23,28 @@ for(const mode of ['train','item','money']){
         assert.equal(e.running,true);assert.equal(e.driver.pendingMap,null);assert.deepEqual(nav,['adventure']);assert.equal(e.target.key,target.key);e.stop();
     });
 }
+
+test('Belue berry farming stays in Giant Chasm after a dry run and compares measured pace only when both routes have samples',t=>{
+    const {s,e,now,save,nav}=fixture(t,'item');
+    e.settings.itemId='belue-berry';s.travel.to=['unova'];
+    Object.assign(s.adv,{chapter:83,unlocked:83,loops:[83],badges:['Maître Unys']});
+    save();e.read();
+    const rank=()=>H.itemRanking(s,e.settings,e.metrics,{},now);
+    const [cave,road]=rank();
+    assert.deepEqual([cave.id,road.id],[83,76]);
+    const caveKey=H.metricsKey(s,cave,e.settings,now),roadKey=H.metricsKey(s,road,e.settings,now);
+    e.metrics[caveKey]={itemSeconds:452.028,itemRuns:1,itemCounts:{}};
+    e.target=cave;e.farm(s,now,'item');
+    assert.equal(e.driver.pendingMap,null);assert.deepEqual(nav,['adventure']);
+    assert.equal(rank()[0].rate,cave.rate);assert.equal(rank()[0].actualRate,0);
+    e.metrics[roadKey]={itemSeconds:240,itemRuns:2,itemCounts:{'belue-berry':1}};
+    assert.deepEqual(rank().map(r=>r.rate),[cave.rate,road.rate]);
+    e.metrics[caveKey].itemRuns=2;e.metrics[caveKey].itemSeconds=1000;
+    const comparable=rank();
+    assert.ok(comparable.every(r=>r.useMeasuredTime));
+    assert.equal(comparable[0].id,76);
+    e.metrics[caveKey].itemCounts['belue-berry']=4;
+    assert.deepEqual(rank().map(r=>r.rate),comparable.map(r=>r.rate));
+    e.farm(s,now,'item');assert.equal(e.driver.pendingMap?.row.id,76);
+    e.stop();
+});

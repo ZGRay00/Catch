@@ -95,9 +95,12 @@ test('task explanation keeps an estimated rate distinct from an observed one and
     const display = {goalLabel: '道具', goalValue: '2/10', activeLabel: '刷道具', actionText: '等待下个节点'};
     helpers.renderTaskExplanation({children: cells}, engine, display);
     assert.match(cells[1].textContent, /第一章/);
-    assert.match(cells[3].textContent, /估算每分钟 0.5 个/);
+    assert.match(cells[3].textContent, /预计用时估算每小时 30.00 个/);
     engine.target.measured = true; display.wait = {detail: '等候手动选择'};
     helpers.renderTaskExplanation({children: cells}, engine, display);
-    assert.match(cells[3].textContent, /含实测/);
+    assert.match(cells[3].textContent, /预计用时/);
+    engine.target.useMeasuredTime=true;
+    helpers.renderTaskExplanation({children:cells},engine,display);
+    assert.match(cells[3].textContent,/实测用时/);
     assert.equal(cells[5].textContent, '等候手动选择');
 });

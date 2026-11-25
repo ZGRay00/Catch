@@ -1,8 +1,12 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.1.6**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.1.8**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.1.6.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.1.8.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+8.1.8 · 道具任务卡显示目标刷取量、当前持有量和本项已刷取量。相同道具的队列任务分别计数。
+
+8.1.7 · 指定道具按预计每小时掉落量选图。各候选地图均有至少两轮样本后，统一使用实测平均用时。单轮零掉落不会压低该图排名。
 
 8.1.6 · 指定道具刷断牙时直接前往合众「喷射徽章」的吹寄洞穴，跳过关底补练并清理残留的联盟循环。刷新续跑时也会跳过旧版保存的断牙地图补练。
 

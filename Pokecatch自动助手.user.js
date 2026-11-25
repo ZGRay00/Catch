@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.1.6
+// @version      8.1.8
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.1.6', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.1.8', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -1335,6 +1335,13 @@
         return Number.isSafeInteger(value)?value:null;
     }
     function queueJobPending(job){return job.status!=='done'&&job.status!=='skipped';}
+    function queueItemAcquired(job,s,session){
+        if(!session&&Number.isSafeInteger(job.itemAcquired))return job.itemAcquired;
+        if(!session&&!queueJobPending(job))return null; // Older finished jobs did not keep their counters.
+        const baseline=session||job.progress?.session,id=job.settings.itemId;
+        if(!Number.isFinite(baseline?.startItems)||baseline.sessionItemId&&baseline.sessionItemId!==id)return 0;
+        return s?.adv?Math.max(0,itemCounter(s,id)-baseline.startItems):null;
+    }
     function normalizeJobs(raw) {
         const jobs = [], ids = new Set();
         for (const row of Array.isArray(raw) ? raw.slice(0, 50) : []) {
@@ -1345,6 +1352,7 @@
             jobs.push({id, title:String(row.title || MODE_NAMES[row.settings.mode]).slice(0,80),
                 settings:normalizeSettings(row.settings), status:['done','skipped','failed','running','paused','pending'].includes(row.status) ? row.status : 'pending',
                 result:String(row.result || '').slice(0,200),
+                ...(row.settings.mode==='item'&&Number.isSafeInteger(row.itemAcquired)&&row.itemAcquired>=0?{itemAcquired:row.itemAcquired}:{}),
                 ...(row.progress && typeof row.progress === 'object' && !Array.isArray(row.progress) ? {progress:row.progress} : {})});
         }
         return jobs;
@@ -4709,17 +4717,22 @@
         const metricKey=routeMetricKey(s,settings,now);
         const roamingOpen=ROAMING_DATA.groups.some(group=>s.adv.badges?.includes(group.badge));
         const sourceYield=source=>roamingOpen?source.expected:source.beforeRoaming??source.expected;
-        return candidates(s, {...settings,mode:'item'}).filter(row => (cooldowns[row.key] || 0) <= now).map(row => {
+        const eligible=[];
+        for(const row of candidates(s,{...settings,mode:'item'})){
+            if(cooldowns[row.key]>now)continue;
             const sources = item.sources.filter(source => row.members.includes(source.ch) && sourceYield(source)>0 && sourceAvailable(s, source, item.id, now));
-            const seconds = estimatedRouteSeconds(row,settings.speed);
+            if(sources.length)eligible.push({row,sources,metric:metrics[metricKey(row)]});
+        }
+        // Compare the same kind of loop time across all eligible maps. A dry or lucky roll
+        // changes the displayed observation, not the game's probability at the next node.
+        const useMeasuredTime=eligible.every(({metric})=>metric?.itemRuns>=2&&metric.itemSeconds>0);
+        return eligible.map(({row,sources,metric})=>{
+            const seconds=useMeasuredTime?metric.itemSeconds/metric.itemRuns:estimatedRouteSeconds(row,settings.speed);
             const expected = sources.reduce((n, source) => n + sourceYield(source) * (source.kind === 'town' ? Math.min(1, seconds * 1000 / Math.max(1, DATA.townCooldown || 1)) : 1), 0);
-            const m = metrics[metricKey(row)], measured = m?.itemSeconds > 0;
-            const count = Number(m?.itemCounts?.[item.id]) || 0;
-            const estimate = expected / seconds * 60;
-            // A zero-drop trial cannot make a rare but valid source look impossible.
-            const rate = measured ? (count + expected * 2) / (m.itemSeconds + seconds * 2) * 60 : estimate;
-            return { ...row, rate, expected, measured, actualRate: measured ? count / m.itemSeconds * 60 : null, samples: m?.itemRuns || 0, sources };
-        }).filter(row => row.expected > 0).sort((a, b) => b.rate - a.rate || a.id - b.id);
+            const measured=metric?.itemSeconds>0,count=Number(metric?.itemCounts?.[item.id])||0;
+            return {...row,rate:expected/seconds*60,expected,measured,useMeasuredTime,
+                actualRate:measured?count/metric.itemSeconds*60:null,samples:metric?.itemRuns||0,sources};
+        }).sort((a,b)=>b.rate-a.rate||a.id-b.id);
     }
     const leagueBadgesByRegion = new Map(DATA.regions.map(region => [region.key,
         DATA.chapters.filter(chapter => chapter.reg === region.key && chapter.league).flatMap(chapter => chapter.badges || [])]));
@@ -10791,7 +10804,11 @@
                 budget:{spent:this.budget.spent,used:this.budget.used}};
         }
         saveJobProgress(snapshot=this.progressSnapshot()){
-            const job=this.queueRunning&&this.queue[this.queueIndex];if(!this.restoring&&job&&queueJobPending(job)&&this.started)job.progress=snapshot;
+            const job=this.queueRunning&&this.queue[this.queueIndex];
+            if(this.restoring||!job||!queueJobPending(job)||!this.started)return;
+            job.progress=snapshot;
+            if(job.settings.mode==='item'&&this.state?.adv&&accountId(this.state)===this.account)
+                job.itemAcquired=queueItemAcquired(job,this.state,snapshot.session);
         }
         mayPersist(now=Date.now()){
             if(!this.account)return false;
@@ -11072,7 +11089,12 @@
             if(this.daily?.job){this.returnFromDaily(reason);return;}
             const state=this.read();if(this.queueRunning&&(state?.adv?.event||state?.adv?.zone||state?.adv?.tower||state?.adv?.league)){this.status='目标已达成，等待当前独立战斗结束后切换队列';this.lastProgress=Date.now();return;}
             if(!this.queueRunning){this.stop(reason);return;}this.log(reason);
-            const job=this.queue[this.queueIndex];if(job){job.status=status;job.result=reason;delete job.progress;}
+            const job=this.queue[this.queueIndex];
+            if(job){
+                if(job.settings.mode==='item'&&state?.adv&&accountId(state)===this.account)
+                    job.itemAcquired=queueItemAcquired(job,state,this);
+                job.status=status;job.result=reason;delete job.progress;
+            }
             const index=this.queue.findIndex((job,i)=>i>this.queueIndex&&queueJobPending(job));
             if(index<0){this.queueRunning=false;this.stop(this.queue.some(job=>job.status==='skipped')?'任务队列已结束，含已跳过任务':'任务队列已全部完成');return;}
             this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
@@ -12738,6 +12760,7 @@
             }
             if (mode==='item'&&current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,rows[0],now,'item')) {
                 if(this.routeReached(s,current)){
+                    this.target=current;
                     if(this.settings.autoTeam&&this.fitTeam(s,now))return;
                     this.status=`${label} · ${current.name}`;
                 }
@@ -13357,7 +13380,7 @@
             if(next.trainingSafe&&!current.trainingSafe&&kind==='xp')return true;
             if(!(next.rate>0))return false;
             if(kind!=='xp'&&this.visit&&now-this.visit.started<15000)return false;
-            const dependable=row=>row.measured&&row.samples>=(kind==='xp'?3:2);
+            const dependable=row=>kind==='item'?row.useMeasuredTime:row.measured&&row.samples>=(kind==='xp'?3:2);
             const threshold=dependable(current)&&dependable(next)?.05:.08;
             const incumbent=kind==='money'&&current.measured&&current.samples<2&&Number.isFinite(current.estimatedReward)&&current.estimatedSeconds>0
                 ?(current.rate+current.estimatedReward/current.estimatedSeconds*60)/2:current.rate;
@@ -13594,6 +13617,9 @@
     .queue-state[data-state=running], .queue-state[data-state=done] { color:#a2e5d0; background:#21443e }
     .queue-state[data-state=paused], .queue-state[data-state=failed] { color:#f2cf93; background:#473924 }
     .queue-job-detail { margin-top:6px }
+    .queue-item-counts { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:7px 0 0 }
+    .queue-item-counts dt {font-size:11px}
+    .queue-item-counts dd {margin:2px 0 0;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
     .queue-job-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px }
     .queue-job-actions button { min-height:32px; padding:5px 7px; font-size:11px }
     .queue-job-actions button[data-job-action=remove] { color:#f1b3bc }
@@ -15112,6 +15138,19 @@
         const list=root.querySelector('#queue-list'),summary=root.querySelector('#queue-summary');
         const notice=root.querySelector('#queue-notice'),add=root.querySelector('#queue-add');
         let previous;
+        const itemCells=new Map();
+        function updateItemCounts(jobs,s,active){
+            for(const job of jobs){
+                const cells=itemCells.get(job.id);
+                if(!cells)continue;
+                const acquired=queueItemAcquired(job,s,job===active?engine:null);
+                const values=[job.settings.itemQuantity,ownedItems(s,job.settings.itemId),acquired];
+                values.forEach((value,i)=>{
+                    const text=value==null?'未记录':value.toLocaleString('zh-CN');
+                    if(cells[i].textContent!==text)cells[i].textContent=text;
+                });
+            }
+        }
         return function renderQueue(s,locked,pending,editingJob,error){
             const ready=!!s?.adv&&!!engine.account;
             const canEdit=ready&&!locked&&!(engine.checkpoint?.wanted&&engine.settings.resumeOnReload);
@@ -15129,8 +15168,9 @@
             const jobs=ready?engine.queue:[];
             const signature=JSON.stringify([canEdit,active?.id,!!engine.manual,!!engine.suspended,editingJob,
                 jobs.map(job=>[job.id,job.title,job.status,job.result,!!job.progress,job.settings.mode,job.settings.moneyTarget])]);
-            if(previous===signature)return;
+            if(previous===signature){updateItemCounts(jobs,s,active);return;}
             previous=signature;
+            itemCells.clear();
             const fragment=document.createDocumentFragment();
             for(const [index,job] of jobs.entries()){
                 const card=document.createElement('li');card.className='queue-job';card.dataset.queueJob=job.id;
@@ -15143,6 +15183,15 @@
                 chip.dataset.state=isActive?engine.suspended||engine.manual?'paused':'running':job.status==='running'?'paused':job.status;
                 chip.textContent={pending:'待执行',running:'运行中',paused:job.progress||isActive?'可续跑':'已暂停',done:'已完成',skipped:'已跳过',failed:'待处理'}[chip.dataset.state];
                 head.append(order,label,chip);card.append(head);
+                if(job.settings.mode==='item'){
+                    const stats=document.createElement('dl');stats.className='queue-item-counts';
+                    const cells=[];
+                    for(const caption of ['目标刷取','当前持有','本项已刷']){
+                        const group=document.createElement('div'),term=document.createElement('dt'),value=document.createElement('dd');
+                        term.textContent=caption;group.append(term,value);stats.append(group);cells.push(value);
+                    }
+                    itemCells.set(job.id,cells);card.append(stats);
+                }
                 const detail=job.result||((job.settings.mode==='money'&&!job.settings.moneyTarget&&queueJobPending(job))?'未设置金币目标，后续任务会等待。':'');
                 if(detail){const text=document.createElement('p');text.className='queue-job-detail';text.textContent=detail;card.append(text);}
                 const actions=document.createElement('div');actions.className='queue-job-actions';
@@ -15162,6 +15211,7 @@
             if(ready&&!jobs.length){
                 const empty=document.createElement('li');empty.className='queue-empty';empty.textContent='从「任务」配置目标，再点「加入队列」。按列表顺序执行。';fragment.append(empty);
             }
+            updateItemCounts(jobs,s,active);
             list.replaceChildren(fragment);
         };
     }
@@ -15321,8 +15371,10 @@
         const target=active&&(engine.driver.pendingMap?.row||engine.preparation?.route||engine.target);
         const goal=[activeLabel,goalLabel,goalValue,target?.name].filter(Boolean).join(' · ');
         let why=active&&engine.preparation?.context?.label?'完成补练后回到'+engine.preparation.context.label:target?.prepNote||hint;
-        if(target&&Number.isFinite(target.rate)&&['money','train','item'].includes(engine.settings.mode)){
-            const unit={money:'₽',train:'EXP',item:'个'}[engine.settings.mode];
+        if(target&&Number.isFinite(target.rate)&&engine.settings.mode==='item'&&!engine.preparation){
+            why=target.name+' · 按'+(target.useMeasuredTime?'实测':'预计')+'用时估算每小时 '+(target.rate*60).toFixed(2)+' 个';
+        }else if(target&&Number.isFinite(target.rate)&&['money','train'].includes(engine.settings.mode)){
+            const unit={money:'₽',train:'EXP'}[engine.settings.mode];
             why=target.name+' · '+(target.measured?'含实测':'估算')+'每分钟 '+Number(target.rate.toFixed(2)).toLocaleString()+' '+unit;
         }
         const next=wait?.detail||(!active?'点击开始当前任务':engine.driver.navigation?'打开'+(engine.driver.navigation.name||engine.driver.navigation.screen):engine.driver.pendingMap?.row?'切换至'+engine.driver.pendingMap.row.name:actionText);
@@ -16483,7 +16535,7 @@
                 const item=ITEMS.get(settings.itemId),count=engine.endedTotals?engine.endedTotals.items:itemCounter(s,settings.itemId);
                 const n=engine.started&&engine.sessionItemId===settings.itemId&&count!=null?Math.max(0,count-engine.startItems):0;
                 primary = `${n}/${settings.itemQuantity}`; primaryLabel = '本次道具获取'; goalLabel = item.name; goalValue = `背包 ${ownedItems(s,item.id)} · 本次 +${n}`; percent = n / settings.itemQuantity * 100;
-                if(taskPage)hint = eliteItemHint(item)||(item.id==='gracidea'?'白天带陆上形态谢米前往神奥花苑花田，在道具事件中领取一次。':`${itemRanking(s,settings).length} 个章节可规划。${item.sources.some(source => source.repeat) ? '按目标掉落效率选图，显示平滑估计与整轮实测。' : '此道具为有限来源，已领取或已转金币的地点会排除。'} 获取数量按本次新增统计。`);
+                if(taskPage)hint = eliteItemHint(item)||(item.id==='gracidea'?'白天带陆上形态谢米前往神奥花苑花田，在道具事件中领取一次。':`${itemRanking(s,settings).length} 个章节可规划。${item.sources.some(source => source.repeat) ? '按预计每小时掉落选图，实际收获可在路线表查看。' : '此道具为有限来源，已领取或已转金币的地点会排除。'} 获取数量按本次新增统计。`);
             } else if (mode === 'train') {
                 const p=trainingStatus(s,settings,engine.running?engine.trainProtected:null),xp=engine.endedTotals?engine.endedTotals.xp:experienceTotal(s,engine.trainProtected||s.team);
                 const gained=engine.started&&engine.trainingSelection===settings.trainUid&&xp!=null&&engine.startTrainingXp!=null?Math.max(0,xp-engine.startTrainingXp):0;
@@ -16593,7 +16645,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,retained,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
+                signature=JSON.stringify([mode,preview,!!prep,retained,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.useMeasuredTime,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -16615,6 +16667,10 @@
                         const note=document.createElement('div');note.className='hint';note.textContent='沿用已规划的路线与队伍。继续记录整轮实测，战败后复评。';view.appendChild(note);
                     }else if(mode==='train'&&rows.length){
                         const note=document.createElement('div');note.className='hint';note.textContent=preview?'按当前队伍比较各地图的每分钟经验。':trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
+                    }else if(mode==='item'&&rows.length){
+                        const note=document.createElement('div');note.className='hint';
+                        note.textContent=rows[0].useMeasuredTime?'按掉落概率和各图实测平均用时排序。':'按掉落概率和预计用时排序。各候选地图均有至少 2 轮样本后，改用实测平均用时。';
+                        view.appendChild(note);
                     }
                     const coverage=mode==='money'&&rows[0]?.planCoverage;
                     if(coverage&&!retained){
@@ -16623,7 +16679,7 @@
                         view.appendChild(note);
                     }
                     const table = document.createElement('table');
-                    table.innerHTML = `<thead><tr><th>地图</th><th>${mode === 'item' ? '平滑 / 实测' : '来源 / 整轮'}</th><th>${mode === 'item' ? '个/分钟' : mode === 'train' ? 'EXP/分钟' : '₽/分钟'}</th></tr></thead><tbody></tbody>`;
+                    table.innerHTML = `<thead><tr><th>地图</th><th>${mode === 'item' ? '实得/小时（样本）' : '来源 / 整轮'}</th><th>${mode === 'item' ? '预计个/小时' : mode === 'train' ? 'EXP/分钟' : '₽/分钟'}</th></tr></thead><tbody></tbody>`;
                     const selectedKey=prep?prep.route?.key:engine.target?.key;
                     for(const league of leagueNotes){
                         const tr=table.tBodies[0].insertRow();
@@ -16635,10 +16691,10 @@
                         const tr=document.createElement('tr'),selected=preview?row.members.includes(s.adv.chapter):selectedKey===row.key;
                         tr.classList.toggle('active',selected);textCell(tr,(selected?'▶ ':'')+row.name);
                         let source='估算';
-                        if(mode==='item'&&row.measured)source='平滑 · 实测 '+row.actualRate.toFixed(2);
+                        if(mode==='item')source=row.measured?(row.actualRate*60).toFixed(2)+'（'+Math.floor(row.samples)+' 轮）':'暂无样本';
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
                         else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
-                        textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        textCell(tr,source);textCell(tr,mode==='item'?(row.rate*60).toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
                         if(mode==='money'&&row.battleFit?.roamingRisk){
                             const detail=table.tBodies[0].insertRow().insertCell();
                             detail.colSpan=3;detail.className='hint warn';detail.style.textAlign='left';
@@ -16841,8 +16897,10 @@
                 const next=i+(action==='up'?-1:1);
                 if(!jobs[next])return;
                 [jobs[i],jobs[next]]=[jobs[next],job];
-            }else if(action==='skip')jobs[i]={...job,status:'skipped',result:'已手动跳过'};
-            else if(action==='retry')jobs[i]={...job,status:'pending',result:'',progress:undefined};
+            }else if(action==='skip'){
+                jobs[i]={...job,status:'skipped',result:'已手动跳过'};
+                if(job.settings.mode==='item')jobs[i].itemAcquired=queueItemAcquired(job,engine.state);
+            }else if(action==='retry')jobs[i]={...job,status:'pending',result:'',progress:undefined,itemAcquired:undefined};
             else if(action==='remove')jobs.splice(i,1);
             else return;
             if(saveQueue(jobs)){render();focusQueueJob(action==='remove'?jobs[Math.min(i,jobs.length-1)]?.id:id,action);}
@@ -16868,7 +16926,7 @@
             if(current?.progress){
                 const compatible=goalIdentity(current.settings)===goalIdentity(settings);
                 job.progress=compatible?current.progress:{budget:current.progress.budget};
-                if(compatible){job.status='paused';job.result=current.result;}
+                if(compatible){job.status='paused';job.result=current.result;job.itemAcquired=current.itemAcquired;}
             }
             if(current)jobs[i]=job;else jobs.push(job);
             if(!saveQueue(jobs))return;

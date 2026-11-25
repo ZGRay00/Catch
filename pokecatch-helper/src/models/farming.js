@@ -46,6 +46,13 @@
         return Number.isSafeInteger(value)?value:null;
     }
     function queueJobPending(job){return job.status!=='done'&&job.status!=='skipped';}
+    function queueItemAcquired(job,s,session){
+        if(!session&&Number.isSafeInteger(job.itemAcquired))return job.itemAcquired;
+        if(!session&&!queueJobPending(job))return null; // Older finished jobs did not keep their counters.
+        const baseline=session||job.progress?.session,id=job.settings.itemId;
+        if(!Number.isFinite(baseline?.startItems)||baseline.sessionItemId&&baseline.sessionItemId!==id)return 0;
+        return s?.adv?Math.max(0,itemCounter(s,id)-baseline.startItems):null;
+    }
     function normalizeJobs(raw) {
         const jobs = [], ids = new Set();
         for (const row of Array.isArray(raw) ? raw.slice(0, 50) : []) {
@@ -56,6 +63,7 @@
             jobs.push({id, title:String(row.title || MODE_NAMES[row.settings.mode]).slice(0,80),
                 settings:normalizeSettings(row.settings), status:['done','skipped','failed','running','paused','pending'].includes(row.status) ? row.status : 'pending',
                 result:String(row.result || '').slice(0,200),
+                ...(row.settings.mode==='item'&&Number.isSafeInteger(row.itemAcquired)&&row.itemAcquired>=0?{itemAcquired:row.itemAcquired}:{}),
                 ...(row.progress && typeof row.progress === 'object' && !Array.isArray(row.progress) ? {progress:row.progress} : {})});
         }
         return jobs;

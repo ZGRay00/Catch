@@ -2,6 +2,19 @@
         const list=root.querySelector('#queue-list'),summary=root.querySelector('#queue-summary');
         const notice=root.querySelector('#queue-notice'),add=root.querySelector('#queue-add');
         let previous;
+        const itemCells=new Map();
+        function updateItemCounts(jobs,s,active){
+            for(const job of jobs){
+                const cells=itemCells.get(job.id);
+                if(!cells)continue;
+                const acquired=queueItemAcquired(job,s,job===active?engine:null);
+                const values=[job.settings.itemQuantity,ownedItems(s,job.settings.itemId),acquired];
+                values.forEach((value,i)=>{
+                    const text=value==null?'未记录':value.toLocaleString('zh-CN');
+                    if(cells[i].textContent!==text)cells[i].textContent=text;
+                });
+            }
+        }
         return function renderQueue(s,locked,pending,editingJob,error){
             const ready=!!s?.adv&&!!engine.account;
             const canEdit=ready&&!locked&&!(engine.checkpoint?.wanted&&engine.settings.resumeOnReload);
@@ -19,8 +32,9 @@
             const jobs=ready?engine.queue:[];
             const signature=JSON.stringify([canEdit,active?.id,!!engine.manual,!!engine.suspended,editingJob,
                 jobs.map(job=>[job.id,job.title,job.status,job.result,!!job.progress,job.settings.mode,job.settings.moneyTarget])]);
-            if(previous===signature)return;
+            if(previous===signature){updateItemCounts(jobs,s,active);return;}
             previous=signature;
+            itemCells.clear();
             const fragment=document.createDocumentFragment();
             for(const [index,job] of jobs.entries()){
                 const card=document.createElement('li');card.className='queue-job';card.dataset.queueJob=job.id;
@@ -33,6 +47,15 @@
                 chip.dataset.state=isActive?engine.suspended||engine.manual?'paused':'running':job.status==='running'?'paused':job.status;
                 chip.textContent={pending:'待执行',running:'运行中',paused:job.progress||isActive?'可续跑':'已暂停',done:'已完成',skipped:'已跳过',failed:'待处理'}[chip.dataset.state];
                 head.append(order,label,chip);card.append(head);
+                if(job.settings.mode==='item'){
+                    const stats=document.createElement('dl');stats.className='queue-item-counts';
+                    const cells=[];
+                    for(const caption of ['目标刷取','当前持有','本项已刷']){
+                        const group=document.createElement('div'),term=document.createElement('dt'),value=document.createElement('dd');
+                        term.textContent=caption;group.append(term,value);stats.append(group);cells.push(value);
+                    }
+                    itemCells.set(job.id,cells);card.append(stats);
+                }
                 const detail=job.result||((job.settings.mode==='money'&&!job.settings.moneyTarget&&queueJobPending(job))?'未设置金币目标，后续任务会等待。':'');
                 if(detail){const text=document.createElement('p');text.className='queue-job-detail';text.textContent=detail;card.append(text);}
                 const actions=document.createElement('div');actions.className='queue-job-actions';
@@ -52,6 +75,7 @@
             if(ready&&!jobs.length){
                 const empty=document.createElement('li');empty.className='queue-empty';empty.textContent='从「任务」配置目标，再点「加入队列」。按列表顺序执行。';fragment.append(empty);
             }
+            updateItemCounts(jobs,s,active);
             list.replaceChildren(fragment);
         };
     }

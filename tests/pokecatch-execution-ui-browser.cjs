@@ -650,6 +650,33 @@ async function main(){
         const queueShot=await send('Page.captureScreenshot',{format:'png'});
         fs.writeFileSync(path.join(dir,'mobile-queue.png'),Buffer.from(queueShot.data,'base64'));
         checks.push('dedicated mobile queue opens directly, keeps drafts separate, reorders, skips and resumes the intended saved task');
+        const itemCounts=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,r=${root},s=fixtureState,id='belue-berry';
+            const values=job=>Array.from(r.querySelectorAll('[data-queue-job="'+job+'"] .queue-item-counts dd'),el=>el.textContent);
+            const cfg={...e.settings,mode:'item',itemId:id,itemQuantity:3};
+            s.items[id]=8;s.stats.itemIn={[id]:18};commitExecution();
+            const first={id:'first',title:'靛莓果',settings:cfg,status:'pending'};
+            e.updateQueue([first,{...first,id:'second',settings:{...cfg,itemQuantity:20}},
+                {...first,id:'legacy',status:'done'}]);e.onChange();
+            const pending=values('first'),legacy=values('legacy');
+            r.querySelector('#start-queue').click();clearTimeout(e.timer);
+            s.items[id]=7;s.stats.itemIn[id]=20;commitExecution();
+            const running=values('first'),other=values('second');
+            r.querySelector('#stop').click();
+            const paused=values('first');
+            r.querySelector('#start-queue').click();clearTimeout(e.timer);
+            s.items[id]=9;s.stats.itemIn[id]=22;commitExecution();
+            e.completeTask('达到道具目标');clearTimeout(e.timer);e.onChange();
+            const done=values('first'),next=values('second');
+            r.querySelector('#stop').click();
+            e.updateQueue(JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+e.account)).queue);e.onChange();
+            const saved=values('first');
+            r.querySelector('[data-queue-job="first"] [data-job-action="retry"]').click();
+            return {pending,legacy,running,other,paused,done,next,saved,reset:values('first')};
+        })()`);
+        assert.deepEqual(itemCounts,{pending:['3','8','0'],legacy:['3','8','未记录'],running:['3','7','2'],
+            other:['20','7','0'],paused:['3','7','2'],done:['3','9','4'],next:['20','9','0'],saved:['3','9','4'],reset:['3','9','0']});
+        checks.push('item queue cards show the goal, live stock and independent intake through spending, stop, resume, completion and reset');
         console.log('PASS: '+checks.length+' execution/concurrency UI checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

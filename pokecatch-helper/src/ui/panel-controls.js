@@ -11,8 +11,10 @@
         const target=active&&(engine.driver.pendingMap?.row||engine.preparation?.route||engine.target);
         const goal=[activeLabel,goalLabel,goalValue,target?.name].filter(Boolean).join(' · ');
         let why=active&&engine.preparation?.context?.label?'完成补练后回到'+engine.preparation.context.label:target?.prepNote||hint;
-        if(target&&Number.isFinite(target.rate)&&['money','train','item'].includes(engine.settings.mode)){
-            const unit={money:'₽',train:'EXP',item:'个'}[engine.settings.mode];
+        if(target&&Number.isFinite(target.rate)&&engine.settings.mode==='item'&&!engine.preparation){
+            why=target.name+' · 按'+(target.useMeasuredTime?'实测':'预计')+'用时估算每小时 '+(target.rate*60).toFixed(2)+' 个';
+        }else if(target&&Number.isFinite(target.rate)&&['money','train'].includes(engine.settings.mode)){
+            const unit={money:'₽',train:'EXP'}[engine.settings.mode];
             why=target.name+' · '+(target.measured?'含实测':'估算')+'每分钟 '+Number(target.rate.toFixed(2)).toLocaleString()+' '+unit;
         }
         const next=wait?.detail||(!active?'点击开始当前任务':engine.driver.navigation?'打开'+(engine.driver.navigation.name||engine.driver.navigation.screen):engine.driver.pendingMap?.row?'切换至'+engine.driver.pendingMap.row.name:actionText);

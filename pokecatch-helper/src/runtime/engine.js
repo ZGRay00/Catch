@@ -326,7 +326,11 @@
                 budget:{spent:this.budget.spent,used:this.budget.used}};
         }
         saveJobProgress(snapshot=this.progressSnapshot()){
-            const job=this.queueRunning&&this.queue[this.queueIndex];if(!this.restoring&&job&&queueJobPending(job)&&this.started)job.progress=snapshot;
+            const job=this.queueRunning&&this.queue[this.queueIndex];
+            if(this.restoring||!job||!queueJobPending(job)||!this.started)return;
+            job.progress=snapshot;
+            if(job.settings.mode==='item'&&this.state?.adv&&accountId(this.state)===this.account)
+                job.itemAcquired=queueItemAcquired(job,this.state,snapshot.session);
         }
         mayPersist(now=Date.now()){
             if(!this.account)return false;
@@ -607,7 +611,12 @@
             if(this.daily?.job){this.returnFromDaily(reason);return;}
             const state=this.read();if(this.queueRunning&&(state?.adv?.event||state?.adv?.zone||state?.adv?.tower||state?.adv?.league)){this.status='目标已达成，等待当前独立战斗结束后切换队列';this.lastProgress=Date.now();return;}
             if(!this.queueRunning){this.stop(reason);return;}this.log(reason);
-            const job=this.queue[this.queueIndex];if(job){job.status=status;job.result=reason;delete job.progress;}
+            const job=this.queue[this.queueIndex];
+            if(job){
+                if(job.settings.mode==='item'&&state?.adv&&accountId(state)===this.account)
+                    job.itemAcquired=queueItemAcquired(job,state,this);
+                job.status=status;job.result=reason;delete job.progress;
+            }
             const index=this.queue.findIndex((job,i)=>i>this.queueIndex&&queueJobPending(job));
             if(index<0){this.queueRunning=false;this.stop(this.queue.some(job=>job.status==='skipped')?'任务队列已结束，含已跳过任务':'任务队列已全部完成');return;}
             this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
@@ -2273,6 +2282,7 @@
             }
             if (mode==='item'&&current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,rows[0],now,'item')) {
                 if(this.routeReached(s,current)){
+                    this.target=current;
                     if(this.settings.autoTeam&&this.fitTeam(s,now))return;
                     this.status=`${label} · ${current.name}`;
                 }
@@ -2892,7 +2902,7 @@
             if(next.trainingSafe&&!current.trainingSafe&&kind==='xp')return true;
             if(!(next.rate>0))return false;
             if(kind!=='xp'&&this.visit&&now-this.visit.started<15000)return false;
-            const dependable=row=>row.measured&&row.samples>=(kind==='xp'?3:2);
+            const dependable=row=>kind==='item'?row.useMeasuredTime:row.measured&&row.samples>=(kind==='xp'?3:2);
             const threshold=dependable(current)&&dependable(next)?.05:.08;
             const incumbent=kind==='money'&&current.measured&&current.samples<2&&Number.isFinite(current.estimatedReward)&&current.estimatedSeconds>0
                 ?(current.rate+current.estimatedReward/current.estimatedSeconds*60)/2:current.rate;

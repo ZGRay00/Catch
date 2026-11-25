@@ -1003,7 +1003,7 @@
                 const item=ITEMS.get(settings.itemId),count=engine.endedTotals?engine.endedTotals.items:itemCounter(s,settings.itemId);
                 const n=engine.started&&engine.sessionItemId===settings.itemId&&count!=null?Math.max(0,count-engine.startItems):0;
                 primary = `${n}/${settings.itemQuantity}`; primaryLabel = '本次道具获取'; goalLabel = item.name; goalValue = `背包 ${ownedItems(s,item.id)} · 本次 +${n}`; percent = n / settings.itemQuantity * 100;
-                if(taskPage)hint = eliteItemHint(item)||(item.id==='gracidea'?'白天带陆上形态谢米前往神奥花苑花田，在道具事件中领取一次。':`${itemRanking(s,settings).length} 个章节可规划。${item.sources.some(source => source.repeat) ? '按目标掉落效率选图，显示平滑估计与整轮实测。' : '此道具为有限来源，已领取或已转金币的地点会排除。'} 获取数量按本次新增统计。`);
+                if(taskPage)hint = eliteItemHint(item)||(item.id==='gracidea'?'白天带陆上形态谢米前往神奥花苑花田，在道具事件中领取一次。':`${itemRanking(s,settings).length} 个章节可规划。${item.sources.some(source => source.repeat) ? '按预计每小时掉落选图，实际收获可在路线表查看。' : '此道具为有限来源，已领取或已转金币的地点会排除。'} 获取数量按本次新增统计。`);
             } else if (mode === 'train') {
                 const p=trainingStatus(s,settings,engine.running?engine.trainProtected:null),xp=engine.endedTotals?engine.endedTotals.xp:experienceTotal(s,engine.trainProtected||s.team);
                 const gained=engine.started&&engine.trainingSelection===settings.trainUid&&xp!=null&&engine.startTrainingXp!=null?Math.max(0,xp-engine.startTrainingXp):0;
@@ -1113,7 +1113,7 @@
                     }
                     return;
                 }
-                signature=JSON.stringify([mode,preview,!!prep,retained,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
+                signature=JSON.stringify([mode,preview,!!prep,retained,prep?prep.route?.key:engine.target?.key,(preview||mode==='train')&&s.adv.chapter,leagueNotes,rows.map(row=>[row.key,row.name,row.rate,row.measured,row.useMeasuredTime,row.actualRate,row.samples,row.projectedMoneyRate,row.projectedMoneyTurns,row.planCoverage,row.leagueTraining?.failedAt,row.leagueTraining?.stopReason,row.estimatedSeconds,row.estimatedReward,row.battleFit?.roamingRisk?.id])]);
             }
             if(signature!==null&&signature===viewSignature)return;viewSignature=signature;
             const view = query('#view'), scroll = view.scrollTop; view.replaceChildren();
@@ -1135,6 +1135,10 @@
                         const note=document.createElement('div');note.className='hint';note.textContent='沿用已规划的路线与队伍。继续记录整轮实测，战败后复评。';view.appendChild(note);
                     }else if(mode==='train'&&rows.length){
                         const note=document.createElement('div');note.className='hint';note.textContent=preview?'按当前队伍比较各地图的每分钟经验。':trainingComparison(rows,s.adv.chapter,!!prep);view.appendChild(note);
+                    }else if(mode==='item'&&rows.length){
+                        const note=document.createElement('div');note.className='hint';
+                        note.textContent=rows[0].useMeasuredTime?'按掉落概率和各图实测平均用时排序。':'按掉落概率和预计用时排序。各候选地图均有至少 2 轮样本后，改用实测平均用时。';
+                        view.appendChild(note);
                     }
                     const coverage=mode==='money'&&rows[0]?.planCoverage;
                     if(coverage&&!retained){
@@ -1143,7 +1147,7 @@
                         view.appendChild(note);
                     }
                     const table = document.createElement('table');
-                    table.innerHTML = `<thead><tr><th>地图</th><th>${mode === 'item' ? '平滑 / 实测' : '来源 / 整轮'}</th><th>${mode === 'item' ? '个/分钟' : mode === 'train' ? 'EXP/分钟' : '₽/分钟'}</th></tr></thead><tbody></tbody>`;
+                    table.innerHTML = `<thead><tr><th>地图</th><th>${mode === 'item' ? '实得/小时（样本）' : '来源 / 整轮'}</th><th>${mode === 'item' ? '预计个/小时' : mode === 'train' ? 'EXP/分钟' : '₽/分钟'}</th></tr></thead><tbody></tbody>`;
                     const selectedKey=prep?prep.route?.key:engine.target?.key;
                     for(const league of leagueNotes){
                         const tr=table.tBodies[0].insertRow();
@@ -1155,10 +1159,10 @@
                         const tr=document.createElement('tr'),selected=preview?row.members.includes(s.adv.chapter):selectedKey===row.key;
                         tr.classList.toggle('active',selected);textCell(tr,(selected?'▶ ':'')+row.name);
                         let source='估算';
-                        if(mode==='item'&&row.measured)source='平滑 · 实测 '+row.actualRate.toFixed(2);
+                        if(mode==='item')source=row.measured?(row.actualRate*60).toFixed(2)+'（'+Math.floor(row.samples)+' 轮）':'暂无样本';
                         else if(row.measured)source=(mode==='train'&&row.samples<2?'估算＋实测':'实测')+' / '+Math.floor(row.samples);
                         else if(mode==='train'&&row.leagueTraining?.partial)source='前 '+row.leagueTraining.completedMembers.length+' 关估算';
-                        textCell(tr,source);textCell(tr,mode==='item'?row.rate.toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
+                        textCell(tr,source);textCell(tr,mode==='item'?(row.rate*60).toFixed(2):Math.round(row.rate).toLocaleString());table.tBodies[0].appendChild(tr);
                         if(mode==='money'&&row.battleFit?.roamingRisk){
                             const detail=table.tBodies[0].insertRow().insertCell();
                             detail.colSpan=3;detail.className='hint warn';detail.style.textAlign='left';
@@ -1361,8 +1365,10 @@
                 const next=i+(action==='up'?-1:1);
                 if(!jobs[next])return;
                 [jobs[i],jobs[next]]=[jobs[next],job];
-            }else if(action==='skip')jobs[i]={...job,status:'skipped',result:'已手动跳过'};
-            else if(action==='retry')jobs[i]={...job,status:'pending',result:'',progress:undefined};
+            }else if(action==='skip'){
+                jobs[i]={...job,status:'skipped',result:'已手动跳过'};
+                if(job.settings.mode==='item')jobs[i].itemAcquired=queueItemAcquired(job,engine.state);
+            }else if(action==='retry')jobs[i]={...job,status:'pending',result:'',progress:undefined,itemAcquired:undefined};
             else if(action==='remove')jobs.splice(i,1);
             else return;
             if(saveQueue(jobs)){render();focusQueueJob(action==='remove'?jobs[Math.min(i,jobs.length-1)]?.id:id,action);}
@@ -1388,7 +1394,7 @@
             if(current?.progress){
                 const compatible=goalIdentity(current.settings)===goalIdentity(settings);
                 job.progress=compatible?current.progress:{budget:current.progress.budget};
-                if(compatible){job.status='paused';job.result=current.result;}
+                if(compatible){job.status='paused';job.result=current.result;job.itemAcquired=current.itemAcquired;}
             }
             if(current)jobs[i]=job;else jobs.push(job);
             if(!saveQueue(jobs))return;

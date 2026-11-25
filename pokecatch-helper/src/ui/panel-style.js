@@ -91,6 +91,9 @@
     .queue-state[data-state=running], .queue-state[data-state=done] { color:#a2e5d0; background:#21443e }
     .queue-state[data-state=paused], .queue-state[data-state=failed] { color:#f2cf93; background:#473924 }
     .queue-job-detail { margin-top:6px }
+    .queue-item-counts { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:7px 0 0 }
+    .queue-item-counts dt {font-size:11px}
+    .queue-item-counts dd {margin:2px 0 0;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
     .queue-job-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px }
     .queue-job-actions button { min-height:32px; padding:5px 7px; font-size:11px }
     .queue-job-actions button[data-job-action=remove] { color:#f1b3bc }

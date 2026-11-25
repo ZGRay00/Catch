@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.1.9
+// @version      8.2.0
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.1.9', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.2.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -3506,6 +3506,20 @@
         if(result.coverage===1)lastVictory[foeIndex]={deployed:details.slice(0,result.deaths+1),result};
         return result;
     }
+    // Native order is stable. At an equal priority the original party slot breaks the tie.
+    function reserveInsertionOrder(rest,order,member,slot,dest){
+        let placed=false,n=0;
+        for(const index of order){
+            const detail=rest[index];
+            if(!placed&&(member.deployment>detail.deployment||member.deployment===detail.deployment&&slot<=index)){
+                dest[n++]=member;placed=true;
+            }
+            dest[n++]=detail;
+        }
+        if(!placed)dest[n++]=member;
+        dest.length=n;
+        return dest;
+    }
     // Native roaming fights put the entire party on the field. Approximate random
     // single-target hits by spreading their expected damage across living allies.
     function roamingBattle(details,foe){
@@ -3676,10 +3690,40 @@
         if(!c?.league&&chapter===s.adv.chapter)for (const foe of s.adv.battle?.enemies || []) if (MONS.has(foe.id)&&foe.id!==s.adv.battle.roam) list.push({id:foe.id,level:foe.level||c?.ace||50,weight:list.length?.25:1,chapter,liveNode:true});
         return list.filter(foe=>MONS.has(foe.id)&&foe.weight>0);
     }
-    const TEAM_ROWS=new Map(),ROUTE_FITS=new Map(),LEAGUE_TRAINING_ROWS=new Map(),TEAM_CACHE={hits:0,misses:0};
+    const TEAM_ROWS=new Map(),ROUTE_FITS=new Map(),LEAGUE_TRAINING_ROWS=new Map(),TEAM_CACHE={hits:0,misses:0,compactHits:0};
     function combatProfile(m){return [m.id,m.level,m.rank||0,+!!m.shiny,m.statMult||1,m.hpMult||1,m.status||'',m.rageMax!=null,tasteProfile(m),m.damageMult||1,moveBanKey(m)];}
     function teamCacheStats(){return{...TEAM_CACHE,contexts:TEAM_ROWS.size,rows:[...TEAM_ROWS.values()].reduce((n,rows)=>n+rows.size,0)};}
-    function clearTeamCache(){TEAM_ROWS.clear();ROUTE_FITS.clear();LEAGUE_TRAINING_ROWS.clear();TEAM_CACHE.hits=0;TEAM_CACHE.misses=0;}
+    function clearTeamCache(){TEAM_ROWS.clear();ROUTE_FITS.clear();LEAGUE_TRAINING_ROWS.clear();TEAM_CACHE.hits=0;TEAM_CACHE.misses=0;TEAM_CACHE.compactHits=0;}
+    // Overflow rows live only for this search. Store exact doubles in columns so hot
+    // scores can be read directly and reserve attack objects materialize only on use.
+    const reviewColumns=['score','turns','coverage','deaths','endurance','priorities','farmPressure','first','survives',
+        'hit','minHit','maxHit','singleRollMax','accuracy','sustainedDamage'];
+    function packReviewRow(row){
+        const n=row.length,buffer=new ArrayBuffer(n*reviewColumns.length*8);
+        const p=Object.fromEntries(reviewColumns.map((key,i)=>[key,new Float64Array(buffer,i*n*8,n)]));
+        p.score.set(row);p.endurance.set(row.endurance);p.priorities.set(row.priorities);p.farmPressure.set(row.farmPressure);
+        for(let i=0;i<n;i++){
+            const solo=row.solo[i],d=row.details[i],a=d.attack;
+            p.turns[i]=solo.turns;p.coverage[i]=solo.coverage;p.deaths[i]=solo.deaths;
+            p.first[i]=d.first;p.survives[i]=d.survives;p.hit[i]=a.hit;p.minHit[i]=a.minHit;p.maxHit[i]=a.maxHit;
+            p.singleRollMax[i]=a.singleRollMax??0;p.accuracy[i]=a.accuracy;p.sustainedDamage[i]=a.sustainedDamage;
+        }
+        return p;
+    }
+    function unpackReviewRow(p,foeStats){
+        const row=Array.from(p.score);
+        row.packed=p;row.foeStats=foeStats;row.details=new Array(row.length);
+        row.priorities=p.priorities;row.endurance=p.endurance;row.farmPressure=p.farmPressure;
+        row.solo=row.map((_,i)=>({turns:p.turns[i],coverage:p.coverage[i],deaths:p.deaths[i]}));
+        row.safeFarmCost=Float64Array.from(p.turns,(turns,i)=>1+Math.min(turns,180)+.65*(1-p.endurance[i])+p.farmPressure[i]);
+        return row;
+    }
+    function fightDetail(row,i){
+        if(row.details[i])return row.details[i];
+        const p=row.packed;
+        return row.details[i]={foeHp:row.foeStats[i].hp,first:p.first[i],deployment:p.priorities[i],survives:p.survives[i],
+            attack:{hit:p.hit[i],minHit:p.minHit[i],maxHit:p.maxHit[i],singleRollMax:p.singleRollMax[i],accuracy:p.accuracy[i],sustainedDamage:p.sustainedDamage[i]}};
+    }
     function planAdventureTeam(s, settings, pinned = [], context = {}) {
         const search=adventureTeamSearch(s,settings,pinned,context,false);
         let result=search.next();
@@ -3775,6 +3819,9 @@
         // A long route's row can contain hundreds of full encounter models.
         // Bound the total retained cells per context as well as the UID count.
         const rowLimit=Math.max(8,Math.min(1024,Math.floor(49152/weights.length)));
+        const compactRows=new Map();
+        const compactLimit=verifyAll&&!allowRescue&&!weights.some(foe=>foe.roaming)?
+            Math.min(1024,Math.floor((context.lowBudget?6:24)*1024*1024/(8*reviewColumns.length*weights.length))):0;
         let shared=TEAM_ROWS.get(threatKey);
         if(!shared){shared=new Map();TEAM_ROWS.set(threatKey,shared);if(TEAM_ROWS.size>4)TEAM_ROWS.delete(TEAM_ROWS.keys().next().value);}
         else{TEAM_ROWS.delete(threatKey);TEAM_ROWS.set(threatKey,shared);}
@@ -3784,6 +3831,9 @@
             if (cache.has(mon.uid)) return cache.get(mon.uid);
             const healed={...mon,status:null},key=JSON.stringify(combatProfile(healed));let row=shared.get(key);
             if(row){TEAM_CACHE.hits++;shared.delete(key);shared.set(key,row);}
+            else if(compactRows.has(key)){
+                TEAM_CACHE.hits++;TEAM_CACHE.compactHits++;row=unpackReviewRow(compactRows.get(key),foeStats);
+            }
             else{
                 TEAM_CACHE.misses++;const stats=effectiveStats(healed);
                 const details=[];
@@ -3819,7 +3869,7 @@
                 if(!reviewPass||shared.size<rowLimit){
                     shared.set(key,row);
                     if(shared.size>rowLimit)shared.delete(shared.keys().next().value);
-                }
+                }else if(compactRows.size<compactLimit)compactRows.set(key,packReviewRow(row));
             }
             cache.set(mon.uid,row);return row;
         }
@@ -3856,14 +3906,15 @@
         const roomWeights=eliteRooms.map(ch=>weights.reduce((n,foe)=>n+(foe.chapter===ch?foe.weight:0),0));
         const roomScores=new Float64Array(eliteRooms.length);
         const lastVictory=new Array(weights.length);
-        const encounterUtility = (team,summary,nativeBasis,inserted,insertAt,scoredRows) => {
+        const reserveWork=[];
+        const encounterUtility = (team,summary,nativeBasis,inserted,insertAt,scoredRows,coverageByFoe,reserveOrders) => {
             const rows=scoredRows||team.map(values);
             if(farming&&!rows.length)return 0;
             if(underground){
                 if(!rows.length)return 0;
                 let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0,reserveCredit=0,progressOnLoss=0;
                 for(let i=0;i<weights.length;i++){
-                    const foe=weights[i],details=rows.map(row=>row.details[i]);
+                    const foe=weights[i],details=rows.map(row=>fightDetail(row,i));
                     // A fresh lead can hide a weak bench. Use the second-best solo
                     // survivor as a small tie-break for later fights after wear.
                     let first=0,second=0;
@@ -3922,11 +3973,13 @@
             for(let i=0;i<weights.length;i++){
                 const foe=weights[i];
                 let coverage=0;
-                if(!farming){
+                if(coverageByFoe?.[i]!==undefined)coverage=coverageByFoe[i];
+                else if(!farming){
                     let count=0;
                     for(const row of rows){const value=row[i];let at=count++;while(at>0&&work[at-1]<value){work[at]=work[at-1];at--;}work[at]=value;}
                     let value=0;for(let k=0;k<count;k++)value+=work[k]*(discount[k]||0);
                     coverage=Math.log1p(value);
+                    if(coverageByFoe)coverageByFoe[i]=coverage;
                 }
                 if(!execution){routeScore+=foe.weight*coverage;continue;}
                 // If the native lead finishes alone, every reserve would be unused.
@@ -3942,8 +3995,13 @@
                 const lead=rows[leadIndex];
                 const solo=lead?.solo[i];
                 const order=allowRescue&&lead!==rows[0]?[lead,...rows.filter(r=>r!==lead)]:rows;
-                const battle=foe.roaming?roamingBattle(rows.map(row=>row.details[i]),foe):
-                    solo&&(solo.coverage===1||rows.length===1)?solo:battleWithReserves(order.map(row=>row.details[i]),s.autoSwitch!==false,lastVictory,i);
+                let battle;
+                if(foe.roaming)battle=roamingBattle(rows.map(row=>fightDetail(row,i)),foe);
+                else if(solo&&(solo.coverage===1||rows.length===1))battle=solo;
+                else if(reserveOrders){
+                    const {rest,order:indices}=reserveOrders[i];
+                    battle=battleWithReserves(reserveInsertionOrder(rest,indices,fightDetail(inserted,i),insertAt,reserveWork),false,lastVictory,i);
+                }else battle=battleWithReserves(order.map(row=>fightDetail(row,i)),s.autoSwitch!==false,lastVictory,i);
                 if(foe.roaming)roamingLoss=Math.max(roamingLoss,battle.deaths);
                 if(summary){
                     turns+=foe.weight*battle.turns;worst=Math.max(worst,battle.turns);deaths+=foe.weight*battle.deaths;
@@ -4161,7 +4219,7 @@
                 const matchups=candidates.map(mon=>{
                     const row=values(mon);
                     const value=roamingIndexes.reduce((sum,i)=>{
-                        const {attack,incoming,hp}=row.details[i];
+                        const {attack,incoming,hp}=fightDetail(row,i);
                         return sum+attack.sustainedDamage*Math.sqrt(hp/(1+incoming.sustainedDamage));
                     },0);
                     return{mon,value};
@@ -4235,7 +4293,7 @@
             if(currentScore>=orderedScore-1e-8){chosen.splice(0,chosen.length,...currentOrder);orderedScore=currentScore;}
         }
         const orderMatters=!underground&&execution&&chosen.length>1&&(s.autoSwitch===false||weights.some((_,i)=>{
-            const priorities=chosen.map(mon=>values(mon).details[i].deployment);
+            const priorities=chosen.map(mon=>values(mon).priorities[i]);
             return new Set(priorities).size<priorities.length;
         }));
         if(orderMatters)for(let pass=0;pass<2;pass++){
@@ -4331,7 +4389,11 @@
                         if(certain)for(const row of rows){
                             for(let i=0;i<certain.length;i++)if(row.solo[i].coverage===1&&row.priorities[i]>certain[i])certain[i]=row.priorities[i];
                         }
-                        return {slot,rest,rows,ids:new Set(rest.map(identity)),certain,scores,basis:leadBasis(rest)};
+                        const reserveOrders=nativeOrder&&!allowRescue?weights.map((_,i)=>{
+                            const details=rows.map(row=>fightDetail(row,i));
+                            return {rest:details,order:details.map((_,j)=>j).sort((a,b)=>details[b].deployment-details[a].deployment)};
+                        }):null;
+                        return {slot,rest,rows,ids:new Set(rest.map(identity)),certain,scores,basis:leadBasis(rest),reserveOrders};
                     });
                     const legalFor=(mon,anchor)=>!anchor.ids.has(identity(mon))&&anchor.rest.every(other=>!teamApart(mon,other));
                     let improved=evaluated,checked=0;
@@ -4361,7 +4423,7 @@
                             pairOptions.sort((a,b)=>b.score-a.score||prefer(a.mon,b.mon));
                             if(pairOptions.length>pairLimit)pairOptions.pop();
                         }
-                        for(const {rest,rows,slot,certain,scores,basis} of possible){
+                        for(const {rest,rows,slot,certain,scores,basis,reserveOrders} of possible){
                             const positions=underground?1:rest.length+1;
                             const placements=basis?.solo?soloPlacements(member,basis):null;
                             const nativeBasis=s.autoSwitch!==false?basis:null;
@@ -4369,6 +4431,7 @@
                             let samePlacement=null;
                             const team=[mon,...rest],scoredRows=[member,...rows];
                             const tested={team};
+                            const coverageByFoe=!farming&&!underground?[]:null;
                             for(let at=0;at<positions;at++){
                                 if(at){
                                     team[at-1]=rest[at-1];team[at]=mon;
@@ -4389,7 +4452,7 @@
                                 const fromSolo=placements&&(samePlacement||(at>=placements.unchangedAt?basis.solo:null));
                                 const known=prior?.[at]||fromSolo;
                                 const safety=known?.safety||{};
-                                const encounterScore=known?.encounterScore??encounterUtility(team,safety,nativeBasis,member,at,scoredRows);
+                                const encounterScore=known?.encounterScore??encounterUtility(team,safety,nativeBasis,member,at,scoredRows,coverageByFoe,reserveOrders);
                                 tested.score=farmPartyScore(team,encounterScore);tested.safety=safety;tested.reserves=undefined;
                                 if(placements)samePlacement=known||{encounterScore,safety};
                                 if(!prior?.[at]&&fromSolo)soloReused++;
@@ -10479,6 +10542,30 @@
     function adventureTeamWeatherKey(s,members,now){
         return JSON.stringify(members.map(chapter=>combatWeather(s,{chapter},{},now).signature));
     }
+    function reviewRoster(s,reg){
+        const profiles=saveRosterArrays.get(s.mons)?.profiles;
+        return new Map(eligibleRoster(s,reg).map(mon=>[mon.uid,profiles?.get(mon.uid)??rosterCombatKey(mon)]));
+    }
+    function reviewInputChanges(previous,signature,nextRoster){
+        const before=JSON.parse(previous.signature),after=JSON.parse(signature);
+        const labels=['','存档来源','任务或固定成员','路线','章节范围','图鉴回刷','地区','天气','游走对手','评分目标','原生换人','候选资料','当前队伍','复核模式','路线失败计数'];
+        const causes=labels.filter((label,i)=>label&&JSON.stringify(before[i])!==JSON.stringify(after[i]));
+        if(before[11]!==after[11]&&nextRoster){
+            const fields=['个体','物种','地区','等级','阶级','异色','能力倍率','体力倍率','伤害倍率','狂暴','口味','禁招'];
+            const changes=[];
+            for(const uid of new Set([...previous.reviewInfo.roster.keys(),...nextRoster.keys()])){
+                const old=previous.reviewInfo.roster.get(uid),next=nextRoster.get(uid);
+                if(next===old)continue;
+                const a=old&&JSON.parse(old),b=next&&JSON.parse(next),name=MONS.get((b||a)[1])?.name||uid;
+                const detail=!a?'加入候选':!b?'离开候选':fields.flatMap((field,i)=>a[i]===b[i]?[]:
+                    [field+(i===3||i===4?` ${a[i]}→${b[i]}`:'变化')]).join('、');
+                changes.push(name+'（'+uid+'）'+detail);
+                if(changes.length===3)break;
+            }
+            if(changes.length)causes.push(changes.join('，'));
+        }
+        return causes.join(' · ');
+    }
     function adventureTeamPolicy(s,members,settings,pinned){
         const choices=members.map(id=>CHAPTERS.get(id)?.foesByStarter).filter(Boolean)
             .map(branch=>starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number)));
@@ -10640,7 +10727,7 @@
         }
         localReadFailure(status,error,now){
             if(this.localSnapshot.status==='ready'){
-                this.cancelTeamSearch();this.cancelRouteRankings();this.teamCheck=null;
+                this.cancelTeamSearch(undefined,false,'存档暂时不可用');this.cancelRouteRankings();this.teamCheck=null;
                 this.driver.teamTask=null;this.telemetry.sample=null;
             }
             this.localSnapshot={...this.localSnapshot,status,checkedAt:now,reason:error?.message};
@@ -10664,7 +10751,7 @@
                 const prior=this.localSnapshot,source=JSON.stringify([accountId(state),wire.fmt??null,state.adv?.layout??null]);
                 const sameSource=prior.source===source;
                 if(prior.source&&!sameSource){
-                    this.cancelTeamSearch();this.cancelRouteRankings();this.teamCheck=null;
+                    this.cancelTeamSearch(undefined,false,'存档来源变化');this.cancelRouteRankings();this.teamCheck=null;
                     this.driver.teamTask=null;this.telemetry.sample=null;
                     routeRankings.clear();clearTeamCache();
                 }
@@ -10887,7 +10974,7 @@
             this.strictPlanning=true;
             this.nurseryAssist.cancelIdle();
             this.nurseryAssist.feed=null;
-            this.cancelTeamSearch();
+            this.cancelTeamSearch(undefined,false,'开始新的任务');
             this.cancelRouteRankings();
             this.budget=new Budget(this,cp?.budget);
             const cfg=this.settings;
@@ -11119,7 +11206,7 @@
             this.cancelRouteRankings(!!this.suspended);
             this.running=false;this.runId++;clearTimeout(this.timer);this.timer=null;this.release();
             this.clearFrameProbe();
-            this.cancelTeamSearch(undefined,!!this.suspended);
+            this.cancelTeamSearch(undefined,!!this.suspended,'页面离开或挂起');
             if(this.restoring){this.restoring=false;this.status='页面已离开，循环恢复操作已中断';}
         }
         resumeSuspended(explicit=false,now=Date.now()){
@@ -11361,7 +11448,7 @@
             if(this.daily){this.settings=this.taskSettings(this.idleTaskSettings());this.daily=null;}
             this.running = false; this.runId++; this.stoppedAt ??= Date.now(); clearTimeout(this.timer); this.timer = null;
             this.clearFrameProbe();
-            this.cancelTeamSearch();
+            this.cancelTeamSearch(undefined,false,reason);
             this.cancelRouteRankings();
             this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
             this.legendProbe=null;this.farmWait=null;
@@ -11384,7 +11471,7 @@
                 if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return;}
                 const pending=this.driver.pendingMap,readyRoute=this.moneyReadyRoute||(pending?.routePlan?.verified?pending.row:null);
                 this.handoffPlanning={route:this.target,visit:this.visit,mode:this.settings.mode,party:s.team.join('|'),ready:this.coach.ready,checked:this.coach.checked};
-                this.cancelTeamSearch(undefined,true);
+                this.cancelTeamSearch(undefined,true,'手动接管');
                 this.moneyReadyRoute=readyRoute;
                 this.cancelRouteRankings(true);
                 const raid = s.adv.event, zone = s.adv.zone;
@@ -12285,15 +12372,27 @@
                 try{run();}finally{this.computeBusy=false;this.computeCpu+=performance.now()-start;this.runComputeQueue();}
             },delay);
         }
-        cancelTeamSearch(slot,preserveCompleted=false){
+        reviewProgress(job=this.teamSearch){
+            if(!job?.reviewInfo)return null;
+            const v=job.result?.verification||job.result?.suggestion?.verification||job.verification;
+            return {route:job.reviewInfo.route,elapsedMs:Math.round((job.finishedAt??performance.now())-job.reviewInfo.started),
+                pass:v?.passes||0,checked:v?.checked||0,total:v?.total??job.reviewInfo.roster.size};
+        }
+        logReviewChange(job,cause){
+            if(!job?.reviewInfo)return;
+            const p=this.reviewProgress(job);
+            this.log(`${p.route} · ${p.pass?'第 '+p.pass+' 轮 '+p.checked+'/'+p.total:'准备中'} · 已用 ${Math.round(p.elapsedMs/1000)} 秒 · ${cause}`,'info','配队复核');
+        }
+        cancelTeamSearch(slot,preserveCompleted=false,cause){
             for(const name of slot?[slot]:['teamSearch','evolutionSearch','moneyProofSearch']){
+                if(cause)this.logReviewChange(this[name],cause);
                 if(this[name])this.cancelCompute(this[name]);
                 this[name]=null;
             }
             if(!slot||slot==='teamSearch')this.teamContinuation=null;
             if(!slot){
                 this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;
-                if(!preserveCompleted){this.completedTeamSearch.clear();this.searchRosters.clear();this.routeProof=null;this.handoffPlanning=null;}
+                if(!preserveCompleted){this.completedTeamSearch.clear();this.searchRosters.clear();this.lastAdventureSearch=null;this.routeProof=null;this.handoffPlanning=null;}
             }
         }
         searchRosterRevision(slot,fingerprint){
@@ -12336,7 +12435,9 @@
             job=this[slot]={signature,epoch:this.runId,cpu:0,slice:4,limit:smallDevice?80:180,strict,expiresAt};
             const advance=()=>{
                 if(this[slot]!==job)return;
-                if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){this.cancelTeamSearch(slot);return;}
+                if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){
+                    this.cancelTeamSearch(slot,false,this.manual?'手动接管':pageHidden()?'页面隐藏':'任务结束或已切换');return;
+                }
                 if(job.strict&&performance.now()>=(review?.expiresAt??job.expiresAt)){job.result={timedOut:true};return;}
                 // Only score this snapshot here. The normal tick checks the latest
                 // route, party and roster again before it can queue a single PC action.
@@ -12378,7 +12479,7 @@
         fitTeam(s,now,trackedRoamer) {
             if(this.strictPlanning&&!localRulesKnown()){
                 this.teamValidationNote='当前游戏构建待核对，保留现有冒险队伍';
-                if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch');
+                if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch',false,'游戏构建待核对');
                 return false;
             }
             if(this.target?.requiredParty?.length&&!ownedItems(s,this.target.gateItem)&&this.target.members.includes(s.adv.chapter))return false;
@@ -12440,9 +12541,24 @@
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:makeFoes().length};
             }else if(this.running){
                 const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,this.searchRosterRevision('teamSearch',roster),partyKey,strict,deaths]);
+                const old=this.teamSearch;
+                let nextRoster;
+                const previous=old?.reviewInfo?old:this.lastAdventureSearch;
+                if(previous&&previous.signature!==signature){
+                    nextRoster=reviewRoster(s,reg);
+                    this.logReviewChange(previous,'重新计算：'+reviewInputChanges(previous,signature,nextRoster));
+                    this.lastAdventureSearch=null;
+                }
                 const settings=this.settings;
                 function* search(){return yield* adventureTeamSearch(s,settings,pinned,{...context,foes:makeFoes(),progressive:true},true);}
                 plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,strict?this.adventureReview:undefined);
+                if(strict&&this.teamSearch&&!this.teamSearch.reviewInfo)this.teamSearch.reviewInfo={
+                    route:row.name||c.name,started:performance.now(),roster:nextRoster||reviewRoster(s,reg)};
+                if(old?.signature===signature&&old.reviewInfo&&(plan?.verification||plan?.suggestion?.verification)){
+                    this.lastAdventureSearch={signature,reviewInfo:old.reviewInfo,finishedAt:performance.now(),
+                        verification:plan.verification||plan.suggestion.verification};
+                }
+                if(plan?.timedOut)this.logReviewChange(old,performance.now()>=this.adventureReview.hardStop?'达到单次总时限':'进度未能在时限内推进');
             }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
@@ -16979,6 +17095,7 @@
         query('#export').onclick=()=>{
             const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logHistory()};
             diagnostic.health=engine.healthReport();diagnostic.lastStop=engine.lastStop;
+            diagnostic.teamReview={current:engine.reviewProgress(),recent:diagnostic.logs.filter(entry=>entry.module==='配队复核').slice(0,12)};
             downloadJson(diagnostic,'pokecatch-helper-diagnostic.json');
         };
         query('#probability-info').addEventListener('toggle',()=>{if(query('#probability-info').open)render();});

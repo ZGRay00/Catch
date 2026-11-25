@@ -303,6 +303,20 @@
         if(result.coverage===1)lastVictory[foeIndex]={deployed:details.slice(0,result.deaths+1),result};
         return result;
     }
+    // Native order is stable. At an equal priority the original party slot breaks the tie.
+    function reserveInsertionOrder(rest,order,member,slot,dest){
+        let placed=false,n=0;
+        for(const index of order){
+            const detail=rest[index];
+            if(!placed&&(member.deployment>detail.deployment||member.deployment===detail.deployment&&slot<=index)){
+                dest[n++]=member;placed=true;
+            }
+            dest[n++]=detail;
+        }
+        if(!placed)dest[n++]=member;
+        dest.length=n;
+        return dest;
+    }
     // Native roaming fights put the entire party on the field. Approximate random
     // single-target hits by spreading their expected damage across living allies.
     function roamingBattle(details,foe){
@@ -473,10 +487,40 @@
         if(!c?.league&&chapter===s.adv.chapter)for (const foe of s.adv.battle?.enemies || []) if (MONS.has(foe.id)&&foe.id!==s.adv.battle.roam) list.push({id:foe.id,level:foe.level||c?.ace||50,weight:list.length?.25:1,chapter,liveNode:true});
         return list.filter(foe=>MONS.has(foe.id)&&foe.weight>0);
     }
-    const TEAM_ROWS=new Map(),ROUTE_FITS=new Map(),LEAGUE_TRAINING_ROWS=new Map(),TEAM_CACHE={hits:0,misses:0};
+    const TEAM_ROWS=new Map(),ROUTE_FITS=new Map(),LEAGUE_TRAINING_ROWS=new Map(),TEAM_CACHE={hits:0,misses:0,compactHits:0};
     function combatProfile(m){return [m.id,m.level,m.rank||0,+!!m.shiny,m.statMult||1,m.hpMult||1,m.status||'',m.rageMax!=null,tasteProfile(m),m.damageMult||1,moveBanKey(m)];}
     function teamCacheStats(){return{...TEAM_CACHE,contexts:TEAM_ROWS.size,rows:[...TEAM_ROWS.values()].reduce((n,rows)=>n+rows.size,0)};}
-    function clearTeamCache(){TEAM_ROWS.clear();ROUTE_FITS.clear();LEAGUE_TRAINING_ROWS.clear();TEAM_CACHE.hits=0;TEAM_CACHE.misses=0;}
+    function clearTeamCache(){TEAM_ROWS.clear();ROUTE_FITS.clear();LEAGUE_TRAINING_ROWS.clear();TEAM_CACHE.hits=0;TEAM_CACHE.misses=0;TEAM_CACHE.compactHits=0;}
+    // Overflow rows live only for this search. Store exact doubles in columns so hot
+    // scores can be read directly and reserve attack objects materialize only on use.
+    const reviewColumns=['score','turns','coverage','deaths','endurance','priorities','farmPressure','first','survives',
+        'hit','minHit','maxHit','singleRollMax','accuracy','sustainedDamage'];
+    function packReviewRow(row){
+        const n=row.length,buffer=new ArrayBuffer(n*reviewColumns.length*8);
+        const p=Object.fromEntries(reviewColumns.map((key,i)=>[key,new Float64Array(buffer,i*n*8,n)]));
+        p.score.set(row);p.endurance.set(row.endurance);p.priorities.set(row.priorities);p.farmPressure.set(row.farmPressure);
+        for(let i=0;i<n;i++){
+            const solo=row.solo[i],d=row.details[i],a=d.attack;
+            p.turns[i]=solo.turns;p.coverage[i]=solo.coverage;p.deaths[i]=solo.deaths;
+            p.first[i]=d.first;p.survives[i]=d.survives;p.hit[i]=a.hit;p.minHit[i]=a.minHit;p.maxHit[i]=a.maxHit;
+            p.singleRollMax[i]=a.singleRollMax??0;p.accuracy[i]=a.accuracy;p.sustainedDamage[i]=a.sustainedDamage;
+        }
+        return p;
+    }
+    function unpackReviewRow(p,foeStats){
+        const row=Array.from(p.score);
+        row.packed=p;row.foeStats=foeStats;row.details=new Array(row.length);
+        row.priorities=p.priorities;row.endurance=p.endurance;row.farmPressure=p.farmPressure;
+        row.solo=row.map((_,i)=>({turns:p.turns[i],coverage:p.coverage[i],deaths:p.deaths[i]}));
+        row.safeFarmCost=Float64Array.from(p.turns,(turns,i)=>1+Math.min(turns,180)+.65*(1-p.endurance[i])+p.farmPressure[i]);
+        return row;
+    }
+    function fightDetail(row,i){
+        if(row.details[i])return row.details[i];
+        const p=row.packed;
+        return row.details[i]={foeHp:row.foeStats[i].hp,first:p.first[i],deployment:p.priorities[i],survives:p.survives[i],
+            attack:{hit:p.hit[i],minHit:p.minHit[i],maxHit:p.maxHit[i],singleRollMax:p.singleRollMax[i],accuracy:p.accuracy[i],sustainedDamage:p.sustainedDamage[i]}};
+    }
     function planAdventureTeam(s, settings, pinned = [], context = {}) {
         const search=adventureTeamSearch(s,settings,pinned,context,false);
         let result=search.next();
@@ -572,6 +616,9 @@
         // A long route's row can contain hundreds of full encounter models.
         // Bound the total retained cells per context as well as the UID count.
         const rowLimit=Math.max(8,Math.min(1024,Math.floor(49152/weights.length)));
+        const compactRows=new Map();
+        const compactLimit=verifyAll&&!allowRescue&&!weights.some(foe=>foe.roaming)?
+            Math.min(1024,Math.floor((context.lowBudget?6:24)*1024*1024/(8*reviewColumns.length*weights.length))):0;
         let shared=TEAM_ROWS.get(threatKey);
         if(!shared){shared=new Map();TEAM_ROWS.set(threatKey,shared);if(TEAM_ROWS.size>4)TEAM_ROWS.delete(TEAM_ROWS.keys().next().value);}
         else{TEAM_ROWS.delete(threatKey);TEAM_ROWS.set(threatKey,shared);}
@@ -581,6 +628,9 @@
             if (cache.has(mon.uid)) return cache.get(mon.uid);
             const healed={...mon,status:null},key=JSON.stringify(combatProfile(healed));let row=shared.get(key);
             if(row){TEAM_CACHE.hits++;shared.delete(key);shared.set(key,row);}
+            else if(compactRows.has(key)){
+                TEAM_CACHE.hits++;TEAM_CACHE.compactHits++;row=unpackReviewRow(compactRows.get(key),foeStats);
+            }
             else{
                 TEAM_CACHE.misses++;const stats=effectiveStats(healed);
                 const details=[];
@@ -616,7 +666,7 @@
                 if(!reviewPass||shared.size<rowLimit){
                     shared.set(key,row);
                     if(shared.size>rowLimit)shared.delete(shared.keys().next().value);
-                }
+                }else if(compactRows.size<compactLimit)compactRows.set(key,packReviewRow(row));
             }
             cache.set(mon.uid,row);return row;
         }
@@ -653,14 +703,15 @@
         const roomWeights=eliteRooms.map(ch=>weights.reduce((n,foe)=>n+(foe.chapter===ch?foe.weight:0),0));
         const roomScores=new Float64Array(eliteRooms.length);
         const lastVictory=new Array(weights.length);
-        const encounterUtility = (team,summary,nativeBasis,inserted,insertAt,scoredRows) => {
+        const reserveWork=[];
+        const encounterUtility = (team,summary,nativeBasis,inserted,insertAt,scoredRows,coverageByFoe,reserveOrders) => {
             const rows=scoredRows||team.map(values);
             if(farming&&!rows.length)return 0;
             if(underground){
                 if(!rows.length)return 0;
                 let retained=0,weakestGuard=1,gold=0,seconds=0,guardWeight=0,guardCredit=0,regularWeight=0,reserveCredit=0,progressOnLoss=0;
                 for(let i=0;i<weights.length;i++){
-                    const foe=weights[i],details=rows.map(row=>row.details[i]);
+                    const foe=weights[i],details=rows.map(row=>fightDetail(row,i));
                     // A fresh lead can hide a weak bench. Use the second-best solo
                     // survivor as a small tie-break for later fights after wear.
                     let first=0,second=0;
@@ -719,11 +770,13 @@
             for(let i=0;i<weights.length;i++){
                 const foe=weights[i];
                 let coverage=0;
-                if(!farming){
+                if(coverageByFoe?.[i]!==undefined)coverage=coverageByFoe[i];
+                else if(!farming){
                     let count=0;
                     for(const row of rows){const value=row[i];let at=count++;while(at>0&&work[at-1]<value){work[at]=work[at-1];at--;}work[at]=value;}
                     let value=0;for(let k=0;k<count;k++)value+=work[k]*(discount[k]||0);
                     coverage=Math.log1p(value);
+                    if(coverageByFoe)coverageByFoe[i]=coverage;
                 }
                 if(!execution){routeScore+=foe.weight*coverage;continue;}
                 // If the native lead finishes alone, every reserve would be unused.
@@ -739,8 +792,13 @@
                 const lead=rows[leadIndex];
                 const solo=lead?.solo[i];
                 const order=allowRescue&&lead!==rows[0]?[lead,...rows.filter(r=>r!==lead)]:rows;
-                const battle=foe.roaming?roamingBattle(rows.map(row=>row.details[i]),foe):
-                    solo&&(solo.coverage===1||rows.length===1)?solo:battleWithReserves(order.map(row=>row.details[i]),s.autoSwitch!==false,lastVictory,i);
+                let battle;
+                if(foe.roaming)battle=roamingBattle(rows.map(row=>fightDetail(row,i)),foe);
+                else if(solo&&(solo.coverage===1||rows.length===1))battle=solo;
+                else if(reserveOrders){
+                    const {rest,order:indices}=reserveOrders[i];
+                    battle=battleWithReserves(reserveInsertionOrder(rest,indices,fightDetail(inserted,i),insertAt,reserveWork),false,lastVictory,i);
+                }else battle=battleWithReserves(order.map(row=>fightDetail(row,i)),s.autoSwitch!==false,lastVictory,i);
                 if(foe.roaming)roamingLoss=Math.max(roamingLoss,battle.deaths);
                 if(summary){
                     turns+=foe.weight*battle.turns;worst=Math.max(worst,battle.turns);deaths+=foe.weight*battle.deaths;
@@ -958,7 +1016,7 @@
                 const matchups=candidates.map(mon=>{
                     const row=values(mon);
                     const value=roamingIndexes.reduce((sum,i)=>{
-                        const {attack,incoming,hp}=row.details[i];
+                        const {attack,incoming,hp}=fightDetail(row,i);
                         return sum+attack.sustainedDamage*Math.sqrt(hp/(1+incoming.sustainedDamage));
                     },0);
                     return{mon,value};
@@ -1032,7 +1090,7 @@
             if(currentScore>=orderedScore-1e-8){chosen.splice(0,chosen.length,...currentOrder);orderedScore=currentScore;}
         }
         const orderMatters=!underground&&execution&&chosen.length>1&&(s.autoSwitch===false||weights.some((_,i)=>{
-            const priorities=chosen.map(mon=>values(mon).details[i].deployment);
+            const priorities=chosen.map(mon=>values(mon).priorities[i]);
             return new Set(priorities).size<priorities.length;
         }));
         if(orderMatters)for(let pass=0;pass<2;pass++){
@@ -1128,7 +1186,11 @@
                         if(certain)for(const row of rows){
                             for(let i=0;i<certain.length;i++)if(row.solo[i].coverage===1&&row.priorities[i]>certain[i])certain[i]=row.priorities[i];
                         }
-                        return {slot,rest,rows,ids:new Set(rest.map(identity)),certain,scores,basis:leadBasis(rest)};
+                        const reserveOrders=nativeOrder&&!allowRescue?weights.map((_,i)=>{
+                            const details=rows.map(row=>fightDetail(row,i));
+                            return {rest:details,order:details.map((_,j)=>j).sort((a,b)=>details[b].deployment-details[a].deployment)};
+                        }):null;
+                        return {slot,rest,rows,ids:new Set(rest.map(identity)),certain,scores,basis:leadBasis(rest),reserveOrders};
                     });
                     const legalFor=(mon,anchor)=>!anchor.ids.has(identity(mon))&&anchor.rest.every(other=>!teamApart(mon,other));
                     let improved=evaluated,checked=0;
@@ -1158,7 +1220,7 @@
                             pairOptions.sort((a,b)=>b.score-a.score||prefer(a.mon,b.mon));
                             if(pairOptions.length>pairLimit)pairOptions.pop();
                         }
-                        for(const {rest,rows,slot,certain,scores,basis} of possible){
+                        for(const {rest,rows,slot,certain,scores,basis,reserveOrders} of possible){
                             const positions=underground?1:rest.length+1;
                             const placements=basis?.solo?soloPlacements(member,basis):null;
                             const nativeBasis=s.autoSwitch!==false?basis:null;
@@ -1166,6 +1228,7 @@
                             let samePlacement=null;
                             const team=[mon,...rest],scoredRows=[member,...rows];
                             const tested={team};
+                            const coverageByFoe=!farming&&!underground?[]:null;
                             for(let at=0;at<positions;at++){
                                 if(at){
                                     team[at-1]=rest[at-1];team[at]=mon;
@@ -1186,7 +1249,7 @@
                                 const fromSolo=placements&&(samePlacement||(at>=placements.unchangedAt?basis.solo:null));
                                 const known=prior?.[at]||fromSolo;
                                 const safety=known?.safety||{};
-                                const encounterScore=known?.encounterScore??encounterUtility(team,safety,nativeBasis,member,at,scoredRows);
+                                const encounterScore=known?.encounterScore??encounterUtility(team,safety,nativeBasis,member,at,scoredRows,coverageByFoe,reserveOrders);
                                 tested.score=farmPartyScore(team,encounterScore);tested.safety=safety;tested.reserves=undefined;
                                 if(placements)samePlacement=known||{encounterScore,safety};
                                 if(!prior?.[at]&&fromSolo)soloReused++;

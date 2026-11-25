@@ -1,6 +1,30 @@
     function adventureTeamWeatherKey(s,members,now){
         return JSON.stringify(members.map(chapter=>combatWeather(s,{chapter},{},now).signature));
     }
+    function reviewRoster(s,reg){
+        const profiles=saveRosterArrays.get(s.mons)?.profiles;
+        return new Map(eligibleRoster(s,reg).map(mon=>[mon.uid,profiles?.get(mon.uid)??rosterCombatKey(mon)]));
+    }
+    function reviewInputChanges(previous,signature,nextRoster){
+        const before=JSON.parse(previous.signature),after=JSON.parse(signature);
+        const labels=['','存档来源','任务或固定成员','路线','章节范围','图鉴回刷','地区','天气','游走对手','评分目标','原生换人','候选资料','当前队伍','复核模式','路线失败计数'];
+        const causes=labels.filter((label,i)=>label&&JSON.stringify(before[i])!==JSON.stringify(after[i]));
+        if(before[11]!==after[11]&&nextRoster){
+            const fields=['个体','物种','地区','等级','阶级','异色','能力倍率','体力倍率','伤害倍率','狂暴','口味','禁招'];
+            const changes=[];
+            for(const uid of new Set([...previous.reviewInfo.roster.keys(),...nextRoster.keys()])){
+                const old=previous.reviewInfo.roster.get(uid),next=nextRoster.get(uid);
+                if(next===old)continue;
+                const a=old&&JSON.parse(old),b=next&&JSON.parse(next),name=MONS.get((b||a)[1])?.name||uid;
+                const detail=!a?'加入候选':!b?'离开候选':fields.flatMap((field,i)=>a[i]===b[i]?[]:
+                    [field+(i===3||i===4?` ${a[i]}→${b[i]}`:'变化')]).join('、');
+                changes.push(name+'（'+uid+'）'+detail);
+                if(changes.length===3)break;
+            }
+            if(changes.length)causes.push(changes.join('，'));
+        }
+        return causes.join(' · ');
+    }
     function adventureTeamPolicy(s,members,settings,pinned){
         const choices=members.map(id=>CHAPTERS.get(id)?.foesByStarter).filter(Boolean)
             .map(branch=>starterChoice(s,branch.key,Object.keys(branch.choices||{}).map(Number)));
@@ -162,7 +186,7 @@
         }
         localReadFailure(status,error,now){
             if(this.localSnapshot.status==='ready'){
-                this.cancelTeamSearch();this.cancelRouteRankings();this.teamCheck=null;
+                this.cancelTeamSearch(undefined,false,'存档暂时不可用');this.cancelRouteRankings();this.teamCheck=null;
                 this.driver.teamTask=null;this.telemetry.sample=null;
             }
             this.localSnapshot={...this.localSnapshot,status,checkedAt:now,reason:error?.message};
@@ -186,7 +210,7 @@
                 const prior=this.localSnapshot,source=JSON.stringify([accountId(state),wire.fmt??null,state.adv?.layout??null]);
                 const sameSource=prior.source===source;
                 if(prior.source&&!sameSource){
-                    this.cancelTeamSearch();this.cancelRouteRankings();this.teamCheck=null;
+                    this.cancelTeamSearch(undefined,false,'存档来源变化');this.cancelRouteRankings();this.teamCheck=null;
                     this.driver.teamTask=null;this.telemetry.sample=null;
                     routeRankings.clear();clearTeamCache();
                 }
@@ -409,7 +433,7 @@
             this.strictPlanning=true;
             this.nurseryAssist.cancelIdle();
             this.nurseryAssist.feed=null;
-            this.cancelTeamSearch();
+            this.cancelTeamSearch(undefined,false,'开始新的任务');
             this.cancelRouteRankings();
             this.budget=new Budget(this,cp?.budget);
             const cfg=this.settings;
@@ -641,7 +665,7 @@
             this.cancelRouteRankings(!!this.suspended);
             this.running=false;this.runId++;clearTimeout(this.timer);this.timer=null;this.release();
             this.clearFrameProbe();
-            this.cancelTeamSearch(undefined,!!this.suspended);
+            this.cancelTeamSearch(undefined,!!this.suspended,'页面离开或挂起');
             if(this.restoring){this.restoring=false;this.status='页面已离开，循环恢复操作已中断';}
         }
         resumeSuspended(explicit=false,now=Date.now()){
@@ -883,7 +907,7 @@
             if(this.daily){this.settings=this.taskSettings(this.idleTaskSettings());this.daily=null;}
             this.running = false; this.runId++; this.stoppedAt ??= Date.now(); clearTimeout(this.timer); this.timer = null;
             this.clearFrameProbe();
-            this.cancelTeamSearch();
+            this.cancelTeamSearch(undefined,false,reason);
             this.cancelRouteRankings();
             this.manual = null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.(); this.restoring = false;
             this.legendProbe=null;this.farmWait=null;
@@ -906,7 +930,7 @@
                 if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return;}
                 const pending=this.driver.pendingMap,readyRoute=this.moneyReadyRoute||(pending?.routePlan?.verified?pending.row:null);
                 this.handoffPlanning={route:this.target,visit:this.visit,mode:this.settings.mode,party:s.team.join('|'),ready:this.coach.ready,checked:this.coach.checked};
-                this.cancelTeamSearch(undefined,true);
+                this.cancelTeamSearch(undefined,true,'手动接管');
                 this.moneyReadyRoute=readyRoute;
                 this.cancelRouteRankings(true);
                 const raid = s.adv.event, zone = s.adv.zone;
@@ -1807,15 +1831,27 @@
                 try{run();}finally{this.computeBusy=false;this.computeCpu+=performance.now()-start;this.runComputeQueue();}
             },delay);
         }
-        cancelTeamSearch(slot,preserveCompleted=false){
+        reviewProgress(job=this.teamSearch){
+            if(!job?.reviewInfo)return null;
+            const v=job.result?.verification||job.result?.suggestion?.verification||job.verification;
+            return {route:job.reviewInfo.route,elapsedMs:Math.round((job.finishedAt??performance.now())-job.reviewInfo.started),
+                pass:v?.passes||0,checked:v?.checked||0,total:v?.total??job.reviewInfo.roster.size};
+        }
+        logReviewChange(job,cause){
+            if(!job?.reviewInfo)return;
+            const p=this.reviewProgress(job);
+            this.log(`${p.route} · ${p.pass?'第 '+p.pass+' 轮 '+p.checked+'/'+p.total:'准备中'} · 已用 ${Math.round(p.elapsedMs/1000)} 秒 · ${cause}`,'info','配队复核');
+        }
+        cancelTeamSearch(slot,preserveCompleted=false,cause){
             for(const name of slot?[slot]:['teamSearch','evolutionSearch','moneyProofSearch']){
+                if(cause)this.logReviewChange(this[name],cause);
                 if(this[name])this.cancelCompute(this[name]);
                 this[name]=null;
             }
             if(!slot||slot==='teamSearch')this.teamContinuation=null;
             if(!slot){
                 this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;
-                if(!preserveCompleted){this.completedTeamSearch.clear();this.searchRosters.clear();this.routeProof=null;this.handoffPlanning=null;}
+                if(!preserveCompleted){this.completedTeamSearch.clear();this.searchRosters.clear();this.lastAdventureSearch=null;this.routeProof=null;this.handoffPlanning=null;}
             }
         }
         searchRosterRevision(slot,fingerprint){
@@ -1858,7 +1894,9 @@
             job=this[slot]={signature,epoch:this.runId,cpu:0,slice:4,limit:smallDevice?80:180,strict,expiresAt};
             const advance=()=>{
                 if(this[slot]!==job)return;
-                if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){this.cancelTeamSearch(slot);return;}
+                if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){
+                    this.cancelTeamSearch(slot,false,this.manual?'手动接管':pageHidden()?'页面隐藏':'任务结束或已切换');return;
+                }
                 if(job.strict&&performance.now()>=(review?.expiresAt??job.expiresAt)){job.result={timedOut:true};return;}
                 // Only score this snapshot here. The normal tick checks the latest
                 // route, party and roster again before it can queue a single PC action.
@@ -1900,7 +1938,7 @@
         fitTeam(s,now,trackedRoamer) {
             if(this.strictPlanning&&!localRulesKnown()){
                 this.teamValidationNote='当前游戏构建待核对，保留现有冒险队伍';
-                if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch');
+                if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch',false,'游戏构建待核对');
                 return false;
             }
             if(this.target?.requiredParty?.length&&!ownedItems(s,this.target.gateItem)&&this.target.members.includes(s.adv.chapter))return false;
@@ -1962,9 +2000,24 @@
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:makeFoes().length};
             }else if(this.running){
                 const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,this.searchRosterRevision('teamSearch',roster),partyKey,strict,deaths]);
+                const old=this.teamSearch;
+                let nextRoster;
+                const previous=old?.reviewInfo?old:this.lastAdventureSearch;
+                if(previous&&previous.signature!==signature){
+                    nextRoster=reviewRoster(s,reg);
+                    this.logReviewChange(previous,'重新计算：'+reviewInputChanges(previous,signature,nextRoster));
+                    this.lastAdventureSearch=null;
+                }
                 const settings=this.settings;
                 function* search(){return yield* adventureTeamSearch(s,settings,pinned,{...context,foes:makeFoes(),progressive:true},true);}
                 plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,strict?this.adventureReview:undefined);
+                if(strict&&this.teamSearch&&!this.teamSearch.reviewInfo)this.teamSearch.reviewInfo={
+                    route:row.name||c.name,started:performance.now(),roster:nextRoster||reviewRoster(s,reg)};
+                if(old?.signature===signature&&old.reviewInfo&&(plan?.verification||plan?.suggestion?.verification)){
+                    this.lastAdventureSearch={signature,reviewInfo:old.reviewInfo,finishedAt:performance.now(),
+                        verification:plan.verification||plan.suggestion.verification};
+                }
+                if(plan?.timedOut)this.logReviewChange(old,performance.now()>=this.adventureReview.hardStop?'达到单次总时限':'进度未能在时限内推进');
             }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);

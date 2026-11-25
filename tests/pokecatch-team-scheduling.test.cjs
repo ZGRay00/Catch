@@ -168,6 +168,7 @@ test('unrelated roster churn cannot extend the current route verification window
 
 test('Giant Chasm item review completes past two minutes with 632 eligible candidates',t=>{
     const {fixture:largeBox}=require('../pokecatch-helper/tools/benchmark-team.cjs');
+    H.clearTeamCache();
     const s=largeBox(632),e=engine();
     e.settings.mode='item';e.strictPlanning=true;s.adv.chapter=s.adv.unlocked=83;
     let clock=0,advance;
@@ -199,9 +200,29 @@ test('Giant Chasm item review completes past two minutes with 632 eligible candi
     assert.ok(clock>120000&&sawLateProgress);
     assert.equal(job.result?.verification?.status,'verified');
     assert.equal(job.result.verification.checked,632);
+    assert.ok(H.teamCacheStats().compactHits>0,'later passes reuse overflow matchup rows');
     e.fitTeam(s,now+clock);
     assert.deepEqual(e.driver.teamTask?.uids||s.team,job.result.uids);
     e.cancelTeamSearch();
+});
+
+test('review diagnostics explain candidate changes, weather and manual interruptions with prior progress',()=>{
+    const e=engine(),s=fixture();e.strictPlanning=true;
+    e.fitTeam(s,now);
+    const mon=s.mons.at(-1);
+    e.teamSearch.verification={passes:2,checked:16,total:36};
+    mon.level++;mon.ban=['tackle'];
+    e.fitTeam(s,now+1);
+    const restart=e.logs.find(entry=>entry.module==='配队复核').text;
+    assert.match(restart,/第 2 轮 16\/36/);assert.match(restart,/等级/);assert.match(restart,/禁招/);
+    assert.ok(restart.includes(mon.uid));
+    const count=e.logs.length;
+    e.fitTeam(s,now+2);assert.equal(e.logs.length,count);
+    e.fitTeam(s,now+3600000);
+    assert.match(e.logs[0].text,/天气/);
+    e.cancelTeamSearch(undefined,true,'手动接管');
+    assert.equal(e.logs.length,count+2);assert.match(e.logs[0].text,/手动接管/);
+    assert.equal(e.reviewProgress(),null);
 });
 
 test('adventure review extends only for new progress and never beyond its route deadline',t=>{

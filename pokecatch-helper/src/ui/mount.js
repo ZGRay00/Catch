@@ -1433,6 +1433,7 @@
         query('#export').onclick=()=>{
             const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logHistory()};
             diagnostic.health=engine.healthReport();diagnostic.lastStop=engine.lastStop;
+            diagnostic.teamReview={current:engine.reviewProgress(),recent:diagnostic.logs.filter(entry=>entry.module==='配队复核').slice(0,12)};
             downloadJson(diagnostic,'pokecatch-helper-diagnostic.json');
         };
         query('#probability-info').addEventListener('toggle',()=>{if(query('#probability-info').open)render();});

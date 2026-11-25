@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.1.9",
-  "scriptSha256": "101981985385320be560c839b45ef3cfc7068c4514ee420a5d4178c80a2279d8",
-  "metadataSha256": "0878ab45848353a5d151ab4bc8b835ba9bed524eacd3a0a122ac3c9894cc2632",
+  "version": "8.2.0",
+  "scriptSha256": "1a749188d351ca168ce6a1294bb57f43cc1c894cf961895d2f5dfe54680e1ebc",
+  "metadataSha256": "75bb7d86c7ec0e651d7deea9a7cd63e377534d2aaa4db5ba742f15e7b5a2796a",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "50cf327736ac97bddf2c8da928fb02e3e8e7235dc4a40b55214d86d272cc8b07"
+      "sha256": "473699e0efab849c7311d3d73f504f23429d6828f1e541fd4eb498d9fc931641"
     },
     {
       "file": "build.manifest.json",
@@ -118,7 +118,7 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "09b1fd5fa3e6a317b58ad0ade326d2d11c7ba33c20db69dd82ad9d4acd70b37f"
+      "sha256": "e78c37cff94a964791b692c9cc0c8953e7018d401af22917950a96f2a014474f"
     },
     {
       "file": "data/legend-elite.json",
@@ -174,7 +174,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "0afb2e7b210783f4fc9db7e4aaedeeabc89e454e709b48953639155e66699a7f"
+      "sha256": "7c8ad103939989cedbdc1f9cc624da96a9de20b00e153cfcd3380973b3589e44"
     },
     {
       "file": "src/runtime/node-exports.js",
@@ -222,7 +222,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "fa393355ec72b37b18f98895d4b70225e720e2a03dc9c96bc01e399f8f2cec73"
+      "sha256": "be676115dd21d616c9d08346641efdf9e0298dd4503a360677fac0a89c788d8a"
     }
   ]
 }

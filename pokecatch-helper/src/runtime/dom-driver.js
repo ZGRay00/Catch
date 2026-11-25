@@ -156,19 +156,21 @@
             }
             if(tracked)task.partySignature??=signature;
             if(b){
-                const pins=adventureTeamPins(s,task.members,e.settings,e.trainProtected);
-                const destination=this.pendingMap?.row||(e.settings.mode!=='progress'&&e.target);
+                const settings=farm?.weatherTraining?e.weatherFarm?.training:e.settings;
+                if(!settings){discard();return false;}
+                const pins=adventureTeamPins(s,task.members,settings,farm?.weatherTraining?null:e.trainProtected);
+                const destination=this.pendingMap?.row||(settings.mode!=='progress'&&e.target);
                 const current=pokemonByUid(s),region=CHAPTERS.get(task.chapter)?.reg;
-                const hardFarmChange=farm&&(farm.mode!==e.settings.mode||farm.region!==e.settings.region||farm.side!==s.link?.side||farm.link!==s.link?.to||
-                    farm.switchEnabled!==helperSwitchEnabled(s,e.settings)||farm.pins!==pins.join('|')||farm.mode==='train'&&farm.trainLevel!==e.settings.trainLevel||
+                const hardFarmChange=farm&&(farm.mode!==settings.mode||farm.region!==settings.region||farm.side!==s.link?.side||farm.link!==s.link?.to||
+                    farm.switchEnabled!==helperSwitchEnabled(s,settings)||farm.pins!==pins.join('|')||farm.mode==='train'&&farm.trainLevel!==settings.trainLevel||
                     !legalAdventureParty(s,task.uids,region,pins));
                 // Before the first drag require an exact plan. Afterwards, a changed Box or weather
                 // must not strand the team midway through a known legal sequence of native moves.
-                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,e.settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
+                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
                     b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
                     !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now)));
-                if(!e.settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
-                    e.settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(e.settings).roamId)||
+                if(!settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
+                    settings.mode==='progress'&&b.frontier!==s.adv.unlocked||b.roamId&&b.roamId!==(destination?.roamId||roamingSettings(settings).roamId)||
                     !task.hasDragged&&b.party!==signature||hardFarmChange||stalePlan||b.autoSwitch!==(s.autoSwitch!==false)||
                     task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
                     discard();return false;
@@ -438,7 +440,18 @@
             // Clear a previous native condition wait before inspecting the current controls.
             // Missing or hidden controls must use the normal UI timeout rather than wait forever.
             if(this.pendingMap?.row===row)delete this.pendingMap.waiting;
+            const exhausted=options.restart&&(options.pickup||options.rotom),a=s.adv;
+            if(exhausted&&(a.chapter!==row.id||a.battle||a.pending||a.paused||a.event||a.zone||a.tower||a.league))return false;
             if (!this.nav('map')) return false;
+            if(exhausted){
+                // The native control identifies its chapter directly. A visible
+                // detail panel can already be usable while its list is redrawing.
+                const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
+                if(enabled(restart)){
+                    const action=(options.pickup?'本轮目标拾取机会已用尽，重开':'本轮没有剩余目标洛托姆，重开')+row.name;
+                    return this.click(restart,action);
+                }
+            }
             if (!options.zone && !options.leaveZone && !options.restart && !this.clearLoops(s, row.key)) return false;
             const reg = $(`#map-root .rg.open[data-rg="${row.reg}"]`);
             if (!reg) throw new Error(`地图地区未解锁：${row.reg}`);
@@ -497,9 +510,9 @@
                 return this.click(go,options.leaveLabel||(s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常'));
             }
             if(options.restart){
-                if(s.adv.chapter!==row.id||!Number(s.adv.node)&&!options.pickup)return false;
+                if(exhausted||a.chapter!==row.id||!Number(a.node))return false;
                 const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
-                return enabled(restart)?this.click(restart,options.pickup?`本轮目标拾取机会已用尽，重开${row.name}`:`重新进入${row.name}，生成当前游荡遭遇`):false;
+                return enabled(restart)&&this.click(restart,'重新进入'+row.name+'，生成当前游荡遭遇');
             }
             // Give the helper exclusive native looping; remember the previous set for restoration.
             const unwanted = $$('#map-root [data-loop][aria-checked="true"]').find(el => String(el.dataset.loop) !== row.key);

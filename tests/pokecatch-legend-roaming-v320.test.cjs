@@ -11,6 +11,26 @@ function fixture(t,settings={}){
     return{s,e,calls,save};
 }
 
+test('Reshiram pickup restart returns from the map if a fight or choice starts, then rechecks the live layout',async t=>{
+    const {e,s,calls,save}=fixture(t,{mode:'legend',legendId:643,legendIds:[643],activeSwitch:false,autoEggs:false,autoEvolve:false});
+    Object.assign(s.adv,{chapter:69,unlocked:83,runs:4,node:2,badges:['Maître Unys'],loops:[69],
+        nodes:[{type:'trainer'},{type:'wild'},{type:'trainer'},{type:'gym'}]});
+    const row={...H.DATA.chapters[69],key:'69',members:[69],gateItems:['light-stone']};
+    e.target=row;e.visit={started:now,deaths:0};e.lockedLegend=643;
+    let opened=0,clicks=0;
+    e.driver.map=()=>{if(++opened===1)return false;clicks++;return true;};
+    save();await e.step(now);assert.equal(opened,1);assert.ok(e.visit.routeRestart);
+    s.adv.battle={kind:'trainer',enemies:[{id:25,hp:8}]};save();await e.step(now+1000);
+    assert.deepEqual(calls.at(-1),['nav','adventure']);assert.match(e.status,/结算后复查拾取点/);
+    assert.equal(e.visit.routeRestart,undefined);assert.equal(clicks,0);
+    delete s.adv.battle;s.adv.pending={type:'item'};save();await e.step(now+1500);
+    assert.deepEqual(calls.at(-1),['nav','adventure']);assert.equal(clicks,0);
+    delete s.adv.pending;s.adv.nodes[3]={type:'item',loot:{'light-stone':{p:.01}}};save();await e.step(now+11000);
+    assert.equal(clicks,0);assert.equal(e.running,true);
+    s.adv.nodes[3]={type:'gym'};save();await e.step(now+12000);assert.equal(clicks,1);
+    await e.step(now+13000);assert.equal(clicks,1);
+});
+
 test('the roaming snapshot contains the native target groups and requires the matching champion',()=>{
     assert.deepEqual(H.ROAMING_DATA.groups.flatMap(group=>group.ids),[243,244,245,380,381,481,641,642]);
     const s=state(),cfg={roamId:243};assert.equal(H.roamingProgress(s,cfg,now).unlocked,true);

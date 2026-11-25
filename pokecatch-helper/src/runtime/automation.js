@@ -278,11 +278,28 @@
             if(d.click(actions[0],'确认自动收蛋结果'))delete this.state.eggReceiptUntil;
             return true;
         }
+        hatchChoices(s,due,now){
+            const plan=eggHatchPlan(s,due,now);
+            this.noteSkippedEggs(s,plan);
+            return plan;
+        }
+        noteSkippedEggs(s,plan){
+            const e=this.e,account=accountId(s);
+            const previous=e.skippedEggs?.account===account?e.skippedEggs.keys:new Set();
+            const keys=new Set();
+            for(const [egg,reason] of plan.blocked){
+                const key=nurseryEggKey(s,egg);
+                if(!previous.has(key))e.log(reason+'，已跳过自动领取');
+                keys.add(key);
+            }
+            e.skippedEggs={account,keys};
+        }
         serviceEggs(s,now,idle=false,allowIdle=false){
             const e=this.e,d=e.driver,eggs=s.pension?.eggs||[];let task=this.state.eggService;
             if((idle?!e.nurseryAssist?.idleAccess:!e.running)||e.manual||pageHidden())return false;
             const allow=idle?allowIdle:e.settings.autoEggs;
             const persist=()=>{if(!idle)e.persist();};
+            let choices;
             if(!task){
                 this.lastService=now;
                 if(!allow||!idle&&e.settings.mode==='breed'||this.state.eggRetryAt>now)return false;
@@ -293,7 +310,8 @@
                 if(!eggs.length)return false;
                 if($$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
                 // The native ready control wins over wall-clock estimates when already visible.
-                if(!readyBackgroundEggs(s,now).length)return false;
+                choices=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
+                if(!choices.eligible.length)return false;
                 const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=this.state.eggService={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
@@ -311,14 +329,16 @@
                 else{task.returning=true;this.state.eggRetryAt=now+60000;delete task.tx;e.log('收蛋未获确认，暂缓一分钟后重试');}
             }
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
-            const due=readyBackgroundEggs(s,now).length>0;
+            choices??=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
+            const due=choices.eligible.length>0;
             if(!allow||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
-                const buttons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(el=>enabled(el)&&eggs.some(egg=>String(egg.uid)===el.dataset.egg));
-                if(buttons.length){
-                    const rules=buttons.length>1?nurseryRuntimeOptions():null;
-                    const ready=(rules&&buttons.find(el=>eggOutcome(s,eggs.find(egg=>String(egg.uid)===el.dataset.egg),rules).shiny===true))||buttons[0];
+                const buttons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled);
+                const buttonFor=egg=>buttons.find(el=>el.dataset.egg===String(egg.uid));
+                const selected=choices.shiny.find(buttonFor)||choices.eligible.find(buttonFor);
+                if(selected){
+                    const ready=buttonFor(selected);
                     task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};persist();
                     if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptUntil=now+15000;}
                     else delete task.tx;
@@ -531,6 +551,10 @@
             if(this.state.hatchRetryAt>now){this.wait('等待孵蛋重试',this.state.hatchRetryAt);return;}
             const targetEggs=eggs.filter(egg=>egg.id===cfg.breedId);
             const outstanding=cfg.breedGoal-(this.state.hatched||0);
+            const choices=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
+            if(choices.blocked.size&&!choices.eligible.length){
+                this.wait(choices.blocked.values().next().value,now+5000);return;
+            }
             const rules=cfg.breedShiny&&targetEggs.length?nurseryRuntimeOptions():null;
             const confirmedShiny=rules?targetEggs.filter(egg=>eggOutcome(s,egg,rules).shiny===true):[];
             const covered=cfg.breedShiny?confirmedShiny.length>0:targetEggs.length>=outstanding;
@@ -543,7 +567,8 @@
             if(!this.page('pension'))return;
             const readyButtons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled);
             const buttonFor=egg=>readyButtons.find(el=>el.dataset.egg===String(egg.uid));
-            const egg=confirmedShiny.find(buttonFor)||targetEggs.find(buttonFor)||eggs.find(buttonFor);
+            const allowed=egg=>choices.eligible.includes(egg)&&buttonFor(egg);
+            const egg=confirmedShiny.find(allowed)||targetEggs.find(allowed)||choices.eligible.find(buttonFor);
             if(egg){this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}

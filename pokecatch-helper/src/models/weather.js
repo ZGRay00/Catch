@@ -29,7 +29,7 @@
         }
         return periods;
     }
-    const WILD_SHINY_IDS = new Set(UNOVA_WILD_IDS);
+    const WILD_SHINY_IDS = new Set([...UNOVA_WILD_IDS,...ROTOM_BY_ID.keys()]);
     const WILD_HABITATS = new Map();
     const WILD_PHASES = ['morning','day','night'];
     for(const c of DATA.chapters){
@@ -116,7 +116,9 @@
         const nodes=currentRegion(s)==='unova'&&!a.event&&!a.zone&&!a.tower&&!a.league&&Array.isArray(a.nodes)
             ? a.nodes.slice(Math.max(0,a.node||0)).filter(n=>n.phenom||n.type==='item'&&n.loot) : null;
         const rolled=nodes?.length&&a.nodes[a.node]?.phenom&&a.battle?.kind==='wild' ? a.battle.enemies?.map(mon=>[mon.id,!!mon.shiny]) : null;
-        return [rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,nodes,rolled];
+        const rotom=targets.some(id=>ROTOM_BY_ID.has(id));
+        return [rankingEnvironment(s,settings,now),settings[settings.mode+'Weather'],targets,nodes,rolled,
+            rotom?rotomReceipts(s,targets):null,rotom&&settings.mode==='dex'?remainingRotom(s):null];
     }
     function rankedRoutes(kind,inputs,build,cooldowns,now){
         const signature=JSON.stringify(inputs);
@@ -132,6 +134,8 @@
         return rows.filter(row=>row.marked||(cooldowns[row.key]||0)<=now);
     }
     function hasWildSource(s,settings,id){
+        const rotom=ROTOM_BY_ID.get(id);
+        if(rotom)return !!s.adv.gifts?.[rotom.once]&&candidates(s,settings).some(row=>row.members.includes(rotom.chapter));
         const specialChapters=(UNOVA_SOURCE_INDEX.get(id)||[]).filter(route=>route.egg?.id!==id).map(route=>route.chapter);
         return candidates(s,settings).some(row=>row.members.some(ch=>WILD_HABITATS.get(ch)?.has(id)||specialChapters.includes(ch)));
     }
@@ -158,10 +162,17 @@
         return WEATHER_POOL_CACHE.get(table);
     }
     function currentWildPool(s,chapter,now){
-        const pool=weatherEncounterPool(s,chapter,now);
-        if(pool)return pool;
-        const c=CHAPTERS.get(chapter),phase=phaseAt(s,now,chapter);
-        return new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
+        let pool=weatherEncounterPool(s,chapter,now);
+        if(!pool){
+            const c=CHAPTERS.get(chapter),phase=phaseAt(s,now,chapter);
+            pool=new Map((c?.shinyPools?.[phase]||c?.pools?.[phase]||[]).map(([id,,clear])=>[id,clear]));
+        }
+        let augmented;
+        for(const source of ROTOM_BY_CHAPTER.get(chapter)||[]){
+            const weight=rotomWildWeight(s,source,now);
+            if(weight>0){augmented??=new Map(pool);augmented.set(source.id,weight);}
+        }
+        return augmented||pool;
     }
     let wildForecastCache;
     // Called only after ranking finds no available catch route, including routes on cooldown.
@@ -175,6 +186,9 @@
             const habitat=WILD_HABITATS.get(ch.id);
             const nativeWild=habitat&&targets.some(id=>habitat.has(id));
             const excluded=filter.length&&!huntWeatherMatches(s,cfg,ch.id,now);
+            if(!dex&&ch.special.some(spec=>wanted.has(spec.id)&&ROTOM_BY_ID.has(spec.id)&&s.adv.gifts?.[spec.once]&&
+                spec.skies?.length&&(!spec.night||phaseAt(s,now,ch.id)==='night')&&
+                (excluded||!rotomWildWeight(s,ROTOM_BY_ID.get(spec.id),now))))return true;
             if(dex&&ch.special.some(spec=>spec.kind==='static'&&wanted.has(spec.id)&&!spec.caught?.some(id=>!s.dex?.[id])&&
                 (specialBlockReason(s,spec,now,ch.id)==='地点天气条件尚未满足'||excluded&&specialAvailable(s,spec,now,ch.id))))return true;
             if(!nativeWild)continue;
@@ -196,7 +210,7 @@
         const targets=Array.from(new Set(ids));
         const eggState=settings.mode==='dex'&&targets.some(id=>UNOVA_SOURCE_INDEX.get(id)?.some(route=>route.egg?.id===id))
             ? [s.adv.badges,s.adv.gifts,s.pension?.eggs?.map(egg=>egg.id),s.pension?.open?.eggs] : null;
-        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings.mode,settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught,eggState]);
+        const signature=JSON.stringify([rankingEnvironment(s,settings,now),settings.mode,settings[settings.mode+'Weather'],targets,hours,s.roam?.at,s.roam?.caught,eggState,rotomReceipts(s,targets)]);
         if(wildForecastCache?.signature===signature&&now>=wildForecastCache.from&&now<wildForecastCache.until)return wildForecastCache.result;
         const slot=WEATHER_DATA.slotMs,firstHour=(Math.floor(now/slot)+1)*slot;
         const result=searchWildWindow(s,settings,targets,now,firstHour,hours);
@@ -207,6 +221,7 @@
         const allowEgg=settings.mode==='dex';
         const specialIds=targets.filter(id=>UNOVA_WILD_IDS.has(id)||allowEgg&&UNOVA_SOURCE_INDEX.has(id));
         const specialChapters=new Set(specialIds.flatMap(id=>UNOVA_SOURCE_INDEX.get(id).filter(route=>allowEgg||route.egg?.id!==id).map(route=>route.chapter)));
+        for(const id of rotomReceipts(s,targets))specialChapters.add(ROTOM_BY_ID.get(id).chapter);
         const rowsBySeason=SEASON_KEYS.map(()=>[]),rows=[];
         let hasSeasonal=false;
         for(const row of candidates(s,settings)){

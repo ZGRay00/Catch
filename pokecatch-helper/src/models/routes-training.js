@@ -108,22 +108,22 @@
         return settings.trainUid === 'team' ? [...(s.team || [])] : [settings.trainUid];
     }
     function trainingParty(s,targets){
-        const roster=new Map(s.mons.map(mon=>[mon.uid,mon])), seen=new Set(), uids=[];
+        const roster=pokemonByUid(s), seen=new Set(), uids=[];
         for(const uid of new Set([...targets,...s.team])){
             const mon=roster.get(uid);if(!mon)continue;
             const slot=DATA.combat.singles[mon.id]||mon.id+':'+Number(!!mon.shiny);
-            if(seen.has(slot))continue;
+            if(seen.has(slot)||uids.some(id=>teamApart(mon,roster.get(id))))continue;
             seen.add(slot);uids.push(uid);
             if(uids.length===6)break;
         }
         return uids;
     }
     function trainingStatus(s, settings, protectedUids = null) {
-        const ids=trainingUids(s,settings,protectedUids), party=partyMons(s);
-        const source=settings.trainUid==='selected'&&settings.autoTeam?s.mons||[]:party;
-        const targets=ids.map(uid=>source.find(mon=>mon.uid===uid)).filter(Boolean);
+        const ids=trainingUids(s,settings,protectedUids), roster=pokemonByUid(s);
+        const allowBox=settings.trainUid==='selected'&&settings.autoTeam;
+        const targets=ids.filter(uid=>allowBox||s.team?.includes(uid)).map(uid=>roster.get(uid)).filter(Boolean);
         const usedSlots=new Set(targets.map(mon=>DATA.combat.singles[mon.id]||mon.id+':'+Number(!!mon.shiny)));
-        const conflict=settings.trainUid==='selected'&&usedSlots.size!==targets.length;
+        const conflict=settings.trainUid==='selected'&&(usedSlots.size!==targets.length||targets.some((mon,i)=>targets.slice(0,i).some(other=>teamApart(mon,other))));
         const missing=conflict||!ids.length || targets.length!==ids.length || settings.trainUid==='selected'&&targets.some(mon=>!teamEligible(s,mon));
         const available = targets.filter(m => m.level < Math.min(settings.trainLevel, trainingCap(s, m)));
         return { targets, available, missing, conflict, complete: !missing && targets.every(m => m.level >= settings.trainLevel),

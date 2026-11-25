@@ -82,6 +82,30 @@ for(const [mode,kind] of [['dex','money'],['shiny','xp']]){
     });
 }
 
+test('weather training seats the selected PC learner before ranking and keeps it pinned on the XP map',t=>{
+    const {s,e}=fixture(t,{mode:'dex',dexSpecies:[637],huntWeatherFallback:'xp',autoTeam:true,
+        trainUid:'selected',trainUids:['learner'],trainLevel:90});
+    Object.assign(s.adv,{chapter:73,unlocked:83,badges:['Maître Unys']});s.travel.to=['unova'];
+    s.mons.push({uid:'learner',id:9,level:70,reg:'unova'});
+    let now=Date.now();
+    for(let i=0;i<48&&H.unovaAcquisitionSources(s,636,now).some(src=>src.available);i++)now+=3600000;
+    const swaps=[],visits=[],fits=[],map={id:73,key:'73',members:[73],name:'测试地图',rate:100};
+    e.driver.adventureTeam=()=>{swaps.push(e.driver.teamTask.uids);return true;};
+    e.driver.map=row=>{visits.push(row.id);return true;};
+    e.evaluateRouteRanking=request=>{assert.equal(request.kind,'xp');return [map];};
+    e.fitTeam=(_state,_now,_preview,_roam,cfg)=>{fits.push([cfg.mode,cfg.trainUids,cfg.trainLevel]);return false;};
+    assert.equal(e.weatherFarmStep(s,now),true);
+    assert.deepEqual(swaps,[['learner','a']]);assert.deepEqual(visits,[]);
+    s.team=swaps[0];e.driver.teamTask=null;
+    assert.equal(e.weatherFarmStep(s,now+200),true);assert.deepEqual(visits,[]);
+    s.road=[...s.team];
+    assert.equal(e.weatherFarmStep(s,now+400),true);assert.deepEqual(visits,[73]);
+    s.adv.loops=[73];assert.equal(e.weatherFarmStep(s,now+600),true);
+    assert.deepEqual(fits,[['train',['learner'],90]]);
+    s.mons[1].level=90;assert.equal(e.weatherFarmStep(s,now+800),true);
+    assert.match(e.status,/目标等级/);assert.equal(e.settings.mode,'dex');e.stop();
+});
+
 test('desert sun egg distinguishes missing weather from badge, incubator and XP cap',t=>{
     const {s,e}=fixture(t,{mode:'dex',dexSpecies:[637],huntWeatherFallback:'xp'});
     Object.assign(s.adv,{chapter:73,unlocked:83});s.travel.to=['unova'];

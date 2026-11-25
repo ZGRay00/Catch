@@ -1,4 +1,5 @@
     const PANEL_STYLE = `
+            .trainee-list{min-width:0;margin:8px 0;padding:8px;border:1px solid currentColor;border-radius:8px}.trainee-list legend{padding:0 4px;font-weight:600}.trainee-list details{margin:6px 0}.trainee-list input[type="search"]{width:100%;margin:5px 0}.trainee-list #train-pc{max-height:166px;overflow:auto;overscroll-behavior:contain}.trainee-list label{overflow-wrap:anywhere}.trainee-list small{display:block}
 :host{font:13px/1.5 system-ui,"Microsoft YaHei",sans-serif;color:#e6edf8;color-scheme:dark}
             *{box-sizing:border-box}button,input,select{font:inherit}button,select,summary{cursor:pointer}button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible{outline:2px solid #79dcba;outline-offset:2px}
             .panel{width:406px;max-width:calc(100vw - 20px);border:1px solid #39465c;border-radius:18px;background:#111a29f5;box-shadow:0 16px 55px #0007;overflow:hidden;backdrop-filter:blur(18px)}

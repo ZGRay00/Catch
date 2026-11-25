@@ -105,6 +105,41 @@ test('explicit opt-out never navigates or hatches a ready egg', t => {
     assert.equal(f.s.pension.eggs.length, 1);
 });
 
+test('a full shiny family stays in the incubator, logs once, then hatches when a slot opens',t=>{
+    const f=fixture(t),s=f.s;
+    s.pension.eggs[0].shiny=true;
+    s.mons=[{id:1,shiny:true},{id:3,shiny:true},{id:3,shiny:false}];
+    s.pension.mons=[{mon:{id:2,shiny:true}}];s.under={slots:[{mons:[{id:1,shiny:true}]}]};
+    const notes=[];f.e.log=text=>notes.push(text);
+    assert.equal(f.service(),false);assert.equal(f.service(),false);
+    assert.deepEqual(f.actions,[]);assert.equal(notes.length,1);assert.match(notes[0],/妙蛙种子.*4\/4/);
+    const plan=H.parallelPlan(s,f.e,f.now());assert.ok(!plan.ready.includes('eggs'));assert.match(plan.blocked.eggs,/4\/4/);
+    s.under.slots=[];assert.equal(f.service(),true);
+    assert.deepEqual(f.clicks().map(c=>c.uid),['egg-a']);
+});
+
+test('an eligible ordinary egg is collected ahead of a blocked shiny egg in background, idle and breed modes',t=>{
+    const f=fixture(t,{},{deferCommit:true}),s=f.s,a=f.e.automation;
+    s.mons=Array.from({length:4},()=>({id:3,shiny:true}));
+    s.pension.eggs=[{id:1,uid:'full',shiny:1,hatchAt:f.now()},{id:1,uid:'plain',shiny:0,hatchAt:f.now()}];
+    f.service();assert.deepEqual(f.clicks().map(c=>c.uid),['plain']);
+    delete a.state.eggService;f.e.nurseryAssist.idleAccess=true;
+    a.serviceEggs(s,f.now(),true,true);assert.equal(f.clicks().at(-1).uid,'plain');
+    f.e.settings.mode='breed';f.e.settings.breedId=1;f.e.settings.breedShiny=false;
+    a.breed(s,f.now());assert.equal(f.clicks().length,3);assert.equal(a.state.hatch.uid,'plain');
+});
+
+test('branch limits expand with open regions and trade escrow counts in the egg’s region group',t=>{
+    const f=fixture(t),s=f.s,a=f.e.automation;
+    const egg={id:133,reg:'kanto',shiny:true,uid:'eevee'};
+    s.link={to:'johto'};s.mons=[133,134,135,136].map(id=>({id,reg:'kanto',shiny:true}));
+    s.tradeOut={mon:{id:133,reg:'johto',shiny:true}};
+    const check=()=>a.hatchChoices(s,[egg],f.now());
+    assert.ok(check().eligible.length);s.tradeOut.mon.reg='kanto';
+    assert.match(check().blocked.get(egg),/5\/5/);s.travel.to.push('johto');
+    assert.ok(check().eligible.length);
+});
+
 test('enough incubating target eggs leave the current page alone and wake for the earliest egg', t => {
     const f = fixture(t, { mode: 'breed', breedId: 1, breedGoal: 1, breedShiny: false });
     const due = f.now() + 15000;

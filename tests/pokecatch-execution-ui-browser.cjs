@@ -233,19 +233,35 @@ async function main(){
         assert.deepEqual(await evaluate('[__pcExecutionTest.engine.settings.spendBudget,__pcExecutionTest.engine.settings.autoPurchase]'),[20000,true]);
         checks.push('a pre-switch account with a saved positive procurement budget retains that authorization');
         const trainees=await evaluate(`(()=>{
-            const r=${root},e=__pcExecutionTest.engine,initial={...e.settings};
+            const r=${root},e=__pcExecutionTest.engine,initial={...e.settings},oldQueue=e.queue.slice();
             try{
                 fixtureState.mons.push({uid:'pc-target',id:9,level:70,reg:'kanto'});commitExecution();
                 const set=(key,value)=>{const el=r.querySelector('[data-setting="'+key+'"]');el.value=value;el.dispatchEvent(new Event('change',{bubbles:true}));};
-                r.querySelector('[data-mode="daily"]').click();set('dailyMain','train');r.querySelector('#daily-edit-goal').click();set('trainUid','selected');
-                r.querySelector('#train-members input').click();
-                const pc=r.querySelector('#train-pc');pc.dispatchEvent(new Event('focus'));pc.value='pc-target';pc.dispatchEvent(new Event('change',{bubbles:true}));
+                r.querySelector('[data-mode="daily"]').click();set('dailyMain','train');set('trainUid','team');
+                const visible=selector=>!!r.querySelector(selector)?.getClientRects().length;
+                const daily=visible('#daily-train-fields #train-members input:checked');
+                r.querySelector('#train-members input:checked').click();
+                const emptyBlocked=r.querySelector('#start').disabled;
+                r.querySelector('#train-members input[value="a"]').click();
+                const pc=r.querySelector('#train-pc-field');pc.open=true;
+                const search=r.querySelector('#train-search');search.value='pc-target';search.dispatchEvent(new Event('input'));
+                r.querySelector('#train-pc input[value="pc-target"]').click();
+                r.querySelector('#daily-edit-goal').click();
+                const direct=visible('#ordinary-target #train-members input:checked');
                 const gems=r.querySelector('[data-setting="trainGems"]'),off=!gems.checked;gems.click();set('trainRank',2);
-                return [e.settings.mode,e.settings.trainUids,off,e.settings.trainGems,e.settings.trainRank];
-            }finally{fixtureState.mons.pop();e.settings=initial;e.persist();commitExecution();}
+                r.querySelector('[data-mode="dex"]').click();set('huntWeatherFallback','xp');
+                const weather=r.querySelector('#weather-train-fields #train-members');
+                const checked=()=>[...weather.querySelectorAll('input:checked')].map(el=>el.value);
+                const weatherIds=checked();
+                r.querySelector('#add-job').click();
+                const job=e.queue.at(-1);
+                r.querySelector('[data-queue-job="'+job.id+'"] [data-job-action="edit"]').click();
+                const edited=checked();r.querySelector('#cancel-job').click();
+                return [daily,emptyBlocked,direct,weatherIds,off,job.settings.trainGems,job.settings.trainRank,job.settings.trainUid,edited];
+            }finally{fixtureState.mons.pop();e.queue=oldQueue;e.settings=initial;e.persist();commitExecution();}
         })()`);
-        assert.deepEqual(trainees,['train',['a','pc-target'],true,true,2]);
-        checks.push('daily training selects individual party and PC targets and explicitly enables rank-up');
+        assert.deepEqual(trainees,[true,true,true,['a','pc-target'],true,true,2,'selected',['a','pc-target']]);
+        checks.push('daily, standalone and weather training share checked party and searchable PC targets and block empty selections');
         const panes=await evaluate(`(()=>{const r=${root},e=__pcExecutionTest.engine;const views=[];
             for(const key of ['tasks','dex','weather','eggs','settings','activity']){
                 r.querySelector('[data-workspace="'+key+'"]').click();
@@ -706,11 +722,39 @@ async function main(){
                 Object.assign(s.adv,{chapter:69,unlocked:83,loops:[69],badges:['Maître Unys'],node:0,
                     nodes:[{type:'item',loot:{'light-stone':.01}},{type:'gym'}]});
                 const step=()=>e.restartForPickups(s,row,['light-stone'],Date.now());
-                step();const before=clicks;s.adv.node++;step();step();return [before,clicks,e.action];
+                step();const before=clicks;s.adv.node++;
+                gameMap.querySelector('.mp-row').classList.remove('sel');
+                const control=gameMap.querySelector('.mp-restart');
+                control.dataset.restart='68';
+                e.driver.map(row,s,{restart:true,pickup:true});
+                const wrong=clicks;control.dataset.restart='69';e.driver.lastClick=0;
+                s.adv.battle={kind:'trainer'};
+                e.driver.map(row,s,{restart:true,pickup:true});
+                const busy=clicks;delete s.adv.battle;
+                step();step();return [before,wrong,busy,clicks,e.action];
             }finally{e.running=false;e.settings=initial;e.visit=e.target=null;gameMap.remove();}
         })()`);
-        assert.deepEqual(reentry,[0,1,'本轮目标拾取机会已用尽，重开古代城']);
+        assert.deepEqual(reentry,[0,0,0,1,'本轮目标拾取机会已用尽，重开古代城']);
         checks.push('pickup farming clicks the native same-chapter restart once after passing the target node');
+        const rotom=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,initial=e.settings,s=structuredClone(fixtureState);
+            const panel=document.createElement('section');panel.id='screen-map';panel.className='active';
+            panel.innerHTML='<div id="map-root"><button class="rg open active" data-rg="sinnoh">神奥</button><button class="mp-row sel" data-ch="52">湿地徽章</button><button class="mp-restart" data-restart="52">重新开始</button></div>';
+            document.body.append(panel);
+            try{
+                r.querySelector('[data-mode="shiny"]').click();
+                const search=r.querySelector('#hunt-search');search.value='479';search.dispatchEvent(new Event('input'));
+                const options=Array.from(r.querySelector('#hunt-picker').options,o=>+o.value);
+                const row={id:52,members:[52],key:'52',reg:'sinnoh',name:'湿地徽章',targets:[{kind:'rotomStatic',id:47905}]};
+                s.dex={479:{caught:1}};Object.assign(s.adv,{chapter:52,node:0,loops:[52],nodes:[{type:'trainer'},{type:'static',id:47902,once:'rotom-wash'}]});
+                e.settings={...initial,mode:'dex',dexSpecies:[47902,47905]};e.running=true;e.visit={};e.target=row;
+                e.driver.lastClick=0;let clicks=0;panel.querySelector('.mp-restart').onclick=()=>clicks++;
+                const at=new Date(2026,10,25,12).getTime(),step=()=>e.restartForRotom(s,row,at);
+                step();const retained=clicks;s.adv.nodes.pop();step();step();return [options,retained,clicks,e.action];
+            }finally{e.running=false;e.settings=initial;e.visit=e.target=null;panel.remove();}
+        })()`);
+        assert.deepEqual(rotom,[[479,47901,47902,47903,47904,47905],0,1,'本轮没有剩余目标洛托姆，重开湿地徽章']);
+        checks.push('all Rotom forms are selectable for shiny hunts and an empty first node can trigger one native restart');
         console.log('PASS: '+checks.length+' execution/concurrency UI checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

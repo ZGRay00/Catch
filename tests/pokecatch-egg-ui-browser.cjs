@@ -71,6 +71,15 @@ async function main(){
         assert.match(redraw.text[0],/✦ 闪蛋/);assert.deepEqual(redraw.text.slice(1),['none','none']);
         assert.equal((await state()).save,current.save);await click('.mini');
         checks.push('the folded idle helper marks the right card immediately after native replacement without editing the save or enabling the card');
+        await click('[data-workspace="eggs"]');
+        const familyGate=await evaluate(`(()=>{const s=fixtureState,r=${root},before=s.mons;
+            const detail=()=>r.querySelector('#nursery-eggs').textContent;
+            try{s.mons=[...before,...[1,2,3].map((id,i)=>({id,uid:'family-'+i,reg:'kanto',shiny:true,level:20}))];commitNursery();
+                const full=detail();s.mons=before;commitNursery();return [full,detail()];
+            }finally{s.mons=before;commitNursery();}
+        })()`);
+        assert.match(familyGate[0],/异色家族已满（4\/4）/);assert.doesNotMatch(familyGate[1],/异色家族已满/);
+        checks.push('a mature shiny egg shows its family cap while full and clears the hint after a slot opens');
         await click('[data-workspace="eggs"]');current=await state();assert.equal(current.open,true);assert.equal(current.shiny,'1');assert.equal(current.ready,'1');assert.equal(current.native,'500');assert.ok(await evaluate(`${root}.querySelector('#nursery-next').textContent.length>0&&${root}.querySelector('#nursery-forecast').textContent.length>0&&${root}.querySelector('#nursery-scenarios').textContent.length>0`));assert.ok(await evaluate(`${root}.querySelector('#nursery-berry-only').textContent.length>0`));checks.push('opening the eggs workspace displays real incubator counters and clearly separated forecasts');
         const comparison=()=>evaluate(`(()=>{const r=${root},section=r.querySelector('#nursery-comparison');return{hidden:section.hidden,open:section.open,note:r.querySelector('#nursery-comparison-note').textContent,groups:[...section.querySelectorAll('.nursery-scenario')].map(el=>({name:el.querySelector('strong').textContent,rate:el.querySelector('.nursery-rate').textContent,hits:[...el.querySelectorAll('ol li')].map(row=>row.textContent),keys:[...el.querySelectorAll('ol code')].map(row=>row.textContent)}))}})()`);
         const ordinary=await comparison();assert.equal(ordinary.open,true);assert.deepEqual(ordinary.groups.map(({name,rate})=>[name,rate]),[['普通亲代 · 自然闪','1/512'],['普通亲代 · 喂果才闪','1/512 → 1/256']]);

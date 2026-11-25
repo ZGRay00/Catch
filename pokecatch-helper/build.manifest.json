@@ -60,10 +60,13 @@
       "kind": "source",
       "file": "src/data/weather-after.js"
     },
+    {"kind":"json","file":"data/rotom.json","constant":"ROTOM_DATA"},
     {
       "kind": "source",
-      "file": "src/models/weather.js"
+      "file": "src/models/rotom.js"
     },
+    {"kind":"source","file":"src/models/weather.js"},
+    {"kind":"source","file":"src/models/egg-family.js"},
     {
       "kind": "source",
       "file": "src/models/roster.js"

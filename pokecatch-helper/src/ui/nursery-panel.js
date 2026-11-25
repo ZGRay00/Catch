@@ -243,7 +243,11 @@
             if(f?.active)condition.push('距离按自然产蛋次数计算。更换或调序亲本、使用靛莓果、赠蛋占号后会重算。');
             if(next?.eggId===351||snap.eggRows.some(row=>row.id===351))condition.push('飘浮泡泡的形态取决于实际孵出时的培育屋天气。');
             write('#nursery-condition',condition.join(' '));
-            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map(row=>[row.uid,row.id,row.k,row.known,row.shiny,row.estimatedShiny,row.berryApplied,row.parentId,row.laidAt,row.hatchAt,eggEvidence(row),duration(row.remainingMs)]));
+            const familyNotes=snap.eggRows.map((row,i)=>{
+                const reason=row.shiny&&row.ready&&shinyEggFamilyLimit(s,s.pension.eggs[i],now);
+                return reason?reason+' · 自动收蛋会跳过':'';
+            });
+            const eggs=query('#nursery-eggs'),listKey=JSON.stringify(snap.eggRows.map((row,i)=>[row.uid,row.id,row.k,row.known,row.shiny,row.estimatedShiny,row.berryApplied,row.parentId,row.laidAt,row.hatchAt,eggEvidence(row),duration(row.remainingMs),familyNotes[i]]));
             if(listKey!==eggListKey){
                 eggListKey=listKey;eggs.replaceChildren();
                 if(!snap.counts.total)eggs.textContent='孵化器目前没有蛋。';
@@ -253,7 +257,7 @@
                     const colour=row.known?(row.shiny?'✦ 闪光':'普通'):row.certainty==='reference'?(row.estimatedShiny?'预计闪光':'预计普通'):'待判定';
                     title.textContent=(index+1)+' 号位 · '+name(row.id)+' · '+colour+(Number.isSafeInteger(row.k)&&row.k>=0?' #'+row.k:'');
                     const evidence=eggEvidence(row),berry=row.berryApplied===null?'用果标记待核对':row.berryApplied?'此蛋已带靛莓果':'此蛋未记录靛莓果';
-                    basis.className='hint';basis.textContent=[evidence,berry,row.parentId?'亲本 '+name(row.parentId):''].filter(Boolean).join(' · ');
+                    basis.className='hint';basis.textContent=[evidence,berry,row.parentId?'亲本 '+name(row.parentId):'',familyNotes[index]].filter(Boolean).join(' · ');
                     title.appendChild(basis);
                     if(!row.ready&&Number.isFinite(row.laidAt)&&row.hatchAt>row.laidAt){
                         const bar=document.createElement('progress');bar.max=row.hatchAt-row.laidAt;

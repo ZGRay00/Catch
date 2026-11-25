@@ -52,7 +52,7 @@
         const keep=uid=>{if(typeof uid==='string'&&uid)protectedUids.add(uid);};
         for(const uid of e.daily?.checkpoint?.session?.trainProtected||[])keep(uid);
         keep(s.buddy?.uid);keep(e.automation?.buddyTask?.uid);keep(e.automation?.state?.evolution?.uid);keep(e.automation?.owner?.uid);keep(e.preparation?.candy?.uid);
-        if(e.settings?.mode==='train')trainingUids(s,e.settings).forEach(keep);
+        if(e.settings?.mode==='train'||['dex','shiny'].includes(e.settings?.mode)&&e.settings.huntWeatherFallback==='xp')trainingUids(s,e.settings).forEach(keep);
         if(e.settings?.mode==='resource')keep(e.settings.useUid);
         for(const p of [e.preparation,e.raidPreparation])if(p){for(const key of ['uids','originalTeam'])for(const uid of p[key]||[])keep(uid);for(const target of p.targets||[])keep(target.uid);}
         for(const target of e.coach?.ready?.targets||[])keep(target.uid);
@@ -175,6 +175,7 @@
         const returned=under?.ready.length||0;
         const underDispatch=!(c.autoUnderCollect&&returned)&&c.mode!=='underground';
         const mainComplete=mainGoalReached(s,e,now),blocked={},ready=[];
+        let eggChoices;
         const common=backgroundBlockReason(s,e,now),manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
         for(const id of ['eggs','underground','evolution']){
             let reason=id==='eggs'?backgroundBlockReason(s,e,now,'eggs'):id==='underground'&&underDispatch?backgroundBlockReason(s,e,now,'underDispatch'):common;
@@ -189,12 +190,16 @@
             if(!reason&&(id==='eggs'||id==='underground'&&!underDispatch)&&manualParty)reason='手动队伍未满六人，原生领取可能自动入队';
             const retry=id==='eggs'?Math.max(flow.eggRetryAt||0,services.retryAt?.eggs||0):id==='evolution'?flow.evolutionRetryAt||0:services.retryAt?.underground||0;
             if(!reason&&retry>now)reason='等待服务重试时间';
+            if(id==='eggs'&&!reason&&eggs.length){
+                eggChoices=eggHatchPlan(s,eggs,now);
+                if(!eggChoices.eligible.length)reason=eggChoices.blocked.values().next().value;
+            }
             if(reason)blocked[id]=reason;
             else if(id==='eggs'?eggs.length:id==='underground'?underDispatch||returned:!['breed','resource'].includes(c.mode))ready.push(id);
         }
         // Mature eggs free incubator capacity first; finish any existing transaction
         // before starting this ordered list: eggs, underground receipts, evolution.
-        return{active,ready,blocked,mainComplete,pendingCount:Number(eggs.length>0)+Number(returned>0)};
+        return{active,ready,blocked,mainComplete,eggChoices,pendingCount:Number((eggChoices?.eligible.length??eggs.length)>0)+Number(returned>0)};
     }
     function taskExecutionState(s,e,now=Date.now()){
         const due=readyBackgroundEggs(s,now),under=undergroundStatus(s||{},now);

@@ -69,7 +69,7 @@
         return egg?.laidAt!=null?'legacy:'+String(egg.laidAt):null;
     }
     function eggOutcome(s,egg,options={}){
-        const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
+        const unverified=!!options.build&&!options.eggRollVerified&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
         const rate=egg&&typeof egg==='object'?nurseryEggRate(egg):null,key=nurseryEggKey(s,egg);
         const rateVerified=rate!==null&&!unverified;
         const unknown=reason=>({certainty:'unknown',known:false,shiny:null,rate,rateVerified,source:'unknown',key,reason});

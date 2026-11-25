@@ -53,6 +53,9 @@
         // These chapter/source pairs and the native restart control were also
         // checked against the public f3a9382a50 bundle of build 824f567ed3.
         if(build!=='824f567ed3')return false;
+        if(settings.mode==='dex'&&settings.dexSpecies?.length&&row.targets?.length&&row.targets.every(hit=>
+            hit.kind==='rotomStatic'&&ROTOM_BY_ID.get(hit.id)?.chapter===row.id))return true;
+        if(settings.mode==='shiny'&&shinyGoals(settings).some(id=>ROTOM_BY_ID.get(id)?.chapter===row.id)&&row.rotomWild)return true;
         const ids=settings.mode==='item'?[settings.itemId]:row.gateItems;
         const chapters={'light-stone':[69],'dark-stone':[69],'reveal-glass':[83],
             'adamant-orb':[50,57],'lustrous-orb':[50,57],'axew-fang':[72]};
@@ -587,6 +590,7 @@
             if(job){
                 if(!windowFirst)return false;
                 if(job.kind==='window'&&now>=job.until){
+                    if(remainingRotom(s).some(id=>this.settings.dexSpecies?.includes(id)&&!captured(s,id)))return false;
                     this.returnFromDaily('捕获窗口已结束',now,now);return true;
                 }
                 // Settlement and in-flight native launches keep their own confirmation timeouts.
@@ -833,7 +837,8 @@
                 if (accountId(s) !== this.account) throw new Error('账号已切换，请刷新页面');
                 const mode=daily?dailyMainMode(this.settings):this.settings.mode;
                 if(daily&&(!DAILY_BASE_MODES.has(mode)||!s.adv.badges?.includes('Maître')))throw new Error('取得关都冠军徽章后，请在通关日常中选择每日主线');
-                if(mode==='train'&&this.settings.trainUid==='selected'&&!cp){
+                const weatherTraining=['dex','shiny'].includes(mode)&&this.settings.huntWeatherFallback==='xp';
+                if((mode==='train'||weatherTraining)&&this.settings.trainUid==='selected'&&!cp){
                     const plan=trainingStatus(s,this.settings);
                     if(plan.conflict)throw new Error('指定目标占用同一出战名额，请分成两个培育任务');
                     if(plan.missing)throw new Error('请选择可在当前地区出战的培育目标；手动配队时请先将目标编入队伍');
@@ -1328,6 +1333,7 @@
             if(!this.running||this.manual||pageHidden())return false;
             plan??=parallelPlan(s,this,now);
             const a=this.automation;
+            if(plan.eggChoices?.blocked.size)a.noteSkippedEggs(s,plan.eggChoices);
             if(plan.active){
                 const handled=plan.active==='underground'?a.serviceUnderground(s,now):plan.active==='eggs'?a.serviceEggs(s,now):a.evolution(s,now);
                 if(handled&&!parallelPlan(s,this,now).active){this.services.lastCompleted[plan.active]=now;this.backgroundYield=true;}
@@ -1703,7 +1709,15 @@
                     const gate=legendRequirements(s,[this.lockedLegend]);
                     if(gate&&this.pursueGateRoamer(s,{...this.settings,legends:true,dexWeather:[]},gate,now))return;
                 }
-                if (safeBoundary || startingBattle) this.legend(s, now); return;
+                if(safeBoundary||startingBattle){this.legend(s,now);return;}
+                // An encounter can begin between opening the progress screen and
+                // clicking restart. The native adventure screen owns settlement.
+                const attempt=this.visit?.routeRestart;
+                if(attempt&&!attempt.finished)delete this.visit.routeRestart;
+                this.status=this.target?.gateItems?.length||attempt
+                    ?'传说前置 · 返回冒险，当前遭遇或选项结算后复查拾取点'
+                    :'指定传说战 · 等待当前遭遇或选项结算';
+                this.driver.nav('adventure');return;
             }
             const speed = $(`#speed-btns [data-speed="${this.settings.speed}"]`);
             if (s.adv.speed !== this.settings.speed && this.driver.nav('adventure')) { this.driver.click(speed, '设置游戏内速度'); return; }
@@ -1749,6 +1763,10 @@
                     if(this.waitForWildWindow(s,remaining,now))return;
                     const possible=remaining.some(id=>hasWildSource(s,this.settings,id));
                     if(possible){this.waitForFarm('已确认野生来源，等待天气、季节或出没时段；不会放弃任务',now);return;}
+                    const locked=remaining.filter(id=>ROTOM_BY_ID.has(id)&&!s.adv.gifts?.[ROTOM_BY_ID.get(id).once]);
+                    if(locked.length){
+                        this.waitForFarm('刷异色前，请先在固定遭遇中捕获'+locked.map(id=>MONS.get(id).name+'（'+CHAPTERS.get(ROTOM_BY_ID.get(id).chapter).name+'）').join('、'),now);return;
+                    }
                     this.failTask('当前范围没有该物种的野生来源；请检查地区、时段和天气');return;
                 }this.travelHunt(alternate||rows[0],alternate,now);return;
             }
@@ -1778,6 +1796,7 @@
                 const alternate=this.huntAlternate(s,stillNeeded,rows,now);
                 if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
                     if(stillNeeded.gateItems&&this.restartForPickups(s,stillNeeded,stillNeeded.gateItems,now))return;
+                    if(this.restartForRotom(s,stillNeeded,now))return;
                     if(directedHunt&&this.settings.autoTeam&&!stillNeeded.requiredParty?.length&&this.fitTeam(s,now))return;
                     if(safeBoundary&&stillNeeded.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     const limit=stillNeeded.window;
@@ -1965,7 +1984,7 @@
                 s.link&&(row.reg===s.link.to)!==(s.link.side==='to')||s.adv.event||s.adv.zone||s.adv.league||s.adv.tower)return;
             this.fitTeam(s,now,null,row);
         }
-        fitTeam(s,now,trackedRoamer,preview=null) {
+        fitTeam(s,now,trackedRoamer,preview=null,settings=this.settings) {
             if(this.strictPlanning&&!localRulesKnown()){
                 this.teamValidationNote='当前游戏构建待核对，保留现有冒险队伍';
                 if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch',false,'游戏构建待核对');
@@ -1991,20 +2010,20 @@
             }
             const current={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(member=>member.loop===c.loop).map(member=>member.id):[c.id]};
             const row=preview||(frontier?current:pending?.row||this.target||current);
-            const mode=this.settings.mode;
-            const objective=mode==='train'?'train':mode==='money'||mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':
+            const mode=settings.mode;
+            const objective=mode==='train'?'train':mode==='money'||mode==='dex'&&!dexStatus(s,settings).missing.length&&settings.afterDex==='money'?'money':
                 ['item','shiny'].includes(mode)?'route':'progress';
-            const roamId=trackedRoamer||(roam?roamingSettings(this.settings).roamId:undefined);
-            const dexReplay=objective==='progress'&&isDexReplay(s,this.settings,c)?c:null;
+            const roamId=trackedRoamer||(roam?roamingSettings(settings).roamId:undefined);
+            const dexReplay=objective==='progress'&&isDexReplay(s,settings,c)?c:null;
             const reg=row.reg||c.reg;
             const key=String(row.key??c.loop)+(roamId?`:roam:${roamId}`:''),autoSwitch=s.autoSwitch!==false,last=this.teamCheck,deaths=totalDeaths(s,row);
             const members=row.members||[c.id];
-            const pinned=adventureTeamPins(s,members,this.settings,this.trainProtected);
-            const policy=adventureTeamPolicy(s,members,this.settings,pinned);
+            const pinned=adventureTeamPins(s,members,settings,this.weatherFarm?.training===settings?null:this.trainProtected);
+            const policy=adventureTeamPolicy(s,members,settings,pinned);
             const partyKey=s.team.join('|');
             const currentPartyIsLegal=()=>legalAdventureParty(s,s.team,reg,pinned);
             const farmKind=objective==='money'?'money':objective==='train'?'xp':null;
-            const farmKey=farmKind&&this.farmPlanningKey(s,farmKind);
+            const farmKey=farmKind&&settings===this.settings&&this.farmPlanningKey(s,farmKind);
             if(farmKey&&last?.farmKey===farmKey&&last.key===key&&last.expectedParty===partyKey&&
                 last.objective===objective&&!last.limited&&last.deaths===deaths&&currentPartyIsLegal())return false;
             const roster=adventureRosterFingerprint(s,reg),weatherKey=adventureTeamWeatherKey(s,members,now);
@@ -2013,7 +2032,7 @@
             if(matches&&last.policy===policy&&last.key===key&&last.weatherKey===weatherKey&&last.hazardKey===hazardKey&&last.objective===objective&&last.dexReplay===!!dexReplay&&last.autoSwitch===autoSwitch&&(!last.limited||now-last.at<5000)&&
                 last.roster===roster&&last.deaths===deaths){
                 // Reuse a completed search whose inputs still match, including for underground dispatch.
-                if(!last.limited&&now-last.at>=this.settings.teamMinutes*60000)last.at=now;
+                if(!last.limited&&now-last.at>=settings.teamMinutes*60000)last.at=now;
                 return false;
             }
             const makeFoes=()=>roamId?battleContext(s,'map',{row,roamId}).foes:routeCombatFoes(s,row,now,hazards);
@@ -2038,7 +2057,6 @@
                     this.logReviewChange(previous,'重新计算：'+reviewInputChanges(previous,signature,nextRoster));
                     this.lastAdventureSearch=null;
                 }
-                const settings=this.settings;
                 function* search(){return yield* adventureTeamSearch(s,settings,pinned,{...context,foes:makeFoes(),progressive:true},true);}
                 plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,strict?this.adventureReview:undefined);
                 if(strict&&this.teamSearch&&!this.teamSearch.reviewInfo)this.teamSearch.reviewInfo={
@@ -2048,7 +2066,7 @@
                         verification:plan.verification||plan.suggestion.verification};
                 }
                 if(plan?.timedOut)this.logReviewChange(old,performance.now()>=this.adventureReview.hardStop?'达到单次总时限':'进度未能在时限内推进');
-            }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
+            }else plan=planAdventureTeam(s,settings,pinned,{...context,foes:makeFoes()});
             if(preview&&!plan?.timedOut)return false;
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
@@ -2070,7 +2088,7 @@
             }
             this.adventureReview=null;
             this.teamValidationNote='';
-            this.teamCheck={key,policy,farmKey,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,hazardKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:this.settings.mode,name:row.name||c.name,
+            this.teamCheck={key,policy,farmKey,dexReplay:!!dexReplay,limited:!!plan.limited,chapter:c.id,members,weatherKey,hazardKey,objective,autoSwitch,roster,party:s.team.join('|'),expectedParty:(plan.changed?plan.uids:s.team).join('|'),at:now,deaths,mode:settings.mode,name:row.name||c.name,
                 reason:[plan.changed||plan.limited||plan.retainedForHunt||plan.suggestion?plan.reason:'现队仍是本次复核的最优阵容',plan.backup].filter(Boolean).join(' · '),
                 gain:plan.gain,opponents:plan.opponents,verification:plan.verification||plan.suggestion?.verification,suggestion:!!plan.suggestion};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
@@ -2088,8 +2106,8 @@
             this.log([`配队评估 · ${plan.reason}`,...changes,plan.gain>0&&`综合评分 +${Math.round(plan.gain*100)}%`].filter(Boolean).join(' · '));
             this.telemetry.sample=null;this.status=`为${row.name||c.name}调整冒险队伍`;
             const farming=objective==='train'||objective==='money'?{
-                mode,region:this.settings.region,side:s.link?.side,link:s.link?.to,switchEnabled:helperSwitchEnabled(s,this.settings),
-                trainLevel:mode==='train'?this.settings.trainLevel:null,pins:pinned.join('|'),
+                mode,weatherTraining:settings===this.weatherFarm?.training,region:settings.region,side:s.link?.side,link:s.link?.to,switchEnabled:helperSwitchEnabled(s,settings),
+                trainLevel:mode==='train'?settings.trainLevel:null,pins:pinned.join('|'),
             }:null;
             this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,hazardKey,autoSwitch,policy,farming,party:partyKey,frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
             return true;
@@ -2412,16 +2430,26 @@
             this.travel(rows[0],now);
         }
         restartForPickups(s,row,ids,now){
+            if(!pickupRouteExhausted(s,row,ids,now))return false;
+            return this.restartExhaustedRoute(s,row,'pickup','本轮已无'+ids.map(id=>ITEMS.get(id).name).join('、')+'拾取点',now);
+        }
+        restartForRotom(s,row,now){
+            return rotomRouteExhausted(s,row,this.settings,now)&&this.restartExhaustedRoute(s,row,'rotom','本轮没有剩余目标洛托姆',now);
+        }
+        restartExhaustedRoute(s,row,kind,reason,now){
             const visit=this.visit,a=s.adv;
             if(!visit||!this.running||this.manual||this.preparation||this.driver.teamTask||this.driver.pendingMap||!pickupNavigationKnown(this.settings,row)||
-                !this.routeReached(s,row)||!pickupRouteExhausted(s,row,ids,now))return false;
+                !this.routeReached(s,row))return false;
             const runs=a.runs||0;
             // Reselecting a chapter can leave both runs and node unchanged at
             // zero. Suppress repeat clicks on the same generated layout.
-            const layout=JSON.stringify(a.nodes.map(n=>[n?.type,n?.name,n?.find,n?.loot,n?.roamer]));
-            let attempt=visit.pickupRestart;
-            if(!attempt||attempt.runs!==runs||attempt.layout!==layout||attempt.clickedAtNode>a.node){
-                attempt=visit.pickupRestart={runs,layout,started:now};
+            const layout=JSON.stringify(a.nodes.map(n=>[n?.type,n?.name,n?.id,n?.once,n?.find,n?.loot,n?.roamer]));
+            let attempt=visit.routeRestart;
+            // Two unsuccessful appliance rolls can have identical layouts at
+            // node zero. A later node provides fresh evidence to try again.
+            const advancedFromStart=kind==='rotom'&&attempt?.clickedAtNode===0&&a.node>0;
+            if(!attempt||attempt.kind!==kind||attempt.runs!==runs||attempt.layout!==layout||attempt.clickedAtNode>a.node||advancedFromStart){
+                attempt=visit.routeRestart={kind,runs,layout,started:now};
             }
             if(attempt.finished)return false;
             if(now-attempt.started>=8000){
@@ -2429,11 +2457,11 @@
                 this.log('本轮未能使用重开按钮，继续当前地图');
                 return false;
             }
-            this.status='本轮已无'+ids.map(id=>ITEMS.get(id).name).join('、')+'拾取点 · 准备重开'+row.name;
+            this.status=reason+' · 准备重开'+row.name;
             try{
-                if(this.driver.map(row,s,{restart:true,pickup:true})){
+                if(this.driver.map(row,s,{restart:true,[kind]:true})){
                     attempt.finished=true;attempt.clickedAtNode=a.node;this.itemRound.round=null;this.telemetry.sample=null;
-                    this.log('本轮目标拾取机会已用尽，已点击重开'+row.name);
+                    this.log((kind==='pickup'?'本轮目标拾取机会已用尽':reason)+'，已点击重开'+row.name);
                 }
             }catch(error){
                 attempt.finished=true;this.log('本轮继续行进 · '+error.message);return false;
@@ -2504,14 +2532,31 @@
                 this.weatherFarm={cooldowns:{}};this.target=this.visit=this.telemetry.sample=null;
                 this.driver.pendingMap=this.driver.navigation=this.legendProbe=null;
             }
-            const farm=this.weatherFarm,label=kind==='xp'?'当前队伍练级':'刷钱';
+            const farm=this.weatherFarm,label=kind==='xp'?'练级':'刷钱';
             this.lastProgress=now;
             this.status='等待捕捉天气 · '+label;
-            if(kind==='xp'&&!partyMons(s).some(mon=>mon.level<trainingCap(s,mon))){
-                this.status+=' · 队员均已达到当前等级上限';return true;
+            if(kind==='xp'){
+                const options=farm.training??={...cfg,mode:'train',region:'current'};
+                const plan=trainingStatus(s,options);
+                if(plan.missing||!plan.available.length){
+                    this.status+=plan.missing?' · 目标成员无法出战':plan.complete?' · 已到目标等级或当前等级上限':' · 目标已达当前等级上限';return true;
+                }
+                if(options.trainUid!=='team'){
+                    const ids=trainingUids(s,options);
+                    if(ids.some(uid=>!s.team.includes(uid))){
+                        if(!s.adv.pending&&!s.adv.battle&&now>=this.teamRetryAt){
+                            this.driver.teamTask={uids:trainingParty(s,ids),members:[s.adv.chapter],chapter:s.adv.chapter,started:now,attempts:0};
+                            this.driver.adventureTeam(s,now);
+                        }
+                        this.status='天气等待练级 · 等待指定成员入队';return true;
+                    }
+                    if(s.road?.length&&s.road.join('|')!==s.team.join('|')){this.status='天气等待练级 · 等待出战队伍生效';return true;}
+                    const party=s.team.join('|');
+                    if(farm.party!==party){farm.party=party;farm.reviewAt=0;}
+                }
             }
             if(!farm.row||!(farm.reviewAt>now)){
-                const options={...cfg,mode:kind==='xp'?'train':'money',region:'current'};
+                const options=farm.training||{...cfg,mode:'money',region:'current'};
                 const request=yieldRankingRequest(kind,s,options,this.metrics,now);
                 request.cacheSlot='weatherFarm/'+kind;
                 const ranked=this.evaluateRouteRanking(request,{...this.cooldowns,...farm.cooldowns},now);
@@ -2528,7 +2573,9 @@
                 this.log(row.name+'达到挂机失败上限，重新选择收益地图');return true;
             }
             if(row.members.includes(s.adv.chapter)&&s.adv.loops?.length===1&&String(s.adv.loops[0])===row.key){
-                farm.started=null;farm.clicked=0;this.driver.nav('adventure');return true;
+                farm.started=null;farm.clicked=0;
+                if(farm.training?.autoTeam&&farm.training.trainUid!=='team'&&this.fitTeam(s,now,null,null,farm.training))return true;
+                this.driver.nav('adventure');return true;
             }
             if(s.adv.pending||s.adv.battle&&!this.ordinaryBattleKey(s)){farm.started=null;return true;}
             farm.started??=now;
@@ -2556,6 +2603,19 @@
         }
         followMarkedHunt(s,now) {
             const mode=this.settings.mode;
+            if(mode==='dex'&&this.settings.dexSpecies?.length&&!s.adv.pending&&!this.driver.pendingMap?.options?.zone&&
+                huntWeatherMatches(s,this.settings,s.adv.chapter,now)){
+                const ahead=remainingRotom(s);
+                if(ahead.length){
+                    const missing=dexStatus(s,this.settings).ids;
+                    const id=ahead.find(id=>missing.has(id)||id===479&&!s.dex?.[479]&&[...missing].some(goal=>ROTOM_BY_ID.has(goal)));
+                    if(id){
+                        this.driver.pendingMap=null;
+                        this.status='补图鉴 · 本轮已生成'+MONS.get(id).name+'，继续前往固定遭遇';
+                        this.driver.nav('adventure');return true;
+                    }
+                }
+            }
             if (!['shiny','dex'].includes(mode)||currentRegion(s)!=='unova'||!s.adv.nodes?.length||this.driver.pendingMap?.options?.zone) return false;
             let marked;
             if(mode==='dex') marked=markedDexSource(s,this.settings,now);
@@ -2629,6 +2689,7 @@
             const progress=new Set(['kanto',currentRegion(s),...(s.travel?.to||[]),s.link?.to]);
             if(!progress.has(row.reg)||!Number.isInteger(s.adv.unlocked)||s.adv.unlocked<row.id)return false;
             if(mode==='item'&&!itemRanking(s,this.settings,{},this.cooldowns,now).some(r=>routeIdentity(r)===routeIdentity(row)))return false;
+            if(mode==='shiny'&&row.rotomWild&&!shinyRanking(s,this.settings,this.cooldowns,now).some(r=>r.key===row.key))return false;
             if(options?.dexWindow){
                 const current=dexRanking(s,this.settings,this.cooldowns,now).find(r=>r.key===row.key);
                 if(!current?.window&&!current?.marked)return false;

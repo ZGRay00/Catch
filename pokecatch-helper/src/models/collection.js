@@ -133,7 +133,13 @@
             const add=(kind,detail,block='',extra={})=>result.push({kind,chapter:c.id,place:c.name,available:unlocked.has(c.id)&&!block,...extra,
                 detail:[!unlocked.has(c.id)&&'章节未开放',block,detail].filter(Boolean).join(' · ')});
             const habitat=WILD_HABITATS.get(c.id)?.get(id);
-            if(habitat){
+            const rotom=ROTOM_BY_ID.get(id);
+            if(rotom?.chapter===c.id){
+                const spec=c.special.find(x=>x.once===rotom.once);
+                const conditions=[spec.night?'夜间':spec.day?'白天和清晨':'',spec.skies?.map(key=>WEATHER_LABELS[key]).join('或')].filter(Boolean);
+                const block=!s.adv.gifts?.[rotom.once]?'需先在本章固定遭遇中捕获此形态':rotomWildWeight(s,rotom,now)?'':'等待出没时段或地点天气';
+                add('wild',[ROTOM_PLACES[id],'低概率野生遭遇，可刷异色',...conditions].join(' · '),block);
+            }else if(habitat){
                 const phases={morning:'清晨',day:'白天',night:'夜间'};
                 const times=WILD_PHASES.filter(phase=>habitat.phases.has(phase));
                 const daily=!habitat.ordinary;
@@ -177,7 +183,9 @@
                     add('gift','击败固定对手后的赠送',specialBlockReason(s,special,now,c.id)||(s.adv.gifts?.[special.reward.key]?'已领取':''));
                 }
                 if(special.spirit||![].concat(special.id||[]).includes(id))continue;
-                const block=specialBlockReason(s,special,now,c.id);
+                const generated=rotom?.chapter===c.id&&remainingRotom(s).includes(id);
+                const block=generated?'':specialBlockReason(s,special,now,c.id);
+                if(generated){add('static','本轮前方已生成固定遭遇','',{marked:true});continue;}
                 if(special.kind==='static')add('static',special.once===spiritEvent.once?'御灵塔 · 幽灵图鉴登记齐后，在神奥击败普通野生幽灵收集灵魂。集齐后于 20:00–次日 08:00 生成路线。':'固定遭遇',block);
                 if(special.kind==='egg')add('egg',special.place?`${special.place}的道具事件赠蛋`:Array.isArray(special.id)?'一次性随机赠蛋':'章节赠蛋',block||(full?'孵化器已满':''));
             }
@@ -370,6 +378,7 @@
     }
     function rankDexTargets(s,settings,wanted,now){
         const specialByChapter=new Map();
+        const rolled=new Set(remainingRotom(s));
         const openWindows=dexDayWindows(s,settings,wanted,now).filter(w=>w.at<=now&&now<w.until);
         const eggSpace=(s.pension?.eggs?.length||0)<Math.max(1,Number(s.pension?.open?.eggs)||1);
         for(const species of wanted){
@@ -426,9 +435,12 @@
                         if(reward&&!s.adv.gifts?.[special.reward.key]&&specialAvailable(s,special,now,id)){
                             credit(reward,1,1);hits.set(reward,{id:reward,gift:true});
                         }
-                    }else if(special.kind==='static'&&wanted.has(special.id)&&specialAvailable(s,special,now,id)){
-                        credit(special.id,special.chance??1,dexCatchChance(special.id,special.catchRate,multiplier));
-                        hits.set(special.id,{id:special.id,special:true});
+                    }else if(special.kind==='static'&&wanted.has(special.id)){
+                        const generated=id===s.adv.chapter&&rolled.has(special.id);
+                        if(!generated&&!specialAvailable(s,special,now,id))continue;
+                        credit(special.id,generated?1:special.chance??1,dexCatchChance(special.id,special.catchRate,multiplier));
+                        marked||=generated;
+                        hits.set(special.id,ROTOM_BY_ID.has(special.id)?{id:special.id,special:true,kind:'rotomStatic',marked:generated}:{id:special.id,special:true});
                     }
                 }
                 if(score>beforeOrdinarySources)specialNodesOnly=false;

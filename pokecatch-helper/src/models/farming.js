@@ -8,12 +8,18 @@
         return candidates(s,settings).filter(row=>huntRouteMatches(s,settings,row,now)).map(row=>{
             const members=row.members;
             const sources=phenomena.filter(source=>members.includes(source.chapter));
+            let rotomWild=false;
             const ordinary=members.reduce((n,id)=>{
                 const pool=currentWildPool(s,id,now);
-                return n+targets.reduce((sum,target)=>sum+(pool.get(target)||0),0);
+                for(const target of targets){
+                    const weight=pool.get(target)||0;
+                    if(weight&&ROTOM_BY_ID.has(target))rotomWild=true;
+                    n+=weight;
+                }
+                return n;
             },0);
             const expected=ordinary+sources.reduce((n,source)=>n+source.weight,0);
-            return{...row,expected,specialNodesOnly:ordinary===0,marked:sources.some(source=>source.marked),rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
+            return{...row,expected,rotomWild,specialNodesOnly:ordinary===0,marked:sources.some(source=>source.marked),rate:expected/estimatedRouteSeconds(row,settings.speed)*60};
         }).filter(row=>row.expected>0).sort((a,b)=>Number(b.marked)-Number(a.marked)||b.rate-a.rate);
     }
     function pensionPlan(s,id,shinyGoal=false){
@@ -297,13 +303,16 @@
         if(data.fixed){const keys=Array.isArray(data.fixed)?data.fixed:[data.fixed];return{key:keys[((slot%keys.length)+keys.length)%keys.length]||null,known:true,source:'fixed',at};}
         const roaming=Object.entries(s.roam?.at||{}).find(([id,row])=>row?.ch===chapter&&Number(row.until)>now&&!s.roam?.caught?.includes(+id)&&WEATHER_DATA.roamingWeather[id]);
         if(roaming)return{key:WEATHER_DATA.roamingWeather[roaming[0]],known:true,source:'roaming',at,until:Number(roaming[1].until)};
-        if(!data.weights)return{key:null,known:true,source:'natural',at};
-        const seed='ch'+chapter;let flips=0;
+        return {key:naturalWeatherKey('ch'+chapter,data.weights,slot,phaseAt(s,now,chapter)==='night'),known:true,source:'natural',at};
+    }
+    function naturalWeatherKey(seed,climate,slot,night){
+        if(!climate)return null;
+        let flips=0;
         while(flips<64&&weatherHash(seed+'|'+(slot-flips))<WEATHER_DATA.chance)flips++;
-        if(flips%2===0)return{key:null,known:true,source:'natural',at};
-        const night=phaseAt(s,now,chapter)==='night',weights=Object.entries(data.weights).filter(([key])=>!(night&&WEATHER_DATA.types[key]?.daylight));
-        if(!weights.length)return{key:null,known:true,source:'natural',at};
+        if(flips%2===0)return null;
+        const weights=Object.entries(climate).filter(([key])=>!(night&&WEATHER_DATA.types[key]?.daylight));
+        if(!weights.length)return null;
         let roll=weatherHash(slot+'|'+seed)*weights.reduce((sum,[,n])=>sum+n,0),key=weights[0][0];
         for(const [candidate,weight]of weights)if((roll-=weight)<=0){key=candidate;break;}
-        return{key,known:true,source:'natural',at};
+        return key;
     }

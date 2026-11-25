@@ -94,7 +94,7 @@
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['daily','☀','通关日常','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
             <section class="target hidden" id="daily-routine" aria-label="通关日常设置">
                 <label class="field"><span>每日主线</span><select data-setting="dailyMain"><option value="current">沿用当前挂机任务</option><option value="dex">补图鉴</option><option value="money">刷钱</option><option value="shiny">野生刷闪</option><option value="train">目标练级 / 培育</option><option value="legend">传说战</option></select></label>
-                <div id="daily-legend-fields"></div>
+                <div id="daily-legend-fields"></div><div id="daily-train-fields"></div>
                 <div class="sub" id="daily-state"></div>
                 <button type="button" id="daily-edit-goal">打开主线目标设置</button>
                 <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
@@ -128,7 +128,7 @@
                 </div>
                 <div data-fields="roam" class="hidden"><div class="field"><span>游荡目标</span><select data-setting="roamId" aria-label="游荡宝可梦目标"></select></div><div class="field"><span>搜寻时限（分钟）</span><input data-setting="roamMinutes" type="number" min="0" max="720" aria-label="游荡搜寻时限，0 为不限时"></div>${roamingBallControl('roam')}<div class="hint">填 0 持续在线追踪，或填 5–720 分钟限时。捕获确认后完成。游荡目标为普通色；真正离线不会产生新遭遇。</div></div>
                 <div data-fields="item" class="hidden"><div class="field"><span>搜索道具</span><input id="item-search" type="search" placeholder="名称或英文编号" aria-label="筛选道具"></div><div class="field"><span>道具目标</span><select data-setting="itemId" aria-label="道具目标"></select></div><div class="field"><span>本次获取</span><input data-setting="itemQuantity" type="number" min="1" max="99999" aria-label="本次道具数量"></div><div id="item-field-insight"></div></div>
-                <div data-fields="train" class="hidden"><div class="field"><span>练级对象</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><div id="train-members" class="checks"></div><label id="train-pc-field" class="field"><span>从电脑添加（最多六只）</span><select id="train-pc" aria-label="从电脑添加培育目标"><option value="">选择成员…</option></select></label><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div><label><input data-setting="trainGems" type="checkbox">使用库存宝石升阶（指定目标 · Lv.100）</label><div id="train-rank-settings"><label class="field"><span>目标阶数</span><input type="number" data-setting="trainRank" min="1" max="5"></label><small>仅对指定的最终形态生效。目标等级设为 100 后，升阶会回到 Lv.5，再练至 Lv.100。每颗宝石占一份道具额度。</small></div></div>
+                <div data-fields="train" class="hidden"><div class="field"><span>快捷选择</span><select data-setting="trainUid" aria-label="练级对象"><option value="team">当前冒险队伍 · 全队</option></select></div><fieldset class="trainee-list"><legend id="train-count">练级目标</legend><div id="train-members" class="checks"></div><details id="train-pc-field"><summary>从电脑勾选成员</summary><input id="train-search" type="search" placeholder="名称、编号或成员 UID" aria-label="搜索电脑成员"><div id="train-pc" class="checks"></div><button type="button" id="train-more">显示更多成员</button></details><small id="train-selection-hint"></small></fieldset><div class="field"><span>目标等级</span><input data-setting="trainLevel" type="number" min="1" max="100" aria-label="目标等级"></div><label id="train-gems-toggle"><input data-setting="trainGems" type="checkbox">使用库存宝石升阶（指定目标 · Lv.100）</label><div id="train-rank-settings"><label class="field"><span>目标阶数</span><input type="number" data-setting="trainRank" min="1" max="5"></label><small>仅对指定的最终形态生效。目标等级设为 100 后，升阶会回到 Lv.5，再练至 Lv.100。每颗宝石占一份道具额度。</small></div></div>
                 <div data-fields="progress" class="hidden"><div class="field"><span>完成章节</span><select data-setting="progressUntil" aria-label="主线目标章节"></select></div><label class="setting"><span><input type="checkbox" data-setting="autoTravel">达到条件后自动跨地区开局</span></label></div>
                 <fieldset id="hunt-filters" style="min-width:0;margin:8px 0;padding:9px;border:1px solid #40516a;border-radius:8px">
                     <legend>搜寻条件</legend>
@@ -139,7 +139,7 @@
                     </details>
                     <details id="hunt-region-controls"><summary id="hunt-region-summary"></summary><div id="hunt-regions" class="checks"></div></details>
                     <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
-                    <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">当前队伍练级</option></select></label>
+                    <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">练级</option></select></label><div id="weather-train-fields"></div>
                     <div id="hunt-help" class="hint"></div>
                 </fieldset><button type="button" id="hunt-forecast">查看地区天气预报</button>
                 <div data-fields="breed" class="hidden"><div class="field"><span>孵化目标</span><select data-setting="breedId" aria-label="繁殖物种"></select></div><div class="field"><span>孵化数量</span><input data-setting="breedGoal" type="number" min="1" max="9999"></div><label class="setting"><span><input type="checkbox" data-setting="breedShiny">孵到目标异色为止</span></label><label class="setting"><span><input type="checkbox" data-setting="pensionExpand">预算内购买繁殖必需的寄养位</span></label></div>
@@ -606,39 +606,61 @@
             if(added.childNodes.length)select.append(added);
             if(select.value!==selected)select.value=selected;
         }
-        function partyOptions(s,both=false) {
-            if(both||engine.settings.mode==='train'){
-                const members=partyMons(s), cfg=engine.settings, box=query('#train-members');
-                updateMemberOptions('trainUid',members,'原目标已离队 · 请选择');
-                const pcField=query('#train-pc-field'),pc=query('#train-pc');
-                pcField.classList.toggle('hidden',cfg.trainUid!=='selected'||!cfg.autoTeam);
-                pc.disabled=engine.running||!!engine.suspended||cfg.trainUids.length>=6;
-                box.hidden=cfg.trainUid!=='selected';
-                box.classList.toggle('hidden',box.hidden);
-                const key=JSON.stringify([box.hidden,engine.running,!!engine.suspended,cfg.trainUids,members.map(m=>[m.uid,m.id,m.level,!!m.shiny])]);
-                if(memberKeys.get('trainMembers')!==key){
-                    memberKeys.set('trainMembers',key);box.replaceChildren();
-                    if(!box.hidden)for(const uid of new Set([...members.map(m=>m.uid),...cfg.trainUids])){
-                        const m=members.find(mon=>mon.uid===uid)||s.mons?.find(mon=>mon.uid===uid), label=document.createElement('label'), input=document.createElement('input');
-                        input.type='checkbox';input.checked=cfg.trainUids.includes(uid);input.disabled=engine.running||!!engine.suspended||!input.checked&&cfg.trainUids.length>=6;
-                        input.onchange=()=>changeSetting('trainUids',input.checked?[...cfg.trainUids,uid]:cfg.trainUids.filter(id=>id!==uid));
-                        label.append(input,m?(MONS.get(m.id)?.name||m.id)+' · Lv.'+m.level+(m.shiny?' ✦':''):'已离队 · 取消选择');box.append(label);
-                    }
-                }
-            }
+        let pcLimit=36;
+        function trainingEntry(){
+            const cfg=engine.daily?.base||engine.settings;
+            const mode=selectedCard()==='daily'?dailyMainMode(cfg):cfg.mode;
+            if(mode==='train')return 'train';
+            return ['shiny','dex'].includes(mode)&&cfg.huntWeatherFallback==='xp'?'weather':'';
+        }
+        function partyOptions(s,both=false){
             if(both||engine.settings.mode==='resource')updateMemberOptions('useUid',s.mons||[],'原目标已离开PC · 请选择');
+            if(!trainingEntry())return;
+            const cfg=engine.daily?.base||engine.settings,members=partyMons(s),ids=trainingUids(s,cfg);
+            const selected=new Set(ids),locked=engine.running||!!engine.suspended;
+            updateMemberOptions('trainUid',members,'原目标已离队 · 请选择');
+            const name=mon=>(MONS.get(mon.id)?.name||mon.id)+' · Lv.'+mon.level+(mon.shiny?' ✦':'');
+            const pcField=query('#train-pc-field');
+            pcField.hidden=!cfg.autoTeam;
+            query('#train-count').textContent='练级目标 · 已选 '+ids.length+' / 6';
+            const plan=trainingStatus(s,cfg);
+            query('#train-selection-hint').textContent=!ids.length?'请勾选至少一只宝可梦':plan.conflict?'所选成员占用同一出战名额，请调整选择':plan.missing?'有成员无法出战，请重新选择':cfg.autoTeam?'保留勾选成员，其余位置自动配队。':'手动配队已开启，可勾选冒险队伍中的成员。';
+            function checks(selector,rows){
+                const key=JSON.stringify([locked,ids,rows]);
+                if(memberKeys.get(selector)===key)return;
+                memberKeys.set(selector,key);
+                const fragment=document.createDocumentFragment();
+                for(const [uid,text] of rows){
+                    const label=document.createElement('label'),input=document.createElement('input');
+                    input.type='checkbox';input.value=uid;input.checked=selected.has(uid);
+                    input.disabled=locked||!input.checked&&ids.length>=6;
+                    input.onchange=()=>changeSetting('trainUids',input.checked?[...ids,uid]:ids.filter(id=>id!==uid));
+                    label.append(input,text);fragment.append(label);
+                }
+                query(selector).replaceChildren(fragment);
+            }
+            const box=pokemonByUid(s);
+            checks('#train-members',[...new Set([...ids,...members.map(m=>m.uid)])].map(uid=>{
+                const mon=box.get(uid);
+                return [uid,mon?name(mon)+(s.team.includes(uid)?'':' · 电脑'):'已离队 · '+uid];
+            }));
+            if(pcField.hidden||!pcField.open)return;
+            const term=query('#train-search').value.trim().toLowerCase().replace(/^#/,''),team=new Set(s.team),rows=[];
+            for(const mon of s.mons||[]){
+                if(team.has(mon.uid)||!teamEligible(s,mon))continue;
+                const species=MONS.get(mon.id);
+                if(term&&![species?.name,species?.key,mon.id,mon.uid].some(x=>String(x).toLowerCase().includes(term)))continue;
+                rows.push([mon.uid,name(mon)+' · '+mon.uid]);
+                if(rows.length>pcLimit)break;
+            }
+            query('#train-more').hidden=rows.length<=pcLimit;
+            checks('#train-pc',rows.slice(0,pcLimit));
+            if(!rows.length)query('#train-pc').textContent='没有匹配的可出战成员';
         }
-        const pcTrainee=query('#train-pc');
-        function listPcTrainees(){
-            const s=engine.state;if(!s||pcTrainee.disabled)return;
-            const selected=new Set([...s.team,...engine.settings.trainUids]);
-            const fragment=document.createDocumentFragment();addOption(fragment,'','选择成员…');
-            for(const mon of s.mons)if(!selected.has(mon.uid)&&teamEligible(s,mon))
-                addOption(fragment,mon.uid,(MONS.get(mon.id)?.name||mon.id)+' · Lv.'+mon.level+(mon.shiny?' ✦':'')+' · '+mon.uid);
-            pcTrainee.replaceChildren(fragment);
-        }
-        pcTrainee.addEventListener('focus',listPcTrainees);
-        pcTrainee.onchange=()=>{const uid=pcTrainee.value;pcTrainee.value='';if(uid&&engine.settings.trainUids.length<6)changeSetting('trainUids',[...engine.settings.trainUids,uid]);};
+        function refreshTrainees(){if(engine.state?.adv)partyOptions(engine.state);}
+        query('#train-search').oninput=()=>{pcLimit=36;refreshTrainees();};
+        query('#train-pc-field').ontoggle=refreshTrainees;
+        query('#train-more').onclick=()=>{pcLimit+=36;refreshTrainees();};
         function showCategory(value){category=value;root.querySelectorAll('[data-category]').forEach(el=>el.classList.toggle('on',el.dataset.category===value));root.querySelectorAll('[data-group]').forEach(el=>el.classList.toggle('hidden',el.dataset.group!==value));}
         let dailySelected=false;
         // Daily temporarily runs its own child tasks. Keep their mode independent of the selected card.
@@ -647,7 +669,7 @@
             syncHunt();
             settingsViewKey=JSON.stringify(engine.settings);
             if(engine.state?.adv){
-                if(['train','resource'].includes(engine.settings.mode))partyOptions(engine.state,true);
+                if(trainingEntry()||engine.settings.mode==='resource')partyOptions(engine.state,true);
                 if(engine.settings.mode==='breed')updateBreedingOptions(engine.state);
             }
             for (const input of root.querySelectorAll('[data-setting]')) {
@@ -677,7 +699,12 @@
             if(lastMode!==card){lastMode=card;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
             root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode&&!(el===legendFields&&dailyLegend)));
             query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['dex','legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
-            query('#train-rank-settings').hidden=!engine.settings.trainGems;
+            const training=trainingEntry(),trainFields=query('[data-fields="train"]');
+            const trainParent=query(card==='daily'&&training?'#daily-train-fields':training==='weather'?'#weather-train-fields':'#ordinary-target');
+            if(trainFields.parentElement!==trainParent)trainParent.insertBefore(trainFields,trainParent.id==='ordinary-target'?query('[data-fields="progress"]'):null);
+            trainFields.classList.toggle('hidden',!training);
+            query('#train-gems-toggle').hidden=training==='weather';
+            query('#train-rank-settings').hidden=training==='weather'||!engine.settings.trainGems;
             const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
             query('#task-purchase').hidden=!['progress','breed','resource'].includes(mode);
             if(mode==='resource'){
@@ -867,6 +894,7 @@
             const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
             const dailyCard=selectedCard()==='daily';
             const cardSettings=dailyCard?dailyBase:engine.settings;
+            const missingTrainees=!!trainingEntry()&&(!s?.adv||trainingStatus(s,cardSettings).missing);
             const missingLegendTarget=(dailyCard?baseMode:cardSettings.mode)==='legend'&&cardSettings.legendId===null;
             if(ui.workspace==='tasks'){
                 const cfg=cardSettings,ids=selectedLegendIds(cfg);
@@ -883,7 +911,7 @@
                     if(el.textContent!==value)el.textContent=value;
                 }
             }
-            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily)||missingLegendTarget;
+            query('#start').disabled=locked||!!editingJob||(dailyCard&&!canDaily)||missingLegendTarget||missingTrainees;
             query('#daily-edit-goal').hidden=locked||baseMode==='legend'||!DAILY_BASE_MODES.has(baseMode);
             const ids=baseMode==='shiny'?shinyGoals(dailyBase):baseMode==='dex'?dailyBase.dexSpecies:[];
             const goal=ids.length?ids.slice(0,3).map(id=>MONS.get(id)?.name).join('、')+(ids.length>3?' 等 '+ids.length+' 种':''):
@@ -897,7 +925,7 @@
             query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
             const pending=engine.queue.filter(queueJobPending),nextJob=pending[0];
             query('#queue-count').textContent=pending.length;
-            query('#add-job').disabled=locked||dailyCard||!s?.adv||missingLegendTarget;
+            query('#add-job').disabled=locked||dailyCard||!s?.adv||missingLegendTarget||missingTrainees;
             query('#start-queue').disabled=locked||!!editingJob||!nextJob||!s?.adv;
             query('#start-queue').classList.toggle('hidden',locked);
             query('#start-queue').textContent=engine.running&&engine.queueRunning?'任务队列运行中':nextJob?.progress?'继续任务队列':'运行任务队列';
@@ -956,7 +984,7 @@
                 const pause=engine.manual||engine.suspended?' · 恢复助手后继续':'';
                 query('#raid-check').textContent=daily?note+(daily.until?' · 下次刷新 '+localCalendarTime(daily.until)+'（本地时间）':''):note+(retry?' · 下次检查 '+retry:'')+pause;
             }
-            if(taskPage&&['resource','train'].includes(engine.settings.mode))partyOptions(s);
+            if(taskPage&&(trainingEntry()||engine.settings.mode==='resource'))partyOptions(s);
             if(taskPage&&engine.settings.mode==='breed')updateBreedingOptions(s);
             const preparation=engine.preparation;query('#prepare-info').classList.toggle('hidden',!preparation||!engine.running);
             if(preparation){
@@ -1249,6 +1277,7 @@
             if (engine.running||engine.suspended) return false;
             const previous=engine.settings;
             const patch=key==='underStartChoice'?{underAutoStart:value==='auto',underFrom:value==='auto'?previous.underFrom:Number(value)}:{[key]:value};
+            if(key==='trainUids')patch.trainUid='selected';
             if(key==='legendIds'&&!value.length)patch.legendId=null;
             engine.settings=normalizeSettings({...previous,...patch});
             try {
@@ -1435,6 +1464,10 @@
             const jobs=engine.queue.slice(),i=jobs.findIndex(job=>job.id===editingJob),current=jobs[i];
             if(jobs.length>=50&&!current){engine.status='任务队列最多保存 50 项';render();return;}
             const settings=normalizeSettings(engine.settings);
+            if(trainingEntry()&&engine.state){
+                if(trainingStatus(engine.state,settings).missing)return;
+                settings.trainUids=trainingUids(engine.state,settings);settings.trainUid='selected';
+            }
             const job={id:current?.id||`${Date.now().toString(36)}-${Math.random().toString(36).slice(2,7)}`,title:jobTitle(settings),settings,status:'pending',result:''};
             if(current?.progress){
                 const compatible=goalIdentity(current.settings)===goalIdentity(settings);
@@ -1446,7 +1479,12 @@
             finishQueueEdit();engine.status='任务已保存到队列';selectWorkspace('queue');focusQueueJob(job.id);
         };
         query('#start-queue').onclick=()=>{if(editingJob)return;dailySelected=false;engine.startQueue();if(!engine.running)queueError=engine.status;else queueError='';syncSettings();render();};
-        query('#start').onclick=()=>{engine.queueRunning=false;engine.start(false,selectedCard()==='daily');syncSettings();render();};
+        query('#start').onclick=()=>{
+            const daily=selectedCard()==='daily';
+            if(trainingEntry()&&engine.state&&engine.settings.trainUid!=='selected'&&
+                !changeSetting('trainUids',trainingUids(engine.state,engine.settings)))return;
+            engine.queueRunning=false;engine.start(false,daily);syncSettings();render();
+        };
         query('#daily-shiny-raid').onchange=event=>changeSetting('raids',event.target.checked);
         query('#daily-edit-goal').onclick=()=>{
             const mode=dailyMainMode(engine.settings);

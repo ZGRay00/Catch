@@ -85,7 +85,8 @@
             const s=e.read(),a=s?.adv;
             if(!a||accountId(s)!==e.account||a.layout!==DATA.layout||a.paused||a.pending||a.event||a.zone||a.tower||a.league)return;
             const pendingHatch=this.idleAutomation.state.eggService;
-            const hatch=this.prefs.idleHatch&&(pendingHatch||readyBackgroundEggs(s,now).length);
+            const due=this.prefs.idleHatch&&!pendingHatch?readyBackgroundEggs(s,now):[];
+            const hatch=pendingHatch||due.length&&this.idleAutomation.hatchChoices(s,due,now).eligible.length;
             const feed=this.feed||this.prefs.autoFeed&&now>=this.retryFeedAt&&Number(s.items?.[NURSERY_RULES.berry])>0&&!s.pension?.bx;
             if(!hatch&&!feed&&!pendingHatch)return;
             if(!e.acquire(now))return;

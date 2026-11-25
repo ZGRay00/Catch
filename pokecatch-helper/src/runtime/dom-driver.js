@@ -197,6 +197,7 @@
                 if(task.routePlan&&e.visit?.routePlan?.plan===task.routePlan)e.visit.routePlan.applied=true;
                 this.teamTask=null;this.e.telemetry.sample=null;
                 if(this.e.target&&!task.routePlan)this.e.visit={started:now,deaths:totalDeaths(s,this.e.target),caught:dexStatus(s,this.e.settings).complete};
+                this.e.partyOrigin={party:signature,name:CHAPTERS.get(task.chapter)?.name};
                 this.e.status='冒险队伍已适配，等待游戏治疗点应用';
                 this.e.log(`冒险队伍已适配${CHAPTERS.get(task.chapter)?.name}：${task.uids.map(uid=>MONS.get(roster.get(uid)?.id)?.name).join('、')}`);
                 this.nav('adventure');return true;
@@ -496,9 +497,9 @@
                 return this.click(go,options.leaveLabel||(s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常'));
             }
             if(options.restart){
-                if(s.adv.chapter!==row.id||!Number(s.adv.node))return false;
+                if(s.adv.chapter!==row.id||!Number(s.adv.node)&&!options.pickup)return false;
                 const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
-                return enabled(restart)?this.click(restart,`重新进入${row.name}，生成当前游荡遭遇`):false;
+                return enabled(restart)?this.click(restart,options.pickup?`本轮目标拾取机会已用尽，重开${row.name}`:`重新进入${row.name}，生成当前游荡遭遇`):false;
             }
             // Give the helper exclusive native looping; remember the previous set for restoration.
             const unwanted = $$('#map-root [data-loop][aria-checked="true"]').find(el => String(el.dataset.loop) !== row.key);

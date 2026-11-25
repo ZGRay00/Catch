@@ -279,6 +279,7 @@
         const task=d.teamTask,road=Array.isArray(s.road)&&s.road.length?s.road:s.team||[],pending=road.length!==(s.team||[]).length||road.some((uid,i)=>uid!==s.team[i]);
         const stage=task?.pending?'等待拖放存档确认':task?'正在调整队伍':pending?'等待治疗点应用新队伍':c.autoTeam===false?'保留手动队伍':'当前冒险队伍';
         let team=`${stage}：${describe(task?.uids||s.team||[])}`;
+        if(e.partyOrigin?.party===road.join('|')&&e.partyOrigin.name)team+='；行进队伍上次适配 '+e.partyOrigin.name;
         if(pending)team+=`；当前行进阵容：${describe(road)}`;
         let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':e.manual?'当前由你控制；最近的配队操作可在运行日志中查看':'按当前路线评估打点、回合数和生存能力';
         const check=e.teamCheck,key=String(destination?.key??current?.loop);
@@ -290,6 +291,8 @@
             if(verification?.total)reason+=` · ${check.suggestion?'建议阵容':'所选阵容'}已复核 ${verification.checked}/${verification.total} 只候选`;
         }
         if(!p&&c.autoTeam!==false&&e.teamValidationNote&&!e.manual)reason=e.teamValidationNote;
+        const review=e.teamSearch?.reviewInfo;
+        if(review?.route&&review.route!==current?.name&&!e.manual)reason+=' · 正在预先复核'+review.route;
         return{route,team,reason,verification};
     }
     const UNDER_START_FLOORS=[1,25,50,75,100];

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.2.1
+// @version      8.2.3
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.2.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.2.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -436,7 +436,7 @@
     const MODE_NAMES = { dex: '补齐图鉴', money: '自动刷钱', legend: '指定传说战', roam: '游荡捕获', item: '指定道具', train: '目标练级', progress: '推进主线',
         breed:'繁殖孵蛋',shiny:'指定野生刷闪',underground:'地下通道',tower:'对战塔',candy:'糖果工厂',elite:'精英联盟',world:'世界首领',raid:'每日团体战',resource:'采购与使用' };
     const FLOW_MODES = new Set(['breed','underground','tower','candy','elite','world','resource']);
-    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','raidCooldown','nextRaid','nextLegend','teamRetryAt','teamRetryLoop','lastExplore'];
+    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','routeLosses','partyOrigin','raidCooldown','nextRaid','nextLegend','teamRetryAt','teamRetryLoop','lastExplore'];
     function raidIdentity(s,value=s?.adv?.event){
         if(!value?.raid)return null;
         return JSON.stringify([value.reg||currentRegion(s),value.id,value.date||parisDay()]);
@@ -1108,6 +1108,7 @@
         const task=d.teamTask,road=Array.isArray(s.road)&&s.road.length?s.road:s.team||[],pending=road.length!==(s.team||[]).length||road.some((uid,i)=>uid!==s.team[i]);
         const stage=task?.pending?'等待拖放存档确认':task?'正在调整队伍':pending?'等待治疗点应用新队伍':c.autoTeam===false?'保留手动队伍':'当前冒险队伍';
         let team=`${stage}：${describe(task?.uids||s.team||[])}`;
+        if(e.partyOrigin?.party===road.join('|')&&e.partyOrigin.name)team+='；行进队伍上次适配 '+e.partyOrigin.name;
         if(pending)team+=`；当前行进阵容：${describe(road)}`;
         let reason=c.autoTeam===false?'保留你选择的成员与顺序':p?'保留未完成培养目标，按当前路线选择带练成员':e.manual?'当前由你控制；最近的配队操作可在运行日志中查看':'按当前路线评估打点、回合数和生存能力';
         const check=e.teamCheck,key=String(destination?.key??current?.loop);
@@ -1119,6 +1120,8 @@
             if(verification?.total)reason+=` · ${check.suggestion?'建议阵容':'所选阵容'}已复核 ${verification.checked}/${verification.total} 只候选`;
         }
         if(!p&&c.autoTeam!==false&&e.teamValidationNote&&!e.manual)reason=e.teamValidationNote;
+        const review=e.teamSearch?.reviewInfo;
+        if(review?.route&&review.route!==current?.name&&!e.manual)reason+=' · 正在预先复核'+review.route;
         return{route,team,reason,verification};
     }
     const UNDER_START_FLOORS=[1,25,50,75,100];
@@ -4319,7 +4322,11 @@
             const a=tested.safety,b=base.safety;
             // Major fights cannot be traded away for easier ordinary encounters.
             return tested.team.length-base.team.length||significant((b.keyWipes||0)-(a.keyWipes||0))||
-                significant((b.wipes||0)-(a.wipes||0))||significant(tested.score-base.score)||
+                significant((b.wipes||0)-(a.wipes||0))||
+                (settings.mode==='item'&&objective==='route'?Math.round(100*b.deaths/totalWeight)-Math.round(100*a.deaths/totalWeight)||
+                    Math.round(50*b.turns/totalWeight)-Math.round(50*a.turns/totalWeight)||
+                    Math.floor(Math.log(Math.max(1e-9,tested.score))/Math.log(1.01))-Math.floor(Math.log(Math.max(1e-9,base.score))/Math.log(1.01))||
+                    tested.team.filter(mon=>partyOrder.has(mon.uid)).length-base.team.filter(mon=>partyOrder.has(mon.uid)).length:0)||significant(tested.score-base.score)||
                 (preferReserves?significant((b.worst||0)-(a.worst||0))||significant((b.deaths||0)-(a.deaths||0))||assessedReserves(tested)-assessedReserves(base):0);
         }
         if(verifyAll){
@@ -4408,7 +4415,7 @@
                         // always visited separately so order and ownership stay exact.
                         let input=candidateInputs.get(mon.uid);
                         if(!input){
-                            input={equivalent:JSON.stringify([group,combatProfile({...mon,status:null}),hasLearners?xpShare(mon):0,
+                            input={equivalent:JSON.stringify([group,settings.mode==='item'&&partyOrder.has(mon.uid),combatProfile({...mon,status:null}),hasLearners?xpShare(mon):0,
                                 context.trainingCosts?.[mon.uid]??0,!!mon.evolutionItemLocked])};
                             candidateInputs.set(mon.uid,input);
                         }
@@ -4517,7 +4524,11 @@
         // Verified recommendations may improve by less than the heuristic threshold.
         // The same objective also decides when the actual party should change.
         const farmUpgrade=farming&&worthwhileFarmChange(next,now,proposed,previous);
-        const verifiedImprovement=!!verification&&compareVerified({team:chosen,score:next,safety:proposed},{team:party,score:now,safety:previous})>1e-8&&
+        const stableItem=settings.mode==='item'&&objective==='route';
+        const safer=proposed.keyWipes<previous.keyWipes-1e-8||proposed.wipes<previous.wipes-1e-8;
+        const meaningfulItemGain=safer||proposed.deaths<=previous.deaths-.01*totalWeight||
+            proposed.deaths<=previous.deaths+1e-8&&(proposed.turns<previous.turns*.98||next>now*1.01);
+        const verifiedImprovement=(!stableItem||meaningfulItemGain)&&!!verification&&compareVerified({team:chosen,score:next,safety:proposed},{team:party,score:now,safety:previous})>1e-8&&
             (!farming||farmUpgrade);
         const gymGain=proposed.gym-previous.gym;
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
@@ -4540,7 +4551,7 @@
         }
         const uids=result.map(m=>m.uid),verifiedResult=verification?.uids.every((uid,i)=>uid===uids[i])&&verification.uids.length===uids.length;
         const suggestion=verification&&!verifiedResult?{uids:verification.uids,score:next,verification,
-            reason:farming?'新阵容改善不足，保留当前刷图阵容':'换队收益与当前风险不足以抵消切换成本，暂留现队'}:null;
+            reason:stableItem?'关键战风险、倒下次数与周转改善有限，保留原队':farming?'新阵容改善不足，保留当前刷图阵容':'换队收益与当前风险不足以抵消切换成本，暂留现队'}:null;
         return { uids, backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective,
             ...verification?{selectedScore:apply?next:now,...suggestion?{suggestion}:{verification}}:{},
             reason:suggestion?suggestion.reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'结合付钱战整轮效率与阵容战力':hasLearners?'保留学员，按经验效率与带队战力配队':strongerReserves?'保留路线效率并增强替补':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };
@@ -4984,6 +4995,55 @@
             if(!otherWallet)maps=maps.filter(onCurrentSide);
         }
         return makeYieldRankingRequest(kind,s,settings,metrics,now,maps,undefined,otherWallet,undefined,separateMoney);
+    }
+    let nextBoxContext=0;
+    function boxMoneyRequest(s,cfg,now,memo=new Map()){
+        const settings={...cfg,mode:'money',region:'all',autoTeam:true,moneyTarget:0};
+        const other=s.link&&(otherMoneyParty(s)||{...s,team:[],link:{...s.link,side:s.link.side==='to'?'from':'to'}});
+        const onSide=row=>!s.link||(row.reg===s.link.to)===(s.link.side==='to');
+        const rows=yieldCandidates(s,settings,false);
+        const side=row=>onSide(row)?s:other;
+        const potential=row=>{
+            const state=side(row);
+            return estimateRate(row,settings.speed)*moneyFactor(state,row)*(activeYieldBuff(state,'money',now)?.mult||1)*1.1;
+        };
+        const queue=rows.map(row=>({...row,upper:potential(row),review:'等待'})).sort((a,b)=>b.upper-a.upper||a.id-b.id);
+        // Eligibility differs only across the two linked wallets. Keep one exact fingerprint for each side.
+        const representative=new Map(rows.map(row=>[onSide(row),row]));
+        const common=JSON.stringify([DATA.build,accountId(s),routePlanSettings(settings),s.adv.unlocked,s.adv.badges,s.team,other?.team,s.link?.side,s.link?.to,
+            s.autoSwitch!==false,yieldFingerprint(s,now),[...representative.values()].map(row=>adventureRosterFingerprint(side(row),row.reg))]);
+        const evidence=new Map(rows.map(row=>[row.key,moneyScoutEvidence(side(row),row,now)+'|'+partyRunCondition(side(row),row,settings,now)]));
+        if(memo.get('context')!==common){memo.clear();memo.set('context',common);memo.set('revision',++nextBoxContext);}
+        const signature=JSON.stringify([memo.get('revision'),[...evidence]]);
+        function* search(sliced){
+            const finished=[],pending=[];
+            for(const row of queue){
+                const old=memo.get(row.key);
+                if(old?.evidence===evidence.get(row.key))finished.push(old.result);
+                else pending.push(row);
+            }
+            const sort=()=>finished.sort((a,b)=>(b.rate??-1)-(a.rate??-1)||a.id-b.id);
+            sort();
+            if(sliced)yield [...finished,...pending];
+            for(const [i,row] of pending.entries()){
+                const state=side(row);
+                const plan=yield* adventureTeamSearch(state,settings,[],{row,reg:row.reg,objective:'money',now,verifyAll:true,progressive:sliced,lowBudget:true},sliced);
+                const proof=plan?.verification||plan?.suggestion?.verification;
+                let reviewed={...row,review:'无可核验阵容'};
+                if(['verified','exhaustive'].includes(proof?.status)&&proof.uids?.length){
+                    const team=partyMons(state,proof.uids),fit=yield* battleRouteFitSearch(state,row,team,now,sliced,settings,true);
+                    const selected={...state,team:proof.uids};
+                    reviewed={...row,review:'已复核',rate:moneyRouteScore(selected,row,null,fit,now,settings.speed).rate,
+                        uids:proof.uids,names:team.map(m=>(MONS.get(m.id)?.name||m.id)+' Lv.'+m.level),
+                        profile:JSON.stringify(team.map(rosterCombatKey)),metric:metricsKey(selected,row,settings,now),condition:partyRunCondition(selected,row,settings,now)};
+                }
+                if(memo.get('context')===common)memo.set(row.key,{evidence:evidence.get(row.key),result:reviewed});
+                finished.push(reviewed);sort();
+                if(sliced)yield [...finished,...pending.slice(i+1)];
+            }
+            return finished;
+        }
+        return {kind:'box',cacheSlot:'money/box',stream:true,needsSlices:true,initialRows:queue,signature,search};
     }
     function otherMoneyParty(s){
         // Native Game.enterRegion swaps the team and wallet while both groups'
@@ -5803,8 +5863,8 @@
             for(const row of itemRanking(s,{...settings,mode:'item',region:'all',itemId},{},{},now)){
                 if(!huntRouteMatches(s,settings,row,now))continue;
                 const previous=alternatives.get(row.key);
-                if(previous){previous.score+=row.rate;previous.prepNote+='、'+ITEMS.get(itemId).name;}
-                else alternatives.set(row.key,{...row,targets:[],priority:0,gateRoute:true,requiredParty:row.sources[0]?.team,gateItem:itemId,
+                if(previous){previous.gateItems.push(itemId);previous.score+=row.rate;previous.prepNote+='、'+ITEMS.get(itemId).name;}
+                else alternatives.set(row.key,{...row,targets:[],priority:0,gateRoute:true,requiredParty:row.sources[0]?.team,gateItem:itemId,gateItems:[itemId],
                     expected:undefined,score:row.rate,prepNote:note+' · 收集'+ITEMS.get(itemId).name});
             }
         }
@@ -7473,7 +7533,54 @@
             return{...row,action,reason};
         });
     }
-    const GEODE_RULES = {"build":"bd1d674523","bundle":"f1ef0dd44e","stepMs":2800,"maxFloors":300,"upgrade":[0.1,0.06,0.03],"regions":[{"key":"kanto","first":0,"open":true,"last":13,"badges":["Maître"],"pools":[["bug","poison","normal","flying","electric","ground","fairy","fire","grass","water","fighting","psychic","rock","steel","ghost"],["bug","poison","normal","flying","electric","ground","fairy","grass","fighting","water","psychic","rock","steel","ice","ghost"],["grass","poison","fire","flying","water","bug","normal","ground","fairy","fighting","psychic","rock","ice","ghost","electric","dragon"],["ice","flying","electric","fire","psychic"]]},{"key":"johto","first":14,"open":false,"last":29,"badges":["Maître Johto"],"pools":[["normal","flying","bug","poison","water","electric","fairy","psychic","grass","ground","fire","ice"],["normal","flying","bug","poison","water","electric","psychic","fairy","rock","grass","ground","steel","dark","ice","fire","fighting"],["grass","fire","water","poison","flying","fairy","electric","normal","psychic","dark","ghost","steel","ground","bug","rock","fighting","ice","dragon"],["electric","fire","water","psychic","flying","grass"]]},{"key":"hoenn","first":31,"open":false,"last":47,"badges":["Maître Hoenn"],"pools":[["dark","normal","bug","water","grass","flying","psychic","fairy","ground","fighting","rock","steel","electric","poison","fire","ghost","ice"],["dark","normal","bug","water","grass","psychic","fairy","flying","fighting","steel","rock","electric","poison","fire","ground","dragon","ghost","ice"],["grass","fire","fighting","water","ground","bug","flying","poison","dark","normal","psychic","fairy","ghost","steel","rock","electric","dragon","ice"],["rock","ice","steel","dragon","psychic","water","ground","flying"]]},{"key":"sinnoh","first":48,"open":false,"last":64,"badges":["Maître Sinnoh"],"pools":[["normal","flying","bug","electric","grass","poison","water","ghost","dark","steel","psychic","rock","fairy","ground","fighting"],["normal","flying","water","electric","bug","grass","ground","ghost","psychic","poison","dark","fighting","ice"],["grass","ground","fire","fighting","water","steel","normal","flying","bug","electric","poison","rock","ghost","dark","psychic","dragon","ice","fairy"],["psychic","steel","dragon","water","fire","normal","ghost","dark","grass"]]},{"key":"unova","first":66,"open":false,"last":82,"badges":["Maître Unys"],"pools":[["normal","dark","psychic","flying","electric","rock","fighting","water","bug","grass","poison","fairy","ground","ghost","ice","steel","fire"],["normal","dark","psychic","flying","electric","rock","fighting","water","ground","bug","grass","poison","fairy","fire","ghost","ice","steel"],["grass","fire","fighting","water","normal","flying","rock","psychic","ground","steel","bug","poison","dark","ice","electric","ghost","dragon"],["psychic","fire","steel","fighting","rock","grass","flying","electric","dragon","ground","ice","water","normal","bug"]]}],"plates":{"49301":["fire"],"49302":["water"],"49303":["grass"],"49304":["electric"],"49305":["ice"],"49306":["fighting"],"49307":["poison"],"49308":["ground"],"49309":["flying"],"49310":["psychic"],"49311":["bug"],"49312":["rock"],"49313":["ghost"],"49314":["dragon"],"49315":["dark"],"49316":["steel"]}};    const GEODE_TIERS=['普通','较少见','稀有','传说'];
+    const GEODE_RULES = {"build":"bd1d674523","bundle":"f1ef0dd44e","stepMs":2800,"maxFloors":300,"upgrade":[0.1,0.06,0.03],"regions":[{"key":"kanto","first":0,"open":true,"last":13,"badges":["Maître"],"pools":[["bug","poison","normal","flying","electric","ground","fairy","fire","grass","water","fighting","psychic","rock","steel","ghost"],["bug","poison","normal","flying","electric","ground","fairy","grass","fighting","water","psychic","rock","steel","ice","ghost"],["grass","poison","fire","flying","water","bug","normal","ground","fairy","fighting","psychic","rock","ice","ghost","electric","dragon"],["ice","flying","electric","fire","psychic"]]},{"key":"johto","first":14,"open":false,"last":29,"badges":["Maître Johto"],"pools":[["normal","flying","bug","poison","water","electric","fairy","psychic","grass","ground","fire","ice"],["normal","flying","bug","poison","water","electric","psychic","fairy","rock","grass","ground","steel","dark","ice","fire","fighting"],["grass","fire","water","poison","flying","fairy","electric","normal","psychic","dark","ghost","steel","ground","bug","rock","fighting","ice","dragon"],["electric","fire","water","psychic","flying","grass"]]},{"key":"hoenn","first":31,"open":false,"last":47,"badges":["Maître Hoenn"],"pools":[["dark","normal","bug","water","grass","flying","psychic","fairy","ground","fighting","rock","steel","electric","poison","fire","ghost","ice"],["dark","normal","bug","water","grass","psychic","fairy","flying","fighting","steel","rock","electric","poison","fire","ground","dragon","ghost","ice"],["grass","fire","fighting","water","ground","bug","flying","poison","dark","normal","psychic","fairy","ghost","steel","rock","electric","dragon","ice"],["rock","ice","steel","dragon","psychic","water","ground","flying"]]},{"key":"sinnoh","first":48,"open":false,"last":64,"badges":["Maître Sinnoh"],"pools":[["normal","flying","bug","electric","grass","poison","water","ghost","dark","steel","psychic","rock","fairy","ground","fighting"],["normal","flying","water","electric","bug","grass","ground","ghost","psychic","poison","dark","fighting","ice"],["grass","ground","fire","fighting","water","steel","normal","flying","bug","electric","poison","rock","ghost","dark","psychic","dragon","ice","fairy"],["psychic","steel","dragon","water","fire","normal","ghost","dark","grass"]]},{"key":"unova","first":66,"open":false,"last":82,"badges":["Maître Unys"],"pools":[["normal","dark","psychic","flying","electric","rock","fighting","water","bug","grass","poison","fairy","ground","ghost","ice","steel","fire"],["normal","dark","psychic","flying","electric","rock","fighting","water","ground","bug","grass","poison","fairy","fire","ghost","ice","steel"],["grass","fire","fighting","water","normal","flying","rock","psychic","ground","steel","bug","poison","dark","ice","electric","ghost","dragon"],["psychic","fire","steel","fighting","rock","grass","flying","electric","dragon","ground","ice","water","normal","bug"]]}],"plates":{"49301":["fire"],"49302":["water"],"49303":["grass"],"49304":["electric"],"49305":["ice"],"49306":["fighting"],"49307":["poison"],"49308":["ground"],"49309":["flying"],"49310":["psychic"],"49311":["bug"],"49312":["rock"],"49313":["ghost"],"49314":["dragon"],"49315":["dark"],"49316":["steel"]}};    function observeCasino(s,previous){
+        const n=s.casino?.n||{},account=accountId(s);
+        const spins=Number(n.spins)||0,spent=Number(n.spent)||0,won=Number(n.won)||0;
+        const continuous=previous?.account===account&&spins>=previous.spins&&spent>=previous.spent&&won>=previous.won;
+        let last=continuous?previous.last:null;
+        if(continuous&&spins>previous.spins)last={rounds:spins-previous.spins,cost:spent-previous.spent,tokens:won-previous.won};
+        return {account,spins,spent,won,last};
+    }
+    function casinoSummary(s,reading){
+        const casino=s.casino||{},n=casino.n||{},slot=reading?.account===accountId(s)?reading:observeCasino(s);
+        const money=value=>Number(value||0).toLocaleString('zh-CN',{maximumFractionDigits:2});
+        const recent=slot.last;
+        const lines=[recent?(recent.rounds===1?'最近一局':'最近 '+recent.rounds+' 局合计')+'花费 '+money(recent.cost)+' ₽，获得 '+money(recent.tokens)+' 代币':'等待观测到新的老虎机结算',
+            '老虎机累计 '+slot.spins+' 局 · 花费 '+money(slot.spent)+' ₽ · 获得 '+money(slot.won)+' 代币 · '+(slot.won?'每代币 '+money(slot.spent/slot.won)+' ₽':'尚无代币收益')];
+        const candies=['exp-candy-s','exp-candy-m','exp-candy-xl','exp-candy-big'],hits=[12,40,70,120],cap=Math.max(0,candies.indexOf(shopCandyTier(s)));
+        for(const [i,label] of ['左靶','右靶'].entries()){
+            const index=Math.min(cap,Math.max(0,Math.min(3,Math.floor(casino.tsize?.[i]??i))));
+            lines.push(label+' · '+(ITEMS.get(candies[index])?.name||candies[index])+' · 还需命中 '+Math.max(0,hits[index]-(casino.targets?.[i]||0))+' 次');
+        }
+        const balls=Number(n.balls)||0,items=Object.values(n.items||{}).reduce((a,b)=>a+(Number(b)||0),0);
+        lines.push('弹珠台累计购买 '+balls+' 球 · 花费 '+money(n.paid)+' 代币 · 待落付费球 '+(casino.balls||0)+' / 赠球 '+(casino.free||0));
+        lines.push(balls?'每购买百球已入账 '+money(100*(n.money||0)/balls)+' ₽ · '+money(100*items/balls)+' 件道具（含赠球收益）':'每百球收益等待购买记录');
+        return lines;
+    }
+    const GEODE_TIERS=['普通','较少见','稀有','传说'];
+    // The native game builds the entire chapter up front. A phenomenon that
+    // became an item is already type "item"; ordinary wild nodes also carry
+    // their area's loot table but cannot roll it.
+    function pickupRouteExhausted(s,row,ids,now){
+        const a=s.adv,nodes=a.nodes;
+        if(row.league||row.members?.length!==1||row.id!==a.chapter||a.battle||a.pending||a.paused||
+            a.zone||a.event||a.league||a.tower||!Number.isInteger(a.node)||a.node<0||
+            !Array.isArray(nodes)||a.node>=nodes.length||!ids?.length)return false;
+        for(const id of ids){
+            const sources=ITEMS.get(id)?.sources.filter(source=>source.ch===a.chapter);
+            if(!sources?.length||!sources.every(source=>['quest','find','loot'].includes(source.kind))||
+                !sources.some(source=>sourceAvailable(s,source,id,now)))return false;
+        }
+        for(let i=a.node;i<nodes.length;i++){
+            const n=nodes[i];
+            if(!n||typeof n.type!=='string')return false;
+            // Keep future conditional drops even if the weather or party
+            // currently makes them unavailable.
+            if(n.type==='item'&&ids.some(id=>n.find?n.find.item===id:Object.hasOwn(n.loot||{},id)))return false;
+            if(n.gift?.items?.some(id=>ids.includes(id)))return false;
+        }
+        return true;
+    }
     function itemPoints(s,id){
         const adv=s.adv, nodes=adv.nodes;
         if(!Array.isArray(nodes))return null;
@@ -7677,6 +7784,9 @@
             metric.itemSeconds = value.itemSeconds;
             metric.itemRuns = value.itemRuns;
         }
+        if(Array.isArray(value.partyRuns))metric.partyRuns=value.partyRuns.filter(r=>r&&typeof r.condition==='string'&&
+            Array.isArray(r.uids)&&r.uids.length>0&&r.uids.length<=6&&Array.isArray(r.names)&&r.names.length===r.uids.length&&
+            Number.isSafeInteger(r.runs)&&r.runs>0&&positive(r.seconds)&&Number.isFinite(r.net)&&nonnegative(r.losses)&&nonnegative(r.down)&&nonnegative(r.at)).slice(0,8);
         return metric;
     }
     function readRouteHistory(raw) {
@@ -7698,6 +7808,31 @@
         }
         return counts;
     }
+    function partyRunCondition(s,row,cfg,now){
+        return JSON.stringify([row.key,economicRegion(s),s.adv.unlocked,cfg.speed,s.autoSwitch!==false,helperSwitchEnabled(s,cfg),
+            yieldFingerprint(s,now),row.members.map(id=>[chapterYieldRules(id),chapterWeather(s,id,now).key,metricChapterEnvironment(s,id,now,true)]),
+            moneyRouteThreatKey(s,row,now)]);
+    }
+    function partyHistory(metrics,condition){
+        const groups=new Map();
+        for(const m of Object.values(metrics))for(const r of m.partyRuns||[]){
+            if(r.condition!==condition)continue;
+            const key=JSON.stringify([r.uids,r.profile]),g=groups.get(key);
+            if(!g){groups.set(key,{...r});continue;}
+            for(const k of ['runs','seconds','net','losses','down'])g[k]+=r[k];
+            g.at=Math.max(g.at,r.at);
+        }
+        return [...groups.values()].sort((a,b)=>b.at-a.at);
+    }
+    function recordPartyRun(metric,s,old,result,now){
+        const members=partyMons(s),uids=members.map(m=>m.uid);
+        if(!uids.length||uids.length!==(s.team||[]).length)return;
+        const names=members.map(m=>(MONS.get(m.id)?.name||m.id)+' Lv.'+m.level),profile=JSON.stringify(members.map(rosterCombatKey));
+        const rows=metric.partyRuns||[],index=rows.findIndex(r=>r.condition===old.condition&&r.profile===profile);
+        const record=index<0?{condition:old.condition,uids,names,profile,runs:0,seconds:0,net:0,losses:0,down:0}:rows.splice(index,1)[0];
+        record.runs++;record.seconds+=result.seconds;record.net+=result.net;record.losses+=result.deaths;record.down+=old.down;record.at=now;
+        metric.partyRuns=[record,...rows].slice(0,8);
+    }
     class Telemetry {
         constructor(metrics = {}) { this.metrics = metrics; this.sample = null; }
         begin(s, row, settings, now, goals) {
@@ -7707,15 +7842,20 @@
             this.sample = { key: metricsKey(s, row, settings,now), route: row.key, wallet: Number(s.money) || 0,
                 run: s.adv.runs || 0, startNode: s.adv.node, started: now, advanced: false, deaths: totalDeaths(s, row),
                 xp: targets?null:experienceTotal(s), targets, xpSuffix:trainingXpSuffix(targets),
+                condition:partyRunCondition(s,row,settings,now),profile:JSON.stringify(partyMons(s).map(rosterCombatKey)),down:0,hp:new Map(partyMons(s).map(m=>[m.uid,m.hp])),
                 expenses:routeExpenseSignature(s), party: JSON.stringify(s.team || []), ledger: !!ledger, items: itemSnapshot(s,ledger) };
         }
         observe(s, row, settings, now, goals) {
             const old = this.sample;
             if (!old || !row || old.route !== row.key || old.key !== metricsKey(s, row, settings,now) || old.party !== JSON.stringify(s.team || []) || s.adv.speed!=null&&s.adv.speed!==settings.speed || s.adv.event || s.adv.zone || s.adv.tower || s.adv.league || !row.members.includes(s.adv.chapter)) { this.sample = null; return null; }
+            if(old.condition!==null&&old.condition!==partyRunCondition(s,row,settings,now))old.condition=null;
             if(old.expenses!==routeExpenseSignature(s)){this.sample=null;return null;}
             // A multi-cycle jump lacks individual boundary evidence.
             if((s.adv.runs||0)-old.run>(row.league?row.members.length:1)){this.sample=null;return null;}
             if ((s.adv.runs || 0) < old.run) { this.sample = null; return null; }
+            for(const mon of partyMons(s)){
+                if(Number.isFinite(mon.hp)){if(old.hp.get(mon.uid)>0&&mon.hp===0)old.down++;old.hp.set(mon.uid,mon.hp);}
+            }
             const ledger=itemLedger(s);
             // Older saves start with inventory balances and may acquire lifetime intake counters mid-run.
             if(old.ledger!==!!ledger)old.items=null;
@@ -7756,6 +7896,7 @@
                         if(gain>0)m.itemCounts[id]=(m.itemCounts[id]||0)+gain;
                     }
                 }
+                if(old.condition&&old.profile===JSON.stringify(partyMons(s).map(rosterCombatKey)))recordPartyRun(m,s,old,result,now);
                 this.metrics[old.key] = m;
             }
             this.begin(s, row, settings, now,goals); if(this.sample)this.sample.full = true;
@@ -7763,7 +7904,7 @@
         }
     }
     function routeExpenseSignature(s){
-        return JSON.stringify(['shop','candy','pension'].map(key=>Number(s.stats?.spent?.[key])||0));
+        return JSON.stringify([...['shop','candy','pension'].map(key=>Number(s.stats?.spent?.[key])||0),s.casino?.n?.spent||0,s.casino?.n?.money||0]);
     }
     function totalDeaths(s, row) { return row.members.reduce((n, id) => n + (Number(s.adv.deaths?.[id]) || 0), 0); }
 
@@ -7966,6 +8107,7 @@
                 if(task.routePlan&&e.visit?.routePlan?.plan===task.routePlan)e.visit.routePlan.applied=true;
                 this.teamTask=null;this.e.telemetry.sample=null;
                 if(this.e.target&&!task.routePlan)this.e.visit={started:now,deaths:totalDeaths(s,this.e.target),caught:dexStatus(s,this.e.settings).complete};
+                this.e.partyOrigin={party:signature,name:CHAPTERS.get(task.chapter)?.name};
                 this.e.status='冒险队伍已适配，等待游戏治疗点应用';
                 this.e.log(`冒险队伍已适配${CHAPTERS.get(task.chapter)?.name}：${task.uids.map(uid=>MONS.get(roster.get(uid)?.id)?.name).join('、')}`);
                 this.nav('adventure');return true;
@@ -8265,9 +8407,9 @@
                 return this.click(go,options.leaveLabel||(s.adv.league?'退出精英联盟，返回'+row.name:'返回原章节，先处理通关日常'));
             }
             if(options.restart){
-                if(s.adv.chapter!==row.id||!Number(s.adv.node))return false;
+                if(s.adv.chapter!==row.id||!Number(s.adv.node)&&!options.pickup)return false;
                 const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
-                return enabled(restart)?this.click(restart,`重新进入${row.name}，生成当前游荡遭遇`):false;
+                return enabled(restart)?this.click(restart,options.pickup?`本轮目标拾取机会已用尽，重开${row.name}`:`重新进入${row.name}，生成当前游荡遭遇`):false;
             }
             // Give the helper exclusive native looping; remember the previous set for restoration.
             const unwanted = $$('#map-root [data-loop][aria-checked="true"]').find(el => String(el.dataset.loop) !== row.key);
@@ -10589,6 +10731,16 @@
     function localRulesKnown(build=typeof window==='undefined'?null:window.BUILD){
         return !build||[DATA.build,DATA.combat.build,DATA.economy.build,WEATHER_DATA.build].includes(build);
     }
+    function pickupNavigationKnown(settings,row,build=typeof window==='undefined'?null:window.BUILD){
+        if(localRulesKnown(build))return true;
+        // These chapter/source pairs and the native restart control were also
+        // checked against the public f3a9382a50 bundle of build 824f567ed3.
+        if(build!=='824f567ed3')return false;
+        const ids=settings.mode==='item'?[settings.itemId]:row.gateItems;
+        const chapters={'light-stone':[69],'dark-stone':[69],'reveal-glass':[83],
+            'adamant-orb':[50,57],'lustrous-orb':[50,57],'axew-fang':[72]};
+        return !!ids?.length&&ids.every(id=>chapters[id]?.includes(row.id));
+    }
     function logLevel(text){
         if(/失败|异常|不匹配|损坏/.test(text))return 'error';
         if(/超时|未确认|暂缓|已暂停|不可用|没有游戏进展|接管了游戏|需手动/.test(text))return 'warn';
@@ -10610,8 +10762,9 @@
             this.storage = storage; this.settings = normalizeSettings(settings); this.running = false;
             this.status = '已就绪，点击开始'; this.action = ''; this.logs = []; this.account = null;
             this.metrics = {}; this.telemetry = new Telemetry(this.metrics); this.cooldowns = {}; this.raidCooldown = {};
-            this.rankingJobs=new Map();
+            this.rankingJobs=new Map();this.boxReviews=new Map();
             this.completedTeamSearch=new Map();
+            this.routeTeams=new Map();
             this.searchRosters=new Map();
             this.target = null; this.visit = null; this.nextRaid = 0; this.raidProbe = false; this.raidCheckNote=''; this.raw = null;
             this.progressSignature = ''; this.lastProgress = Date.now(); this.driver = new DOMDriver(this);
@@ -10766,6 +10919,7 @@
                 this.state=state;this.raw=raw;this.localFailure=null;
                 this.nurseryMonitor.observe(state,now,false);
                 this.itemRound.observe(state,this);
+                this.casinoReading=observeCasino(state,this.casinoReading);
             }else{
                 this.localFailure=null;
                 if(this.localSnapshot.status!=='ready')this.localSnapshot={...this.localSnapshot,status:'ready',reason:undefined};
@@ -12145,6 +12299,7 @@
             if (this.driver.pendingMap) {
                 const pending = this.driver.pendingMap;
                 const mode=this.settings.mode;
+                if(!pending.options?.zone&&!pending.routePlan)this.previewDestination(s,pending.row,now);
                 if(pending.arrival){this.observeMapArrival(s,pending,now);return;}
                 if(pending.options?.zone&&pending.options.tier&&(Number(s.elite?.[pending.row.id]?.t)||0)+1!==pending.options.tier){
                     this.driver.pendingMap=null;
@@ -12253,7 +12408,10 @@
                     this.persist();
                 }
                 if (this.visit && totalDeaths(s, this.target) - this.visit.deaths >= this.settings.lossLimit && safeBoundary) {
-                    this.cooldowns[this.target.key] = now + 15 * 60000; this.log(`${this.target.name} 连续失败，避开 15 分钟`); this.target = null; this.telemetry.sample = null;
+                    const count=totalDeaths(s,this.target)-this.visit.deaths;
+                    this.cooldowns[this.target.key]=now+15*60000;
+                    (this.routeLosses??={})[this.target.key]={until:this.cooldowns[this.target.key],count};
+                    this.log(`${this.target.name} 本次驻留累计失败 ${count} 次，避开 15 分钟`);this.target=null;this.telemetry.sample=null;
                     if(dex)dexRoutes=dexRanking(s,this.settings,this.cooldowns,now,dex);
                 }
             }
@@ -12302,6 +12460,7 @@
                 }
                 const alternate=this.huntAlternate(s,stillNeeded,rows,now);
                 if (this.target && stillNeeded && stillNeeded.members.includes(s.adv.chapter) && this.visit && !alternate) {
+                    if(stillNeeded.gateItems&&this.restartForPickups(s,stillNeeded,stillNeeded.gateItems,now))return;
                     if(directedHunt&&this.settings.autoTeam&&!stillNeeded.requiredParty?.length&&this.fitTeam(s,now))return;
                     if(safeBoundary&&stillNeeded.hasWild&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                     const limit=stillNeeded.window;
@@ -12393,6 +12552,7 @@
             if(!slot){
                 this.adventureReview=null;this.moneyProofReview=null;this.moneyProofRetry=null;this.moneyReadyRoute=null;
                 if(!preserveCompleted){this.completedTeamSearch.clear();this.searchRosters.clear();this.lastAdventureSearch=null;this.routeProof=null;this.handoffPlanning=null;}
+                if(!preserveCompleted)this.routeTeams.clear();
             }
         }
         searchRosterRevision(slot,fingerprint){
@@ -12410,6 +12570,7 @@
             if(job&&job.signature!==signature){this.cancelTeamSearch(slot);job=null;}
             const completed=this.completedTeamSearch.get(slot);
             if(strict&&completed?.signature===signature&&!job)return completed.result;
+            if(strict&&!job&&this.routeTeams.has(signature))return this.routeTeams.get(signature);
             if(strict&&performance.now()>=(review?.expiresAt??job?.expiresAt??expiresAt)&&!job?.result){
                 this.cancelTeamSearch(slot);return {timedOut:true};
             }
@@ -12448,8 +12609,13 @@
                         if(step.done){
                             const plan=step.value,finalScore=plan?.changed?plan.score:plan?.currentScore;
                             job.result=!job.strict&&job.best?.checkpointScore>finalScore?job.best:plan;
-                            if(job.strict&&signature.startsWith('["adventure",')&&['verified','exhaustive'].includes(plan?.verification?.status)&&
-                                plan.verification.uids?.join('|')===plan.uids?.join('|'))this.completedTeamSearch.set(slot,{signature,result:plan});
+                            const proof=plan?.verification||(!plan?.changed&&plan?.suggestion?.verification);
+                            if(job.strict&&signature.startsWith('["adventure",')&&['verified','exhaustive'].includes(proof?.status)&&
+                                (plan.suggestion&&!plan.changed||proof.uids?.join('|')===plan.uids?.join('|'))){
+                                this.completedTeamSearch.set(slot,{signature,result:plan});
+                                this.routeTeams.set(signature,plan);
+                                if(this.routeTeams.size>8)this.routeTeams.delete(this.routeTeams.keys().next().value);
+                            }
                             if((this.timer!=null||this.activeTick)&&(signature.startsWith('["adventure",')||slot==='moneyProofSearch'))this.schedule(0);
                             return;
                         }
@@ -12476,7 +12642,13 @@
             this.queueCompute(job,advance,priority);
             return null;
         }
-        fitTeam(s,now,trackedRoamer) {
+        previewDestination(s,row,now){
+            if(!s?.adv||!row?.members?.length||row.requiredParty?.length||row.members.includes(s.adv.chapter)||!this.running||!this.strictPlanning||
+                !this.settings.autoTeam||!['item','shiny','train','money','dex'].includes(this.settings.mode)||
+                s.link&&(row.reg===s.link.to)!==(s.link.side==='to')||s.adv.event||s.adv.zone||s.adv.league||s.adv.tower)return;
+            this.fitTeam(s,now,null,row);
+        }
+        fitTeam(s,now,trackedRoamer,preview=null) {
             if(this.strictPlanning&&!localRulesKnown()){
                 this.teamValidationNote='当前游戏构建待核对，保留现有冒险队伍';
                 if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch',false,'游戏构建待核对');
@@ -12485,7 +12657,7 @@
             if(this.target?.requiredParty?.length&&!ownedItems(s,this.target.gateItem)&&this.target.members.includes(s.adv.chapter))return false;
             if(s.adv.battle?.pick||this.driver.lastSwitchFoe&&s.adv.battle?.foes?.includes(this.driver.lastSwitchFoe))return false;
             const roam=trackedRoamer||this.settings.mode==='roam'||this.settings.mode==='legend'&&!this.settings.legendTier&&DATA.zones.some(zone=>zone.id===this.settings.legendId&&zone.eliteOnly);
-            const c=CHAPTERS.get(s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam)return false;
+            const c=CHAPTERS.get(preview?.id??s.adv.chapter);if(!c||this.settings.mode==='legend'&&!roam)return false;
             if(now<this.teamRetryAt&&(!this.teamRetryLoop||this.teamRetryLoop===String(c.loop))){
                 this.teamValidationNote=`当前地图配队暂缓 · ${Math.ceil((this.teamRetryAt-now)/1000)} 秒后重试`;
                 return false;
@@ -12494,14 +12666,14 @@
             if(frontier&&c.id!==frontier.id&&!(c.league&&frontier.league&&c.loop===frontier.loop))return false;
             // Navigation owns an explicit destination; avoid swapping for the old route.
             const pending=this.driver.pendingMap;
-            if(pending?.options?.zone||pending&&!pending.row.members?.includes(c.id)||!frontier&&this.target&&!this.target.members?.includes(c.id))return false;
+            if(!preview&&(pending?.options?.zone||pending&&!pending.row.members?.includes(c.id)||!frontier&&this.target&&!this.target.members?.includes(c.id)))return false;
             if(Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>s.team[i]!==uid))){
                 // Dispatch removes the member from the PC and planned team before
                 // the native road state refreshes. A real pending swap still waits.
                 if(s.adv.battle||partyMons(s,s.road).map(mon=>mon.uid).join('|')!==s.team.join('|'))return false;
             }
             const current={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(member=>member.loop===c.loop).map(member=>member.id):[c.id]};
-            const row=frontier?current:pending?.row||this.target||current;
+            const row=preview||(frontier?current:pending?.row||this.target||current);
             const mode=this.settings.mode;
             const objective=mode==='train'?'train':mode==='money'||mode==='dex'&&!dexStatus(s,this.settings).missing.length&&this.settings.afterDex==='money'?'money':
                 ['item','shiny'].includes(mode)?'route':'progress';
@@ -12560,8 +12732,10 @@
                 }
                 if(plan?.timedOut)this.logReviewChange(old,performance.now()>=this.adventureReview.hardStop?'达到单次总时限':'进度未能在时限内推进');
             }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
+            if(preview&&!plan?.timedOut)return false;
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
+                if(preview)return false;
                 if(!currentPartyIsLegal()){this.failTask('配队复核超时，当前无合规队伍');return true;}
                 this.teamValidationNote='配队复核超时，暂用当前合法队伍';
                 this.log(this.teamValidationNote);return false;
@@ -12583,7 +12757,10 @@
                 reason:[plan.changed||plan.limited||plan.retainedForHunt||plan.suggestion?plan.reason:'现队仍是本次复核的最优阵容',plan.backup].filter(Boolean).join(' · '),
                 gain:plan.gain,opponents:plan.opponents,verification:plan.verification||plan.suggestion?.verification,suggestion:!!plan.suggestion};
             if(!plan.uids.length){this.stop('当前地区没有可出战的宝可梦，请先配置队伍');return true;}
-            if(!plan.changed)return false;
+            if(!plan.changed){
+                if(!plan.limited&&(plan.verification||plan.suggestion?.verification))this.partyOrigin={party:partyKey,name:row.name||c.name};
+                return false;
+            }
             if(strict&&(!['verified','exhaustive'].includes(plan.verification?.status)||plan.verification.uids?.join('|')!==plan.uids.join('|'))){
                 this.teamCheck=null;this.status='等待完整配队复核';return true;
             }
@@ -12618,7 +12795,10 @@
                     const rows=dexRanking(s,cfg,this.cooldowns,now);
                     if(!this.advanceRequirements(s,cfg,plan,rows,now)){
                         const row=rows[0];
-                        if(this.target?.key===row.key&&row.members.includes(s.adv.chapter)){this.status=row.prepNote;this.driver.nav('adventure');}
+                        if(this.target?.key===row.key&&row.members.includes(s.adv.chapter)){
+                            if(row.gateItems&&this.restartForPickups(s,row,row.gateItems,now))return;
+                            this.status=row.prepNote;this.driver.nav('adventure');
+                        }
                         else this.travel(row,now);
                     }
                     return;
@@ -12833,7 +13013,7 @@
                     do{
                         const part=search.next();
                         if(part.done){job.rows=part.value;break;}
-                        if(request.projectionOnly&&Array.isArray(part.value))job.partial=part.value;
+                        if((request.projectionOnly||request.stream)&&Array.isArray(part.value))job.partial=part.value;
                     }while(performance.now()<deadline);
                 }catch(error){job.error=error;}
                 if(!job.rows&&!job.error)this.queueCompute(job,advance,request.background?3:job.task?0:3);
@@ -12849,7 +13029,19 @@
         farm(s, now, mode) {
             const rank=cooldowns=>mode==='item'?itemRanking(s,this.settings,this.metrics,cooldowns,now):this.rankedYieldRoutes(s,'xp',cooldowns,now);
             const held=mode==='train'&&this.heldFarm(s,'xp',now);
-            const rows=held?.rows||rank(this.cooldowns);
+            const all=mode==='item'?rank({}):null;
+            const rows=all?all.filter(row=>!(this.cooldowns[row.key]>now)):held?.rows||rank(this.cooldowns);
+            if(all){
+                const best=all[0],open=rows[0],here=rows.find(row=>row.key===this.target?.key&&row.members.includes(s.adv.chapter));
+                const chosen=here&&!this.routeWorthSwitch(s,here,open,now,'item')?here:open;
+                const until=best&&this.cooldowns[best.key],loss=best&&this.routeLosses?.[best.key];
+                this.itemRouteDecision={id:this.settings.itemId,run:this.runId,account:this.account,text:best?[
+                    best.useMeasuredTime?'按各图实测轮时':'按各图理论轮时',
+                    best.name+' 第一（'+(best.rate*60).toFixed(2)+'/小时）',
+                    until>now?(loss?.until===until?'本次驻留累计失败 '+loss.count+' 次，':'')+'避开至 '+new Date(until).toLocaleTimeString('zh-CN',{hour12:false}):'',
+                    chosen?(chosen===best?'选择该图':chosen===here&&chosen!==open?'换图收益不足，保留'+chosen.name:'当前选择'+chosen.name):'等待地图恢复'
+                ].filter(Boolean).join(' · '):''};
+            }
             if(!rows){this.status='正在比较练级路线';this.lastProgress=now;return;}
             if (!rows.length) {
                 const eligible=rank({});
@@ -12891,6 +13083,7 @@
             if (mode==='item'&&current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,rows[0],now,'item')) {
                 if(this.routeReached(s,current)){
                     this.target=current;
+                    if(this.restartForPickups(s,current,[this.settings.itemId],now))return;
                     if(this.settings.autoTeam&&this.fitTeam(s,now))return;
                     this.status=`${label} · ${current.name}`;
                 }
@@ -12898,8 +13091,37 @@
                 else this.status=`${label} · 等待当前遭遇结算，恢复${current.name}循环`;
                 this.driver.nav('adventure');return;
             }
-            if (!this.canStartRoute(s)) {this.driver.nav('adventure');return;}
+            if (!this.canStartRoute(s)) {this.previewDestination(s,rows[0],now);this.driver.nav('adventure');return;}
             this.travel(rows[0],now);
+        }
+        restartForPickups(s,row,ids,now){
+            const visit=this.visit,a=s.adv;
+            if(!visit||!this.running||this.manual||this.preparation||this.driver.teamTask||this.driver.pendingMap||!pickupNavigationKnown(this.settings,row)||
+                !this.routeReached(s,row)||!pickupRouteExhausted(s,row,ids,now))return false;
+            const runs=a.runs||0;
+            // Reselecting a chapter can leave both runs and node unchanged at
+            // zero. Suppress repeat clicks on the same generated layout.
+            const layout=JSON.stringify(a.nodes.map(n=>[n?.type,n?.name,n?.find,n?.loot,n?.roamer]));
+            let attempt=visit.pickupRestart;
+            if(!attempt||attempt.runs!==runs||attempt.layout!==layout||attempt.clickedAtNode>a.node){
+                attempt=visit.pickupRestart={runs,layout,started:now};
+            }
+            if(attempt.finished)return false;
+            if(now-attempt.started>=8000){
+                attempt.finished=true;
+                this.log('本轮未能使用重开按钮，继续当前地图');
+                return false;
+            }
+            this.status='本轮已无'+ids.map(id=>ITEMS.get(id).name).join('、')+'拾取点 · 准备重开'+row.name;
+            try{
+                if(this.driver.map(row,s,{restart:true,pickup:true})){
+                    attempt.finished=true;attempt.clickedAtNode=a.node;this.itemRound.round=null;this.telemetry.sample=null;
+                    this.log('本轮目标拾取机会已用尽，已点击重开'+row.name);
+                }
+            }catch(error){
+                attempt.finished=true;this.log('本轮继续行进 · '+error.message);return false;
+            }
+            return true;
         }
         huntAlternate(s,current,rows,now){
             if(!current?.members.includes(s.adv.chapter)||!this.visit||current.marked||rows.length<2)return null;
@@ -13011,6 +13233,7 @@
             return !s.adv.pending && (!s.adv.battle || !!this.startBattle && this.startBattle===this.ordinaryBattleKey(s));
         }
         waitForHuntBoundary(row) {
+            this.previewDestination(this.state,row,Date.now());
             this.status=row?`等待当前遭遇或选项结算，再前往${row.name}`:'等待当前遭遇或选项结算后重新规划搜寻';
             this.driver.nav('adventure');
         }
@@ -13065,13 +13288,14 @@
         }
         travel(row, now, options = {}) {
             const s=this.read();if(!s?.adv||this.holdWildShiny(s,now))return;
-            if(!options.zone&&this.strictPlanning&&!localRulesKnown()&&['money','train','dex','shiny','item'].includes(this.settings.mode)){
+            if(!options.zone&&this.strictPlanning&&!pickupNavigationKnown(this.settings,row)&&['money','train','dex','shiny','item'].includes(this.settings.mode)){
                 this.status='当前游戏构建待核对，暂留原地图';this.lastProgress=now;return;
             }
             if(this.settings.mode==='dex'&&row.window)options={...options,dexWindow:true};
             if(!options.huntSeason&&(this.settings.mode==='dex'&&row.hasWild||this.settings.mode==='shiny'&&row.expected>0))options={...options,huntSeason:weatherSeason(now)};
             const routePlan=options.orderedRoutePlan?row.routePlan:null;
             if(!routePlan&&!options.zone&&!options.roamSettled&&this.ensurePrepared(s,battleContext(s,'map',{row,roamId:options.roamId}),{row:routeDescriptor(row),options},now))return;
+            if(!routePlan&&!options.zone&&!options.roamId)this.previewDestination(s,row,now);
             this.driver.pendingMap = { row, options, routePlan, started: now };
             this.telemetry.sample = null; this.status = `规划前往：${row.name}`;
         }
@@ -13080,7 +13304,7 @@
                 row.members.includes(s.adv.chapter)&&(s.adv.loops||[]).length===1&&String(s.adv.loops[0])===row.key;
         }
         routeRequestValid(s,pending,now,arrived=false,finishingSwap=false){
-            if(this.strictPlanning&&!localRulesKnown()&&['money','train','dex','shiny','item'].includes(this.settings.mode))return false;
+            if(this.strictPlanning&&!pickupNavigationKnown(this.settings,pending.row)&&['money','train','dex','shiny','item'].includes(this.settings.mode))return false;
             const {row,routePlan,options}=pending,mode=this.settings.mode,chapter=CHAPTERS.get(row.id);
             if(!chapter||row.reg!==chapter.reg||String(chapter.loop)!==row.key||!row.members?.includes(row.id)||
                 !row.members.every(id=>{const c=CHAPTERS.get(id);return c?.reg===row.reg&&String(c.loop)===row.key;}))return false;
@@ -13456,6 +13680,7 @@
             }
             if(stays(next)){settle(next);this.status=`保留刷钱路线 · ${current.name}`;this.driver.nav('adventure');return;}
             if (!this.canStartRoute(s)) {
+                if(!usePlan)this.previewDestination(s,winner,now);
                 if(this.ordinaryBattleKey(s))this.moneyBoundaryUntil=now+2000;
                 if(current?.battleFit?.roamingRisk&&!next.battleFit?.roamingRisk){
                     const foe=MONS.get(current.battleFit.roamingRisk.id)?.name||'游荡首领';
@@ -13643,7 +13868,7 @@
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,worldAttackParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
         Object.assign(module.exports,{TOWER_RULES,towerFloorProfile,raidBossFactors,raidParalysisTurns,localRulesKnown});
-        Object.assign(module.exports,{shopCandyTier});
+        Object.assign(module.exports,{shopCandyTier,boxMoneyRequest,partyHistory,partyRunCondition,observeCasino,casinoSummary});
         Object.assign(module.exports,{boxSnapshot,pokemonByUid,rosterLocations,eligibleRoster});
         Object.assign(module.exports,{trainingXpTargets,trainingXpSuffix,routeIdentity});
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution,preparationEvolutionLabel});
@@ -14559,6 +14784,27 @@
                     roundNote.textContent=status;roundRows.replaceChildren(...rows.map(t=>element('div',t,'sub')));
                 }
             }
+            if(!ui.folded&&ui.workspace==='activity'){
+                for(const id of ['casino-insight','party-history']){
+                    const detail=root.querySelector('#'+id);
+                    if(!detail?.open)continue;
+                    let lines=['等待读取游戏存档'];
+                    if(ok&&id==='casino-insight')lines=casinoSummary(s,engine.casinoReading);
+                    if(ok&&id==='party-history'){
+                        const chapter=CHAPTERS.get(s.adv.chapter);
+                        if(chapter){
+                            const row={key:String(chapter.loop),members:chapter.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[chapter.id]};
+                            const records=partyHistory(engine.metrics,partyRunCondition(s,row,engine.settings,now));
+                            const active=JSON.stringify(partyMons(s,s.road?.length?s.road:s.team).map(rosterCombatKey));
+                            lines=[chapter.name+' · 相同天气、速度与增益的完整轮次',...records.map(r=>
+                                (r.profile===active?'现队':'历史队伍')+' · '+r.names.join('、')+'｜'+r.runs+' 轮 · 平均 '+(r.seconds/r.runs).toFixed(1)+' 秒 · 失败 '+r.losses+' 次 · 观察到倒下 '+r.down+' 次 · 净 '+Math.round(r.net*60/r.seconds)+' ₽/分钟')];
+                            if(!records.some(r=>r.profile===active))lines.splice(1,0,'现队尚无符合条件的完整轮次');
+                        }
+                    }
+                    const body=detail.querySelector('.sub'),key=JSON.stringify(lines);
+                    if(body.dataset.render!==key){body.dataset.render=key;body.replaceChildren(...lines.map(t=>element('p',t)));}
+                }
+            }
             const raidParent=raid.closest('details');
             // Observe the native card even when the assistant is folded, without opening the game screen.
             let observed=ok?engine.raidDraw:null;
@@ -14587,7 +14833,7 @@
         function repaint(){if(last)update(last.s,Date.now(),last.ui);}
         window.addEventListener('storage',event=>{if(event.key===ledger.key){ledger.signature=null;repaint();}},{signal});
         for(const control of [slotMenu,targetMenu,tier,range])control.select.addEventListener('change',repaint);
-        for(const detail of [under.closest('details'),raid.closest('details'),geodes])detail?.addEventListener('toggle',repaint);
+        for(const detail of [under.closest('details'),raid.closest('details'),root.querySelector('#casino-insight'),root.querySelector('#party-history'),geodes])detail?.addEventListener('toggle',repaint);
         return {update};
     }
     function mountDexPanel(root,refresh,showDex=refresh){
@@ -15817,7 +16063,7 @@
                     <div class="hint" id="task-purchase-policy"></div>
                     <div class="purchase-budget"><span data-purchase-status></span><button type="button" id="purchase-edit-budget">查看预算</button></div>
                 </section>
-                <div class="hint" id="target-hint"></div><dl class="decision-list" id="task-decision" hidden><dt>当前目标</dt><dd></dd><dt>选择依据</dt><dd></dd><dt>下一步</dt><dd></dd></dl><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+                <div class="hint" id="target-hint"></div><div class="hint" id="item-route-choice" hidden></div><dl class="decision-list" id="task-decision" hidden><dt>当前目标</dt><dd></dd><dt>选择依据</dt><dd></dd><dt>下一步</dt><dd></dd></dl><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
             </section>
             <section id="pane-queue" aria-label="任务队列" hidden>
@@ -15831,7 +16077,7 @@
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
-            <details id="health-insight"><summary>运行健康与兼容性</summary><dl class="decision-list" id="health-facts"></dl></details>
+            <details id="party-history"><summary>本图队伍实绩</summary><div class="sub"></div></details><details id="casino-insight"><summary>游戏厅收支与弹珠目标</summary><div class="sub"></div></details><details id="health-insight"><summary>运行健康与兼容性</summary><dl class="decision-list" id="health-facts"></dl></details>
             <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="logs" aria-controls="view">日志</button></div>
             <div id="log-tools" hidden><div class="log-controls">
                 <label>级别<select id="log-level"><option value="">全部级别</option><option value="issues">警告与错误</option><option value="error">错误</option><option value="warn">警告</option><option value="ok">完成</option><option value="info">信息</option></select></label>
@@ -15839,6 +16085,7 @@
             <div id="yield-metric" role="group" aria-label="地图收益显示方式" hidden>
                 <button type="button" data-yield-view="task" aria-controls="view">跟随任务</button>
                 <button type="button" data-yield-view="money" aria-controls="view">金币</button>
+                <button type="button" data-yield-view="box" aria-controls="view">我的盒子</button>
                 <button type="button" data-yield-view="train" aria-controls="view">经验</button>
             </div><div id="view" class="list"></div>
             </section>
@@ -15901,7 +16148,7 @@
                 <label class="setting">图鉴轮换（分钟）<input data-setting="rotateMinutes" type="number" min="2" max="120"></label>
                 <label class="setting">限时团体战（分钟）<input data-setting="raidMinutes" type="number" min="5" max="720"></label>
                 <div class="hint">通关日常勾选「开战后持续到捕获」时，已进入的当日异色团体战会等到捕获确认或每日刷新。普通挂机仍按时限退出。</div>
-                <label class="setting">地图失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
+                <label class="setting">本次驻留累计失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
                 <label class="setting">定时停止（分钟，0 不限）<input data-setting="stopMinutes" type="number" min="0" max="1440"></label>
                 <label class="setting"><span><input type="checkbox" data-setting="resumeOnReload" aria-describedby="resume-update-hint">刷新后自动恢复未停止的任务</span></label><div class="hint" id="resume-update-hint">任务运行中遇到游戏更新提示时，助手会先保存任务，再确认游戏更新。重新载入后继续原任务。</div>
                 <label class="setting"><span><input type="checkbox" data-setting="autoRecover" aria-describedby="recovery-hint">连接异常且任务停滞时尝试恢复</span></label><div class="hint" id="recovery-hint">先启用刷新后续跑；在运行实况查看恢复依据。</div>
@@ -15957,7 +16204,7 @@
         const fieldInsights=mountFieldInsights(root,engine,life.signal);
         const metricGroup=query('#yield-metric');
         function selectYieldView(value) {
-            ui.yieldView=['money','train'].includes(value)?value:'task';
+            ui.yieldView=['money','train','box'].includes(value)?value:'task';
             for(const button of metricGroup.querySelectorAll('button')){
                 button.setAttribute('aria-pressed',String(button.dataset.yieldView===ui.yieldView));
             }
@@ -16580,6 +16827,9 @@
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
             logPanel.controls(ui.workspace==='activity'&&tab==='logs');
             metricGroup.hidden = !s?.adv || tab!=='maps';
+            const note=query('#item-route-choice'),choice=engine.itemRouteDecision;
+            note.hidden=!(s?.adv&&engine.running&&engine.settings.mode==='item'&&choice?.account===engine.account&&choice?.run===engine.runId&&choice.id===engine.settings.itemId&&choice.text);
+            if(!note.hidden)note.textContent=choice.text;
             const decision=query('#task-decision');
             decision.hidden=ui.workspace!=='tasks'||!s?.adv;
             if(ui.workspace==='settings')query('[data-setting="autoRecover"]').disabled=!engine.settings.resumeOnReload||locked;
@@ -16751,6 +17001,35 @@
             const prep=tab==='maps'&&['train','travel'].includes(engine.preparation?.phase)&&engine.preparation.context?.reg?engine.preparation:null;
             const taskMode=prep?'train':engine.settings.mode;
             const mode=tab==='maps'&&ui.yieldView!=='task'?ui.yieldView:taskMode;
+            if(mode==='box'&&tab==='maps'){
+                const view=query('#view');
+                if(!localRulesKnown()){engine.releaseRankingView();view.textContent='当前游戏构建待核对，暂缓盒子收益复核';viewSignature=null;return;}
+                const now=Date.now(),request=boxMoneyRequest(s,engine.settings,now,engine.boxReviews);
+                const rows=engine.evaluateRouteRanking(request,{},now,true)??request.initialRows;
+                const texts=rows.map(row=>{
+                    const records=engine.metrics[row.metric]?.partyRuns||[];
+                    const match=records.find(r=>r.condition===row.condition&&r.profile===row.profile);
+                    return [row.name+' · '+row.review,'理论上限 '+Math.round(row.upper)+' · 盒子预计 '+(row.rate==null?'—':Math.round(row.rate))+' · 同队实测 '+(match?Math.round(match.net*60/match.seconds)+'（'+match.runs+' 轮）':'—'),row.names?.join('、')];
+                });
+                const key='box'+JSON.stringify(texts);
+                if(key!==viewSignature){
+                    viewSignature=key;const title=document.createElement('p');title.className='hint';
+                    title.textContent='已检查 '+rows.filter(r=>r.review!=='等待').length+'/'+rows.length+' 张可重打地图 · ₽/分钟 · 按盒子预计排序';
+                    const opened=new Set([...view.querySelectorAll('details[open]')].map(d=>d.dataset.route)),scroll=view.scrollTop;
+                    const nodes=texts.map(([name,rate,party],index)=>{
+                        const block=document.createElement('div'),heading=document.createElement('strong'),line=document.createElement('div');
+                        heading.textContent=name;line.textContent=rate;line.className='sub';block.append(heading,line);
+                        if(party){
+                            const detail=document.createElement('details'),label=document.createElement('summary'),team=document.createElement('div');
+                            detail.dataset.route=rows[index].key;detail.open=opened.has(detail.dataset.route);
+                            label.textContent='查看配队';team.textContent=party;detail.append(label,team);block.append(detail);
+                        }
+                        return block;
+                    });
+                    view.replaceChildren(title,...nodes);view.scrollTop=scroll;
+                }
+                return;
+            }
             const preview=mode!==taskMode;
             const moneyAfterDex=!status.missing.length&&engine.settings.afterDex==='money'&&!engine.queueRunning;
             if(tab==='maps'&&mode==='dex'&&!moneyAfterDex){
@@ -16773,7 +17052,7 @@
                         rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
                         if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
                     }
-                }else if(mode==='item')rows=itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now);
+                }else if(mode==='item')rows=itemRanking(s,engine.settings,engine.metrics,{},now).filter(row=>!(engine.cooldowns[row.key]>now));
                 else{
                     retained=!!engine.heldFarm(s,'money',now);
                     rows=engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);

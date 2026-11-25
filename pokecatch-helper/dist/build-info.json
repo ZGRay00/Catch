@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.2.1",
-  "scriptSha256": "46523e05e8b5909a95e6411b20f7294b1b01d6b2db324ca908d0aa39cd1d72f9",
-  "metadataSha256": "4d3b7369d2d61a8da19227f83df805292aed4a6b2fe945a07a7d4ea37914c0f4",
+  "version": "8.2.3",
+  "scriptSha256": "b7b2d189f948d23b1da68907ae70a301e6f8cf5f7f5fbfe2c14995ce415394fe",
+  "metadataSha256": "2c4890610044a3e1f7295a8d103ddb51e050101bc22538c6270024f35dcaf303",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "7145a6f9dbe802dd5a776709c1e6e1e925108526602fba72f197cd3cf17fbcb9"
+      "sha256": "61dcf03d47045c864f7b26cd7ee76cc5fec07bb5e0c8e8dee30d2a95ffdcdef1"
     },
     {
       "file": "build.manifest.json",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "16f4aa8189afed98227d2a6d7d2091a55735c55b71e067c79cb0b64f0bbaf1ef"
+      "sha256": "dc33c30081d1399912b12af3db640a7cc6671ac974653387f69efafbfb37831b"
     },
     {
       "file": "src/models/facilities.js",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "7e08dfef259dc0585e978ea395e899950325681afcc7c1b2849fb2f44f0a52b3"
+      "sha256": "ed521e45e677f0615191135138bbf6da204466030411c0bd5f7884e49cba7b47"
     },
     {
       "file": "src/models/farming.js",
@@ -118,7 +118,7 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "e78c37cff94a964791b692c9cc0c8953e7018d401af22917950a96f2a014474f"
+      "sha256": "24228a11c3f554e0b3a7995029a342ca7d130cca11a9076ceb76c5b56c7976dc"
     },
     {
       "file": "data/legend-elite.json",
@@ -130,11 +130,11 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "a6f01c0fe252d95f33acc6e05ac5dd2899629a7f1cb074ba68193619a6956a39"
+      "sha256": "3d365a715c672932626cf5c20078b24bd9839d12a0cd864fb513461f7e4d869a"
     },
     {
       "file": "src/models/legend-requirements.js",
-      "sha256": "ced0b907cc65e4715e7fcbc9056a2d05c119a2927bfc1219b298882eae3e7bcb"
+      "sha256": "f250a82adfd11b9836abfaac29aaf97361b2b32872671d5c04e7fe7a17e61e51"
     },
     {
       "file": "src/models/collection.js",
@@ -154,15 +154,15 @@
     },
     {
       "file": "src/models/field-insights.js",
-      "sha256": "306f65b318f38a3ffd5dc8bb75aabe6feab1add5ff95aed71617a544f207ffbb"
+      "sha256": "9ca702b32d16ce8fbe7f8936819bbaabb699a4e2a600a7d50a16fbb94324ef2e"
     },
     {
       "file": "src/core/telemetry.js",
-      "sha256": "b1fe145dafd9b7f066df7062dae901ee67214e26ce3358d826d1c91117cd7d83"
+      "sha256": "4249031ad64704c06c62c824f2d0a67bd723d861c1b13f84d63b033aef2f6a38"
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "d87d0f3b5f52acc0508a64f22ea7ca67ca5f059e5b973eecd3b7fbd3bc4fafe6"
+      "sha256": "66159751aae3df29cf951370494611e88bbadcc4e3be92e6d1d5ded79dffe9d9"
     },
     {
       "file": "src/runtime/automation.js",
@@ -174,11 +174,11 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "7c8ad103939989cedbdc1f9cc624da96a9de20b00e153cfcd3380973b3589e44"
+      "sha256": "007155c0ac9c8da9285b93aa28dc2683f22eb74f41565e1997244771ea908d86"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "cc2f1e825978683c09154886a019108a532a00bf39081b932a3a55b50d9ef5bb"
+      "sha256": "daae723cb00ddb5e6f2a282368385212a3864b3505e340c552e216a1e8af73a9"
     },
     {
       "file": "data/ui-icons.json",
@@ -194,7 +194,7 @@
     },
     {
       "file": "src/ui/field-insights.js",
-      "sha256": "ab5dd6b07e28f34fd8b1a677f2323aa6b140c0b82f346108580d96c9fd16d86e"
+      "sha256": "b39524f90c2a82a1edca463b15e9da0d5554c24748e6bef2be46b2260143a72e"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -222,7 +222,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "2820ad38930f850efe4be256806e99fbb16de28aeea5765aed280d13c1650f8e"
+      "sha256": "fa8d0956c56c91fe7c32981da514e9519d3493df7fd1147d2ab928fffa2fbef1"
     }
   ]
 }

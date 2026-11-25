@@ -277,6 +277,55 @@
         }
         return makeYieldRankingRequest(kind,s,settings,metrics,now,maps,undefined,otherWallet,undefined,separateMoney);
     }
+    let nextBoxContext=0;
+    function boxMoneyRequest(s,cfg,now,memo=new Map()){
+        const settings={...cfg,mode:'money',region:'all',autoTeam:true,moneyTarget:0};
+        const other=s.link&&(otherMoneyParty(s)||{...s,team:[],link:{...s.link,side:s.link.side==='to'?'from':'to'}});
+        const onSide=row=>!s.link||(row.reg===s.link.to)===(s.link.side==='to');
+        const rows=yieldCandidates(s,settings,false);
+        const side=row=>onSide(row)?s:other;
+        const potential=row=>{
+            const state=side(row);
+            return estimateRate(row,settings.speed)*moneyFactor(state,row)*(activeYieldBuff(state,'money',now)?.mult||1)*1.1;
+        };
+        const queue=rows.map(row=>({...row,upper:potential(row),review:'等待'})).sort((a,b)=>b.upper-a.upper||a.id-b.id);
+        // Eligibility differs only across the two linked wallets. Keep one exact fingerprint for each side.
+        const representative=new Map(rows.map(row=>[onSide(row),row]));
+        const common=JSON.stringify([DATA.build,accountId(s),routePlanSettings(settings),s.adv.unlocked,s.adv.badges,s.team,other?.team,s.link?.side,s.link?.to,
+            s.autoSwitch!==false,yieldFingerprint(s,now),[...representative.values()].map(row=>adventureRosterFingerprint(side(row),row.reg))]);
+        const evidence=new Map(rows.map(row=>[row.key,moneyScoutEvidence(side(row),row,now)+'|'+partyRunCondition(side(row),row,settings,now)]));
+        if(memo.get('context')!==common){memo.clear();memo.set('context',common);memo.set('revision',++nextBoxContext);}
+        const signature=JSON.stringify([memo.get('revision'),[...evidence]]);
+        function* search(sliced){
+            const finished=[],pending=[];
+            for(const row of queue){
+                const old=memo.get(row.key);
+                if(old?.evidence===evidence.get(row.key))finished.push(old.result);
+                else pending.push(row);
+            }
+            const sort=()=>finished.sort((a,b)=>(b.rate??-1)-(a.rate??-1)||a.id-b.id);
+            sort();
+            if(sliced)yield [...finished,...pending];
+            for(const [i,row] of pending.entries()){
+                const state=side(row);
+                const plan=yield* adventureTeamSearch(state,settings,[],{row,reg:row.reg,objective:'money',now,verifyAll:true,progressive:sliced,lowBudget:true},sliced);
+                const proof=plan?.verification||plan?.suggestion?.verification;
+                let reviewed={...row,review:'无可核验阵容'};
+                if(['verified','exhaustive'].includes(proof?.status)&&proof.uids?.length){
+                    const team=partyMons(state,proof.uids),fit=yield* battleRouteFitSearch(state,row,team,now,sliced,settings,true);
+                    const selected={...state,team:proof.uids};
+                    reviewed={...row,review:'已复核',rate:moneyRouteScore(selected,row,null,fit,now,settings.speed).rate,
+                        uids:proof.uids,names:team.map(m=>(MONS.get(m.id)?.name||m.id)+' Lv.'+m.level),
+                        profile:JSON.stringify(team.map(rosterCombatKey)),metric:metricsKey(selected,row,settings,now),condition:partyRunCondition(selected,row,settings,now)};
+                }
+                if(memo.get('context')===common)memo.set(row.key,{evidence:evidence.get(row.key),result:reviewed});
+                finished.push(reviewed);sort();
+                if(sliced)yield [...finished,...pending.slice(i+1)];
+            }
+            return finished;
+        }
+        return {kind:'box',cacheSlot:'money/box',stream:true,needsSlices:true,initialRows:queue,signature,search};
+    }
     function otherMoneyParty(s){
         // Native Game.enterRegion swaps the team and wallet while both groups'
         // Pokémon stay in S.mons. It drops missing UIDs before applying side rules.

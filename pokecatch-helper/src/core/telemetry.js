@@ -26,6 +26,9 @@
             metric.itemSeconds = value.itemSeconds;
             metric.itemRuns = value.itemRuns;
         }
+        if(Array.isArray(value.partyRuns))metric.partyRuns=value.partyRuns.filter(r=>r&&typeof r.condition==='string'&&
+            Array.isArray(r.uids)&&r.uids.length>0&&r.uids.length<=6&&Array.isArray(r.names)&&r.names.length===r.uids.length&&
+            Number.isSafeInteger(r.runs)&&r.runs>0&&positive(r.seconds)&&Number.isFinite(r.net)&&nonnegative(r.losses)&&nonnegative(r.down)&&nonnegative(r.at)).slice(0,8);
         return metric;
     }
     function readRouteHistory(raw) {
@@ -47,6 +50,31 @@
         }
         return counts;
     }
+    function partyRunCondition(s,row,cfg,now){
+        return JSON.stringify([row.key,economicRegion(s),s.adv.unlocked,cfg.speed,s.autoSwitch!==false,helperSwitchEnabled(s,cfg),
+            yieldFingerprint(s,now),row.members.map(id=>[chapterYieldRules(id),chapterWeather(s,id,now).key,metricChapterEnvironment(s,id,now,true)]),
+            moneyRouteThreatKey(s,row,now)]);
+    }
+    function partyHistory(metrics,condition){
+        const groups=new Map();
+        for(const m of Object.values(metrics))for(const r of m.partyRuns||[]){
+            if(r.condition!==condition)continue;
+            const key=JSON.stringify([r.uids,r.profile]),g=groups.get(key);
+            if(!g){groups.set(key,{...r});continue;}
+            for(const k of ['runs','seconds','net','losses','down'])g[k]+=r[k];
+            g.at=Math.max(g.at,r.at);
+        }
+        return [...groups.values()].sort((a,b)=>b.at-a.at);
+    }
+    function recordPartyRun(metric,s,old,result,now){
+        const members=partyMons(s),uids=members.map(m=>m.uid);
+        if(!uids.length||uids.length!==(s.team||[]).length)return;
+        const names=members.map(m=>(MONS.get(m.id)?.name||m.id)+' Lv.'+m.level),profile=JSON.stringify(members.map(rosterCombatKey));
+        const rows=metric.partyRuns||[],index=rows.findIndex(r=>r.condition===old.condition&&r.profile===profile);
+        const record=index<0?{condition:old.condition,uids,names,profile,runs:0,seconds:0,net:0,losses:0,down:0}:rows.splice(index,1)[0];
+        record.runs++;record.seconds+=result.seconds;record.net+=result.net;record.losses+=result.deaths;record.down+=old.down;record.at=now;
+        metric.partyRuns=[record,...rows].slice(0,8);
+    }
     class Telemetry {
         constructor(metrics = {}) { this.metrics = metrics; this.sample = null; }
         begin(s, row, settings, now, goals) {
@@ -56,15 +84,20 @@
             this.sample = { key: metricsKey(s, row, settings,now), route: row.key, wallet: Number(s.money) || 0,
                 run: s.adv.runs || 0, startNode: s.adv.node, started: now, advanced: false, deaths: totalDeaths(s, row),
                 xp: targets?null:experienceTotal(s), targets, xpSuffix:trainingXpSuffix(targets),
+                condition:partyRunCondition(s,row,settings,now),profile:JSON.stringify(partyMons(s).map(rosterCombatKey)),down:0,hp:new Map(partyMons(s).map(m=>[m.uid,m.hp])),
                 expenses:routeExpenseSignature(s), party: JSON.stringify(s.team || []), ledger: !!ledger, items: itemSnapshot(s,ledger) };
         }
         observe(s, row, settings, now, goals) {
             const old = this.sample;
             if (!old || !row || old.route !== row.key || old.key !== metricsKey(s, row, settings,now) || old.party !== JSON.stringify(s.team || []) || s.adv.speed!=null&&s.adv.speed!==settings.speed || s.adv.event || s.adv.zone || s.adv.tower || s.adv.league || !row.members.includes(s.adv.chapter)) { this.sample = null; return null; }
+            if(old.condition!==null&&old.condition!==partyRunCondition(s,row,settings,now))old.condition=null;
             if(old.expenses!==routeExpenseSignature(s)){this.sample=null;return null;}
             // A multi-cycle jump lacks individual boundary evidence.
             if((s.adv.runs||0)-old.run>(row.league?row.members.length:1)){this.sample=null;return null;}
             if ((s.adv.runs || 0) < old.run) { this.sample = null; return null; }
+            for(const mon of partyMons(s)){
+                if(Number.isFinite(mon.hp)){if(old.hp.get(mon.uid)>0&&mon.hp===0)old.down++;old.hp.set(mon.uid,mon.hp);}
+            }
             const ledger=itemLedger(s);
             // Older saves start with inventory balances and may acquire lifetime intake counters mid-run.
             if(old.ledger!==!!ledger)old.items=null;
@@ -105,6 +138,7 @@
                         if(gain>0)m.itemCounts[id]=(m.itemCounts[id]||0)+gain;
                     }
                 }
+                if(old.condition&&old.profile===JSON.stringify(partyMons(s).map(rosterCombatKey)))recordPartyRun(m,s,old,result,now);
                 this.metrics[old.key] = m;
             }
             this.begin(s, row, settings, now,goals); if(this.sample)this.sample.full = true;
@@ -112,7 +146,7 @@
         }
     }
     function routeExpenseSignature(s){
-        return JSON.stringify(['shop','candy','pension'].map(key=>Number(s.stats?.spent?.[key])||0));
+        return JSON.stringify([...['shop','candy','pension'].map(key=>Number(s.stats?.spent?.[key])||0),s.casino?.n?.spent||0,s.casino?.n?.money||0]);
     }
     function totalDeaths(s, row) { return row.members.reduce((n, id) => n + (Number(s.adv.deaths?.[id]) || 0), 0); }
 

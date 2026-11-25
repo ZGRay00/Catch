@@ -173,8 +173,8 @@
             for(const row of itemRanking(s,{...settings,mode:'item',region:'all',itemId},{},{},now)){
                 if(!huntRouteMatches(s,settings,row,now))continue;
                 const previous=alternatives.get(row.key);
-                if(previous){previous.score+=row.rate;previous.prepNote+='、'+ITEMS.get(itemId).name;}
-                else alternatives.set(row.key,{...row,targets:[],priority:0,gateRoute:true,requiredParty:row.sources[0]?.team,gateItem:itemId,
+                if(previous){previous.gateItems.push(itemId);previous.score+=row.rate;previous.prepNote+='、'+ITEMS.get(itemId).name;}
+                else alternatives.set(row.key,{...row,targets:[],priority:0,gateRoute:true,requiredParty:row.sources[0]?.team,gateItem:itemId,gateItems:[itemId],
                     expected:undefined,score:row.rate,prepNote:note+' · 收集'+ITEMS.get(itemId).name});
             }
         }

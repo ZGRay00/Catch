@@ -677,6 +677,40 @@ async function main(){
         assert.deepEqual(itemCounts,{pending:['3','8','0'],legacy:['3','8','未记录'],running:['3','7','2'],
             other:['20','7','0'],paused:['3','7','2'],done:['3','9','4'],next:['20','9','0'],saved:['3','9','4'],reset:['3','9','0']});
         checks.push('item queue cards show the goal, live stock and independent intake through spending, stop, resume, completion and reset');
+        const insights=await evaluate(`(async()=>{
+            const r=${root},e=__pcExecutionTest.engine,s=fixtureState;
+            s.adv.chapter=0;s.adv.unlocked=4;s.travel={to:[]};delete s.link;
+            s.casino={targets:[5,1],n:{spins:1,spent:60,won:3,balls:10,paid:100,money:75,items:{potion:1}}};commitExecution();
+            r.querySelector('[data-workspace="activity"]').click();r.querySelector('[data-tab="maps"]').click();
+            for(const id of ['casino-insight','party-history'])r.querySelector('#'+id).open=true;
+            r.querySelector('[data-yield-view="box"]').click();
+            const view=r.querySelector('#view');
+            for(let i=0;i<150&&!view.textContent.includes('已检查 4/4');i++){
+                await new Promise(resolve=>setTimeout(resolve,40));e.onChange();
+            }
+            return {casino:r.querySelector('#casino-insight .sub').textContent,party:r.querySelector('#party-history .sub').textContent,
+                finished:view.textContent.includes('已检查 4/4'),mapTeams:view.querySelectorAll('details').length,task:e.running};
+        })()`);
+        assert.match(insights.casino,/花费 60 ₽/);assert.match(insights.casino,/每购买百球已入账 750 ₽/);
+        assert.match(insights.party,/完整轮次/);assert.equal(insights.finished,true);assert.equal(insights.mapTeams,4);assert.equal(insights.task,false);
+        checks.push('read-only box ranking finishes on mobile while casino and party history display their own data');
+        const reentry=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,s=structuredClone(fixtureState);
+            const row={id:69,members:[69],key:'69',reg:'unova',name:'古代城'};
+            const gameMap=document.createElement('section');gameMap.id='screen-map';gameMap.className='active';
+            gameMap.innerHTML='<div id="map-root"><button class="rg open active" data-rg="unova">合众</button><button class="mp-row sel" data-ch="69">古代城</button><button class="mp-restart" data-restart="69">重新开始</button></div>';
+            document.body.append(gameMap);
+            const initial=e.settings;let clicks=0;gameMap.querySelector('.mp-restart').onclick=()=>clicks++;
+            try{
+                e.running=true;e.settings={...initial,mode:'item',itemId:'light-stone'};e.visit={};e.target=row;e.driver.lastClick=0;
+                Object.assign(s.adv,{chapter:69,unlocked:83,loops:[69],badges:['Maître Unys'],node:0,
+                    nodes:[{type:'item',loot:{'light-stone':.01}},{type:'gym'}]});
+                const step=()=>e.restartForPickups(s,row,['light-stone'],Date.now());
+                step();const before=clicks;s.adv.node++;step();step();return [before,clicks,e.action];
+            }finally{e.running=false;e.settings=initial;e.visit=e.target=null;gameMap.remove();}
+        })()`);
+        assert.deepEqual(reentry,[0,1,'本轮目标拾取机会已用尽，重开古代城']);
+        checks.push('pickup farming clicks the native same-chapter restart once after passing the target node');
         console.log('PASS: '+checks.length+' execution/concurrency UI checks: '+checks.join('; '));console.log('Artifacts: '+dir);
     }finally{if(send&&socket?.readyState===WebSocket.OPEN){await send('Browser.close').catch(()=>{});socket.close();}child.kill();}
 }

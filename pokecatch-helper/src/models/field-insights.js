@@ -1,4 +1,51 @@
+    function observeCasino(s,previous){
+        const n=s.casino?.n||{},account=accountId(s);
+        const spins=Number(n.spins)||0,spent=Number(n.spent)||0,won=Number(n.won)||0;
+        const continuous=previous?.account===account&&spins>=previous.spins&&spent>=previous.spent&&won>=previous.won;
+        let last=continuous?previous.last:null;
+        if(continuous&&spins>previous.spins)last={rounds:spins-previous.spins,cost:spent-previous.spent,tokens:won-previous.won};
+        return {account,spins,spent,won,last};
+    }
+    function casinoSummary(s,reading){
+        const casino=s.casino||{},n=casino.n||{},slot=reading?.account===accountId(s)?reading:observeCasino(s);
+        const money=value=>Number(value||0).toLocaleString('zh-CN',{maximumFractionDigits:2});
+        const recent=slot.last;
+        const lines=[recent?(recent.rounds===1?'最近一局':'最近 '+recent.rounds+' 局合计')+'花费 '+money(recent.cost)+' ₽，获得 '+money(recent.tokens)+' 代币':'等待观测到新的老虎机结算',
+            '老虎机累计 '+slot.spins+' 局 · 花费 '+money(slot.spent)+' ₽ · 获得 '+money(slot.won)+' 代币 · '+(slot.won?'每代币 '+money(slot.spent/slot.won)+' ₽':'尚无代币收益')];
+        const candies=['exp-candy-s','exp-candy-m','exp-candy-xl','exp-candy-big'],hits=[12,40,70,120],cap=Math.max(0,candies.indexOf(shopCandyTier(s)));
+        for(const [i,label] of ['左靶','右靶'].entries()){
+            const index=Math.min(cap,Math.max(0,Math.min(3,Math.floor(casino.tsize?.[i]??i))));
+            lines.push(label+' · '+(ITEMS.get(candies[index])?.name||candies[index])+' · 还需命中 '+Math.max(0,hits[index]-(casino.targets?.[i]||0))+' 次');
+        }
+        const balls=Number(n.balls)||0,items=Object.values(n.items||{}).reduce((a,b)=>a+(Number(b)||0),0);
+        lines.push('弹珠台累计购买 '+balls+' 球 · 花费 '+money(n.paid)+' 代币 · 待落付费球 '+(casino.balls||0)+' / 赠球 '+(casino.free||0));
+        lines.push(balls?'每购买百球已入账 '+money(100*(n.money||0)/balls)+' ₽ · '+money(100*items/balls)+' 件道具（含赠球收益）':'每百球收益等待购买记录');
+        return lines;
+    }
     const GEODE_TIERS=['普通','较少见','稀有','传说'];
+    // The native game builds the entire chapter up front. A phenomenon that
+    // became an item is already type "item"; ordinary wild nodes also carry
+    // their area's loot table but cannot roll it.
+    function pickupRouteExhausted(s,row,ids,now){
+        const a=s.adv,nodes=a.nodes;
+        if(row.league||row.members?.length!==1||row.id!==a.chapter||a.battle||a.pending||a.paused||
+            a.zone||a.event||a.league||a.tower||!Number.isInteger(a.node)||a.node<0||
+            !Array.isArray(nodes)||a.node>=nodes.length||!ids?.length)return false;
+        for(const id of ids){
+            const sources=ITEMS.get(id)?.sources.filter(source=>source.ch===a.chapter);
+            if(!sources?.length||!sources.every(source=>['quest','find','loot'].includes(source.kind))||
+                !sources.some(source=>sourceAvailable(s,source,id,now)))return false;
+        }
+        for(let i=a.node;i<nodes.length;i++){
+            const n=nodes[i];
+            if(!n||typeof n.type!=='string')return false;
+            // Keep future conditional drops even if the weather or party
+            // currently makes them unavailable.
+            if(n.type==='item'&&ids.some(id=>n.find?n.find.item===id:Object.hasOwn(n.loot||{},id)))return false;
+            if(n.gift?.items?.some(id=>ids.includes(id)))return false;
+        }
+        return true;
+    }
     function itemPoints(s,id){
         const adv=s.adv, nodes=adv.nodes;
         if(!Array.isArray(nodes))return null;

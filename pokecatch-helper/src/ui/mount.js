@@ -155,7 +155,7 @@
                     <div class="hint" id="task-purchase-policy"></div>
                     <div class="purchase-budget"><span data-purchase-status></span><button type="button" id="purchase-edit-budget">查看预算</button></div>
                 </section>
-                <div class="hint" id="target-hint"></div><dl class="decision-list" id="task-decision" hidden><dt>当前目标</dt><dd></dd><dt>选择依据</dt><dd></dd><dt>下一步</dt><dd></dd></dl><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+                <div class="hint" id="target-hint"></div><div class="hint" id="item-route-choice" hidden></div><dl class="decision-list" id="task-decision" hidden><dt>当前目标</dt><dd></dd><dt>选择依据</dt><dd></dd><dt>下一步</dt><dd></dd></dl><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
             </section>
             <section id="pane-queue" aria-label="任务队列" hidden>
@@ -169,7 +169,7 @@
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
-            <details id="health-insight"><summary>运行健康与兼容性</summary><dl class="decision-list" id="health-facts"></dl></details>
+            <details id="party-history"><summary>本图队伍实绩</summary><div class="sub"></div></details><details id="casino-insight"><summary>游戏厅收支与弹珠目标</summary><div class="sub"></div></details><details id="health-insight"><summary>运行健康与兼容性</summary><dl class="decision-list" id="health-facts"></dl></details>
             <div class="tabs" role="group" aria-label="运行实况视图"><button data-tab="maps" aria-controls="view">目标与收益</button><button data-tab="logs" aria-controls="view">日志</button></div>
             <div id="log-tools" hidden><div class="log-controls">
                 <label>级别<select id="log-level"><option value="">全部级别</option><option value="issues">警告与错误</option><option value="error">错误</option><option value="warn">警告</option><option value="ok">完成</option><option value="info">信息</option></select></label>
@@ -177,6 +177,7 @@
             <div id="yield-metric" role="group" aria-label="地图收益显示方式" hidden>
                 <button type="button" data-yield-view="task" aria-controls="view">跟随任务</button>
                 <button type="button" data-yield-view="money" aria-controls="view">金币</button>
+                <button type="button" data-yield-view="box" aria-controls="view">我的盒子</button>
                 <button type="button" data-yield-view="train" aria-controls="view">经验</button>
             </div><div id="view" class="list"></div>
             </section>
@@ -239,7 +240,7 @@
                 <label class="setting">图鉴轮换（分钟）<input data-setting="rotateMinutes" type="number" min="2" max="120"></label>
                 <label class="setting">限时团体战（分钟）<input data-setting="raidMinutes" type="number" min="5" max="720"></label>
                 <div class="hint">通关日常勾选「开战后持续到捕获」时，已进入的当日异色团体战会等到捕获确认或每日刷新。普通挂机仍按时限退出。</div>
-                <label class="setting">地图失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
+                <label class="setting">本次驻留累计失败上限<input data-setting="lossLimit" type="number" min="1" max="20"></label>
                 <label class="setting">定时停止（分钟，0 不限）<input data-setting="stopMinutes" type="number" min="0" max="1440"></label>
                 <label class="setting"><span><input type="checkbox" data-setting="resumeOnReload" aria-describedby="resume-update-hint">刷新后自动恢复未停止的任务</span></label><div class="hint" id="resume-update-hint">任务运行中遇到游戏更新提示时，助手会先保存任务，再确认游戏更新。重新载入后继续原任务。</div>
                 <label class="setting"><span><input type="checkbox" data-setting="autoRecover" aria-describedby="recovery-hint">连接异常且任务停滞时尝试恢复</span></label><div class="hint" id="recovery-hint">先启用刷新后续跑；在运行实况查看恢复依据。</div>
@@ -295,7 +296,7 @@
         const fieldInsights=mountFieldInsights(root,engine,life.signal);
         const metricGroup=query('#yield-metric');
         function selectYieldView(value) {
-            ui.yieldView=['money','train'].includes(value)?value:'task';
+            ui.yieldView=['money','train','box'].includes(value)?value:'task';
             for(const button of metricGroup.querySelectorAll('button')){
                 button.setAttribute('aria-pressed',String(button.dataset.yieldView===ui.yieldView));
             }
@@ -918,6 +919,9 @@
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
             logPanel.controls(ui.workspace==='activity'&&tab==='logs');
             metricGroup.hidden = !s?.adv || tab!=='maps';
+            const note=query('#item-route-choice'),choice=engine.itemRouteDecision;
+            note.hidden=!(s?.adv&&engine.running&&engine.settings.mode==='item'&&choice?.account===engine.account&&choice?.run===engine.runId&&choice.id===engine.settings.itemId&&choice.text);
+            if(!note.hidden)note.textContent=choice.text;
             const decision=query('#task-decision');
             decision.hidden=ui.workspace!=='tasks'||!s?.adv;
             if(ui.workspace==='settings')query('[data-setting="autoRecover"]').disabled=!engine.settings.resumeOnReload||locked;
@@ -1089,6 +1093,35 @@
             const prep=tab==='maps'&&['train','travel'].includes(engine.preparation?.phase)&&engine.preparation.context?.reg?engine.preparation:null;
             const taskMode=prep?'train':engine.settings.mode;
             const mode=tab==='maps'&&ui.yieldView!=='task'?ui.yieldView:taskMode;
+            if(mode==='box'&&tab==='maps'){
+                const view=query('#view');
+                if(!localRulesKnown()){engine.releaseRankingView();view.textContent='当前游戏构建待核对，暂缓盒子收益复核';viewSignature=null;return;}
+                const now=Date.now(),request=boxMoneyRequest(s,engine.settings,now,engine.boxReviews);
+                const rows=engine.evaluateRouteRanking(request,{},now,true)??request.initialRows;
+                const texts=rows.map(row=>{
+                    const records=engine.metrics[row.metric]?.partyRuns||[];
+                    const match=records.find(r=>r.condition===row.condition&&r.profile===row.profile);
+                    return [row.name+' · '+row.review,'理论上限 '+Math.round(row.upper)+' · 盒子预计 '+(row.rate==null?'—':Math.round(row.rate))+' · 同队实测 '+(match?Math.round(match.net*60/match.seconds)+'（'+match.runs+' 轮）':'—'),row.names?.join('、')];
+                });
+                const key='box'+JSON.stringify(texts);
+                if(key!==viewSignature){
+                    viewSignature=key;const title=document.createElement('p');title.className='hint';
+                    title.textContent='已检查 '+rows.filter(r=>r.review!=='等待').length+'/'+rows.length+' 张可重打地图 · ₽/分钟 · 按盒子预计排序';
+                    const opened=new Set([...view.querySelectorAll('details[open]')].map(d=>d.dataset.route)),scroll=view.scrollTop;
+                    const nodes=texts.map(([name,rate,party],index)=>{
+                        const block=document.createElement('div'),heading=document.createElement('strong'),line=document.createElement('div');
+                        heading.textContent=name;line.textContent=rate;line.className='sub';block.append(heading,line);
+                        if(party){
+                            const detail=document.createElement('details'),label=document.createElement('summary'),team=document.createElement('div');
+                            detail.dataset.route=rows[index].key;detail.open=opened.has(detail.dataset.route);
+                            label.textContent='查看配队';team.textContent=party;detail.append(label,team);block.append(detail);
+                        }
+                        return block;
+                    });
+                    view.replaceChildren(title,...nodes);view.scrollTop=scroll;
+                }
+                return;
+            }
             const preview=mode!==taskMode;
             const moneyAfterDex=!status.missing.length&&engine.settings.afterDex==='money'&&!engine.queueRunning;
             if(tab==='maps'&&mode==='dex'&&!moneyAfterDex){
@@ -1111,7 +1144,7 @@
                         rows=engine.evaluateRouteRanking(request,cooldowns,now,true);
                         if(rows!==null)leagueNotes=excludedTrainingLeagues(request,rows,cooldowns,now);
                     }
-                }else if(mode==='item')rows=itemRanking(s,engine.settings,engine.metrics,engine.cooldowns,now);
+                }else if(mode==='item')rows=itemRanking(s,engine.settings,engine.metrics,{},now).filter(row=>!(engine.cooldowns[row.key]>now));
                 else{
                     retained=!!engine.heldFarm(s,'money',now);
                     rows=engine.rankedYieldRoutes(s,'money',engine.cooldowns,now,true);

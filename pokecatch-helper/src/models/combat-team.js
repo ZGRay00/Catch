@@ -1116,7 +1116,11 @@
             const a=tested.safety,b=base.safety;
             // Major fights cannot be traded away for easier ordinary encounters.
             return tested.team.length-base.team.length||significant((b.keyWipes||0)-(a.keyWipes||0))||
-                significant((b.wipes||0)-(a.wipes||0))||significant(tested.score-base.score)||
+                significant((b.wipes||0)-(a.wipes||0))||
+                (settings.mode==='item'&&objective==='route'?Math.round(100*b.deaths/totalWeight)-Math.round(100*a.deaths/totalWeight)||
+                    Math.round(50*b.turns/totalWeight)-Math.round(50*a.turns/totalWeight)||
+                    Math.floor(Math.log(Math.max(1e-9,tested.score))/Math.log(1.01))-Math.floor(Math.log(Math.max(1e-9,base.score))/Math.log(1.01))||
+                    tested.team.filter(mon=>partyOrder.has(mon.uid)).length-base.team.filter(mon=>partyOrder.has(mon.uid)).length:0)||significant(tested.score-base.score)||
                 (preferReserves?significant((b.worst||0)-(a.worst||0))||significant((b.deaths||0)-(a.deaths||0))||assessedReserves(tested)-assessedReserves(base):0);
         }
         if(verifyAll){
@@ -1205,7 +1209,7 @@
                         // always visited separately so order and ownership stay exact.
                         let input=candidateInputs.get(mon.uid);
                         if(!input){
-                            input={equivalent:JSON.stringify([group,combatProfile({...mon,status:null}),hasLearners?xpShare(mon):0,
+                            input={equivalent:JSON.stringify([group,settings.mode==='item'&&partyOrder.has(mon.uid),combatProfile({...mon,status:null}),hasLearners?xpShare(mon):0,
                                 context.trainingCosts?.[mon.uid]??0,!!mon.evolutionItemLocked])};
                             candidateInputs.set(mon.uid,input);
                         }
@@ -1314,7 +1318,11 @@
         // Verified recommendations may improve by less than the heuristic threshold.
         // The same objective also decides when the actual party should change.
         const farmUpgrade=farming&&worthwhileFarmChange(next,now,proposed,previous);
-        const verifiedImprovement=!!verification&&compareVerified({team:chosen,score:next,safety:proposed},{team:party,score:now,safety:previous})>1e-8&&
+        const stableItem=settings.mode==='item'&&objective==='route';
+        const safer=proposed.keyWipes<previous.keyWipes-1e-8||proposed.wipes<previous.wipes-1e-8;
+        const meaningfulItemGain=safer||proposed.deaths<=previous.deaths-.01*totalWeight||
+            proposed.deaths<=previous.deaths+1e-8&&(proposed.turns<previous.turns*.98||next>now*1.01);
+        const verifiedImprovement=(!stableItem||meaningfulItemGain)&&!!verification&&compareVerified({team:chosen,score:next,safety:proposed},{team:party,score:now,safety:previous})>1e-8&&
             (!farming||farmUpgrade);
         const gymGain=proposed.gym-previous.gym;
         const gymUpgrade=gymTotal>0&&gymGain>=.02&&next>now+.002;
@@ -1337,7 +1345,7 @@
         }
         const uids=result.map(m=>m.uid),verifiedResult=verification?.uids.every((uid,i)=>uid===uids[i])&&verification.uids.length===uids.length;
         const suggestion=verification&&!verifiedResult?{uids:verification.uids,score:next,verification,
-            reason:farming?'新阵容改善不足，保留当前刷图阵容':'换队收益与当前风险不足以抵消切换成本，暂留现队'}:null;
+            reason:stableItem?'关键战风险、倒下次数与周转改善有限，保留原队':farming?'新阵容改善不足，保留当前刷图阵容':'换队收益与当前风险不足以抵消切换成本，暂留现队'}:null;
         return { uids, backup, changed: !!apply&&(changed||orderChanged||necessary), score: next, currentScore: now, gain:now>0?next/now-1:1, opponents: foes.length||1, reg, objective,
             ...verification?{selectedScore:apply?next:now,...suggestion?{suggestion}:{verification}}:{},
             reason:suggestion?suggestion.reason:necessary?'修复队伍或保留练级目标':fewerWipes?'改善预计无法取胜的对局':reorder?'调整主力出场顺序':gymUpgrade?'提高馆主战续航，减少替补承受的伤害':objective==='money'?'结合付钱战整轮效率与阵容战力':hasLearners?'保留学员，按经验效率与带队战力配队':strongerReserves?'保留路线效率并增强替补':objective==='route'?'减少刷图回合与倒下换人':'提高打点覆盖与通关稳定性' };

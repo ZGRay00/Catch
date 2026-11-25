@@ -84,6 +84,27 @@
                     roundNote.textContent=status;roundRows.replaceChildren(...rows.map(t=>element('div',t,'sub')));
                 }
             }
+            if(!ui.folded&&ui.workspace==='activity'){
+                for(const id of ['casino-insight','party-history']){
+                    const detail=root.querySelector('#'+id);
+                    if(!detail?.open)continue;
+                    let lines=['等待读取游戏存档'];
+                    if(ok&&id==='casino-insight')lines=casinoSummary(s,engine.casinoReading);
+                    if(ok&&id==='party-history'){
+                        const chapter=CHAPTERS.get(s.adv.chapter);
+                        if(chapter){
+                            const row={key:String(chapter.loop),members:chapter.league?DATA.chapters.filter(c=>c.loop===chapter.loop).map(c=>c.id):[chapter.id]};
+                            const records=partyHistory(engine.metrics,partyRunCondition(s,row,engine.settings,now));
+                            const active=JSON.stringify(partyMons(s,s.road?.length?s.road:s.team).map(rosterCombatKey));
+                            lines=[chapter.name+' · 相同天气、速度与增益的完整轮次',...records.map(r=>
+                                (r.profile===active?'现队':'历史队伍')+' · '+r.names.join('、')+'｜'+r.runs+' 轮 · 平均 '+(r.seconds/r.runs).toFixed(1)+' 秒 · 失败 '+r.losses+' 次 · 观察到倒下 '+r.down+' 次 · 净 '+Math.round(r.net*60/r.seconds)+' ₽/分钟')];
+                            if(!records.some(r=>r.profile===active))lines.splice(1,0,'现队尚无符合条件的完整轮次');
+                        }
+                    }
+                    const body=detail.querySelector('.sub'),key=JSON.stringify(lines);
+                    if(body.dataset.render!==key){body.dataset.render=key;body.replaceChildren(...lines.map(t=>element('p',t)));}
+                }
+            }
             const raidParent=raid.closest('details');
             // Observe the native card even when the assistant is folded, without opening the game screen.
             let observed=ok?engine.raidDraw:null;
@@ -112,6 +133,6 @@
         function repaint(){if(last)update(last.s,Date.now(),last.ui);}
         window.addEventListener('storage',event=>{if(event.key===ledger.key){ledger.signature=null;repaint();}},{signal});
         for(const control of [slotMenu,targetMenu,tier,range])control.select.addEventListener('change',repaint);
-        for(const detail of [under.closest('details'),raid.closest('details'),geodes])detail?.addEventListener('toggle',repaint);
+        for(const detail of [under.closest('details'),raid.closest('details'),root.querySelector('#casino-insight'),root.querySelector('#party-history'),geodes])detail?.addEventListener('toggle',repaint);
         return {update};
     }

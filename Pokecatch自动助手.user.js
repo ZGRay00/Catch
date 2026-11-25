@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.2.7
+// @version      8.2.8
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.2.7', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.2.8', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -983,9 +983,11 @@
         if(pageHidden())return '标签页在后台，等待回到游戏';
         const a=s?.adv||{},d=e.driver||{},auto=e.automation||{},flow=auto.state||{};
         if(a.paused)return '游戏已暂停';
-        if(a.pending||a.battle&&!['eggs','underDispatch'].includes(service))return '等待当前战斗或选择结束';
-        if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
-        if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
+        if(a.pending||a.battle&&!['eggs','nurseryFeed','underDispatch'].includes(service))return '等待当前战斗或选择结束';
+        const feedingInBattle=service==='nurseryFeed'&&nurseryFeedBattle(a);
+        if((a.event||a.zone||a.tower||a.league)&&!feedingInBattle)return '独立战斗占用前台，计时继续';
+        const raidOwnsPage=(e.raidProbe||e.raidReturn)&&!feedingInBattle;
+        if(raidOwnsPage||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
         if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.pensionPurchase||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
         if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
         if(flow.worldResultAt!=null&&now-flow.worldResultAt<3000||typeof document!=='undefined'&&$$('#raid-root .wb-skip,.wb-recap,#raid-root .wb-spill').some(visible))return '等待世界首领攻击结算';
@@ -2169,6 +2171,10 @@
         return progress+Math.max(0,now-p.tick)<goal-2500;
     }
 
+    function nurseryFeedBattle(a){
+        return !a.zone&&!a.league&&(a.event?!!a.event.raid:!!a.tower&&(!a.tower.kind||a.tower.kind==='tower'));
+    }
+
     class NurseryAssist {
         constructor(engine){
             this.e=engine;
@@ -2230,9 +2236,13 @@
             if(!tab||this.tab&&tab!==this.tab)return;
             this.tab??=tab;
             const s=e.read(),a=s?.adv;
-            if(!a||accountId(s)!==e.account||a.layout!==DATA.layout||a.paused||a.pending||a.event||a.zone||a.tower||a.league)return;
+            if(!a||accountId(s)!==e.account||a.layout!==DATA.layout||a.paused||a.pending)return;
+            const inBattle=nurseryFeedBattle(a);
+            if(a.event||a.zone||a.tower||a.league){
+                if(!inBattle||a.battle?.pick||!this.prefs.autoFeed&&!this.feed)return;
+            }
             const pendingHatch=this.idleAutomation.state.eggService;
-            const due=this.prefs.idleHatch&&!pendingHatch?readyBackgroundEggs(s,now):[];
+            const due=!inBattle&&this.prefs.idleHatch&&!pendingHatch?readyBackgroundEggs(s,now):[];
             const hatch=pendingHatch||due.length&&this.idleAutomation.hatchChoices(s,due,now).eligible.length;
             const feed=this.feed||this.prefs.autoFeed&&now>=this.retryFeedAt&&Number(s.items?.[NURSERY_RULES.berry])>0&&!s.pension?.bx;
             if(!hatch&&!feed&&!pendingHatch)return;
@@ -2240,10 +2250,10 @@
             const {status,lastProgress,action}=e;
             this.idleAccess=true;
             try{
-                if(this.idleAutomation.eggUI(s,now,true))return;
+                if(!inBattle&&this.idleAutomation.eggUI(s,now,true))return;
                 if(visible($('#modal-root.open'))||visible($('#evt-pick'))||$$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return;
                 if(this.feedStep(s,now,true))return;
-                if(this.idleAutomation.serviceEggs(s,now,true,this.prefs.idleHatch))this.note=e.status;
+                if(!inBattle&&this.idleAutomation.serviceEggs(s,now,true,this.prefs.idleHatch))this.note=e.status;
             }finally{
                 this.idleAccess=false;
                 Object.assign(e,{status,lastProgress,action});
@@ -2254,10 +2264,14 @@
             const e=this.e;
             if(!this.key||!this.prefs.autoFeed&&!this.feed||e.manual||now<this.manualUntil||e.startActivityExit||
                 e.automation.state.eggService&&!this.feed||this.blocked()||
-                backgroundBlockReason(s,e,now,'eggs')&&!this.feed)return false;
+                !this.feed&&backgroundBlockReason(s,e,now,'nurseryFeed'))return false;
             const a=s.adv;
-            if(a.pending||a.event||a.zone||a.tower||a.league){
-                if(this.feed){this.feed=null;e.driver.navigation=null;}
+            if(a.pending||(a.event||a.zone||a.tower||a.league)&&(!nurseryFeedBattle(a)||a.battle?.pick)){
+                if(this.feed){
+                    const previous=this.feed.screen;
+                    this.feed=null;e.driver.navigation=null;
+                    if(this.activeScreen()==='pension'&&previous!=='pension')e.driver.nav(previous);
+                }
                 return false;
             }
             return this.feedStep(s,now,false);
@@ -2326,6 +2340,7 @@
                 }
             }
             if(task.screen!==this.activeScreen()&&!d.nav(task.screen))return true;
+            if(d.navigation?.screen===task.screen)d.navigation=null;
             this.feed=null;e.telemetry.sample=null;return true;
         }
     }
@@ -16383,7 +16398,7 @@
                 <label class="setting"><span><input type="checkbox" data-nursery-pref="allowReferenceFeed" aria-describedby="nursery-reference-feed-hint">允许按旧规则预测自动喂果</span></label>
                 <div class="hint" id="nursery-reference-feed-hint">游戏规则待核对时也允许按预测喂果，可能消耗靛莓果而未出闪蛋。</div>
             </div>
-            <div class="hint">开关默认关闭，按账号保存。待命时使用库存；任务运行时还会计入道具用量。</div>
+            <div class="hint">开关按账号保存。对战塔、异色团体战期间也会检查下一枚蛋，喂果后返回原页面。待命时使用库存，任务运行时每颗计入一份道具用量。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>

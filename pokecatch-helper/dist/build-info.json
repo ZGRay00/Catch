@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.2.7",
-  "scriptSha256": "9dd7195561fd9102c653454d326b49591aeaa7651bed04ee9e7b8b15ea805350",
-  "metadataSha256": "d3c228d8f0fa8d8a43c0823271c9dd880c1ef459cce7a74c7917ab3b3e297a36",
+  "version": "8.2.8",
+  "scriptSha256": "c6cf856b5ff5c9c37997db631c3ba74a38efe0be1e6cd14e83d31c9db48f07a0",
+  "metadataSha256": "cd75edd3cded194ea0238aae7857addcc5c5ffbdb9125fa6d6a520b010e821e1",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "b2586e47b859ec583904167737164618fdfa6c0bc0c1d515c5084de6b00bd84b"
+      "sha256": "62076c30abdc6755dcf23bab3ba228494eff431855bada7fd7fa4ee3bc54a164"
     },
     {
       "file": "build.manifest.json",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "ad2f992671376b5f8c536417e44f83c0a2ca9ec4b4b35832c1688502a4a9bf6d"
+      "sha256": "712ed6d2e1124c7b0e8abb3c128d2c3144de13318e471493df19735698b71295"
     },
     {
       "file": "src/models/farming.js",
@@ -86,7 +86,7 @@
     },
     {
       "file": "src/services/nursery-assist.js",
-      "sha256": "d9effcc22948585380c617d420a4d46c6f1a61fbbc39bb5a0bd8ce6e163ad7a9"
+      "sha256": "330df2578058bad730600813b4775f559b1eeb2f96d417f5bf55e1e72cadd985"
     },
     {
       "file": "data/weather.json",
@@ -234,7 +234,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "c54c0ef674edcd3635071785d5d3410edf8b22c88133646c8c9424cb439abbd9"
+      "sha256": "6361abc46accff9785bb73aa3811d55f64bb11664fc9bdc150f9a5cc965a32a5"
     }
   ]
 }

@@ -221,7 +221,7 @@
                 <label class="setting"><span><input type="checkbox" data-nursery-pref="allowReferenceFeed" aria-describedby="nursery-reference-feed-hint">允许按旧规则预测自动喂果</span></label>
                 <div class="hint" id="nursery-reference-feed-hint">游戏规则待核对时也允许按预测喂果，可能消耗靛莓果而未出闪蛋。</div>
             </div>
-            <div class="hint">开关默认关闭，按账号保存。待命时使用库存；任务运行时还会计入道具用量。</div>
+            <div class="hint">开关按账号保存。对战塔、异色团体战期间也会检查下一枚蛋，喂果后返回原页面。待命时使用库存，任务运行时每颗计入一份道具用量。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>

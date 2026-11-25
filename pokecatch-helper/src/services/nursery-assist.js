@@ -22,6 +22,10 @@
         return progress+Math.max(0,now-p.tick)<goal-2500;
     }
 
+    function nurseryFeedBattle(a){
+        return !a.zone&&!a.league&&(a.event?!!a.event.raid:!!a.tower&&(!a.tower.kind||a.tower.kind==='tower'));
+    }
+
     class NurseryAssist {
         constructor(engine){
             this.e=engine;
@@ -83,9 +87,13 @@
             if(!tab||this.tab&&tab!==this.tab)return;
             this.tab??=tab;
             const s=e.read(),a=s?.adv;
-            if(!a||accountId(s)!==e.account||a.layout!==DATA.layout||a.paused||a.pending||a.event||a.zone||a.tower||a.league)return;
+            if(!a||accountId(s)!==e.account||a.layout!==DATA.layout||a.paused||a.pending)return;
+            const inBattle=nurseryFeedBattle(a);
+            if(a.event||a.zone||a.tower||a.league){
+                if(!inBattle||a.battle?.pick||!this.prefs.autoFeed&&!this.feed)return;
+            }
             const pendingHatch=this.idleAutomation.state.eggService;
-            const due=this.prefs.idleHatch&&!pendingHatch?readyBackgroundEggs(s,now):[];
+            const due=!inBattle&&this.prefs.idleHatch&&!pendingHatch?readyBackgroundEggs(s,now):[];
             const hatch=pendingHatch||due.length&&this.idleAutomation.hatchChoices(s,due,now).eligible.length;
             const feed=this.feed||this.prefs.autoFeed&&now>=this.retryFeedAt&&Number(s.items?.[NURSERY_RULES.berry])>0&&!s.pension?.bx;
             if(!hatch&&!feed&&!pendingHatch)return;
@@ -93,10 +101,10 @@
             const {status,lastProgress,action}=e;
             this.idleAccess=true;
             try{
-                if(this.idleAutomation.eggUI(s,now,true))return;
+                if(!inBattle&&this.idleAutomation.eggUI(s,now,true))return;
                 if(visible($('#modal-root.open'))||visible($('#evt-pick'))||$$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return;
                 if(this.feedStep(s,now,true))return;
-                if(this.idleAutomation.serviceEggs(s,now,true,this.prefs.idleHatch))this.note=e.status;
+                if(!inBattle&&this.idleAutomation.serviceEggs(s,now,true,this.prefs.idleHatch))this.note=e.status;
             }finally{
                 this.idleAccess=false;
                 Object.assign(e,{status,lastProgress,action});
@@ -107,10 +115,14 @@
             const e=this.e;
             if(!this.key||!this.prefs.autoFeed&&!this.feed||e.manual||now<this.manualUntil||e.startActivityExit||
                 e.automation.state.eggService&&!this.feed||this.blocked()||
-                backgroundBlockReason(s,e,now,'eggs')&&!this.feed)return false;
+                !this.feed&&backgroundBlockReason(s,e,now,'nurseryFeed'))return false;
             const a=s.adv;
-            if(a.pending||a.event||a.zone||a.tower||a.league){
-                if(this.feed){this.feed=null;e.driver.navigation=null;}
+            if(a.pending||(a.event||a.zone||a.tower||a.league)&&(!nurseryFeedBattle(a)||a.battle?.pick)){
+                if(this.feed){
+                    const previous=this.feed.screen;
+                    this.feed=null;e.driver.navigation=null;
+                    if(this.activeScreen()==='pension'&&previous!=='pension')e.driver.nav(previous);
+                }
                 return false;
             }
             return this.feedStep(s,now,false);
@@ -179,6 +191,7 @@
                 }
             }
             if(task.screen!==this.activeScreen()&&!d.nav(task.screen))return true;
+            if(d.navigation?.screen===task.screen)d.navigation=null;
             this.feed=null;e.telemetry.sample=null;return true;
         }
     }

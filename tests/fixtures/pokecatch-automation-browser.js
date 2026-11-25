@@ -476,7 +476,47 @@
             assert(!s.pension.bx&&s.items['belue-berry']===1,'old-rule feeding also respects a zero foreground use budget');
             engine.settings.useBudget=1;await until(()=>s.pension.bx===1&&engine.nurseryAssist.feed===null,14);
             assert(s.items['belue-berry']===0&&engine.budget.used===1&&engine.running,'foreground feeding uses one berry and one allowance then resumes its task');
+            for(const activity of ['raid','tower']){
+                const isRaid=activity==='raid',p=s.pension,roll=k=>fixtureNursery.nurseryFixedRoll(s,k);
+                do{s.trainer.since++;}while(roll(147)<1/8||roll(148)<1/16||roll(148)>=1/8||roll(149)<1/8);
+                p.laid=147;p.eggs=[];delete p.bx;p.egg=0;p.tick=Date.now();p.open.eggs=4;
+                s.items['belue-berry']=2;engine.settings.useBudget=engine.budget.used+1;
+                const before=engine.budget.used;
+                if(isRaid){
+                    engine.settings.raidMinutes=60;
+                    s.adv.event={raid:true,reg:'kanto',id:68,loops:1};
+                    engine.driver.raid={reg:'kanto',boss:68,started:Date.now()};
+                }else{
+                    engine.settings.mode='tower';s.adv.tower={kind:'tower',floor:5};
+                    const monday=new Date();monday.setUTCDate(monday.getUTCDate()-(monday.getUTCDay()+6)%7);
+                    s.tower={run:{floor:5,week:monday.toISOString().slice(0,10)}};
+                }
+                save();await tick();
+                assert(!p.bx&&s.items['belue-berry']===2,activity+' leaves ordinary egg 147 unboosted');
+                const originalScreen=q('.screen.active').id;
+                p.eggs.push({uid:'inside-147',id:1,k:147,hatchAt:Date.now()+14400000});p.laid=148;save();
+                await until(()=>p.bx===1&&!engine.nurseryAssist.feed,18);
+                assert(engine.running&&(isRaid?s.adv.event?.raid:s.adv.tower?.floor===5)&&q('.screen.active').id===originalScreen&&
+                    p.bx===1&&s.items['belue-berry']===1&&engine.budget.used===before+1&&engine.nurseryAssist.note.includes('#148'),
+                    activity+' stays active while the helper feeds egg 148, confirms one charge and returns to battle ('+
+                    [engine.status,engine.nurseryAssist.note,engine.running,p.bx,s.items['belue-berry'],engine.budget.used,q('.screen.active')?.id,engine.driver.navigation?.screen,engine.nurseryAssist.feed?.k].join(' / ')+')');
+                p.eggs.push({uid:'inside-148',id:1,k:148,bx:p.bx,hatchAt:Date.now()+14400000});delete p.bx;p.laid=149;save();await tick();
+                assert(!p.eggs[0].bx&&p.eggs[1].bx===1&&!p.bx&&s.items['belue-berry']===1,activity+' reaches egg 149 with only egg 148 boosted');
+                s.adv.event=s.adv.tower=null;engine.driver.raid=null;save();
+            }
             engine.stop('fixture nursery complete');
+            const p=s.pension,idleRoll=k=>fixtureNursery.nurseryFixedRoll(s,k);
+            do{s.trainer.since++;}while(idleRoll(148)<1/16||idleRoll(148)>=1/8||idleRoll(149)<1/8);
+            p.laid=148;p.egg=0;p.tick=Date.now();delete p.bx;
+            p.eggs=[{uid:'ready-in-tower',id:1,k:147,hatchAt:Date.now()-1000}];
+            s.adv.tower={kind:'tower',floor:7};s.items['belue-berry']=2;save();window.nav('adventure');
+            idlePref.click();const previousHatches=hatchClicks;
+            idle();assert(q('#screen-pension.active')&&engine.nurseryAssist.feed?.k===148,'idle tower visit opens the nursery for egg 148');
+            p.laid=149;p.eggs.push({uid:'late-148',id:1,k:148,hatchAt:Date.now()+14400000});save();pension();
+            for(let i=0;i<8;i++)idle();
+            assert(!engine.running&&s.adv.tower.floor===7&&!p.bx&&s.items['belue-berry']===2&&hatchClicks===previousHatches&&q('#screen-adventure.active'),
+                'a late egg during tower navigation cancels the click, leaves ready eggs alone and restores the original screen');
+            idlePref.click();s.adv.tower=null;save();
             refPref.click();
             feedPref.click();
         }finally{window.BUILD=savedBuild;delete s.trainer.since;save();}

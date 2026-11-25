@@ -166,6 +166,68 @@ test('unrelated roster churn cannot extend the current route verification window
     assert.equal(pending.result,undefined);
 });
 
+test('Giant Chasm item review completes past two minutes with 632 eligible candidates',t=>{
+    const {fixture:largeBox}=require('../pokecatch-helper/tools/benchmark-team.cjs');
+    const s=largeBox(632),e=engine();
+    e.settings.mode='item';e.strictPlanning=true;s.adv.chapter=s.adv.unlocked=83;
+    let clock=0,advance;
+    t.mock.method(performance,'now',()=>clock);
+    e.queueCompute=(_job,run)=>{advance=run;};
+    const evaluate=e.evaluateTeamSearch.bind(e);
+    e.evaluateTeamSearch=(signature,search,...args)=>{
+        function* paced(){
+            for(;;){
+                const step=search.next();
+                if(step.done)return step.value;
+                const progress=step.value?.verification;
+                if(progress)clock+=progress.passes===1?3500:5;
+                yield step.value;
+            }
+        }
+        return evaluate(signature,paced(),...args);
+    };
+    e.fitTeam(s,now);
+    assert.equal(e.adventureReview.expiresAt,120000);
+    clock=65000;
+    const job=e.teamSearch;
+    let sawLateProgress=false;
+    for(let i=0;i<10000&&!job.result;i++){
+        advance();if(job.error)throw job.error;
+        if(job.verification?.checked===624)sawLateProgress=true;
+        assert.equal(e.driver.teamTask,null);
+    }
+    assert.ok(clock>120000&&sawLateProgress);
+    assert.equal(job.result?.verification?.status,'verified');
+    assert.equal(job.result.verification.checked,632);
+    e.fitTeam(s,now+clock);
+    assert.deepEqual(e.driver.teamTask?.uids||s.team,job.result.uids);
+    e.cancelTeamSearch();
+});
+
+test('adventure review extends only for new progress and never beyond its route deadline',t=>{
+    const e=engine(),review={pass:0,checked:0,expiresAt:60000,hardStop:150000};
+    let clock=0,advance;
+    t.mock.method(performance,'now',()=>clock);
+    e.queueCompute=(_job,run)=>{advance=run;};
+    function* checkpoints(points){
+        for(const [passes,checked] of points){
+            clock+=4;yield {verification:{status:'checking',passes,checked,total:32}};
+        }
+        for(;;){clock+=4;yield;}
+    }
+    e.evaluateTeamSearch('first',checkpoints([[1,16]]),'teamSearch',true,review);
+    clock=45000;advance();const first=review.expiresAt;
+    assert.equal(first,105004);
+    e.evaluateTeamSearch('restarted',checkpoints([[1,0],[1,16],[2,0],[2,16]]),'teamSearch',true,review);
+    clock=80000;advance();advance();assert.equal(review.expiresAt,first);
+    advance();assert.equal(review.expiresAt,140012);
+    clock=130000;advance();assert.equal(review.expiresAt,review.hardStop);
+    clock=review.hardStop;advance();
+    assert.deepEqual(e.teamSearch.result,{timedOut:true});
+    assert.equal(e.driver.teamTask,null);
+    e.cancelTeamSearch();
+});
+
 test('moving through the same league and changing a region-ineligible reserve preserve the review',()=>{
     const e=engine(),s=fixture();e.settings.mode='money';e.strictPlanning=true;
     s.adv.chapter=9;s.adv.unlocked=13;s.link={to:'unova',from:'kanto',side:'from'};

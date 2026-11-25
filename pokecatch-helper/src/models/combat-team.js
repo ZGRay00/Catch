@@ -1135,8 +1135,8 @@
                     const equivalents=new Set(),pairOptions=[];
                     alternatives=[];
                     for(const mon of pool){
+                        if(sliced&&checked%16===0)yield {verification:{status:'checking',checked,total:pool.length,passes,attempts,pruned,orderPruned,reused,soloReused}};
                         checked++;
-                        if(sliced&&checked%32===0)yield {verification:{status:'checking',checked:checked-1,total:pool.length,passes,attempts,pruned,orderPruned,reused,soloReused}};
                         const group=identity(mon);
                         // Complete healed battle profile, learner share and training
                         // cost determine equivalence. Incumbents and fixed UIDs are

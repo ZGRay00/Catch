@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.1.8
+// @version      8.1.9
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.1.8', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.1.9', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -4338,8 +4338,8 @@
                     const equivalents=new Set(),pairOptions=[];
                     alternatives=[];
                     for(const mon of pool){
+                        if(sliced&&checked%16===0)yield {verification:{status:'checking',checked,total:pool.length,passes,attempts,pruned,orderPruned,reused,soloReused}};
                         checked++;
-                        if(sliced&&checked%32===0)yield {verification:{status:'checking',checked:checked-1,total:pool.length,passes,attempts,pruned,orderPruned,reused,soloReused}};
                         const group=identity(mon);
                         // Complete healed battle profile, learner share and training
                         // cost determine equivalence. Incumbents and fixed UIDs are
@@ -12304,12 +12304,14 @@
             this.searchRosters.set(slot,{fingerprint,revision});
             return revision;
         }
-        evaluateTeamSearch(signature,search,slot='teamSearch',strict=false,expiresAt=Infinity){
+        evaluateTeamSearch(signature,search,slot='teamSearch',strict=false,deadline=Infinity){
+            const review=typeof deadline==='object'?deadline:null;
+            const expiresAt=review?.expiresAt??deadline;
             let job=this[slot];
             if(job&&job.signature!==signature){this.cancelTeamSearch(slot);job=null;}
             const completed=this.completedTeamSearch.get(slot);
             if(strict&&completed?.signature===signature&&!job)return completed.result;
-            if(strict&&performance.now()>=(job?.expiresAt??expiresAt)&&!job?.result){
+            if(strict&&performance.now()>=(review?.expiresAt??job?.expiresAt??expiresAt)&&!job?.result){
                 this.cancelTeamSearch(slot);return {timedOut:true};
             }
             if(job){
@@ -12335,7 +12337,7 @@
             const advance=()=>{
                 if(this[slot]!==job)return;
                 if(!this.running||this.manual||job.epoch!==this.runId||pageHidden()){this.cancelTeamSearch(slot);return;}
-                if(job.strict&&performance.now()>=job.expiresAt){job.result={timedOut:true};return;}
+                if(job.strict&&performance.now()>=(review?.expiresAt??job.expiresAt)){job.result={timedOut:true};return;}
                 // Only score this snapshot here. The normal tick checks the latest
                 // route, party and roster again before it can queue a single PC action.
                 const start=performance.now(),deadline=start+job.slice;
@@ -12351,7 +12353,14 @@
                             return;
                         }
                         if(step.value?.uids&&(!job.best||(step.value.checkpointScore??0)>=(job.best.checkpointScore??0)))job.best=step.value;
-                        if(step.value?.verification)job.verification=step.value.verification;
+                        if(step.value?.verification){
+                            const progress=job.verification=step.value.verification;
+                            // A restarted snapshot must pass the route's previous high-water mark.
+                            if(review&&(progress.passes>review.pass||progress.passes===review.pass&&progress.checked>review.checked)){
+                                review.pass=progress.passes;review.checked=progress.checked;
+                                review.expiresAt=Math.min(review.hardStop,Math.max(review.expiresAt,performance.now()+60000));
+                            }
+                        }
                         if(!job.strict&&job.best&&job.cpu+performance.now()-start>=job.limit){
                             job.result={...job.best,limited:true};
                             job.resume=advance;return;
@@ -12420,7 +12429,11 @@
             const makeFoes=()=>roamId?battleContext(s,'map',{row,roamId}).foes:routeCombatFoes(s,row,now,hazards);
             const strict=!!this.strictPlanning;
             const reviewKey=JSON.stringify([this.runId,policy,key,row.reg||c.reg,objective]);
-            if(strict&&this.adventureReview?.key!==reviewKey)this.adventureReview={key:reviewKey,expiresAt:performance.now()+60000};
+            if(strict&&this.adventureReview?.key!==reviewKey){
+                const start=performance.now(),count=eligibleRoster(s,reg).length;
+                const initialMs=60000+Math.min(60000,count*100);
+                this.adventureReview={key:reviewKey,pass:0,checked:0,expiresAt:start+initialMs,hardStop:start+15*60000};
+            }
             const context={reg,objective,dexReplay,now,verifyAll:strict,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
             let plan;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
@@ -12429,7 +12442,7 @@
                 const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,this.searchRosterRevision('teamSearch',roster),partyKey,strict,deaths]);
                 const settings=this.settings;
                 function* search(){return yield* adventureTeamSearch(s,settings,pinned,{...context,foes:makeFoes(),progressive:true},true);}
-                plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,this.adventureReview?.expiresAt);
+                plan=this.evaluateTeamSearch(signature,search(),'teamSearch',strict,strict?this.adventureReview:undefined);
             }else plan=planAdventureTeam(s,this.settings,pinned,{...context,foes:makeFoes()});
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
@@ -12439,8 +12452,9 @@
             }
             if(!plan){
                 const verification=this.teamSearch?.verification;
-                this.status='正在评估冒险队伍 · '+(row.name||c.name)+(verification?.total?' · 已复核 '+verification.checked+'/'+verification.total:'');
-                this.teamValidationNote=verification?.total?'冒险配队复核 '+verification.checked+'/'+verification.total:'正在计算可用冒险队伍';
+                const progress=verification?.total?`第 ${verification.passes} 轮 · 已复核 ${verification.checked}/${verification.total}`:'';
+                this.status='正在评估冒险队伍 · '+(row.name||c.name)+(progress?' · '+progress:'');
+                this.teamValidationNote=progress?'冒险配队复核 · '+progress:'正在计算可用冒险队伍';
                 if(!strict||!currentPartyIsLegal())return true;
                 if(s.team.length>=6||s.adv.battle||s.adv.pending)return false;
                 const party=partyMons(s),occupied=new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`));

@@ -26,7 +26,25 @@ async function main(){
         await start('no-save');let result=await state();assert.equal(result.ready,true);assert.equal(result.visible,true);
         assert.deepEqual(await evaluate(`(()=>{const r=document.querySelector('#pokecatch-auto-helper').shadowRoot,tools=r.querySelector('#update-tools'),source=r.querySelector('#update-source');return{start:!!r.querySelector('.commandbar #start'),stop:!!r.querySelector('.commandbar #stop'),sourceInTools:source.closest('#update-tools')===tools,toolsHidden:tools.classList.contains('hidden'),sourceVisible:source.getClientRects().length>0}})()`),{start:true,stop:true,sourceInTools:true,toolsHidden:true,sourceVisible:false});
         checks.push('no save shows a visible helper with task controls in the command bar and unused update tools hidden');
-        await start('mini-drag',`localStorage.setItem('pokecatch-helper:v1:ui',JSON.stringify({folded:true,mini:{x:10,y:32}}))`);
+        await start('mini-drag',`if(!localStorage.getItem('pokecatch-helper:v1:ui'))localStorage.setItem('pokecatch-helper:v1:ui',JSON.stringify({folded:true,mini:{x:10,y:32}}))`);
+        const miniVisibility=()=>evaluate(`(()=>{
+            const r=document.querySelector('#pokecatch-auto-helper').shadowRoot,link=r.querySelector('[data-mini-link="logs"]');
+            link.hidden=false;link.textContent='停机记录';
+            return [r.querySelector('#mini-extra-info').checked,r.querySelector('.mini').getClientRects().length>0,link.getClientRects().length>0];
+        })()`);
+        const toggleExtras=()=>evaluate(`(()=>{
+            const r=document.querySelector('#pokecatch-auto-helper').shadowRoot;
+            r.querySelector('.mini').click();r.querySelector('[data-workspace="settings"]').click();
+            r.querySelector('#mini-extra-info').click();r.querySelector('#fold').click();
+        })()`);
+        assert.deepEqual(await miniVisibility(),[false,true,false]);
+        await toggleExtras();assert.deepEqual(await miniVisibility(),[true,true,true]);
+        await evaluate('location.reload()').catch(()=>{});
+        for(let i=0;i<80&&!await evaluate('performance.getEntriesByType("navigation")[0]?.type==="reload" && !!window.__pokecatchHelper?.ready').catch(()=>false);i++)await delay(50);
+        assert.deepEqual(await miniVisibility(),[true,true,true]);
+        await toggleExtras();assert.deepEqual(await miniVisibility(),[false,true,false]);
+        await toggleExtras();
+        checks.push('legacy preferences show only the central button; optional shortcuts persist after reload and can be hidden again');
         const miniSetup=await evaluate(`(async()=>{
             const root=document.querySelector('#pokecatch-auto-helper').shadowRoot,mini=root.querySelector('.mini');
             root.querySelector('#mini-state').textContent='已停 · 弹窗等待超时，请处理后继续';

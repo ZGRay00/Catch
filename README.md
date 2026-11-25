@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.2.0**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.2.1**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.2.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.2.1.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+8.2.1 · 最小化后默认只显示中心状态栏。在「设置」开启「最小化是否显示额外信息」即可显示停机记录、孵蛋、地下、队列和收益等提示。
 
 8.2.0 · 冒险配队复用后备出场顺序、同一组成员的覆盖分及跨轮交手数据，缩短大盒子的完整复核等待。导出诊断可查看复核进度和重新计算的原因。
 

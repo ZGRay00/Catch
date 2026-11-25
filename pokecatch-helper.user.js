@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.2.0
+// @version      8.2.1
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.2.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.2.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -15848,6 +15848,7 @@
             <section id="pane-eggs" aria-label="孵蛋" hidden></section>
             <section id="pane-settings" aria-label="设置" hidden>
             <label class="setting">助手外观<select id="panel-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+            <label class="setting">最小化是否显示额外信息<input type="checkbox" role="switch" id="mini-extra-info"></label>
             <section id="settings-purchase" class="purchase-card">
                 ${purchaseToggle}
                 <div class="hint">控制本账号的道具采购、主线补练买糖和寄养扩容，已入队任务也遵循此开关。</div>
@@ -15943,6 +15944,14 @@
         // Version 1.1.0 used a single position; migrate it only to the expanded panel.
         if (!ui.panel && Number.isFinite(ui.x) && Number.isFinite(ui.y)) ui.panel = { x: ui.x, y: ui.y };
         function saveUI() { try { localStorage.setItem(PREFIX + 'ui', JSON.stringify(ui)); } catch {} }
+        const miniExtraInfo=query('#mini-extra-info'),miniLinks=query('.mini-links');
+        miniExtraInfo.checked=ui.miniExtraInfo===true;
+        miniLinks.classList.toggle('hidden',!miniExtraInfo.checked);
+        miniExtraInfo.onchange=()=>{
+            ui.miniExtraInfo=miniExtraInfo.checked;
+            miniLinks.classList.toggle('hidden',!ui.miniExtraInfo);
+            saveUI();
+        };
         const applyPanelAppearance=mountPanelAppearance(root,host,ui,saveUI);
         const logPanel=mountPanelLogs(root,engine,()=>{viewSignature=null;render();});
         const fieldInsights=mountFieldInsights(root,engine,life.signal);
@@ -16494,12 +16503,15 @@
             query('#run-state').textContent = engine.suspended?'PAUSED · 页面已挂起':engine.manual ? 'PAUSED · 手动控制' : nativePaused?'PAUSED · 游戏暂停':engine.running ? queueStep?`队列 ${queueStep} · 运行中`:'RUNNING · 运行中' : 'READY · 已停止';
             const miniState=query('#mini-state');
             const miniBase=wait ? `${engine.suspended?'挂起':'手动'} · ${wait.mini}` : nativePaused?'游戏已暂停':engine.running?(engine.preparation?'补练 → ':'')+activeLabel+(queueStep?' '+queueStep:''):engine.lastStop?.reason?'已停 · '+engine.lastStop.reason:'待命';
-            if(ui.folded)updateMiniActions(root,engine,s,now,insights.itemSummary);
+            if(ui.folded){
+                if(miniExtraInfo.checked)updateMiniActions(root,engine,s,now,insights.itemSummary);
+            }
             else if(ui.workspace==='activity'){
                 renderExecution(s,now);
                 if(query('#health-insight').open)renderHealthFacts(query('#health-facts'),engine.healthReport(now),now);
             }
-            const nursery=nurseryPanel.render(s,now),miniText=miniBase+(nursery?.counts.shiny?' · ✦蛋'+nursery.counts.shiny:'')+(nursery?.counts.estimatedShiny?' · 预计闪蛋'+nursery.counts.estimatedShiny:'');
+            const nursery=nurseryPanel.render(s,now);
+            const miniText=miniExtraInfo.checked?miniBase+(nursery?.counts.shiny?' · ✦蛋'+nursery.counts.shiny:'')+(nursery?.counts.estimatedShiny?' · 预计闪蛋'+nursery.counts.estimatedShiny:''):miniBase;
             if(miniState.textContent!==miniText)miniState.textContent=miniText;
             miniState.title=miniText;
             if(lastMode!==selectedCard()||settingsViewKey!==JSON.stringify(engine.settings))syncSettings();

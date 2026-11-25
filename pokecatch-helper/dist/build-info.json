@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.2.0",
-  "scriptSha256": "1a749188d351ca168ce6a1294bb57f43cc1c894cf961895d2f5dfe54680e1ebc",
-  "metadataSha256": "75bb7d86c7ec0e651d7deea9a7cd63e377534d2aaa4db5ba742f15e7b5a2796a",
+  "version": "8.2.1",
+  "scriptSha256": "46523e05e8b5909a95e6411b20f7294b1b01d6b2db324ca908d0aa39cd1d72f9",
+  "metadataSha256": "4d3b7369d2d61a8da19227f83df805292aed4a6b2fe945a07a7d4ea37914c0f4",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "473699e0efab849c7311d3d73f504f23429d6828f1e541fd4eb498d9fc931641"
+      "sha256": "7145a6f9dbe802dd5a776709c1e6e1e925108526602fba72f197cd3cf17fbcb9"
     },
     {
       "file": "build.manifest.json",
@@ -222,7 +222,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "be676115dd21d616c9d08346641efdf9e0298dd4503a360677fac0a89c788d8a"
+      "sha256": "2820ad38930f850efe4be256806e99fbb16de28aeea5765aed280d13c1650f8e"
     }
   ]
 }

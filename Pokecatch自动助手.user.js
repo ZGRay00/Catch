@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.1.5
+// @version      8.1.6
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.1.5', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.1.6', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -9857,8 +9857,12 @@
         if(!next||next.key===current?.key)return false;
         return !current||next.rate-current.rate>current.rate*trainingSwitchMargin(current,next)/100;
     }
-    function isCollectionMap(mode,kind){
-        return kind==='map'&&(mode==='dex'||mode==='shiny');
+    function isCollectionMap(settings,kind){
+        if(kind!=='map')return false;
+        if(settings.mode==='dex'||settings.mode==='shiny')return true;
+        const sources=settings.mode==='item'&&ITEMS.get(settings.itemId)?.sources;
+        // Quest finds are rolled on passage; the chapter boss is not the drop source.
+        return !!sources?.length&&sources.every(source=>source.kind==='quest');
     }
     class LevelCoach {
         constructor(engine){this.e=engine;this.checked=null;this.combat=null;this.ready=null;this.planReview=null;}
@@ -9920,7 +9924,7 @@
         }
         ensure(s,context,resume={},now=Date.now()){
             const e=this.e;if(!e.settings.autoPrepare||e.preparation||['train','breed','resource'].includes(e.settings.mode))return false;
-            if(isCollectionMap(e.settings.mode,context.kind))return false;
+            if(isCollectionMap(e.settings,context.kind))return false;
             if(e.settings.mode==='money'&&e.settings.moneyTarget&&s.money>=e.settings.moneyTarget)return false;
             const ordinary=['map','progress'].includes(context.kind),chapter=CHAPTERS.get(context.id);
             if(ordinary&&!e.settings.autoTeam&&!e.driver.teamTask){
@@ -10023,7 +10027,7 @@
             // The old map's healing point is not required to continue choosing it.
             if(mode==='money'&&e.strictPlanning&&s.road?.length&&s.road.join('|')!==s.team.join('|'))return null;
             let row;
-            if(isCollectionMap(mode,'map'))return null;
+            if(isCollectionMap(e.settings,'map'))return null;
             if(mode==='progress'){
                 if(!e.canProgress(s))return null;
                 const c=CHAPTERS.get(a.unlocked);row={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(x=>x.loop===c.loop).map(x=>x.id):[c.id]};
@@ -10932,9 +10936,10 @@
             if(this.automation.state.departure)this.automation.state.departure.at=now;
             if(this.automation.state.eliteDefeat){this.automation.state.eliteDefeat.at=now;this.automation.state.eliteDefeat.clicked=false;}
             if(cfg.autoPrepare&&cp.preparation?.mode===cfg.mode&&Array.isArray(cp.preparation.targets)&&Array.isArray(cp.preparation.uids)){
-                if(isCollectionMap(cfg.mode,cp.preparation.context?.kind))this.log('已跳过旧版搜寻路线补练，重新规划捕获目标');
+                if(isCollectionMap(cfg,cp.preparation.context?.kind))this.log('已跳过旧版搜寻路线补练，重新规划目标地图');
                 else this.preparation=cp.preparation;
             }
+            if(isCollectionMap(cfg,this.raidPreparation?.context?.kind))this.raidPreparation=null;
             if(Array.isArray(cp.preparationReady?.targets))this.coach.ready=cp.preparationReady;
             this.raidReturn=cp.raidReturn||null;
             this.itemRound.observe(s,this);
@@ -12127,7 +12132,7 @@
             const paired=this.visit?.activeRoutePlan;
             const pairedReady=paired&&this.verifiedFarmHeld(s,now);
             if(paired&&!pairedReady)delete this.visit.activeRoutePlan;
-            if(!directedHunt&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
+            if(this.settings.mode!=='item'&&!directedHunt&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(roadPending)this.telemetry.sample=null;
             if (this.target && this.target.members.includes(s.adv.chapter) && !roadPending) {
@@ -12732,7 +12737,13 @@
                 this.driver.nav('adventure');return;
             }
             if (mode==='item'&&current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,rows[0],now,'item')) {
-                this.status = `${label} · ${current.name}`; this.driver.nav('adventure'); return;
+                if(this.routeReached(s,current)){
+                    if(this.settings.autoTeam&&this.fitTeam(s,now))return;
+                    this.status=`${label} · ${current.name}`;
+                }
+                else if(this.canStartRoute(s)){this.travel(current,now);return;}
+                else this.status=`${label} · 等待当前遭遇结算，恢复${current.name}循环`;
+                this.driver.nav('adventure');return;
             }
             if (!this.canStartRoute(s)) {this.driver.nav('adventure');return;}
             this.travel(rows[0],now);

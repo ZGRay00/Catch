@@ -471,9 +471,10 @@
             if(this.automation.state.departure)this.automation.state.departure.at=now;
             if(this.automation.state.eliteDefeat){this.automation.state.eliteDefeat.at=now;this.automation.state.eliteDefeat.clicked=false;}
             if(cfg.autoPrepare&&cp.preparation?.mode===cfg.mode&&Array.isArray(cp.preparation.targets)&&Array.isArray(cp.preparation.uids)){
-                if(isCollectionMap(cfg.mode,cp.preparation.context?.kind))this.log('已跳过旧版搜寻路线补练，重新规划捕获目标');
+                if(isCollectionMap(cfg,cp.preparation.context?.kind))this.log('已跳过旧版搜寻路线补练，重新规划目标地图');
                 else this.preparation=cp.preparation;
             }
+            if(isCollectionMap(cfg,this.raidPreparation?.context?.kind))this.raidPreparation=null;
             if(Array.isArray(cp.preparationReady?.targets))this.coach.ready=cp.preparationReady;
             this.raidReturn=cp.raidReturn||null;
             this.itemRound.observe(s,this);
@@ -1666,7 +1667,7 @@
             const paired=this.visit?.activeRoutePlan;
             const pairedReady=paired&&this.verifiedFarmHeld(s,now);
             if(paired&&!pairedReady)delete this.visit.activeRoutePlan;
-            if(!directedHunt&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
+            if(this.settings.mode!=='item'&&!directedHunt&&!pairedReady&&this.settings.autoTeam&&(!startingBattle||this.target||this.settings.mode==='progress')&&this.fitTeam(s,now))return;
             const roadPending=Array.isArray(s.road)&&s.road.length>0&&(s.road.length!==s.team.length||s.road.some((uid,i)=>uid!==s.team[i]));
             if(roadPending)this.telemetry.sample=null;
             if (this.target && this.target.members.includes(s.adv.chapter) && !roadPending) {
@@ -2271,7 +2272,13 @@
                 this.driver.nav('adventure');return;
             }
             if (mode==='item'&&current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,rows[0],now,'item')) {
-                this.status = `${label} · ${current.name}`; this.driver.nav('adventure'); return;
+                if(this.routeReached(s,current)){
+                    if(this.settings.autoTeam&&this.fitTeam(s,now))return;
+                    this.status=`${label} · ${current.name}`;
+                }
+                else if(this.canStartRoute(s)){this.travel(current,now);return;}
+                else this.status=`${label} · 等待当前遭遇结算，恢复${current.name}循环`;
+                this.driver.nav('adventure');return;
             }
             if (!this.canStartRoute(s)) {this.driver.nav('adventure');return;}
             this.travel(rows[0],now);

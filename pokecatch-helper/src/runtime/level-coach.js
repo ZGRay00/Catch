@@ -5,8 +5,12 @@
         if(!next||next.key===current?.key)return false;
         return !current||next.rate-current.rate>current.rate*trainingSwitchMargin(current,next)/100;
     }
-    function isCollectionMap(mode,kind){
-        return kind==='map'&&(mode==='dex'||mode==='shiny');
+    function isCollectionMap(settings,kind){
+        if(kind!=='map')return false;
+        if(settings.mode==='dex'||settings.mode==='shiny')return true;
+        const sources=settings.mode==='item'&&ITEMS.get(settings.itemId)?.sources;
+        // Quest finds are rolled on passage; the chapter boss is not the drop source.
+        return !!sources?.length&&sources.every(source=>source.kind==='quest');
     }
     class LevelCoach {
         constructor(engine){this.e=engine;this.checked=null;this.combat=null;this.ready=null;this.planReview=null;}
@@ -68,7 +72,7 @@
         }
         ensure(s,context,resume={},now=Date.now()){
             const e=this.e;if(!e.settings.autoPrepare||e.preparation||['train','breed','resource'].includes(e.settings.mode))return false;
-            if(isCollectionMap(e.settings.mode,context.kind))return false;
+            if(isCollectionMap(e.settings,context.kind))return false;
             if(e.settings.mode==='money'&&e.settings.moneyTarget&&s.money>=e.settings.moneyTarget)return false;
             const ordinary=['map','progress'].includes(context.kind),chapter=CHAPTERS.get(context.id);
             if(ordinary&&!e.settings.autoTeam&&!e.driver.teamTask){
@@ -171,7 +175,7 @@
             // The old map's healing point is not required to continue choosing it.
             if(mode==='money'&&e.strictPlanning&&s.road?.length&&s.road.join('|')!==s.team.join('|'))return null;
             let row;
-            if(isCollectionMap(mode,'map'))return null;
+            if(isCollectionMap(e.settings,'map'))return null;
             if(mode==='progress'){
                 if(!e.canProgress(s))return null;
                 const c=CHAPTERS.get(a.unlocked);row={...c,key:String(c.loop),members:c.league?DATA.chapters.filter(x=>x.loop===c.loop).map(x=>x.id):[c.id]};

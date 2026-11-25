@@ -19,7 +19,7 @@ for(const mode of ['train','item','money']){
         assert.equal(e.running,true);assert.equal(e.driver.pendingMap?.row.key,target.key,'a remembered target is not evidence that the game is still on its map');e.stop();
     });
     test(`${mode} farming keeps a valid current map without issuing a duplicate travel`,t=>{
-        const {s,e,target,save,run,nav}=fixture(t,mode);s.adv.chapter=target.members[0];save();run();
+        const {s,e,target,save,run,nav}=fixture(t,mode);s.adv.chapter=target.members[0];s.adv.loops=[target.loop];save();run();
         assert.equal(e.running,true);assert.equal(e.driver.pendingMap,null);assert.deepEqual(nav,['adventure']);assert.equal(e.target.key,target.key);e.stop();
     });
 }

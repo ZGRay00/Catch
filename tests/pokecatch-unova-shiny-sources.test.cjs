@@ -98,6 +98,37 @@ test('Axew fang collection stops when the bag contains ten or the nest has been 
     assert.equal(H.sourceAvailable(s,source,'axew-fang'),false);
 });
 
+test('Axew fang farming goes directly to the quest route and repairs a leftover league loop', () => {
+    const league=H.DATA.chapters.find(c=>c.reg==='unova'&&c.league),s=state(league.id),now=Date.now();
+    Object.assign(s,{team:['a'],road:['a'],mons:[{uid:'a',id:7,level:5}]});
+    s.adv.loops=[league.loop];s.items['axew-fang']=9;
+    const engine=new H.Engine({}, {mode:'item',itemId:'axew-fang',autoPrepare:true});
+    engine.read=()=>s;engine.driver.nav=()=>true;
+    engine.farm(s,now,'item');
+    assert.equal(engine.preparation,null);
+    const pending=engine.driver.pendingMap;
+    assert.equal(pending?.row.id,72);
+    s.adv.chapter=72;s.adv.loops=[72];
+    engine.confirmMapArrival(s,pending,now);
+    let fits=0;engine.fitTeam=()=>{fits++;return false;};
+    engine.farm(s,now+1000,'item');
+    assert.equal(engine.driver.pendingMap,null);assert.equal(fits,1);
+    s.adv.loops.push(league.loop);s.adv.pending={type:'choice'};
+    engine.farm(s,now+2000,'item');
+    assert.equal(engine.driver.pendingMap,null);assert.equal(fits,1);
+    delete s.adv.pending;
+    engine.farm(s,now+3000,'item');
+    assert.equal(engine.driver.pendingMap?.row.id,72);assert.equal(fits,1);
+});
+
+test('resuming a fang hunt drops old map training even if it was suspended for a raid',()=>{
+    const s=state(72),now=Date.now(),engine=new H.Engine({},{mode:'item',itemId:'axew-fang',autoPrepare:true});
+    s.team=['a'];s.mons=[{uid:'a',id:7,level:5}];
+    const prep={mode:'item',context:{kind:'map',id:72},targets:[{uid:'a',goal:50}],uids:['a']};
+    engine.beginTask(s,{preparation:prep,session:{raidPreparation:prep,startItems:3}},now);
+    assert.equal(engine.preparation,null);assert.equal(engine.raidPreparation,null);assert.equal(engine.startItems,3);
+});
+
 test('towns can yield a first regional stone, and roaming berries enter their pool after a roaming group unlocks', () => {
     const s=state(0);
     const rank=id=>H.itemRanking(s,H.normalizeSettings({mode:'item',itemId:id}));

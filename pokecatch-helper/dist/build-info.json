@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.4.3",
-  "scriptSha256": "5cce77c8a40c49d3599a4c58ea946761c99dfe460612f0525783b766ed29f862",
-  "metadataSha256": "41d5d8ef0cdce4caaa7bd52fb2d24063ef57d6e10d7e51b41b31b5be9d86308e",
+  "version": "8.4.4",
+  "scriptSha256": "037c4d42870c018cf0e125d8fd1f23d9934c7bd9891ec78938226bd189ca8503",
+  "metadataSha256": "e39582f0eda28f23d3d64f883e4ba93738f9081e51ea1ed8d53d9c95616a553f",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "858ff645b061ffc992c9351054ec7f7b9a7eb39ef96aae794d2646acf6cfc22e"
+      "sha256": "156f5c97fd43ccdb8853b64a3cc87573d9e0c9dffb8f13d9c23f63de3f4a3364"
     },
     {
       "file": "build.manifest.json",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "8699f6c472fd4e339edab5b1ee6d5144ee76690c3f06fed6fddb70433118a59f"
+      "sha256": "0e0dac38a184bde796b6e4a2e431fca62360386082a15e8abe16d2b7c9e8fde4"
     },
     {
       "file": "src/models/farming.js",
@@ -182,11 +182,11 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "4157064d8c8dfa55b42a826e358bb31401869068688df89a7c65881fe3638056"
+      "sha256": "bdc26b2564973c49cf1efa7f70dbf7270bb5c4adccf2852c7f9bcfd9c2447f7f"
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "8780720f2e3bc292fb24634384d0c68c1f1ec4d778551fa58231ec579f29aece"
+      "sha256": "f7c8c39fbf2064427710f51442784da62eacd550f15b5c880c62b1aa9907127f"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -194,7 +194,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "85e2b77d4d8bf5f494b89475654e1de238e2d139f813aef8aa7d8a9a9d97ae5a"
+      "sha256": "aad405254282926119188abccfe5708495bfd3343b89ffd7ad33fe2d86a6b89c"
     },
     {
       "file": "src/runtime/node-exports.js",

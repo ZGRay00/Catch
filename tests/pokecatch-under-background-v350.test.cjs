@@ -269,6 +269,39 @@ for(const field of ['pending','event','zone','tower','league'])test(`background 
     const f=fixture(t);f.s.adv[field]={id:1};assert.ok(!f.plan().ready.includes('underground'));
 });
 
+for(const inLegend of [false,true])test('native underground priority fills two distinct bays '+(inLegend?'during an adopted legend':'before the next foreground turn'),t=>{
+    const f=fixture(t,{mode:'legend',underGoal:'native'}),{s,e}=f;
+    s.under.extra=1;
+    if(inLegend){s.adv.zone={id:64101};e.zoneId=64101;}
+    const teams=[['idle-0','idle-1','idle-2'],['main-0','main-1','main-2']];
+    const go=teams.map((uids,bay)=>node({dataset:{ugGo:String(bay)},perform:()=>f.commit('run-'+bay,uids,bay)}));
+    f.nodes.set('#ug-root [data-ug-go]',go);
+    f.nodes.set('[data-ug-slot]',teams.map((_,bay)=>node({dataset:{ugSlot:bay+'.0'}})));
+    f.nodes.set('#ug-root [data-ug-from="1"]',[f.from]);f.save();
+    const tick=()=>{f.advance(1000);return e.serviceBackground(s,f.now());};
+    for(let bay=0;bay<2;bay++){
+        assert.ok(tick());
+        const picker=e.driver.ownedDialog;assert.equal(picker.bay,bay);
+        const optimize=node({perform(){s.eventTeams['under:'+bay]=teams[bay];f.save();}});
+        const close=node({perform(){f.nodes.delete('#evt-pick');}});
+        f.nodes.set('#evt-pick',[node({querySelector:k=>k==='#evt-opt'?optimize:close})]);
+        e.automation.nativeUnderPicker(s,picker);e.automation.nativeUnderPicker(s,picker);
+        tick();tick();
+        assert.equal(e.services.underDispatched,bay+1);
+        assert.equal(e.services.underground,null);
+        if(inLegend&&bay===0)assert.equal(tick(),false,'foreground team can be reviewed between departures');
+    }
+    assert.equal(s.under.slots.length,2);assert.equal(f.plan().ready.includes('underground'),false);
+    assert.equal(go.reduce((n,el)=>n+f.actions.filter(a=>a.el===el).length,0),2);
+});
+
+test('native dispatch waits for legend adoption, riddles, elite locks and world encounters',t=>{
+    const f=fixture(t,{mode:'legend',underGoal:'native'}),{s,e}=f;
+    for(const [zone,adopted] of [[{id:64101},0],[{id:64101,riddle:'gate'},64101],[{id:64101,elite:1},64101],[{id:493},493]]){
+        s.adv.zone=zone;e.zoneId=adopted;assert.ok(!f.plan().ready.includes('underground'));
+    }
+});
+
 for(const field of ['pendingMap','teamTask','ownedDialog','navigation'])test(`background dispatch yields to ${field}`,t=>{
     const f=fixture(t);f.e.driver[field]={};assert.ok(!f.plan().ready.includes('underground'));
 });

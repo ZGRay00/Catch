@@ -443,10 +443,30 @@ test('FX completion grants a brief single-action receipt acknowledgement and the
     f.ui.fx = [fx]; f.e.automation.eggUI(f.s, f.now()); f.advance(20000);
     fx.isConnected = false; f.ui.fx = [];
     const button = node({ matches: selector => selector === '.gold,.primary' });
-    f.ui.card = node({ querySelectorAll: () => [button] });
+    f.ui.card = node({ querySelector: key=>key==='.dexcard'?{}:key==='.dc-head .dc-sum b'?{textContent:'1'}:null,querySelectorAll: () => [button] });
     assert.equal(f.e.automation.eggUI(f.s, f.now()), true);
     assert.equal(f.actions.at(-1).label, '确认自动收蛋结果');
     const before = f.actions.length;
     assert.equal(f.e.automation.eggUI(f.s, f.now()), false);
     assert.equal(f.actions.length, before);
+});
+
+test('a delayed receipt must match the last clicked egg and may only be acknowledged once',t=>{
+    const f=fixture(t);f.service();f.service();f.advance(30000);
+    let species='6';const button=node({matches:sel=>sel==='.gold,.primary'});
+    f.ui.card=node({querySelector:key=>key==='.dexcard'?{}:key==='.dc-head .dc-sum b'?{textContent:species}:null,querySelectorAll:()=>[button]});
+    const confirm=()=>f.e.automation.eggUI(f.s,f.now());
+    assert.equal(confirm(),false);species='1';f.ui.evt=node();assert.equal(confirm(),false);
+    f.ui.evt=null;assert.equal(confirm(),true);assert.equal(confirm(),false);
+});
+
+test('a choice after opening the nursery keeps the task and resumes the same egg after two minutes',async t=>{
+    const f=fixture(t),{e,s,ui}=f;
+    e.automation.state.eggService={started:f.now(),returnScreen:'adventure'};
+    ui.screen='pension';ui.modal=node({id:'fixture-choice',querySelector:()=>({textContent:'选择道具'}),querySelectorAll:()=>[node({textContent:'保留'})]});
+    await e.step(f.now());f.advance(125000);await e.step(f.now());
+    assert.ok(e.running);assert.equal(f.clicks().length,0);assert.match(e.status,/选择道具.*保留/);
+    assert.equal(e.logs.filter(row=>row.text.includes('fixture-choice')).length,1);
+    ui.modal=null;f.advance(1000);await e.step(f.now());f.advance(1200);await e.step(f.now());
+    assert.equal(f.clicks().length,1);assert.equal(s.stats.hatched,1);assert.equal(e.automation.state.eggService,undefined);
 });

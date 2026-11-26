@@ -167,9 +167,10 @@
     function backgroundActivityBlock(a,service,engine){
         const collect=service==='eggs'||service==='underCollect';
         if(a.pending)return '等待当前游戏选择结束';
-        if(collect&&a.zone?.riddle)return '等待传说入口铭文结算';
-        if(collect&&a.zone&&engine?.running&&engine.zoneId!==a.zone.id)return '等待助手接管当前传说战';
-        if(a.event||a.tower||a.league||a.zone&&(!collect||a.zone.id===493))return '独立战斗占用前台，计时继续';
+        const visitDuringLegend=collect||service==='underDispatch'&&!a.zone?.elite&&engine?.settings?.underGoal==='native'&&engine?.settings?.mode==='legend';
+        if(visitDuringLegend&&a.zone?.riddle)return '等待传说入口铭文结算';
+        if(visitDuringLegend&&a.zone&&engine?.running&&engine.zoneId!==a.zone.id)return '等待助手接管当前传说战';
+        if(a.event||a.tower||a.league||a.zone&&(!visitDuringLegend||a.zone.id===493))return '独立战斗占用前台，计时继续';
         if(a.battle&&!collect&&service!=='underDispatch')return '等待当前战斗结束';
         return '';
     }

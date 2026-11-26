@@ -257,26 +257,36 @@
             // which has an animation but no dex receipt. Never wait for a nonexistent card.
             if((idle?!this.e.nurseryAssist?.idleAccess:!this.e.running)||this.e.manual||pageHidden())return false;
             const pending=this.state.eggService?.tx||this.state.hatch;
-            if(this.owner||this.e.driver.ownedDialog||!(this.state.eggReceiptUntil>now||pending&&this.state.eggReceiptUntil||this.eggFX?.node?.isConnected))return false;
+            if(this.owner||this.e.driver.ownedDialog)return false;
+            const until=this.state.eggReceiptUntil,owned=until>now||pending&&until||this.eggFX?.node?.isConnected;
+            // After the 15s animation window, only accept a matching species receipt, up to 2 min from the click.
+            if(!owned&&!(this.state.eggReceiptId&&until+105000>now))return false;
             const fx=$$('.lk-fx.lk-hatch,.hatch-fx:not(.gift)').find(visible),d=this.e.driver;
-            if(fx){
+            if(owned&&fx){
                 if(this.eggFX&&this.eggFX.node!==fx){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋界面发生变化，请确认后继续');return true;}
                 this.eggFX??={node:fx,started:now};
-                if(now-this.eggFX.started>120000){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋动画长时间未结束，请检查游戏后继续');return true;}
                 if(visible($('#modal-root.open'))||visible($('#evt-pick'))){
-                    if(!idle&&(d.dismissInformation?.(s)||d.receipt()))return true;
-                    this.e.status='自动收蛋 · 等待前方弹窗处理完毕';return true;
+                    if(!visible($('#evt-pick'))&&(this.confirmEggCard()||!idle&&(d.dismissInformation?.(s)||d.receipt())))return true;
+                    if(!idle)return this.e.waitForGameDialog(now,true);
+                    this.e.status='待命收蛋 · 等待前方弹窗处理完毕';return true;
                 }
+                if(now-this.eggFX.started>120000){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋动画长时间未结束，请检查游戏后继续');return true;}
                 d.click([...fx.querySelectorAll('.fx-skip:not([data-gone]),.rc-tap,.hx-tap')].find(enabled),'领取孵蛋结果',true);this.e.lastProgress=now;return true;
             }
             if(this.eggFX)this.state.eggReceiptUntil=now+15000;
             this.eggFX=null;
-            const card=$('#modal-root.open .modal.dexcard-modal');
-            if(!visible(card)||card.querySelector('.mon-card'))return false;
+            return this.confirmEggCard();
+        }
+        confirmEggCard(){
+            if(visible($('#evt-pick')))return false;
+            const top=$$('#modal-root.open .modal').filter(visible).at(-1);
+            const card=top||$('#modal-root.open .modal.dexcard-modal'),id=this.state.eggReceiptId;
+            if(!visible(card)||top&&!top.matches('.dexcard-modal')||!id||card.querySelector('.mon-card')||!card.querySelector('.dexcard'))return false;
+            if(Number(card.querySelector('.dc-head .dc-sum b')?.textContent?.trim())!==id)return false;
             const actions=[...card.querySelectorAll('.modal-actions button')];
-            if(actions.length!==1||!actions[0].matches('.gold,.primary'))return false;
-            if(d.click(actions[0],'确认自动收蛋结果'))delete this.state.eggReceiptUntil;
-            return true;
+            if(actions.length!==1||!actions[0].matches('.gold,.primary')||!enabled(actions[0]))return false;
+            if(!this.e.driver.click(actions[0],'确认自动收蛋结果'))return false;
+            delete this.state.eggReceiptUntil;delete this.state.eggReceiptId;return true;
         }
         hatchChoices(s,due,now){
             const plan=eggHatchPlan(s,due,now);
@@ -344,7 +354,7 @@
                     }
                     const ready=buttonFor(selected);
                     task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};persist();
-                    if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptUntil=now+15000;}
+                    if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptId=Number(selected.id);this.state.eggReceiptUntil=now+15000;}
                     else delete task.tx;
                     persist();return true;
                 }
@@ -554,7 +564,7 @@
                     e.services.retryAt.underground=now+60000;
                 }
             }
-            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||mainGoalReached(s,e,now)||adventureDispatchWait(s,e,now)))task.returning=true;
+            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||backgroundActivityBlock(s.adv,'underDispatch',e)||mainGoalReached(s,e,now)||adventureDispatchWait(s,e,now)))task.returning=true;
             if(!task.returning){
                 if(!d.nav('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开后台地下探险页');return true;}
@@ -671,7 +681,7 @@
                 }
                 this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};
                 e.persist();
-                if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;
+                if(d.click(buttonFor(egg),'孵化已成熟的蛋')){this.state.eggReceiptId=Number(egg.id);this.state.eggReceiptUntil=now+15000;}
                 else this.state.hatch=null;
                 e.persist();return;
             }

@@ -300,6 +300,7 @@
             this.rememberTeam(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
         }
         animations(s) {
+            if((this.e.automation.state.eggService||this.e.automation.state.hatch)&&(visible($('#modal-root.open'))||visible($('#evt-pick'))))return false;
             if(visible($('.lk-fx.lk-evo'))){
                 this.e.status='等待在游戏中手动处理进化动画';
                 this.e.lastProgress=Date.now();return true;
@@ -315,6 +316,8 @@
         receipt(resuming=false) {
             // Fresh capture cards have a single acknowledgement action, not purchases or item use.
             const card = $('#modal-root.open .modal.dexcard-modal:has(.dc-new)');
+            const top=card&&$$('#modal-root.open .modal').filter(visible).at(-1);
+            if(card&&top&&card!==top)return false;
             const buttons = card ? [...card.querySelectorAll('.modal-actions button')] : [];
             if (buttons.length === 1 && buttons[0].classList.contains('gold')) {
                 const acknowledged=this.click(buttons[0], '确认新捕获宝可梦',false,resuming);

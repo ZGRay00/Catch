@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.4.3
+// @version      8.4.4
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.4.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.4.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -995,9 +995,10 @@
     function backgroundActivityBlock(a,service,engine){
         const collect=service==='eggs'||service==='underCollect';
         if(a.pending)return '等待当前游戏选择结束';
-        if(collect&&a.zone?.riddle)return '等待传说入口铭文结算';
-        if(collect&&a.zone&&engine?.running&&engine.zoneId!==a.zone.id)return '等待助手接管当前传说战';
-        if(a.event||a.tower||a.league||a.zone&&(!collect||a.zone.id===493))return '独立战斗占用前台，计时继续';
+        const visitDuringLegend=collect||service==='underDispatch'&&!a.zone?.elite&&engine?.settings?.underGoal==='native'&&engine?.settings?.mode==='legend';
+        if(visitDuringLegend&&a.zone?.riddle)return '等待传说入口铭文结算';
+        if(visitDuringLegend&&a.zone&&engine?.running&&engine.zoneId!==a.zone.id)return '等待助手接管当前传说战';
+        if(a.event||a.tower||a.league||a.zone&&(!visitDuringLegend||a.zone.id===493))return '独立战斗占用前台，计时继续';
         if(a.battle&&!collect&&service!=='underDispatch')return '等待当前战斗结束';
         return '';
     }
@@ -8626,6 +8627,7 @@
             this.rememberTeam(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
         }
         animations(s) {
+            if((this.e.automation.state.eggService||this.e.automation.state.hatch)&&(visible($('#modal-root.open'))||visible($('#evt-pick'))))return false;
             if(visible($('.lk-fx.lk-evo'))){
                 this.e.status='等待在游戏中手动处理进化动画';
                 this.e.lastProgress=Date.now();return true;
@@ -8641,6 +8643,8 @@
         receipt(resuming=false) {
             // Fresh capture cards have a single acknowledgement action, not purchases or item use.
             const card = $('#modal-root.open .modal.dexcard-modal:has(.dc-new)');
+            const top=card&&$$('#modal-root.open .modal').filter(visible).at(-1);
+            if(card&&top&&card!==top)return false;
             const buttons = card ? [...card.querySelectorAll('.modal-actions button')] : [];
             if (buttons.length === 1 && buttons[0].classList.contains('gold')) {
                 const acknowledged=this.click(buttons[0], '确认新捕获宝可梦',false,resuming);
@@ -9419,26 +9423,36 @@
             // which has an animation but no dex receipt. Never wait for a nonexistent card.
             if((idle?!this.e.nurseryAssist?.idleAccess:!this.e.running)||this.e.manual||pageHidden())return false;
             const pending=this.state.eggService?.tx||this.state.hatch;
-            if(this.owner||this.e.driver.ownedDialog||!(this.state.eggReceiptUntil>now||pending&&this.state.eggReceiptUntil||this.eggFX?.node?.isConnected))return false;
+            if(this.owner||this.e.driver.ownedDialog)return false;
+            const until=this.state.eggReceiptUntil,owned=until>now||pending&&until||this.eggFX?.node?.isConnected;
+            // After the 15s animation window, only accept a matching species receipt, up to 2 min from the click.
+            if(!owned&&!(this.state.eggReceiptId&&until+105000>now))return false;
             const fx=$$('.lk-fx.lk-hatch,.hatch-fx:not(.gift)').find(visible),d=this.e.driver;
-            if(fx){
+            if(owned&&fx){
                 if(this.eggFX&&this.eggFX.node!==fx){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋界面发生变化，请确认后继续');return true;}
                 this.eggFX??={node:fx,started:now};
-                if(now-this.eggFX.started>120000){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋动画长时间未结束，请检查游戏后继续');return true;}
                 if(visible($('#modal-root.open'))||visible($('#evt-pick'))){
-                    if(!idle&&(d.dismissInformation?.(s)||d.receipt()))return true;
-                    this.e.status='自动收蛋 · 等待前方弹窗处理完毕';return true;
+                    if(!visible($('#evt-pick'))&&(this.confirmEggCard()||!idle&&(d.dismissInformation?.(s)||d.receipt())))return true;
+                    if(!idle)return this.e.waitForGameDialog(now,true);
+                    this.e.status='待命收蛋 · 等待前方弹窗处理完毕';return true;
                 }
+                if(now-this.eggFX.started>120000){if(idle)this.e.nurseryAssist.cancelIdle();else this.e.stop('孵蛋动画长时间未结束，请检查游戏后继续');return true;}
                 d.click([...fx.querySelectorAll('.fx-skip:not([data-gone]),.rc-tap,.hx-tap')].find(enabled),'领取孵蛋结果',true);this.e.lastProgress=now;return true;
             }
             if(this.eggFX)this.state.eggReceiptUntil=now+15000;
             this.eggFX=null;
-            const card=$('#modal-root.open .modal.dexcard-modal');
-            if(!visible(card)||card.querySelector('.mon-card'))return false;
+            return this.confirmEggCard();
+        }
+        confirmEggCard(){
+            if(visible($('#evt-pick')))return false;
+            const top=$$('#modal-root.open .modal').filter(visible).at(-1);
+            const card=top||$('#modal-root.open .modal.dexcard-modal'),id=this.state.eggReceiptId;
+            if(!visible(card)||top&&!top.matches('.dexcard-modal')||!id||card.querySelector('.mon-card')||!card.querySelector('.dexcard'))return false;
+            if(Number(card.querySelector('.dc-head .dc-sum b')?.textContent?.trim())!==id)return false;
             const actions=[...card.querySelectorAll('.modal-actions button')];
-            if(actions.length!==1||!actions[0].matches('.gold,.primary'))return false;
-            if(d.click(actions[0],'确认自动收蛋结果'))delete this.state.eggReceiptUntil;
-            return true;
+            if(actions.length!==1||!actions[0].matches('.gold,.primary')||!enabled(actions[0]))return false;
+            if(!this.e.driver.click(actions[0],'确认自动收蛋结果'))return false;
+            delete this.state.eggReceiptUntil;delete this.state.eggReceiptId;return true;
         }
         hatchChoices(s,due,now){
             const plan=eggHatchPlan(s,due,now);
@@ -9506,7 +9520,7 @@
                     }
                     const ready=buttonFor(selected);
                     task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};persist();
-                    if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptUntil=now+15000;}
+                    if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptId=Number(selected.id);this.state.eggReceiptUntil=now+15000;}
                     else delete task.tx;
                     persist();return true;
                 }
@@ -9716,7 +9730,7 @@
                     e.services.retryAt.underground=now+60000;
                 }
             }
-            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||mainGoalReached(s,e,now)||adventureDispatchWait(s,e,now)))task.returning=true;
+            if(!launch&&(now-task.started>90000||e.settings.mode==='underground'||!e.settings.autoUnderDispatch||!undergroundBackgroundUnlocked(s)||backgroundActivityBlock(s.adv,'underDispatch',e)||mainGoalReached(s,e,now)||adventureDispatchWait(s,e,now)))task.returning=true;
             if(!task.returning){
                 if(!d.nav('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开后台地下探险页');return true;}
@@ -9833,7 +9847,7 @@
                 }
                 this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};
                 e.persist();
-                if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;
+                if(d.click(buttonFor(egg),'孵化已成熟的蛋')){this.state.eggReceiptId=Number(egg.id);this.state.eggReceiptUntil=now+15000;}
                 else this.state.hatch=null;
                 e.persist();return;
             }
@@ -12818,13 +12832,34 @@
             }
             if(plan.mainComplete)return false;
             // Ready daily services can chain a receipt and a new expedition before a facility takes the page.
-            if(this.backgroundYield&&phase!=='daily'){this.backgroundYield=false;return false;}
+            const refill=!s.adv.zone&&this.settings.underGoal==='native'&&plan.ready.includes('underground');
+            if(this.backgroundYield&&phase!=='daily'&&!refill){this.backgroundYield=false;return false;}
             for(const id of plan.ready){
                 if(phase==='daily'&&id==='evolution'||phase==='evolution'&&id!=='evolution')continue;
                 const handled=id==='eggs'?a.serviceEggs(s,now):id==='underground'?a.serviceUnderground(s,now):a.evolution(s,now);
                 if(handled){this.backgroundYield=false;this.services.lastStarted[id]=now;this.persist();return true;}
             }
             return false;
+        }
+        waitForGameDialog(now,collecting){
+            const blocker=[$('#evt-pick'),...$$('#modal-root.open .modal').reverse(),$('#modal-root.open')].find(visible);
+            if(!blocker)return false;
+            const title=blocker.querySelector?.('[role="heading"],h1,h2,h3,.modal-title,.dc-name')?.textContent?.trim();
+            const buttons=Array.from(blocker.querySelectorAll?.('button')||[]).filter(visible).slice(0,4)
+                .map(el=>(el.textContent?.trim()||el.getAttribute?.('aria-label')||'').slice(0,24)).filter(Boolean);
+            const detail=safeLogText([title?.slice(0,64),blocker.id||blocker.className,buttons.join('、')].filter(Boolean).join(' · '))||'游戏弹窗';
+            if(this.modalWaitNode!==blocker||this.modalWaitSince==null){
+                this.modalWaitNode=blocker;this.modalWaitSince=now;
+                this.log((collecting?'收蛋遇到前方弹窗':'等待游戏弹窗')+' · '+detail,'warn');
+            }
+            if(collecting){
+                this.status='收蛋等待前方弹窗 · '+detail+' · 处理后自动继续';
+                this.lastProgress=now;this.hiddenAt=now;this.telemetry.sample=null;
+            }else{
+                this.status='等待游戏弹窗 · '+detail;
+                if(now-this.modalWaitSince>120000)this.failTask('弹窗等待超时，请处理后重新开始 · '+detail);
+            }
+            return true;
         }
         async step(now = Date.now()) {
             if (!this.running) return;
@@ -12924,19 +12959,17 @@
                 if(selector&&visible($('#modal-root.open '+selector)))this.automation.own(this.settings.mode==='elite'?'gem':'receipt',selector);
             }
             // FX can cover an owned item card; finish the top overlay before using the card again.
+            const collecting=!!(this.automation.state.eggService||this.automation.state.hatch);
+            if(collecting&&!this.driver.ownedDialog&&!this.automation.owner&&visible($('#evt-pick'))){
+                this.waitForGameDialog(now,true);return;
+            }
             if ((this.automation.rankUI||this.automation.state.rankReceipt)&&this.automation.advanceTrainingRank(s,now))return;
             if (this.automation.evolutionUI(s,now) || this.automation.eggUI(s,now) || this.driver.animations(s) || this.driver.dismissInformation?.(s) || this.driver.receipt() || this.automation.finishDeparture(s,now) || this.automation.dialog(s) || this.driver.dialog(s)) return;
             if(this.startActivityExit?.kind==='zone'&&!this.startActivityExit.priorityLegend&&s.adv.pending?.type==='riddle'&&visible($('#modal-root.open .rd-dlg'))){
                 this.driver.click($('#modal-root.open .rd-dlg .dc-x'),'关闭当前铭文，切换任务');return;
             }
             if (this.driver.ownedDialog) return;
-            if (visible($('#modal-root.open')) || visible($('#evt-pick'))) {
-                const blocker=$('#modal-root.open .modal')||$('#evt-pick')||$('#modal-root.open');
-                if(this.modalWaitNode!==blocker){this.modalWaitNode=blocker;this.modalWaitSince=now;}
-                this.modalWaitSince??=now;
-                this.status = '等待游戏弹窗；需要选择时请手动处理';
-                if (now - this.modalWaitSince > 120000) this.failTask('弹窗等待超时，请处理后重新开始'); return;
-            }
+            if((visible($('#modal-root.open'))||visible($('#evt-pick')))&&this.waitForGameDialog(now,collecting))return;
             this.modalWaitSince=null;this.modalWaitNode=null;
             if(this.leaveStartActivity(s,now))return;
             if(this.settings.mode==='elite'&&this.automation.exitDefeatedLeague(s,now))return;

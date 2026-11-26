@@ -1559,13 +1559,34 @@
             }
             if(plan.mainComplete)return false;
             // Ready daily services can chain a receipt and a new expedition before a facility takes the page.
-            if(this.backgroundYield&&phase!=='daily'){this.backgroundYield=false;return false;}
+            const refill=!s.adv.zone&&this.settings.underGoal==='native'&&plan.ready.includes('underground');
+            if(this.backgroundYield&&phase!=='daily'&&!refill){this.backgroundYield=false;return false;}
             for(const id of plan.ready){
                 if(phase==='daily'&&id==='evolution'||phase==='evolution'&&id!=='evolution')continue;
                 const handled=id==='eggs'?a.serviceEggs(s,now):id==='underground'?a.serviceUnderground(s,now):a.evolution(s,now);
                 if(handled){this.backgroundYield=false;this.services.lastStarted[id]=now;this.persist();return true;}
             }
             return false;
+        }
+        waitForGameDialog(now,collecting){
+            const blocker=[$('#evt-pick'),...$$('#modal-root.open .modal').reverse(),$('#modal-root.open')].find(visible);
+            if(!blocker)return false;
+            const title=blocker.querySelector?.('[role="heading"],h1,h2,h3,.modal-title,.dc-name')?.textContent?.trim();
+            const buttons=Array.from(blocker.querySelectorAll?.('button')||[]).filter(visible).slice(0,4)
+                .map(el=>(el.textContent?.trim()||el.getAttribute?.('aria-label')||'').slice(0,24)).filter(Boolean);
+            const detail=safeLogText([title?.slice(0,64),blocker.id||blocker.className,buttons.join('、')].filter(Boolean).join(' · '))||'游戏弹窗';
+            if(this.modalWaitNode!==blocker||this.modalWaitSince==null){
+                this.modalWaitNode=blocker;this.modalWaitSince=now;
+                this.log((collecting?'收蛋遇到前方弹窗':'等待游戏弹窗')+' · '+detail,'warn');
+            }
+            if(collecting){
+                this.status='收蛋等待前方弹窗 · '+detail+' · 处理后自动继续';
+                this.lastProgress=now;this.hiddenAt=now;this.telemetry.sample=null;
+            }else{
+                this.status='等待游戏弹窗 · '+detail;
+                if(now-this.modalWaitSince>120000)this.failTask('弹窗等待超时，请处理后重新开始 · '+detail);
+            }
+            return true;
         }
         async step(now = Date.now()) {
             if (!this.running) return;
@@ -1665,19 +1686,17 @@
                 if(selector&&visible($('#modal-root.open '+selector)))this.automation.own(this.settings.mode==='elite'?'gem':'receipt',selector);
             }
             // FX can cover an owned item card; finish the top overlay before using the card again.
+            const collecting=!!(this.automation.state.eggService||this.automation.state.hatch);
+            if(collecting&&!this.driver.ownedDialog&&!this.automation.owner&&visible($('#evt-pick'))){
+                this.waitForGameDialog(now,true);return;
+            }
             if ((this.automation.rankUI||this.automation.state.rankReceipt)&&this.automation.advanceTrainingRank(s,now))return;
             if (this.automation.evolutionUI(s,now) || this.automation.eggUI(s,now) || this.driver.animations(s) || this.driver.dismissInformation?.(s) || this.driver.receipt() || this.automation.finishDeparture(s,now) || this.automation.dialog(s) || this.driver.dialog(s)) return;
             if(this.startActivityExit?.kind==='zone'&&!this.startActivityExit.priorityLegend&&s.adv.pending?.type==='riddle'&&visible($('#modal-root.open .rd-dlg'))){
                 this.driver.click($('#modal-root.open .rd-dlg .dc-x'),'关闭当前铭文，切换任务');return;
             }
             if (this.driver.ownedDialog) return;
-            if (visible($('#modal-root.open')) || visible($('#evt-pick'))) {
-                const blocker=$('#modal-root.open .modal')||$('#evt-pick')||$('#modal-root.open');
-                if(this.modalWaitNode!==blocker){this.modalWaitNode=blocker;this.modalWaitSince=now;}
-                this.modalWaitSince??=now;
-                this.status = '等待游戏弹窗；需要选择时请手动处理';
-                if (now - this.modalWaitSince > 120000) this.failTask('弹窗等待超时，请处理后重新开始'); return;
-            }
+            if((visible($('#modal-root.open'))||visible($('#evt-pick')))&&this.waitForGameDialog(now,collecting))return;
             this.modalWaitSince=null;this.modalWaitNode=null;
             if(this.leaveStartActivity(s,now))return;
             if(this.settings.mode==='elite'&&this.automation.exitDefeatedLeague(s,now))return;

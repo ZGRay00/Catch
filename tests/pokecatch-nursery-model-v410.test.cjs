@@ -66,6 +66,34 @@ test('forecast uses the actual mixed parent pool and the first pending berry onl
  for(let k=30;k<forecast.nextShiny.k;k++){const p=forecast.pool[Math.floor(N.nurseryFixedRoll(s,k,1)*forecast.pool.length)];assert.ok(N.nurseryFixedRoll(s,k)>=N.nurseryEggRate({sp:p.shiny?2:0,bx:k===30}));}
  assert.equal(JSON.stringify(s),before);assert.ok(Object.values(forecast.scenarios).every(row=>row.hypothetical));
 });
+test('four saved berries cover four successive natural lays without changing incubating eggs',()=>{
+ const s=state(),build='adf601dce2';
+ s.pension.laid=148;
+ s.pension.mons=[{mon:{id:132}},{mon:{id:248,shiny:true}}];
+ s.pension.eggs=[{id:246,uid:'older',k:147,bx:1}];
+ // The first two consecutive eggs require a berry, followed by an ordinary egg.
+ const roll=k=>N.nurseryFixedRoll(s,k);
+ while(!(roll(148)>=1/16&&roll(148)<1/8&&roll(149)>=1/16&&roll(149)<1/8&&roll(150)>=1/8))s.trainer.since++;
+ for(let count=0;count<=4;count++){
+  s.pension.bx=count;
+  const snap=N.nurserySnapshot(s,{build,limit:5,count:5}),f=snap.forecast;
+  assert.equal(snap.eggRows[0].berryApplied,true);
+  assert.equal(f.known,true);assert.equal(f.pendingBerries,count);assert.equal(f.pendingBerry,count>0);
+  assert.equal(f.nextEgg.k,148);assert.equal(f.nextEgg.bx,count>0);
+  const target=f.nextUncoveredEgg;
+  assert.equal(target.k,148+count);assert.equal(target.bx,false);
+  assert.equal(target.withBerryShiny,roll(target.k)<1/8);assert.equal(target.withoutBerryShiny,roll(target.k)<1/16);
+  for(let i=0;i<5;i++){
+   const hit=f.hits.find(row=>row.k===148+i);
+   assert.equal(Boolean(hit),roll(148+i)<(i<count?1/8:1/16));
+   if(hit)assert.equal(hit.bx,i<count);
+  }
+ }
+ s.pension.bx=2;
+ assert.equal(N.nurseryForecast(s,{build:N.NURSERY_RULES.build}).active,false,'a legacy one-berry build cannot certify a four-berry save');
+ assert.equal(N.nurseryForecast(s,{build:'future',limit:4,estimateUnverified:true}).certainty,'reference');
+ assert.equal(N.eggOutcome(s,{id:246,k:147,bx:2},{build}).known,false,'an existing egg still stores a binary applied marker');
+});
 test('ordinary and shiny-parent hypotheses remain separate from actual prediction',()=>{
  const s=state();s.pension.bx=0;const f=N.nurseryForecast(s,{limit:20000});assert.ok(f.scenarios.shinyParents.nextShiny);
  assert.equal(f.scenarios.shinyParents.nextShiny.hypothetical,true);assert.equal(f.nextShiny.hypothetical,undefined);

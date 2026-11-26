@@ -93,6 +93,7 @@
             this.legendProbe=null;this.farmWait=null;
             this.teamCheck = null; this.teamRetryAt = 0;
             this.automation=new Automation(this);this.services=normalizeServiceState();this.backgroundYield=false;this.budget=new Budget(this);this.queue=[];this.queueIndex=0;this.queueRunning=false;this.checkpoint=null;this.nextWake=null;
+            this.appliedQueueEdits=new Set();this.queueEdits=[];
             this.nurseryMonitor=new NurseryMonitor(this);
             this.itemRound=new ItemRoundTracker();
             this.nurseryAssist=new NurseryAssist(this);
@@ -190,6 +191,11 @@
         captureStop(reason,level=logLevel(reason),ts=Date.now()){
             this.lastStop={ts,reason:safeLogText(reason),level,mode:this.settings.mode,action:safeLogText(this.action),
                 status:safeLogText(this.status),signals:this.healthReport(ts),logs:this.logHistory().slice(0,12).map(row=>({...row}))};
+            if(reason.includes('标签页'))try{
+                const held=JSON.parse(this.storage.getItem(PREFIX+'lease:'+this.account)||'null');
+                this.lastStop.signals.tabControl={native:this.gameTabState(),tokenMatches:this.tabToken===undefined?null:this.tabToken===this.storage.getItem('pokecatch-tab'),
+                    lease:held?.expires>ts?(held.token===this.lease?'own':'other'):'free'};
+            }catch{this.lastStop.signals.tabControl={native:'unknown',tokenMatches:null,lease:'unknown'};}
             this.log(reason,level,'运行',ts);if(level==='info')this.saveJournal();
         }
         getSnapshot(){return this.localSnapshot;}
@@ -268,7 +274,6 @@
                 this.endedTotals=null;
                 this.queueDraftBase=null;
                 this.queueRunning = false;
-                this.tabToken = undefined;
                 this.target = this.visit = this.preparation = this.nextWake = null;
                 this.cooldowns = {}; this.raidCooldown = {}; this.logs = []; this.action = '';
                 this.driver = new DOMDriver(this); this.automation = new Automation(this);
@@ -292,8 +297,10 @@
             this.settings = normalizeSettings(saved.settings||{},switching?DEFAULTS:this.settings);
             this.refreshAutoPurchase();
             this.queue = normalizeJobs(saved.queue);
+            this.appliedQueueEdits=new Set(Array.isArray(saved.appliedQueueEdits)?saved.appliedQueueEdits:[]);
             this.queueIndex = Number.isInteger(saved.queueIndex) ? Math.max(0, Math.min(this.queue.length, saved.queueIndex)) : 0;
             this.checkpoint = saved.resume?.wanted ? migrateDailyResume(saved.resume) : null;
+            this.refreshQueueEdits();
             this.services = normalizeServiceState(saved.services);
             this.telemetry = new Telemetry(this.metrics);
             this.nurseryMonitor.load(s);
@@ -371,10 +378,92 @@
             if(job.settings.mode==='item'&&this.state?.adv&&accountId(this.state)===this.account)
                 job.itemAcquired=queueItemAcquired(job,this.state,snapshot.session);
         }
+        observeGameTab(doc,signal){
+            // The CDN shell inserts the controls and preloads the bundle before the game
+            // creates this document's native token. Saved data and shell buttons can both be stale.
+            const gameHosts=['pokecatch-online.app','pokecatch-online.netlify.app','pokecatch-online.pages.dev'];
+            if(!gameHosts.includes(doc.location?.hostname)&&!doc.querySelector?.('script[src$="/boot.js"],script[src*="/bundle/app."]'))return;
+            const page=this.gameTabPage={doc,bundleLoaded:false,awaitActivation:!!doc.prerendering,lost:false};
+            if(page.awaitActivation)doc.addEventListener('prerenderingchange',()=>{
+                // Native TabLock may have registered its activation listener after ours.
+                setTimeout(()=>{if(!signal.aborted){page.awaitActivation=false;this.ownsGameTab();}},0);
+            },{once:true,signal});
+            doc.addEventListener('load',event=>{
+                const script=event.target;
+                if(script?.tagName!=='SCRIPT'||!/(?:^|\/)bundle\/app\.[a-f\d]+\.js(?:[?#]|$)/i.test(script.src))return;
+                page.bundleLoaded=true;
+                this.ownsGameTab();
+            },{capture:true,signal});
+            doc.defaultView.addEventListener('storage',event=>{
+                // A same-document native claim never dispatches this event to its own page.
+                if(event.key!=='pokecatch-tab'||!event.newValue||event.storageArea!==this.storage)return;
+                if(this.tabToken===undefined&&!page.bundleLoaded&&!doc.querySelector('#side-chapter .side-chap-top, .cu-launch, .title-fx'))return;
+                if(page.awaitActivation||doc.prerendering)return;
+                if(event.newValue===this.storage.getItem('pokecatch-tab'))page.lost=true;
+            },{signal});
+            this.ownsGameTab();
+        }
+        lateGameTabState(doc,token){
+            // Older builds can expose their own comparison even in the DOM sandbox.
+            // Only ask with a non-empty token, so the native missing-key recovery is unnecessary.
+            try{
+                const lock=doc.defaultView.TabLock;
+                if(lock?.lost===true)return 'other';
+                if(typeof lock?.mine==='function')return lock.mine()?'owner':'other';
+            }catch{}
+            // The takeover modal can be queued behind another modal, evolution or rank FX.
+            if(doc.querySelector('#modal-root.open, .lk-fx, .rk-fx'))return 'unverified';
+            // TabLock mints its token immediately before Clock's first HEAD request.
+            // startTime (also exposed without cross-origin detailed timing) belongs to this
+            // document. A later tab's token is outside this document's startup interval.
+            const perf=doc.defaultView.performance,origin=perf?.timeOrigin;
+            if(!Number.isFinite(origin)||!perf.getEntriesByType)return 'unverified';
+            const digits=Math.trunc(origin).toString(36).length;
+            if(!/^[a-z0-9]+$/.test(token)||token.length<digits||token.length>digits+6)return 'unverified';
+            const minted=parseInt(token.slice(0,digits),36),entries=perf.getEntriesByType('resource');
+            const script=doc.querySelector('script[src*="/bundle/app."]');
+            if(!script)return 'unverified';
+            const bundle=new URL(script.src,doc.baseURI);
+            const clockPaths=[doc.location.origin+doc.location.pathname,bundle.origin+'/boot.js'];
+            const clock=entries.find(entry=>entry.initiatorType==='fetch'&&clockPaths.some(path=>entry.name.startsWith(path+'?clock=')));
+            if(!clock)return 'unverified';
+            const scriptEntry=entries.find(entry=>entry.name===bundle.href);
+            const first=origin+(scriptEntry?.responseEnd||0),last=origin+clock.startTime;
+            if(minted<first-2||minted>last+2)return 'other';
+            // A missing initial timing entry can leave only a later clock retry. Treat
+            // an ambiguous interval as unverified instead of binding a foreign token.
+            return last-minted<=50?'owner':'unverified';
+        }
+        gameTabState(){
+            const page=this.gameTabPage,token=this.storage.getItem('pokecatch-tab');
+            if(page){
+                if(page.lost||page.doc.querySelector('#modal-root .tab-modal:not(.merge-dlg)'))return 'other';
+                if(page.awaitActivation||page.doc.prerendering)return 'loading';
+                if(this.tabToken===undefined){
+                    // These elements are created by native JS after TabLock, including on
+                    // a warm load where the script load event preceded userscript injection.
+                    if(!token)return 'loading';
+                    if(!page.bundleLoaded){
+                        if(!page.doc.querySelector('#side-chapter .side-chap-top, .cu-launch, .title-fx'))return 'loading';
+                        const state=this.lateGameTabState(page.doc,token);
+                        if(state!=='owner')return state;
+                    }
+                }
+            }
+            if(this.tabToken===undefined)this.tabToken=token;
+            return token===this.tabToken?'owner':'other';
+        }
+        ownsGameTab(){return this.gameTabState()==='owner';}
+        readyToStartInTab(){
+            const state=this.gameTabState();
+            if(state==='owner')return true;
+            this.status=state==='loading'?'等待本页游戏加载并确认标签页控制权':state==='other'?'游戏已由另一个标签页接管':'等待确认本页游戏控制权；请先处理游戏弹窗，若仍在等待请刷新本页';
+            return false;
+        }
         mayPersist(now=Date.now()){
             if(!this.account)return false;
             try{
-                if(this.tabToken!==undefined&&this.storage.getItem('pokecatch-tab')!==this.tabToken)return false;
+                if(!this.ownsGameTab())return false;
                 const raw=this.storage.getItem(PREFIX+'lease:'+this.account);
                 let held=null;try{held=JSON.parse(raw);}catch{}
                 return !(held?.token!==this.lease&&held?.expires>now);
@@ -395,10 +484,14 @@
             if(captureJob)this.saveJobProgress(snapshot);
             const resume=shouldResume?{...snapshot,wanted:true,account:this.account,build:DATA.build,layout:DATA.layout,at:periodicAt===null?now:this.lastPersistedAt??now,settings:this.settings,daily:this.daily,manual:this.manual,queueRunning:this.queueRunning,queueIndex:this.queueIndex,queueJobId:this.queueRunning?this.queue[this.queueIndex]?.id:undefined}:null;
             const state={settings:this.idleTaskSettings(),metrics:Object.fromEntries(entries),queue:this.queue,queueIndex:this.queueIndex,resume,services:this.services,raidDraw:this.raidDraw,dailyMarks:this.dailyMarks};
+            if(this.appliedQueueEdits?.size)state.appliedQueueEdits=[...this.appliedQueueEdits];
             let record=JSON.stringify(state);
             if(periodicAt!==null&&!this.checkpointError&&record===this.lastPersistedRecord&&(!resume||now-this.lastPersistedAt<300000))return true;
             if(resume&&resume.at!==now){resume.at=now;record=JSON.stringify(state);}
             this.storage.setItem(PREFIX + this.account, record);
+            for(const key of this.appliedQueueEdits||[]){
+                try{this.storage.removeItem(key);this.appliedQueueEdits.delete(key);}catch{}
+            }
             this.lastPersistedRecord=record;this.lastPersistedAt=now;this.checkpointError=null;
             if(this.suspended)this.suspended.record=record;
             // Keep the Telemetry object stable, but prune only after durable persistence.
@@ -421,10 +514,91 @@
                 this.checkpointError=String(error?.message||error);
             }
         }
-        updateQueue(jobs){
+        queueEditPrefix(){return PREFIX+'queue-edit:'+encodeURIComponent(this.account)+':';}
+        refreshQueueEdits(){
+            const prefix=this.queueEditPrefix(),commands=[];
+            for(let i=0;i<this.storage.length;i++){
+                const key=this.storage.key(i);
+                if(!key?.startsWith(prefix)||this.appliedQueueEdits?.has(key))continue;
+                const raw=this.storage.getItem(key);
+                try{
+                    const op=JSON.parse(raw);
+                    if(typeof op?.id==='string'&&(['move','skip','remove','retry'].includes(op.kind)||
+                        ['add','edit'].includes(op.kind)&&op.job?.id===op.id&&Object.hasOwn(MODE_NAMES,op.job.settings?.mode)))commands.push([key,op]);
+                }catch{}
+            }
+            this.queueEdits=commands.sort(([a],[b])=>a.localeCompare(b));
+        }
+        editableQueue(){
+            const jobs=this.queue.slice();
+            for(const [,op] of this.queueEdits||[]){
+                const index=jobs.findIndex(job=>job.id===op.id),job=jobs[index];
+                if(op.kind==='add'){
+                    if(!job&&jobs.length<50)jobs.push(op.job);
+                }else if(job){
+                    if(op.kind==='remove')jobs.splice(index,1);
+                    else if(op.kind==='move'){
+                        if(!jobs.some(other=>other.id===op.anchor)||op.anchor===op.id)continue;
+                        jobs.splice(index,1);
+                        jobs.splice(jobs.findIndex(other=>other.id===op.anchor)+(op.after?1:0),0,job);
+                    }else if(op.kind==='skip')jobs[index]={...job,status:'skipped',result:'已手动跳过'};
+                    else if(op.kind==='retry')jobs[index]={...job,status:'pending',result:'',progress:undefined,itemAcquired:undefined};
+                    else if(op.kind==='edit'){
+                        const edited={...op.job,progress:undefined,itemAcquired:undefined};
+                        if(job.progress){
+                            edited.progress=op.keepProgress?job.progress:{budget:job.progress.budget};
+                            if(op.keepProgress){edited.itemAcquired=job.itemAcquired;edited.status='paused';edited.result=job.result;}
+                        }else if(op.wasPending&&!queueJobPending(job)){
+                            edited.status=job.status;edited.result=job.result;
+                            if(op.keepProgress)edited.itemAcquired=job.itemAcquired;
+                        }
+                        jobs[index]=edited;
+                    }
+                }
+            }
+            return jobs;
+        }
+        applyQueueEdits(){
+            if(!this.queueEdits?.length)return;
+            const active=this.queue[this.queueIndex]?.id,cp=this.checkpoint;
+            const resumeId=cp?.queueJobId||this.queue[cp?.queueIndex]?.id;
+            this.queue=normalizeJobs(this.editableQueue());
+            this.queueIndex=Math.max(0,this.queue.findIndex(job=>job.id===active));
+            if(cp?.queueRunning&&resumeId){
+                const changes=this.queueEdits.filter(([,op])=>op.id===resumeId&&op.kind!=='move');
+                let index=this.queue.findIndex(job=>job.id===resumeId);
+                if(changes.length&&(index<0||!queueJobPending(this.queue[index])))index=this.queue.findIndex(queueJobPending);
+                const next=this.queue[index];
+                if(!next)this.checkpoint=null;
+                else{
+                    const carry=changes.every(([,op])=>op.kind==='edit'&&op.keepProgress);
+                    this.checkpoint={...(carry?cp:next.progress),account:cp.account,build:cp.build,layout:cp.layout,wanted:true,
+                        manual:carry?cp.manual:null,queueRunning:true,queueIndex:index,queueJobId:next.id,settings:changes.length?next.settings:cp.settings};
+                }
+            }
+            for(const [key] of this.queueEdits)this.appliedQueueEdits.add(key);
+            this.queueEdits=[];
+        }
+        updateQueue(jobs,operation){
+            let s;
+            try{s=this.read();}catch(error){if(!operation||!this.account)throw error;}
+            if(!this.account||s&&accountId(s)!==this.account)throw new Error('请先载入要编辑的账号');
+            if(operation)this.refreshQueueEdits();
+            if(operation&&(!s?.adv||this.running||this.suspended||this.checkpoint?.wanted||!this.mayPersist()||this.queueEdits?.length)){
+                const planned=this.editableQueue();
+                if(operation.kind==='add'&&planned.length>=50)throw new Error('任务队列最多保存 50 项');
+                if(operation.kind!=='add'&&!planned.some(job=>job.id===operation.id))throw new Error('该任务已被移除，请查看最新队列');
+                const lastKey=this.queueEdits.at(-1)?.[0],prefix=this.queueEditPrefix();
+                const stamp=Math.max(Date.now(),Number(lastKey?.slice(prefix.length).split('-')[0]||0)+1);
+                const key=prefix+stamp+'-'+crypto.randomUUID();
+                const command=operation.job?{...operation,job:{id:operation.id,title:operation.job.title,
+                    settings:operation.job.settings,status:operation.job.status,result:operation.job.result}}:operation;
+                this.storage.setItem(key,JSON.stringify(command));
+                this.refreshQueueEdits();
+                return;
+            }
             if(this.running||this.suspended||this.checkpoint?.wanted&&this.settings.resumeOnReload)throw new Error('请先停止任务，再调整任务队列');
             if(!Array.isArray(jobs)||jobs.length>50)throw new Error('任务队列最多保存 50 项');
-            const s=this.read();
             if(!s?.adv||accountId(s)!==this.account||!this.mayPersist())throw new Error('当前标签页无法保存任务队列');
             const previous={queue:this.queue,queueIndex:this.queueIndex,queueRunning:this.queueRunning,checkpoint:this.checkpoint};
             const currentId=this.queue[this.queueIndex]?.id;
@@ -437,6 +611,8 @@
         }
         startQueue(){
             if(this.running||this.suspended||this.queueDraftBase)return;
+            if(!this.readyToStartInTab())return;
+            this.refreshQueueEdits();this.applyQueueEdits();
             this.queue=normalizeJobs(this.queue);
             const index=this.queue.findIndex(queueJobPending);
             if(index<0){this.status='任务队列中没有可执行任务';return;}
@@ -447,7 +623,7 @@
         beginTask(s,cp,now,continuingQueue=false){
             this.strictPlanning=true;
             this.nurseryAssist.cancelIdle();
-            this.nurseryAssist.feed=null;
+            if(this.nurseryAssist.feed?.at==null)this.nurseryAssist.feed=null;
             this.cancelTeamSearch(undefined,false,'开始新的任务');
             this.cancelRouteRankings();
             this.budget=new Budget(this,cp?.budget);
@@ -657,7 +833,8 @@
                     job.itemAcquired=queueItemAcquired(job,state,this);
                 job.status=status;job.result=reason;delete job.progress;
             }
-            const index=this.queue.findIndex((job,i)=>i>this.queueIndex&&queueJobPending(job));
+            this.refreshQueueEdits();this.applyQueueEdits();
+            const index=this.queue.findIndex(queueJobPending);
             if(index<0){this.queueRunning=false;this.stop(this.queue.some(job=>job.status==='skipped')?'任务队列已结束，含已跳过任务':'任务队列已全部完成');return;}
             this.queueIndex=index;const next=this.queue[index];next.status='running';this.settings=this.taskSettings(next.settings);
             const s=state,now=Date.now();
@@ -691,16 +868,21 @@
             try{
                 const s=this.read();if(!s?.adv)throw new Error('游戏存档不可用');
                 if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return false;}
-                if(this.storage.getItem('pokecatch-tab')!==this.tabToken){this.stop('另一个标签页接管了游戏');return false;}
+                if(!this.ownsGameTab()){this.stop('另一个标签页接管了游戏',{persist:false});return false;}
                 if(!this.acquire(now)){
                     suspended.retryAt=now+5000;
                     this.status='等待其他标签页释放助手，再继续原任务';return false;
                 }
-                if(this.storage.getItem(PREFIX+this.account)!==suspended.record){
+                this.refreshQueueEdits();
+                const changedRecord=this.storage.getItem(PREFIX+this.account)!==suspended.record;
+                const suspendedJob=suspended.queueRunning&&this.queue[suspended.queueIndex];
+                const editedCurrent=suspendedJob&&this.queueEdits.some(([,op])=>op.id===suspendedJob.id&&op.kind!=='move');
+                if(changedRecord||editedCurrent){
                     // A different page may have settled the order, advanced the queue, or stopped it.
                     this.stop('原任务记录已更新，重新读取账号进度',{persist:false});
                     this.loadAccount(s);
-                    this.tryResume();
+                    if(!changedRecord&&explicit&&!this.settings.resumeOnReload)this.startQueue();
+                    else this.tryResume();
                     return this.running;
                 }
                 this.refreshAutoPurchase();
@@ -719,6 +901,7 @@
             if(visible($('.title-fx')))return;
             const compatible=record=>record.account===this.account&&record.layout===DATA.layout&&record.build===DATA.build;
             try{
+                if(!this.readyToStartInTab())return;
                 if(!this.acquire(Date.now())){
                     this.status='等待其他标签页释放助手后续跑';
                     if(!compatible(cp))this.checkpoint=null;
@@ -730,11 +913,14 @@
                 this.loadAccount(s);
                 if(!this.checkpoint||!this.settings.resumeOnReload){this.status='当前账号没有待自动续跑的任务';return;}
                 if(!compatible(this.checkpoint)){this.checkpoint=null;this.status='续跑记录与当前账号或版本不一致，请手动开始';this.persist(false,false);return;}
+                this.applyQueueEdits();
+                if(!this.checkpoint){this.status='任务队列中没有可执行任务';this.persist(false,false);return;}
                 this.start(true);
             }catch(err){this.status='无法读取最新续跑记录：'+(err?.message||err);}
             finally{if(!this.running)this.release();}
         }
         acquire(now) {
+            if(!this.ownsGameTab())return false;
             const key = PREFIX + 'lease:' + this.account;
             let held = null; try { held = JSON.parse(this.storage.getItem(key)); } catch {}
             if (held?.token !== this.lease && held?.expires > now) return false;
@@ -816,9 +1002,10 @@
         }
         start(resume=false,daily=false) {
             if (this.running) return;
-            this.suspended=null;
             let controlDenied=false;
             try {
+                if(!this.readyToStartInTab())return;
+                this.suspended=null;
                 if (visible($('.title-fx'))) throw new Error('请先从标题画面进入游戏');
                 const s = this.read();
                 if (!s?.adv) throw new Error('请先进入游戏并选择初始宝可梦');
@@ -866,7 +1053,7 @@
                 this.running = true; this.runId++; this.started = Date.now(); this.stoppedAt = null;this.hiddenAt=null;this.endedTotals=null;
                 this.manual = cp?.manual||null; this.interruptedPicker=null; this.inputHeld = false;this.clearHeldInput?.();
                 this.startMoney=combinedWalletMoney(s);this.walletScope='all';
-                this.tabToken = this.storage.getItem('pokecatch-tab'); this.oldLoops = [...s.adv.loops || []];
+                this.oldLoops = [...s.adv.loops || []];
                 this.errors=0;this.lastCheckpoint=0;this.saveUnavailableAt=null;this.recoveryPending=null;this.gameUpdateAt=null;this.shinySettlement=null;
                 this.checkpoint=null;
                 this.daily=savedDaily||(daily?{base:{...this.settings,mode},menuMode:this.settings.mode,job:null,checking:true}:null);
@@ -933,7 +1120,7 @@
             this.driver.teamTask=null;this.driver.navigation=null;
             this.status = reason;
             // Expose the stopped checkpoint before a waiting page can claim the lease.
-            try { if(save)this.persist(false,false); } catch {} finally { this.release(); }
+            try { if(save){this.refreshQueueEdits();this.applyQueueEdits();this.persist(false,false);} } catch {} finally { this.release(); }
         }
         manualInput(now = Date.now()) {
             if (!this.running || !this.settings.manualPause) return;
@@ -1074,7 +1261,7 @@
             try{s=this.read();if(!s?.adv)throw new Error('游戏存档不可用');}
             catch(err){this.stop('恢复任务时无法读取游戏存档：'+(err?.message||err));return;}
             if(accountId(s)!==this.account||s.adv.layout!==DATA.layout){this.stop('账号或游戏版本发生变化，请刷新检查');return;}
-            if(this.storage.getItem('pokecatch-tab')!==this.tabToken||!this.acquire(now)){this.stop('另一个标签页接管了游戏',{persist:false});return;}
+            if(!this.acquire(now)){this.stop('另一个标签页接管了游戏',{persist:false});return;}
             // The explicit resume click ends the handoff, including a release event lost to
             // native pointer capture, an animation, or a browser focus change.
             this.clearHeldInput?.();this.inputHeld=false;
@@ -1146,6 +1333,7 @@
             }
         }
         nextDelay(now=Date.now()){
+            if(this.nurseryAssist.feed)return 350;
             if(pageHidden())return 6000;
             if(this.connectionPausedAt!=null)return 6000;
             if(this.connectionCheckAt>now)return Math.min(6000,Math.max(100,this.connectionCheckAt-now));
@@ -1351,15 +1539,25 @@
         }
         async step(now = Date.now()) {
             if (!this.running) return;
-            if (this.storage.getItem('pokecatch-tab') !== this.tabToken || !this.acquire(now)) { this.stop('另一个标签页接管了游戏',{persist:false}); return; }
+            if (!this.acquire(now)) { this.stop('另一个标签页接管了游戏',{persist:false}); return; }
             if(this.recoveryPending!=null){if(now-this.recoveryPending>=15000)this.stop('重新载入未完成，请手动检查当前页面',{level:'warn'});return;}
             if (this.settings.stopMinutes && now - this.started >= this.settings.stopMinutes * 60000) { this.stop('达到定时运行上限'); return; }
             if(this.gameUpdateAt!=null){
                 if(now-this.gameUpdateAt>=15000)this.status='游戏更新尚未完成，已保留续跑进度，可手动刷新后继续';
                 return;
             }
-            if (pageHidden()) { this.checkpointTick(now,true);this.clearFrameProbe();this.hiddenAt??=now;this.status = '后台等待；回到游戏标签后继续'; this.lastProgress = now; this.telemetry.sample = null; return; }
-            if(this.offlineWait(now))return;
+            const hidden=pageHidden();
+            if (hidden||this.offlineWait(now)) {
+                if(hidden){
+                    this.checkpointTick(now,true);this.clearFrameProbe();this.hiddenAt??=now;
+                    this.status='后台等待；回到游戏标签后继续';this.lastProgress=now;this.telemetry.sample=null;
+                }
+                if(this.nurseryAssist.prefs.autoFeed||this.nurseryAssist.feed){
+                    const snapshot=this.read();
+                    if(snapshot?.adv)this.nurseryAssist.priorityFeed(snapshot,now);
+                }
+                return;
+            }
             let s;
             try{s=this.read();}
             catch(error){if(error?.name==='UnsupportedGameSaveError'){this.stop(error.message,{persist:false});return;}}
@@ -1373,6 +1571,7 @@
             if (accountId(s) !== this.account || s.adv.layout !== DATA.layout) { this.stop('账号或游戏版本发生变化，请刷新检查',{persist:false}); return; }
             this.saveUnavailableAt=null;
             this.checkpointTick(now,FLOW_MODES.has(this.settings.mode)&&this.nextWake>now);
+            if(this.nurseryAssist.priorityFeed(s,now))return;
             if(this.handleGameUpdate(s,now))return;
             if(this.backgroundFramesStalled(now)){
                 this.hiddenAt??=now;this.status='浏览器已暂停游戏画面，等待恢复渲染后继续补练或原任务';
@@ -1451,7 +1650,6 @@
             }
             this.modalWaitSince=null;this.modalWaitNode=null;
             if(this.leaveStartActivity(s,now))return;
-            if(this.nurseryAssist.runningStep(s,now))return;
             if(this.settings.mode==='elite'&&this.automation.exitDefeatedLeague(s,now))return;
             if(!s.team?.length&&pendingRegionalStarter(s)){
                 this.lastProgress=now;this.telemetry.sample=null;

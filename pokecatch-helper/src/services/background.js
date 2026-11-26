@@ -154,11 +154,9 @@
         if(pageHidden())return '标签页在后台，等待回到游戏';
         const a=s?.adv||{},d=e.driver||{},auto=e.automation||{},flow=auto.state||{};
         if(a.paused)return '游戏已暂停';
-        if(a.pending||a.battle&&!['eggs','nurseryFeed','underDispatch'].includes(service))return '等待当前战斗或选择结束';
-        const feedingInBattle=service==='nurseryFeed'&&nurseryFeedBattle(a);
-        if((a.event||a.zone||a.tower||a.league)&&!feedingInBattle)return '独立战斗占用前台，计时继续';
-        const raidOwnsPage=(e.raidProbe||e.raidReturn)&&!feedingInBattle;
-        if(raidOwnsPage||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
+        if(a.pending||a.battle&&!['eggs','underDispatch'].includes(service))return '等待当前战斗或选择结束';
+        if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
+        if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
         if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.pensionPurchase||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
         if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
         if(flow.worldResultAt!=null&&now-flow.worldResultAt<3000||typeof document!=='undefined'&&$$('#raid-root .wb-skip,.wb-recap,#raid-root .wb-spill').some(visible))return '等待世界首领攻击结算';

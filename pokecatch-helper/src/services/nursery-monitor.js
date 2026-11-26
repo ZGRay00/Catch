@@ -8,12 +8,11 @@
         if(!hashes.size){
             // A reused launcher ID alone cannot identify which application supplied the rules.
             if(declared&&Object.values(NURSERY_BUILDS).filter(build=>build===declared).length>1)return{build:'unverified:missing-bundle'};
-            if(declared==='824f567ed3')return{build:declared,eggRollVerified:true};
+            // This launcher without its bundle only had the incubating egg roll checked.
+            if(declared==='824f567ed3')return{build:'unverified:missing-bundle',eggRollVerified:true};
             return{build:declared||'unverified:missing'};
         }
         const [bundle]=hashes;
-        // The current egg's shiny roll is verified separately from berry use and future laying.
-        if(bundle==='f3a9382a50'&&(!declared||declared==='824f567ed3'))return{build:'unverified:'+bundle,eggRollVerified:true};
         // A launcher-only deployment can still serve exactly the same reviewed application.
         if(NURSERY_BUILDS[bundle]&&/^[a-f0-9]{10}$/.test(declared)&&!NURSERY_RULES.compatibleBuilds.includes(declared)){
             return{build:NURSERY_BUILDS[bundle],bundle,launcherBuild:declared};

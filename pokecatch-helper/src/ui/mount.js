@@ -47,6 +47,7 @@
     if(storageError)engine.status=storageError;
     const helperAPI={version:VERSION,ready:false,stop:()=>engine.stop('手动停止助手')};
     const life=new AbortController();
+    engine.observeGameTab(document,life.signal);
     let ownedHost=null,heartbeatTimer=null;
     document.addEventListener(ownerEvent,event=>event.preventDefault(),{signal:life.signal});
     document.addEventListener(showEvent,event=>{
@@ -221,7 +222,7 @@
                 <label class="setting"><span><input type="checkbox" data-nursery-pref="allowReferenceFeed" aria-describedby="nursery-reference-feed-hint">允许按旧规则预测自动喂果</span></label>
                 <div class="hint" id="nursery-reference-feed-hint">游戏规则待核对时也允许按预测喂果，可能消耗靛莓果而未出闪蛋。</div>
             </div>
-            <div class="hint">开关按账号保存。对战塔、异色团体战期间也会检查下一枚蛋，喂果后返回原页面。待命时使用库存，任务运行时每颗计入一份道具用量。</div>
+            <div class="hint">开关按账号保存。助手优先检查下一枚自然蛋，连续几枚都需要靛莓果时会按顺序备果。下一枚需果时，确认已备果才自动收蛋。缺果时保留蛋位。喂果使用库存，任务道具额度用完后仍可喂。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
             <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
             <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
@@ -259,6 +260,10 @@
             <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
+        const newQueueJob=Symbol('new queue job');
+        let queueForm=null;
+        const formSettings=()=>queueForm||engine.settings;
+        const formLocked=()=>!queueForm&&(engine.running||!!engine.suspended);
         const roamingStock=[...root.querySelectorAll('[data-roam-ball-stock]')];
         const commandbar=document.createElement('div');commandbar.className='commandbar';commandbar.append(query('#start').closest('.row'),query('.queue-tools'));query('.panel').appendChild(commandbar);
         const lookupTask=document.createElement('span');lookupTask.className='lookup-task';commandbar.querySelector('.row').prepend(lookupTask);
@@ -357,7 +362,7 @@
         const weatherPanel=mountWeatherPanel(query('#weather-panel'),ui,saveUI,render);
         const renderSeason=mountSeasonCalendar(query('#season-calendar'));
         query('#hunt-forecast').onclick=()=>{
-            const selected=engine.settings[engine.settings.mode+'Weather'];
+            const selected=formSettings()[formSettings().mode+'Weather'];
             if(selected?.length)weatherPanel.selectSkies(selected);
             selectWorkspace('weather');
             query('[data-workspace="weather"]').focus({preventScroll:true});
@@ -509,7 +514,7 @@
                 const label=document.createElement('label'),box=document.createElement('input');
                 box.type='checkbox';box.value=value;box.dataset.hunt=suffix;
                 box.onchange=()=>{
-                    const key=engine.settings.mode+suffix,selected=new Set(engine.settings[key]);
+                    const key=formSettings().mode+suffix,selected=new Set(formSettings()[key]);
                     if(box.checked)selected.add(value);else selected.delete(value);
                     changeSetting(key,[...selected]);
                 };
@@ -522,7 +527,7 @@
         const huntSearch=query('#hunt-search'),huntPicker=query('#hunt-picker'),speciesDetails=huntSearch.closest('details');
         let speciesOptionsKey=null;
         function filterSpecies(){
-            const cfg=engine.settings,term=huntSearch.value.trim().toLowerCase().replace(/^#/,'');
+            const cfg=formSettings(),term=huntSearch.value.trim().toLowerCase().replace(/^#/,'');
             const ids=selectedSpecies(cfg),key=JSON.stringify([cfg.mode,term,ids]);
             if(key===speciesOptionsKey)return;
             const selected=new Set(ids),options=document.createDocumentFragment();
@@ -538,11 +543,11 @@
         huntSearch.oninput=filterSpecies;
         speciesDetails.addEventListener('toggle',()=>{if(speciesDetails.open)filterSpecies();});
         query('#hunt-add').onclick=()=>{
-            const cfg=engine.settings,id=Number(query('#hunt-picker').value);
+            const cfg=formSettings(),id=Number(query('#hunt-picker').value);
             if(id)changeSetting(cfg.mode+'Species',[...selectedSpecies(cfg),id]);
         };
         function syncHunt(){
-            const cfg=engine.settings,mode=cfg.mode,field=query('#hunt-filters');
+            const cfg=formSettings(),mode=cfg.mode,field=query('#hunt-filters');
             field.hidden=!['dex','shiny'].includes(mode);query('#hunt-forecast').hidden=field.hidden;if(field.hidden)return;
             const regions=cfg[mode+'Regions'],weather=cfg[mode+'Weather'],species=selectedSpecies(cfg);
             query('#hunt-region-controls').hidden=mode==='dex';
@@ -562,7 +567,7 @@
         }
         let eggRegionKey = '';
         function updateBreedingOptions(s) {
-            const target = engine.settings.breedId;
+            const target = formSettings().breedId;
             const key = JSON.stringify([currentRegion(s), s.travel?.to, s.link?.to, target]);
             if (key === eggRegionKey) return;
             eggRegionKey = key;
@@ -578,14 +583,14 @@
         function itemOptions() {
             const select = query('[data-setting="itemId"]'), filter = query('#item-search').value.trim().toLowerCase(); select.replaceChildren();
             for (const item of DATA.items) {
-                if (item.id !== engine.settings.itemId && filter && !`${item.name} ${item.id}`.toLowerCase().includes(filter)) continue;
+                if (item.id !== formSettings().itemId && filter && !`${item.name} ${item.id}`.toLowerCase().includes(filter)) continue;
                 const option = document.createElement('option'); option.value = item.id; option.textContent = item.name + (item.sources.some(s => s.repeat) ? '' : ' · 有限来源'); select.appendChild(option);
             }
-            select.value = engine.settings.itemId;
+            select.value = formSettings().itemId;
         }
         const memberKeys=new Map();
         function updateMemberOptions(field,members,missingLabel){
-            const selected=engine.settings[field];
+            const selected=formSettings()[field];
             const key=JSON.stringify([selected,...members.map(m=>[m.uid,m.id,m.level,!!m.shiny])]);
             if(memberKeys.get(field)===key)return;
             memberKeys.set(field,key);
@@ -608,16 +613,16 @@
         }
         let pcLimit=36;
         function trainingEntry(){
-            const cfg=engine.daily?.base||engine.settings;
+            const cfg=queueForm||engine.daily?.base||formSettings();
             const mode=selectedCard()==='daily'?dailyMainMode(cfg):cfg.mode;
             if(mode==='train')return 'train';
             return ['shiny','dex'].includes(mode)&&cfg.huntWeatherFallback==='xp'?'weather':'';
         }
         function partyOptions(s,both=false){
-            if(both||engine.settings.mode==='resource')updateMemberOptions('useUid',s.mons||[],'原目标已离开PC · 请选择');
+            if(both||formSettings().mode==='resource')updateMemberOptions('useUid',s.mons||[],'原目标已离开PC · 请选择');
             if(!trainingEntry())return;
-            const cfg=engine.daily?.base||engine.settings,members=partyMons(s),ids=trainingUids(s,cfg);
-            const selected=new Set(ids),locked=engine.running||!!engine.suspended;
+            const cfg=queueForm||engine.daily?.base||formSettings(),members=partyMons(s),ids=trainingUids(s,cfg);
+            const selected=new Set(ids),locked=formLocked();
             updateMemberOptions('trainUid',members,'原目标已离队 · 请选择');
             const name=mon=>(MONS.get(mon.id)?.name||mon.id)+' · Lv.'+mon.level+(mon.shiny?' ✦':'');
             const pcField=query('#train-pc-field');
@@ -664,30 +669,30 @@
         function showCategory(value){category=value;root.querySelectorAll('[data-category]').forEach(el=>el.classList.toggle('on',el.dataset.category===value));root.querySelectorAll('[data-group]').forEach(el=>el.classList.toggle('hidden',el.dataset.group!==value));}
         let dailySelected=false;
         // Daily temporarily runs its own child tasks. Keep their mode independent of the selected card.
-        function selectedCard(){return engine.daily||dailySelected?'daily':engine.settings.mode;}
+        function selectedCard(){return !queueForm&&(engine.daily||dailySelected)?'daily':formSettings().mode;}
         function syncSettings() {
             syncHunt();
-            settingsViewKey=JSON.stringify(engine.settings);
+            settingsViewKey=JSON.stringify(formSettings());
             if(engine.state?.adv){
-                if(trainingEntry()||engine.settings.mode==='resource')partyOptions(engine.state,true);
-                if(engine.settings.mode==='breed')updateBreedingOptions(engine.state);
+                if(trainingEntry()||formSettings().mode==='resource')partyOptions(engine.state,true);
+                if(formSettings().mode==='breed')updateBreedingOptions(engine.state);
             }
             for (const input of root.querySelectorAll('[data-setting]')) {
-                const value = input.dataset.setting==='underStartChoice'?(engine.settings.underAutoStart?'auto':undergroundStartFloor(engine.settings,UNDER_START_FLOORS)):engine.settings[input.dataset.setting];
+                const value = input.dataset.setting==='underStartChoice'?(formSettings().underAutoStart?'auto':undergroundStartFloor(formSettings(),UNDER_START_FLOORS)):formSettings()[input.dataset.setting];
                 if (input.type === 'checkbox') input.checked = value;
                 else if(!budgetDrafts.has(input))input.value = String(value);
-                if(input.dataset.setting!=='autoPurchase')input.disabled = engine.running||!!engine.suspended;
+                if(input.dataset.setting!=='autoPurchase')input.disabled = formLocked();
             }
             const card=selectedCard();
-            const dailyBase=engine.daily?.base||engine.settings;
+            const dailyBase=queueForm||engine.daily?.base||formSettings();
             query('#daily-shiny-raid').checked=dailyBase.raids;
-            query('#daily-shiny-raid').disabled=engine.running||!!engine.suspended;
+            query('#daily-shiny-raid').disabled=formLocked();
             const untilCaught=root.querySelector('[data-setting="dailyRaidUntilCaught"]');
             untilCaught.checked=dailyBase.dailyRaidUntilCaught!==false;
-            untilCaught.disabled=!dailyBase.raids||engine.running||!!engine.suspended;
+            untilCaught.disabled=!dailyBase.raids||formLocked();
             const dailyLegend=card==='daily'&&dailyMainMode(dailyBase)==='legend';
-            syncLegendPicker(dailyLegend?dailyBase:engine.settings,engine.running||!!engine.suspended);
-            const legendSettings=dailyLegend?dailyBase:engine.settings,legendHint=query('#legend-elite-team-hint');
+            syncLegendPicker(dailyLegend?dailyBase:formSettings(),formLocked());
+            const legendSettings=dailyLegend?dailyBase:formSettings(),legendHint=query('#legend-elite-team-hint');
             legendHint.hidden=!legendSettings.legendTier;
             if(legendSettings.legendTier)legendHint.textContent=legendSettings.optimizeRaid?'精英战按首领形态和阶级自动配置专属队伍，最多带一只传说或幻之宝可梦。':'精英战使用你在游戏中设置的专属队伍。';
             const legendFields=query('[data-fields="legend"]');
@@ -697,44 +702,44 @@
             query('#ordinary-target').classList.toggle('hidden',card==='daily');
             root.querySelectorAll('[data-mode]').forEach(button => { const on = button.dataset.mode === card; button.classList.toggle('on', on); button.setAttribute('aria-pressed', String(on)); });
             if(lastMode!==card){lastMode=card;showCategory(query(`[data-mode="${lastMode}"]`)?.dataset.group||'adventure');}
-            root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== engine.settings.mode&&!(el===legendFields&&dailyLegend)));
-            query('#scope-field').classList.toggle('hidden', huntRegions(engine.settings).length>0||['dex','legend','roam'].includes(engine.settings.mode)||FLOW_MODES.has(engine.settings.mode));
+            root.querySelectorAll('[data-fields]').forEach(el => el.classList.toggle('hidden', el.dataset.fields !== formSettings().mode&&!(el===legendFields&&dailyLegend)));
+            query('#scope-field').classList.toggle('hidden', huntRegions(formSettings()).length>0||['dex','legend','roam'].includes(formSettings().mode)||FLOW_MODES.has(formSettings().mode));
             const training=trainingEntry(),trainFields=query('[data-fields="train"]');
             const trainParent=query(card==='daily'&&training?'#daily-train-fields':training==='weather'?'#weather-train-fields':'#ordinary-target');
             if(trainFields.parentElement!==trainParent)trainParent.insertBefore(trainFields,trainParent.id==='ordinary-target'?query('[data-fields="progress"]'):null);
             trainFields.classList.toggle('hidden',!training);
             query('#train-gems-toggle').hidden=training==='weather';
-            query('#train-rank-settings').hidden=training==='weather'||!engine.settings.trainGems;
-            const mode=engine.settings.mode,independent=FLOW_MODES.has(mode)||mode==='legend';
+            query('#train-rank-settings').hidden=training==='weather'||!formSettings().trainGems;
+            const mode=formSettings().mode,independent=FLOW_MODES.has(mode)||mode==='legend';
             query('#task-purchase').hidden=!['progress','breed','resource'].includes(mode);
             if(mode==='resource'){
-                const action=engine.settings.resourceAction;
+                const action=formSettings().resourceAction;
                 query('#resource-quantity-label').textContent=action==='buy'?'购买份数':'使用份数';
-                query('#resource-member').classList.toggle('hidden',action==='buy'||!!DATA.automation.buffs[engine.settings.resourceItem]);
+                query('#resource-member').classList.toggle('hidden',action==='buy'||!!DATA.automation.buffs[formSettings().resourceItem]);
                 query('#task-purchase-policy').textContent={
                     buy:'按目标份数向金币商店购买。每份确认到账后再买下一份。',
                     use:'只使用背包中的目标道具。库存用尽时任务暂停。',
                     buyUse:'优先使用库存。仍需使用且库存不足时，按一份的价格检查预算并补购。',
-                }[action]+(action!=='use'&&DATA.automation.candies[engine.settings.resourceItem]?' 经验糖果只采购当前商店已解锁的最高档，目标档位不符时暂停。':'');
+                }[action]+(action!=='use'&&DATA.automation.candies[formSettings().resourceItem]?' 经验糖果只采购当前商店已解锁的最高档，目标档位不符时暂停。':'');
             }else if(mode==='breed'){
-                query('#task-purchase-policy').textContent=engine.settings.pensionExpand
+                query('#task-purchase-policy').textContent=formSettings().pensionExpand
                     ?'寄养位少于两个、繁殖需要扩容时才会购买。'
                     :'当前只使用已有寄养位。如需扩容，请勾选上方的寄养位选项。';
             }else if(mode==='progress'){
-                query('#task-purchase-policy').textContent=!engine.settings.autoPrepare?'补练已关闭，主线不会买糖。'
-                    :engine.settings.progressCandy?'补练先用库存 EXP Candy，再按预算逐份补购商店已解锁的最高档。'
+                query('#task-purchase-policy').textContent=!formSettings().autoPrepare?'补练已关闭，主线不会买糖。'
+                    :formSettings().progressCandy?'补练先用库存 EXP Candy，再按预算逐份补购商店已解锁的最高档。'
                     :'主线补练买糖已关闭，可在设置中开启 EXP Candy 选项。';
             }
             query('[data-setting="autoTeam"]').closest('label').classList.remove('hidden');
             const raidMode=!(independent||mode==='roam')||(mode==='legend'&&!!engine.daily&&!engine.daily.job);
             query('[data-setting="raids"]').closest('label').classList.toggle('hidden',!raidMode);
-            query('#raid-check').classList.toggle('hidden',!raidMode||!engine.settings.raids);
+            query('#raid-check').classList.toggle('hidden',!raidMode||!formSettings().raids);
             query('[data-setting="gifts"]').closest('label').classList.toggle('hidden',independent);
             query('[data-setting="optimizeRaid"]').closest('label').classList.toggle('hidden',['breed','resource','tower'].includes(mode));
             const collection=mode==='dex'||mode==='shiny';
-            query('#team-policy-hint').textContent=mode==='tower'?'对战塔由游戏从收藏中自动选人；这里不提供原生不存在的手动塔队选择。':mode==='world'?'世界首领攻击由游戏选择成员；捕获队伍按特殊战配队选项执行。':independent?engine.settings.optimizeRaid?'特殊战按目标自动配置独立队伍。':'使用你在游戏内设置的专属队伍；未配置时等待你选择，不自动替换成员。':collection?engine.settings.autoTeam?'普通搜寻直接用现有成员配队。':'普通搜寻使用你设置的队伍。':engine.settings.autoTeam?'冒险按目标自动选人、排序与补练；特殊战可单独设置。':'保留当前冒险成员和出场顺序，不自动加人或换人；补练也使用你选择的队伍。';
+            query('#team-policy-hint').textContent=mode==='tower'?'对战塔由游戏从收藏中自动选人；这里不提供原生不存在的手动塔队选择。':mode==='world'?'世界首领攻击由游戏选择成员；捕获队伍按特殊战配队选项执行。':independent?formSettings().optimizeRaid?'特殊战按目标自动配置独立队伍。':'使用你在游戏内设置的专属队伍；未配置时等待你选择，不自动替换成员。':collection?formSettings().autoTeam?'普通搜寻直接用现有成员配队。':'普通搜寻使用你设置的队伍。':formSettings().autoTeam?'冒险按目标自动选人、排序与补练；特殊战可单独设置。':'保留当前冒险成员和出场顺序，不自动加人或换人；补练也使用你选择的队伍。';
             query('#team-hint').classList.toggle('hidden',independent);
-            query('#evolution-hint').textContent=engine.settings.autoEvolve?'普通色免费等级进化已开启，进化确认后重新配队。异色、道具、分支和升阶锁定个体保留当前形态。':'免费进化已关闭，按当前形态评估队伍。';
+            query('#evolution-hint').textContent=formSettings().autoEvolve?'普通色免费等级进化已开启，进化确认后重新配队。异色、道具、分支和升阶锁定个体保留当前形态。':'免费进化已关闭，按当前形态评估队伍。';
             query('#prepare-toggle').classList.toggle('hidden',['breed','resource','train'].includes(mode));
             query('#prepare-toggle-text').textContent=collection?'主线和独立挑战等级不足时先补练':'等级不足时先补练，再继续原任务';
             query('#progress-candy-toggle').classList.toggle('hidden',mode!=='progress');
@@ -802,7 +807,7 @@
             if(document.hidden){engine.releaseRankingView();return;}
             if(!host.isConnected&&document.body){document.body.appendChild(host);place();}
             let s; try { s = reuseLocalSnapshot===true?engine.readForView():engine.read(); if (s?.adv && accountId(s) !== engine.account && !engine.running && !engine.suspended) {
-                engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueError=''; memberKeys.clear(); viewSignature = null;
+                engine.loadAccount(s); dailySelected=false; resetBudgetDrafts(); editingJob = null; queueForm=null; queueError=''; memberKeys.clear(); viewSignature = null;
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(helperAPI.ready)dexPanel.syncNative(s);
@@ -880,7 +885,7 @@
             const miniText=miniExtraInfo.checked?miniBase+(nursery?.counts.shiny?' · ✦蛋'+nursery.counts.shiny:'')+(nursery?.counts.estimatedShiny?' · 预计闪蛋'+nursery.counts.estimatedShiny:''):miniBase;
             if(miniState.textContent!==miniText)miniState.textContent=miniText;
             miniState.title=miniText;
-            if(lastMode!==selectedCard()||settingsViewKey!==JSON.stringify(engine.settings))syncSettings();
+            if(lastMode!==selectedCard()||settingsViewKey!==JSON.stringify(formSettings()))syncSettings();
             if(ui.folded)return;
             renderSeason(now);
             query('#switch-hint').textContent=!s?'进入游戏后显示换人状态。':s.autoSwitch!==false?'游戏自动换人已开启，由游戏选择出战者。':!engine.settings.activeSwitch?'游戏和助手的自动换人均已关闭。':!engine.settings.autoTeam?'手动配队中，保留你的队首顺序。':'助手接管普通冒险单打。只剩一个对手且换人能明显改善战况时点击替补，游戏会将其移到队首。';
@@ -893,8 +898,9 @@
             const dailyBase=engine.daily?.base||engine.settings,baseMode=engine.daily?.base.mode||dailyMainMode(dailyBase);
             const canDaily=DAILY_BASE_MODES.has(baseMode)&&s?.adv?.badges?.includes('Maître');
             const dailyCard=selectedCard()==='daily';
-            const cardSettings=dailyCard?dailyBase:engine.settings;
-            const missingTrainees=!!trainingEntry()&&(!s?.adv||trainingStatus(s,cardSettings).missing);
+            const cardSettings=dailyCard?dailyBase:formSettings();
+            const formState=s?.adv?s:queueForm&&engine.state&&accountId(engine.state)===engine.account?engine.state:null;
+            const missingTrainees=!!trainingEntry()&&(!formState?.adv||trainingStatus(formState,cardSettings).missing);
             const missingLegendTarget=(dailyCard?baseMode:cardSettings.mode)==='legend'&&cardSettings.legendId===null;
             if(ui.workspace==='tasks'){
                 const cfg=cardSettings,ids=selectedLegendIds(cfg);
@@ -923,9 +929,9 @@
             if(engine.daily&&!wait&&!nativePaused)query('#run-state').textContent='通关日常 · '+(dailyPhase||(s?.adv?.zone?'传说战进行中':engine.daily.checking?'检查待办':'挂机 · '+activeLabel));
             const leaving=s?.adv&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&engine.activityToLeave(s,engine.settings);
             query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
-            const pending=engine.queue.filter(queueJobPending),nextJob=pending[0];
+            const planned=engine.editableQueue(),pending=planned.filter(queueJobPending),nextJob=pending[0];
             query('#queue-count').textContent=pending.length;
-            query('#add-job').disabled=locked||dailyCard||!s?.adv||missingLegendTarget||missingTrainees;
+            query('#add-job').disabled=formLocked()||dailyCard||(!s?.adv&&!(queueForm&&engine.account))||missingLegendTarget||missingTrainees;
             query('#start-queue').disabled=locked||!!editingJob||!nextJob||!s?.adv;
             query('#start-queue').classList.toggle('hidden',locked);
             query('#start-queue').textContent=engine.running&&engine.queueRunning?'任务队列运行中':nextJob?.progress?'继续任务队列':'运行任务队列';
@@ -933,16 +939,18 @@
             query('#cancel-job').classList.toggle('hidden',!editingJob);
             const editNote=query('#queue-edit-note');
             editNote.hidden=!editingJob;
-            if(editingJob)editNote.textContent=queueError||`正在编辑队列中的「${engine.queue.find(job=>job.id===editingJob)?.title||'任务'}」`;
+            if(editingJob)editNote.textContent=queueError||(editingJob===newQueueJob?'正在配置要加入队列的新任务':`正在编辑队列中的「${planned.find(job=>job.id===editingJob)?.title||'任务'}」`);
             renderPurchases(s);
             query('#reset').disabled = locked; query('#restore').disabled = locked || !engine.oldLoops;
             query('#import-profile').disabled=locked||!!editingJob||!engine.account;
-            if(locked!==lastLockState){
+            if(formLocked()!==lastLockState){
+                const locked=formLocked();
                 editableControls.forEach(input=>input.disabled=locked);
                 query('#hunt-filters').disabled=locked;
-                syncLegendPicker(dailyCard?dailyBase:engine.settings,locked);
+                syncLegendPicker(dailyCard?dailyBase:formSettings(),locked);
                 lastLockState=locked;
             }
+            query('[data-mode="daily"]').disabled=formLocked()||!!queueForm;
             const lookup = ['dex','weather','eggs'].includes(ui.workspace);
             query('#lookup-empty').hidden = !lookup || !!s?.adv;
             logPanel.controls(ui.workspace==='activity'&&tab==='logs');
@@ -952,8 +960,8 @@
             if(!note.hidden)note.textContent=choice.text;
             const decision=query('#task-decision');
             decision.hidden=ui.workspace!=='tasks'||!s?.adv;
-            if(ui.workspace==='settings')query('[data-setting="autoRecover"]').disabled=!engine.settings.resumeOnReload||locked;
-            if(ui.workspace==='queue'){drawQueue(s,locked,pending,editingJob,queueError);return;}
+            if(ui.workspace==='settings')query('[data-setting="autoRecover"]').disabled=!formSettings().resumeOnReload||formLocked();
+            if(ui.workspace==='queue'){drawQueue(s,locked,pending,editingJob,queueError,planned);return;}
             if (!s?.adv) {
                 query('#support-info').classList.add('hidden');query('#dex-panel').hidden=true;query('#weather-panel').hidden=true;
                 query('#dex-waiting').hidden=ui.workspace!=='dex';
@@ -984,8 +992,8 @@
                 const pause=engine.manual||engine.suspended?' · 恢复助手后继续':'';
                 query('#raid-check').textContent=daily?note+(daily.until?' · 下次刷新 '+localCalendarTime(daily.until)+'（本地时间）':''):note+(retry?' · 下次检查 '+retry:'')+pause;
             }
-            if(taskPage&&(trainingEntry()||engine.settings.mode==='resource'))partyOptions(s);
-            if(taskPage&&engine.settings.mode==='breed')updateBreedingOptions(s);
+            if(taskPage&&(trainingEntry()||formSettings().mode==='resource'))partyOptions(s);
+            if(taskPage&&formSettings().mode==='breed')updateBreedingOptions(s);
             const preparation=engine.preparation;query('#prepare-info').classList.toggle('hidden',!preparation||!engine.running);
             if(preparation){
                 query('#prepare-title').textContent=paused?'补练已暂停':'↑ 正在补练';
@@ -1274,17 +1282,18 @@
                 }
                 syncSettings();render();return true;
             }
-            if (engine.running||engine.suspended) return false;
-            const previous=engine.settings;
+            if (formLocked()) return false;
+            const previous=formSettings();
             const patch=key==='underStartChoice'?{underAutoStart:value==='auto',underFrom:value==='auto'?previous.underFrom:Number(value)}:{[key]:value};
             if(key==='trainUids')patch.trainUid='selected';
             if(key==='legendIds'&&!value.length)patch.legendId=null;
-            engine.settings=normalizeSettings({...previous,...patch});
+            const settings=normalizeSettings({...previous,...patch});
+            if(queueForm)queueForm=settings;else engine.settings=settings;
             try {
                 if(engine.account&&!editingJob&&!engine.persist())throw new Error('当前标签页无权保存设置，请切回管理该账号的标签页');
-                if (key === 'mode') { dailySelected=false; engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
+                if (key === 'mode'&&!queueForm) { dailySelected=false; engine.status = `已选择${MODE_NAMES[engine.settings.mode]}，设置目标后开始`; engine.action = ''; }
             } catch(error) {
-                engine.settings=previous;
+                if(queueForm)queueForm=previous;else engine.settings=previous;
                 engine.status='设置未保存：'+(error.message||'请检查浏览器存储空间');
                 syncSettings();render();return false;
             }
@@ -1298,11 +1307,11 @@
         function commitBudgetInput(input) {
             const key = input.dataset.setting;
             if (!budgetDrafts.has(input)) budgetDrafts.set(input,engine.account);
-            if (budgetDrafts.get(input) !== engine.account || input.disabled || engine.running || engine.suspended) return false;
+            if (budgetDrafts.get(input) !== engine.account || input.disabled || formLocked()) return false;
             if (engine.account) {
                 let state;
                 try { state=engine.read(); } catch {}
-                if (!state?.adv || accountId(state)!==engine.account) {
+                if ((!state?.adv&&!queueForm)||state&&accountId(state)!==engine.account) {
                     engine.status='存档或账号已变化，请重新核对资源预算';
                     render();
                     return false;
@@ -1412,28 +1421,28 @@
         query('.mini').onclick=event=>{if(event.detail>0 && Date.now()-miniDraggedAt<500)return;fold(false);query('#fold').focus({preventScroll:true});};
         function finishQueueEdit(){
             if(!editingJob)return;
-            engine.settings=engine.taskSettings(engine.queueDraftBase);
-            engine.queueDraftBase=null;editingJob=null;queueError='';
+            queueForm=null;editingJob=null;queueError='';
             resetBudgetDrafts();itemOptions();syncSettings();
         }
-        function saveQueue(jobs){
-            try{engine.updateQueue(jobs);queueError='';return true;}
+        function saveQueue(jobs,operation){
+            try{engine.updateQueue(jobs,operation);queueError='';return true;}
             catch(error){queueError='任务队列未保存 · '+error.message;engine.status=queueError;render();return false;}
         }
         function focusQueueJob(id,action='edit'){
+            if(id===newQueueJob)id=null;
             const card=[...root.querySelectorAll('[data-queue-job]')].find(el=>el.dataset.queueJob===id);
             (card?.querySelector(`[data-job-action="${action}"]:not(:disabled)`)||card?.querySelector('[data-job-action="edit"]:not(:disabled)')||query('#queue-add')).focus({preventScroll:true});
             card?.scrollIntoView({block:'nearest'});
         }
         function manageQueueJob(id,action){
-            if(engine.running||engine.suspended||editingJob)return;
-            const jobs=engine.queue.slice(),i=jobs.findIndex(job=>job.id===id),job=jobs[i];
+            if(editingJob)return;
+            const jobs=engine.editableQueue(),i=jobs.findIndex(job=>job.id===id),job=jobs[i];
             if(!job)return;
             queueError='';
             if(action==='edit'){
                 dailySelected=false;resetBudgetDrafts();
-                engine.queueDraftBase=engine.settings;editingJob=id;
-                engine.settings=engine.taskSettings(job.settings);itemOptions();syncSettings();selectWorkspace('tasks');return;
+                editingJob=id;
+                queueForm=engine.taskSettings(job.settings);itemOptions();syncSettings();selectWorkspace('tasks');return;
             }
             if(action==='up'||action==='down'){
                 const next=i+(action==='up'?-1:1);
@@ -1445,7 +1454,9 @@
             }else if(action==='retry')jobs[i]={...job,status:'pending',result:'',progress:undefined,itemAcquired:undefined};
             else if(action==='remove')jobs.splice(i,1);
             else return;
-            if(saveQueue(jobs)){render();focusQueueJob(action==='remove'?jobs[Math.min(i,jobs.length-1)]?.id:id,action);}
+            const move=action==='up'||action==='down';
+            const op=move?{kind:'move',id,anchor:jobs[i].id,after:action==='down'}:{kind:action,id};
+            if(saveQueue(jobs,op)){render();focusQueueJob(action==='remove'?jobs[Math.min(i,jobs.length-1)]?.id:id,action);}
         }
         function jobTitle(cfg){const target={legend:legendSelectionLabel(cfg),roam:MONS.get(cfg.roamId)?.name,dex:cfg.dexSpecies?.length?cfg.dexSpecies.length+' 种目标':null,shiny:shinyGoals(cfg).map(id=>MONS.get(id).name).slice(0,3).join('、')+(shinyGoals(cfg).length>3?' 等':''),breed:MONS.get(cfg.breedId)?.name,item:ITEMS.get(cfg.itemId)?.name,train:`Lv.${cfg.trainLevel}`,progress:CHAPTERS.get(cfg.progressUntil)?.name,elite:`${cfg.eliteTier} 阶`,tower:`${cfg.towerFloor} 层`,candy:`${cfg.candyFloor?cfg.candyFloor+'层':'尽力挑战'} / ${cfg.candyRuns}局`,underground:`${cfg.underRuns} 次`,world:`${cfg.worldActions} 次攻击`,resource:ITEMS.get(cfg.resourceItem)?.name||cfg.resourceItem}[cfg.mode];return MODE_NAMES[cfg.mode]+(target?' · '+target:'');}
         function goalIdentity(cfg){
@@ -1457,13 +1468,17 @@
             };
             return JSON.stringify([cfg.mode,cfg.region,...(keys[cfg.mode]||[]).map(key=>cfg[key])]);
         }
-        query('#queue-add').onclick=()=>{queueError='';dailySelected=false;selectWorkspace('tasks');};
+        query('#queue-add').onclick=()=>{
+            if(!editingJob){editingJob=newQueueJob;queueForm=engine.taskSettings(engine.settings);resetBudgetDrafts();}
+            queueError='';dailySelected=false;itemOptions();syncSettings();selectWorkspace('tasks');
+        };
         query('#cancel-job').onclick=()=>{const id=editingJob;finishQueueEdit();selectWorkspace('queue');focusQueueJob(id);};
         query('#add-job').onclick=()=>{
-            if(engine.running||engine.suspended)return;
-            const jobs=engine.queue.slice(),i=jobs.findIndex(job=>job.id===editingJob),current=jobs[i];
+            if(formLocked())return;
+            const jobs=engine.editableQueue(),i=jobs.findIndex(job=>job.id===editingJob),current=jobs[i];
             if(jobs.length>=50&&!current){engine.status='任务队列最多保存 50 项';render();return;}
-            const settings=normalizeSettings(engine.settings);
+            const settings=normalizeSettings(formSettings());
+            if(editingJob&&editingJob!==newQueueJob&&!current){queueError='该任务已被移除，请取消编辑并返回队列。';render();return;}
             if(trainingEntry()&&engine.state){
                 if(trainingStatus(engine.state,settings).missing)return;
                 settings.trainUids=trainingUids(engine.state,settings);settings.trainUid='selected';
@@ -1475,8 +1490,8 @@
                 if(compatible){job.status='paused';job.result=current.result;job.itemAcquired=current.itemAcquired;}
             }
             if(current)jobs[i]=job;else jobs.push(job);
-            if(!saveQueue(jobs))return;
-            finishQueueEdit();engine.status='任务已保存到队列';selectWorkspace('queue');focusQueueJob(job.id);
+            if(!saveQueue(jobs,{kind:current?'edit':'add',id:job.id,job,wasPending:!!current&&queueJobPending(current),keepProgress:!!current&&goalIdentity(current.settings)===goalIdentity(settings)}))return;
+            finishQueueEdit();if(!engine.running&&!engine.suspended)engine.status='任务已保存到队列';selectWorkspace('queue');focusQueueJob(job.id);
         };
         query('#start-queue').onclick=()=>{if(editingJob)return;dailySelected=false;engine.startQueue();if(!engine.running)queueError=engine.status;else queueError='';syncSettings();render();};
         query('#start').onclick=()=>{
@@ -1516,6 +1531,11 @@
         query('#export').onclick=()=>{
             const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logHistory()};
             diagnostic.health=engine.healthReport();diagnostic.lastStop=engine.lastStop;
+            if(s?.pension){
+                diagnostic.nursery={...engine.nurseryAssist.prefs,build:nurseryRuntimeOptions().build,
+                    nextEgg:s.pension.laid??null,reserve:s.pension.bx??0,stock:s.items?.[NURSERY_RULES.berry]??0,
+                    note:engine.nurseryAssist.note};
+            }
             diagnostic.teamReview={current:engine.reviewProgress(),recent:diagnostic.logs.filter(entry=>entry.module==='配队复核').slice(0,12)};
             downloadJson(diagnostic,'pokecatch-helper-diagnostic.json');
         };
@@ -1587,6 +1607,13 @@
             finally{engine.releaseRankingView();engine.nurseryAssist.cancelIdle();engine.suspend();}
         },{signal:life.signal});
         window.addEventListener('storage',event=>{
+            if(event.storageArea===engine.storage&&engine.account&&(event.key?.startsWith(engine.queueEditPrefix())||event.key===PREFIX+engine.account)){
+                if(event.key===PREFIX+engine.account&&!engine.running&&!engine.suspended&&!engine.mayPersist()&&event.newValue){
+                    const record=JSON.parse(engine.storage.getItem(event.key)||'{}');
+                    engine.queue=normalizeJobs(record.queue);engine.appliedQueueEdits=new Set(record.appliedQueueEdits||[]);
+                }
+                engine.refreshQueueEdits();render();
+            }
             if((event.key===SAVE_KEY||event.key===null)&&event.storageArea===engine.storage)engine.markLocalDirty();
             if(engine.nurseryAssist.key&&event.key===engine.nurseryAssist.key){
                 engine.nurseryAssist.refresh();render();return;

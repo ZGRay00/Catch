@@ -7,29 +7,29 @@
             for(const job of jobs){
                 const cells=itemCells.get(job.id);
                 if(!cells)continue;
-                const acquired=queueItemAcquired(job,s,job===active?engine:null);
-                const values=[job.settings.itemQuantity,ownedItems(s,job.settings.itemId),acquired];
+                const acquired=s?.adv?queueItemAcquired(job,s,job===active?engine:null):job.itemAcquired;
+                const values=[job.settings.itemQuantity,s?.adv?ownedItems(s,job.settings.itemId):null,acquired];
                 values.forEach((value,i)=>{
                     const text=value==null?'未记录':value.toLocaleString('zh-CN');
                     if(cells[i].textContent!==text)cells[i].textContent=text;
                 });
             }
         }
-        return function renderQueue(s,locked,pending,editingJob,error){
-            const ready=!!s?.adv&&!!engine.account;
-            const canEdit=ready&&!locked&&!(engine.checkpoint?.wanted&&engine.settings.resumeOnReload);
+        return function renderQueue(s,locked,pending,editingJob,error,planned=engine.queue){
+            const ready=!!engine.account&&(!s||accountId(s)===engine.account);
+            const canEdit=ready;
             const active=engine.queueRunning&&(engine.running||engine.suspended)?engine.queue[engine.queueIndex]:null;
             const next=engine.queueRunning&&active?pending.find(job=>job.id!==active.id):pending[0];
-            const title=ready?(engine.queue.length?`${pending.length} 项待处理 · ${engine.queue.length-pending.length} 项已结束`:'队列为空'):'进入游戏后管理任务队列';
+            const title=ready?(planned.length?`${pending.length} 项待处理 · ${planned.length-pending.length} 项已结束`:'队列为空'):'进入游戏后管理任务队列';
             if(summary.textContent!==title)summary.textContent=title;
             add.disabled=!canEdit;
             add.textContent=editingJob?'继续编辑':'配置新任务';
             const nextLabel=next?`下一项 · ${next.title}`:'';
-            const message=error||(editingJob?'保存或取消当前编辑后，可继续运行队列。':
-                locked?[engine.status,nextLabel].filter(Boolean).join(' · '):nextLabel);
+            const message=error||(ready&&!s?.adv?`游戏存档暂不可用，正在编辑账号 ${engine.account} 的任务队列。`:editingJob?'保存或取消当前编辑后，可继续运行队列。':
+                engine.queueEdits?.length?'队列修改已保存。当前项结束或重新启动队列时按新设置执行。':locked?[engine.status,nextLabel].filter(Boolean).join(' · '):nextLabel);
             notice.hidden=!message;
             if(notice.textContent!==message)notice.textContent=message;
-            const jobs=ready?engine.queue:[];
+            const jobs=ready?planned:[];
             const signature=JSON.stringify([canEdit,active?.id,!!engine.manual,!!engine.suspended,editingJob,
                 jobs.map(job=>[job.id,job.title,job.status,job.result,!!job.progress,job.settings.mode,job.settings.moneyTarget])]);
             if(previous===signature){updateItemCounts(jobs,s,active);return;}

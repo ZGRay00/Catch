@@ -76,7 +76,7 @@
     }
     function configurationProfile(engine){
         return{format:'pokecatch-helper-profile',schema:1,version:VERSION,settings:normalizeSettings(engine.settings),
-            queue:normalizeJobs(engine.queue).map(job=>({id:job.id,title:job.title,settings:job.settings,status:'pending',result:''}))};
+            queue:normalizeJobs(engine.editableQueue?.()??engine.queue).map(job=>({id:job.id,title:job.title,settings:job.settings,status:'pending',result:''}))};
     }
     function parseConfigurationProfile(input){
         if(typeof input==='string'){if(input.length>2*1024*1024)throw new Error('配置文件超过2MB');input=JSON.parse(input.replace(/^\uFEFF/,''));}
@@ -99,8 +99,12 @@
         const state=engine.read();
         if(!state?.adv||accountId(state)!==engine.account||state.adv.layout!==DATA.layout)throw new Error('当前账号或存档版本已变化，请刷新页面后导入');
         if(!engine.mayPersist())throw new Error('另一个标签页正在管理当前账号，暂不能导入');
-        const profile=parseConfigurationProfile(input),before={settings:engine.settings,queue:engine.queue,queueIndex:engine.queueIndex,queueRunning:engine.queueRunning,checkpoint:engine.checkpoint};
+        const profile=parseConfigurationProfile(input);
+        engine.refreshQueueEdits();
+        const before={settings:engine.settings,queue:engine.queue,queueIndex:engine.queueIndex,queueRunning:engine.queueRunning,checkpoint:engine.checkpoint,
+            appliedQueueEdits:new Set(engine.appliedQueueEdits),queueEdits:engine.queueEdits};
         try{
+            engine.applyQueueEdits();
             engine.settings=engine.taskSettings(profile.settings);engine.queue=profile.queue;engine.queueIndex=0;engine.queueRunning=false;engine.checkpoint=null;
             if(engine.persist(false,false)===false)throw new Error('另一个标签页已接管，配置未导入');
         }catch(err){Object.assign(engine,before);throw err;}

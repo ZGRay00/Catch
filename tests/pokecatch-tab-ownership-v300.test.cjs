@@ -8,7 +8,7 @@ function fixture(t){
         adv:{layout:H.DATA.layout,chapter:0,unlocked:8,node:0,runs:0,speed:4,loops:[],badges:[],gifts:{},deaths:{}}};
     const key='pokecatch-helper:v1:tab-ownership',leaseKey='pokecatch-helper:v1:lease:tab-ownership',writes=[];
     const data=new Map([['gachamon-save-v1',JSON.stringify(s)],['pokecatch-tab','tab-a']]);
-    const storage={getItem:key=>data.get(key)??null,setItem:(key,value)=>{writes.push(['set',key]);data.set(key,String(value));},removeItem:key=>{writes.push(['remove',key]);data.delete(key);}};
+    const storage={get length(){return data.size;},key:i=>[...data.keys()][i]??null,getItem:key=>data.get(key)??null,setItem:(key,value)=>{writes.push(['set',key]);data.set(key,String(value));},removeItem:key=>{writes.push(['remove',key]);data.delete(key);}};
     const make=()=>{const engine=new H.Engine(storage,{mode:'money',autoPrepare:false,autoTeam:false,raids:false,moneyBuff:false});engine.loadAccount(s);engine.read();engine.schedule=()=>{};return engine;};
     const e=make();e.running=true;e.started=clock;e.tabToken='tab-a';e.automation.begin(s);assert.equal(e.acquire(clock),true);e.persist();writes.length=0;
     function otherOwner(native=true){
@@ -20,9 +20,126 @@ function fixture(t){
     return{e,s,data,storage,writes,key,leaseKey,make,otherOwner,now:()=>clock};
 }
 
+test('an interrupted tab can edit a running queue across reloads without changing the owner checkpoint',t=>{
+    const {e,s,storage,key,leaseKey,otherOwner,make}=fixture(t);
+    const {other}=otherOwner();other.loadAccount(s);
+    const current=other.queue[0],second={...current,id:'second',title:'second',status:'pending',progress:undefined};
+    other.queue.push(second);other.persist();e.running=false;e.loadAccount(s);
+    const record=storage.getItem(key),lease=storage.getItem(leaseKey);
+    const added={...second,id:'added',title:'added'};
+    e.updateQueue([],{kind:'add',id:added.id,job:added});
+    e.updateQueue([],{kind:'move',id:added.id,anchor:current.id,after:false});
+    e.updateQueue([],{kind:'remove',id:second.id});
+    assert.deepEqual(make().editableQueue().map(job=>job.id),[added.id,current.id]);
+    assert.equal(storage.getItem(key),record);assert.equal(storage.getItem(leaseKey),lease);
+    other.completeTask('finished original');
+    assert.equal(other.queue[other.queueIndex].id,added.id);
+    assert.equal(other.queue.find(job=>job.id===current.id).status,'done');
+    const reloaded=make();assert.deepEqual(reloaded.editableQueue().map(job=>job.id),[added.id,current.id]);
+    assert.equal(reloaded.queueEdits.length,0);
+});
+
+test('refresh resumes an edited active row with the latest budget and a skipped row yields to the next task',t=>{
+    const {e,s,make}=fixture(t);
+    const job={id:'current',settings:{...e.settings,mode:'money',moneyTarget:3000},status:'running'};
+    e.queue=H.normalizeJobs([job,{...job,id:'next',status:'pending'}]);e.queueRunning=true;
+    e.budget.used=3;e.persist();const editor=make();
+    editor.updateQueue([],{kind:'edit',id:job.id,job:{...job,settings:{...job.settings,moneyTarget:9000}},keepProgress:true,wasPending:true});
+    e.budget.used=7;e.persist();e.release();
+    const fresh=make();fresh.tryResume();
+    assert.ok(fresh.running,fresh.status);assert.equal(fresh.queue[fresh.queueIndex].id,job.id);
+    assert.equal(fresh.settings.moneyTarget,9000);assert.equal(fresh.budget.used,7);
+    fresh.suspend();const foreign=make();foreign.updateQueue([],{kind:'skip',id:job.id});
+    fresh.resumeSuspended(true);
+    assert.ok(fresh.running,fresh.status);assert.equal(fresh.queue[fresh.queueIndex].id,'next');
+    assert.equal(fresh.queue[0].status,'skipped');fresh.stop();fresh.loadAccount(s);
+    assert.equal(fresh.queueEdits.length,0);
+});
+
+test('a loaded account can save queue changes with an unavailable game save and cannot write them into a different account',t=>{
+    const {e,s,storage,key,make}=fixture(t),record=storage.getItem(key);
+    const job={id:'offline',status:'pending',settings:{mode:'money'}};
+    storage.removeItem('gachamon-save-v1');
+    e.updateQueue([],{kind:'add',id:job.id,job});
+    assert.equal(storage.getItem(key),record);
+    storage.setItem('gachamon-save-v1',JSON.stringify({...s,trainer:{id:'another-account'}}));
+    assert.throws(()=>e.updateQueue([],{kind:'remove',id:job.id}),/账号/);
+    storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    assert.deepEqual(make().editableQueue().map(job=>job.id),['offline']);
+});
+
+function nativeDocument(engine,{rendered=false,prerendering=false,foreignModal=false,ordinaryModal=false,clockAt=null,publicLock=null}={}){
+    const listeners=new Map(),win=new EventTarget(),life=new AbortController();
+    const src='https://pokecatch-online.pages.dev/bundle/app.65ffd40d41.js',origin='https://pokecatch-online.app';
+    win.TabLock=publicLock;
+    win.performance={timeOrigin:Date.now()-1000,getEntriesByType:()=>clockAt===null?[]:[
+        {name:src,responseEnd:800,initiatorType:'link'},
+        {name:'https://pokecatch-online.pages.dev/boot.js?clock=probe',startTime:clockAt,initiatorType:'fetch'}]};
+    const doc={location:{hostname:'pokecatch-online.app',origin,pathname:'/'},baseURI:origin+'/',defaultView:win,prerendering,
+        querySelector:selector=>selector.includes('.side-chap-top')?rendered:selector.includes('.tab-modal')?foreignModal:
+            selector.startsWith('#modal-root.open')?ordinaryModal:selector.includes('/bundle/app.')?{src}:null,
+        addEventListener:(name,fn)=>listeners.set(name,fn)};
+    engine.observeGameTab(doc,life.signal);
+    return {
+        load(path='bundle/app.65ffd40d41.js'){listeners.get('load')({target:{tagName:'SCRIPT',src:'https://pokecatch-online.pages.dev/'+path}});},
+        activate(){doc.prerendering=false;listeners.get('prerenderingchange')();},
+        foreignWrite(token){engine.storage.setItem('pokecatch-tab',token);win.dispatchEvent(Object.assign(new Event('storage'),{key:'pokecatch-tab',newValue:token,storageArea:engine.storage}));},
+        close(){life.abort();}
+    };
+}
+
+test('reload leaves the checkpoint and lease alone until the native app in this document has claimed its token',async t=>{
+    const {e,storage,key,leaseKey,make}=fixture(t);e.release();
+    const record=storage.getItem(key),fresh=make(),page=nativeDocument(fresh);t.after(()=>page.close());
+    page.load('bundle/vendor.123.js');
+    fresh.tryResume();assert.equal(fresh.running,false);assert.equal(fresh.tabToken,undefined);
+    assert.equal(storage.getItem(leaseKey),null);assert.equal(storage.getItem(key),record);
+    assert.equal(fresh.ownsGameTab(),false);assert.equal(fresh.mayPersist(),false);
+    storage.setItem('pokecatch-tab','same-document-fresh');page.load();fresh.tryResume();
+    assert.equal(fresh.running,true,fresh.status);assert.equal(fresh.tabToken,'same-document-fresh');
+    assert.equal(fresh.ownsGameTab(),true);
+    page.foreignWrite('actual-other-document');await fresh.step();
+    assert.equal(fresh.running,false);assert.equal(fresh.lastStop.signals.tabControl.tokenMatches,false);
+    assert.equal(fresh.lastStop.signals.tabControl.lease,'own');fresh.start();
+    assert.equal(fresh.running,false);assert.equal(fresh.acquire(Date.now()),false);
+});
+
+test('late injection uses rendered native DOM and a native takeover dialog blocks acquisition',t=>{
+    const {e,make,leaseKey,storage}=fixture(t);e.release();
+    const token=(Date.now()-100).toString(36)+'aaa111';storage.setItem('pokecatch-tab',token);
+    const ready=make(),viewer=nativeDocument(ready,{rendered:true,clockAt:901});t.after(()=>viewer.close());
+    assert.equal(ready.ownsGameTab(),true);assert.equal(ready.tabToken,token);
+    const stale=make(),other=nativeDocument(stale,{rendered:true,foreignModal:true});t.after(()=>other.close());
+    assert.equal(stale.ownsGameTab(),false);stale.tryResume();assert.equal(stale.running,false);
+    assert.equal(storage.getItem(leaseKey),null);
+});
+
+test('late injection cannot bind a younger foreign token or assume ownership from an occupied modal queue',t=>{
+    const {e,storage,make}=fixture(t);e.release();
+    storage.setItem('pokecatch-tab',Date.now().toString(36)+'aaa111');
+    for(const ordinaryModal of [false,true]){
+        const stale=make(),page=nativeDocument(stale,{rendered:true,clockAt:901,ordinaryModal});t.after(()=>page.close());
+        stale.tryResume();assert.equal(stale.running,false);assert.equal(stale.tabToken,undefined);
+        assert.equal(stale.acquire(Date.now()),false);assert.equal(stale.mayPersist(),false);
+    }
+    const opaque=make(),opaquePage=nativeDocument(opaque,{rendered:true});t.after(()=>opaquePage.close());
+    opaque.tryResume();assert.match(opaque.status,/刷新本页/);assert(opaque.checkpoint?.wanted);
+    const legacy=make(),legacyPage=nativeDocument(legacy,{rendered:true,publicLock:{mine:()=>true}});t.after(()=>legacyPage.close());
+    assert.equal(legacy.ownsGameTab(),true);
+});
+
+test('prerender activation waits for the native listener before binding the document',async t=>{
+    const {e,storage,make}=fixture(t);e.release();
+    const fresh=make(),page=nativeDocument(fresh,{prerendering:true});t.after(()=>page.close());
+    page.load();page.activate();assert.equal(fresh.ownsGameTab(),false);
+    storage.setItem('pokecatch-tab','activated');await new Promise(resolve=>setTimeout(resolve,5));
+    assert.equal(fresh.ownsGameTab(),true);assert.equal(fresh.tabToken,'activated');
+});
+
 test('losing the helper lease stops local work without overwriting the active owner checkpoint',async t=>{
     const {e,storage,key,leaseKey,writes,otherOwner,now}=fixture(t),owner=otherOwner(false);
     await e.step(now());assert.equal(e.running,false);assert.match(e.status,/另一个标签页/);
+    assert.deepEqual(e.lastStop.signals.tabControl,{native:'owner',tokenMatches:true,lease:'other'});
     assert.equal(storage.getItem(key),owner.record);assert.equal(storage.getItem(leaseKey),owner.lease);assert.deepEqual(writes,[]);
 });
 

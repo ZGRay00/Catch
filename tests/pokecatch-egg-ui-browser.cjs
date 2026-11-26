@@ -120,6 +120,11 @@ async function main(){
         await evaluate('fixtureState.pension.bx=1;commitNursery()');await nurseryText();
         assert.match((await berryText())[0],/已记录待用靛莓果/);
         assert.match((await berryText())[2],/此蛋未记录靛莓果/);
+        await evaluate("window.BUILD='adf601dce2';fixtureState.pension.bx=3;commitNursery()");await nurseryText();
+        assert.match((await berryText())[0],/待用靛莓果 3 颗.*3 枚自然蛋/);
+        assert.match((await berryText())[1],/已在待用靛莓果范围内/);
+        assert.match((await berryText())[2],/此蛋未记录靛莓果/);
+        await evaluate(`window.BUILD=${JSON.stringify(H.NURSERY_RULES.build)}`);
         await evaluate("fixtureState.pension.eggs.find(x=>x.uid==='numbered').bx=1;fixtureState.pension.laid=30;fixtureState.pension.bx=0;commitNursery()");await nurseryText();
         assert.match((await berryText())[2],/此蛋已带靛莓果/);
         checks.push('future berry windows, feed-now advice, pending berries and individual incubating egg flags are distinct');

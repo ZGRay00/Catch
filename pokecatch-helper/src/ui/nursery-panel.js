@@ -206,7 +206,13 @@
                 let feed='';
                 if(next&&f.known){
                     const effect=next.withoutBerryShiny?'无果也会闪':next.withBerryShiny?'需要靛莓果才会闪':'用靛莓果仍为普通';
-                    feed=`下一枚 #${next.k} · ${effect}。`+(next.bx?'已记录待用靛莓果。':next.withBerryShiny&&!next.withoutBerryShiny?'现在可喂百变怪，须在这枚自然蛋产出前生效。':'');
+                    feed=`下一枚 #${next.k} · ${effect}。`;
+                    if(f.pendingBerries){
+                        feed+=`已记录待用靛莓果 ${f.pendingBerries} 颗，将依次用于接下来的 ${f.pendingBerries} 枚自然蛋。`;
+                        const uncovered=f.nextUncoveredEgg;
+                        if(f.pendingBerries<nurseryBerryCapacity(options.build)&&uncovered?.withBerryShiny&&!uncovered.withoutBerryShiny)
+                            feed+=`再喂 1 颗可为 #${uncovered.k} 备果。`;
+                    }else if(next.withBerryShiny&&!next.withoutBerryShiny)feed+='现在可喂百变怪，须在这枚自然蛋产出前生效。';
                 }
                 write('#nursery-feed',feed);
                 write('#nursery-next',next?(reference?'预计 · ':'按当前条件预测 · ')+nextLabel:'下一枚自然蛋暂无法预测 · '+f.reason);
@@ -216,7 +222,8 @@
                 query('#nursery-berry-plan').hidden=!f.active;
                 write('#nursery-natural',f.active?windowLabel(f.firstWithoutBerry):'');
                 write('#nursery-berry-only',f.active?windowLabel(f.firstBerryOnly)+(f.known&&f.firstBerryOnly?
-                    (f.firstBerryOnly.position===1?(f.pendingBerry?' · 已为下一枚备果':' · 就是下一枚'):
+                    (f.firstBerryOnly.position<=f.pendingBerries?' · 已在待用靛莓果范围内':f.firstBerryOnly.position===1?' · 就是下一枚':
+                        f.firstBerryOnly.position===f.pendingBerries+1&&f.pendingBerries<nurseryBerryCapacity(options.build)?' · 可再喂 1 颗为这枚备果':
                         ` · 等下一枚编号变成 #${f.firstBerryOnly.k} 再喂`):''):'');
                 const scenarios=f?.scenarios,position=scenario=>scenario?.nextShiny?'第 '+scenario.nextShiny.position+' 枚':'范围内未找到';
                 const effect={'always-shiny':'普通亲本和异色亲本都会产出闪蛋','always-plain':'普通亲本和异色亲本都会产出普通蛋','depends':'仅抽到异色亲本时会产出闪蛋'}[next?.parentEffect];

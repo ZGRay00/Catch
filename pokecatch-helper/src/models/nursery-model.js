@@ -6,7 +6,7 @@
         '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c',
         '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f','2d46018b96':'d0ed6b793f','23e94ddbef':'d0ed6b793f',
         '4ca78e3d27':'d0ed6b793f','fb58ae58aa':'d0ed6b793f','0a5492aada':'d0ed6b793f',
-        'f1ef0dd44e':'bd1d674523'
+        'f1ef0dd44e':'bd1d674523','f3a9382a50':'824f567ed3','65ffd40d41':'adf601dce2'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -34,6 +34,16 @@
         return seed===null||!Number.isSafeInteger(k)||k<0||!Number.isSafeInteger(draw)||draw<0?null:nurseryHash(`${seed}|egg|${k}|${draw}`);
     }
     function nurseryFlag(value){return value===true||value===false||value===1||value===0;}
+    function nurseryBerryCapacity(build){
+        return build===NURSERY_BUILDS['65ffd40d41']||build===NURSERY_BUILDS['f3a9382a50']?4:1;
+    }
+    function nurseryBerryReserve(pension,build){
+        if(!pension||!Object.hasOwn(pension,'bx'))return 0;
+        const count=pension.bx;
+        if(nurseryFlag(count))return Number(count);
+        const limit=NURSERY_RULES.compatibleBuilds.includes(build)?nurseryBerryCapacity(build):4;
+        return Number.isInteger(count)&&count>=0&&count<=limit?count:null;
+    }
     function nurseryEggRate(egg={}){
         // Native eggRate coerces old parent markers numerically; compact/imported eggs may carry "1" or "2".
         if(!egg||typeof egg!=='object'||(Object.hasOwn(egg,'sp')&&!nurseryFlag(egg.sp)&&egg.sp!==2&&egg.sp!=='1'&&egg.sp!=='2')||
@@ -128,7 +138,8 @@
     function* nurseryForecastSteps(s,options={}){
         const limit=Number.isFinite(+options.limit)?Math.max(1,Math.min(50000,Math.floor(+options.limit))):20000;
         const pool=nurseryParentPool(s),pension=s?.pension,seed=nurserySeed(s);
-        const berryKnown=!pension||!Object.hasOwn(pension,'bx')||nurseryFlag(pension.bx),pendingBerry=berryKnown?!!pension?.bx:null;
+        const pendingBerries=nurseryBerryReserve(pension,options.build),berryKnown=pendingBerries!==null;
+        const pendingBerry=berryKnown?pendingBerries>0:null;
         const unverified=!!options.build&&!NURSERY_RULES.compatibleBuilds.includes(options.build);
         let laid=pension?.laid,counterSource=null;
         if(Number.isSafeInteger(laid)&&laid>=0)counterSource='saved';
@@ -144,7 +155,7 @@
             pool.parents.reduce((sum,parent)=>sum+nurseryEggRate({sp:parent.shiny?2:0,bx:pendingBerry}),0)/pool.parents.length:null;
         const result={certainty:'unavailable',known:false,active:false,build:NURSERY_RULES.build,counter:counterSource?laid:null,counterSource,
             nextRate,rateVerified:!unverified,
-            limit,scanned:0,pool:pool.parents,hasDitto:pool.hasDitto,pendingBerry,nextEgg:null,nextShiny:null,hits:[],
+            limit,scanned:0,pool:pool.parents,hasDitto:pool.hasDitto,pendingBerry,pendingBerries,nextEgg:null,nextUncoveredEgg:null,nextShiny:null,hits:[],
             firstWithoutBerry:null,firstBerryOnly:null,
             comparisons:options.compare?NURSERY_COMPARISONS.filter(rule=>pool.parents.some(parent=>parent.shiny===rule.shiny))
                 .map(rule=>({...rule,hits:[]})):[],
@@ -169,12 +180,13 @@
             result.scanned=offset+1;
             // A conditional berry window can reach 1/8 with a shiny parent.
             const ceiling=result.firstBerryOnly&&!comparisonsPending?NURSERY_RULES.parentRate:NURSERY_RULES.parentRate*NURSERY_RULES.berryMultiplier;
-            if(offset>0&&roll>=ceiling)continue;
+            if(offset>pendingBerries&&roll>=ceiling)continue;
             const parentIndex=pool.parents.length===1?0:Math.floor(nurseryHash(drawPrefix+'1')*pool.parents.length);
-            const parent=pool.parents[parentIndex],bx=offset===0&&pendingBerry;
+            const parent=pool.parents[parentIndex],bx=offset<pendingBerries;
             const rate=nurseryEggRate({sp:parent.shiny?2:0,bx}),row={k,offset,position:offset+1,eggId:parent.eggId,parent:{...parent},rate,roll,bx,shiny:roll<rate};
             const withoutBerry=parent.shiny?NURSERY_RULES.parentRate:NURSERY_RULES.baseRate,withBerry=withoutBerry*NURSERY_RULES.berryMultiplier;
             const berryOnly=roll>=withoutBerry&&roll<withBerry;
+            if(offset===pendingBerries)result.nextUncoveredEgg={...row,withoutBerryShiny:roll<withoutBerry,withBerryShiny:roll<withBerry};
             if(!result.firstWithoutBerry&&roll<withoutBerry)result.firstWithoutBerry={k,position:offset+1,eggId:parent.eggId};
             if(!result.firstBerryOnly&&berryOnly){
                 result.firstBerryOnly={k,position:offset+1,eggId:parent.eggId};
@@ -202,7 +214,7 @@
                 const threshold=nurseryEggRate({sp:shinyParent?2:0,bx:berry});
                 if(roll<threshold)scenarios[key].nextShiny={...row,parent:{...parent,shiny:shinyParent},bx:berry,rate:threshold,shiny:true,hypothetical:true};
             }
-            if(!comparisonsPending&&result.hits.length>=keep&&result.firstWithoutBerry&&result.firstBerryOnly&&scenarios.plainParents.nextShiny&&scenarios.shinyParents.nextShiny&&scenarios.berryNext.nextShiny)break;
+            if(result.nextUncoveredEgg&&!comparisonsPending&&result.hits.length>=keep&&result.firstWithoutBerry&&result.firstBerryOnly&&scenarios.plainParents.nextShiny&&scenarios.shinyParents.nextShiny&&scenarios.berryNext.nextShiny)break;
         }
         result.nextShiny=result.hits[0]||null;result.truncated=!result.nextShiny;
         result.reason=result.nextShiny?'按当前亲本池核对的自然产蛋序列；条件变化时重新计算':'扫描范围内尚未找到；不代表之后不会出现';

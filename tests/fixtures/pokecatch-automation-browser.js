@@ -6,7 +6,7 @@
     const pages=['pension','underground','shop'];
     for(const name of pages){const tab=document.createElement('button');tab.dataset.screen=name;tab.textContent=name;tab.onclick=()=>window.nav(name);q('#tabs').appendChild(tab);const screen=document.createElement('section');screen.className='screen';screen.id='screen-'+name;document.body.appendChild(screen);}
     function modal(className,body,fn){const root=q('#modal-root');root.className='open';root.innerHTML=`<div class="modal ${className}">${body}<div class="modal-actions">${className==='confirm'?'<button class="ghost">Cancel</button>':''}<button class="${className==='confirm'?'danger':'gold'}">OK</button></div></div>`;root.querySelector('.gold,.danger').onclick=()=>{fn?.();root.className='';root.replaceChildren();};}
-    let eggPresentation='card',hatchClicks=0,hatchCommit=null;const eggReadiness=new Map();
+    let eggPresentation='card',hatchClicks=0,hatchCommit=null,onEggSlotFreed=null;const eggReadiness=new Map();
     function pension(){
         const p=s.pension,root=q('#screen-pension'),search=q('#pc-search');root.innerHTML='<div id="pen-tabs"><button data-pen-tab="res" class="on">Residents</button><button data-pen-tab="egg">Eggs</button></div><div id="pen-res"></div><div id="pen-eggs"></div><div id="pen-grid"></div>';
         root.prepend(search);search.oninput=()=>{q('#pen-grid').innerHTML=s.mons.filter(m=>!s.team.includes(m.uid)&&(!search.value||String(m.id)===search.value)).map(m=>`<button data-uid="${m.uid}">${m.id}</button>`).join('');for(const card of root.querySelectorAll('#pen-grid [data-uid]'))card.onclick=()=>{const m=s.mons.find(m=>m.uid===card.dataset.uid);s.mons=s.mons.filter(x=>x!==m);p.mons.push({mon:m});save();pension();};};search.oninput();
@@ -14,9 +14,9 @@
         q('#pen-res').innerHTML=p.mons.map(x=>`<button class="pen-res" data-uid="${x.mon.uid}">${x.mon.id}</button>`).join('');
         q('#pen-eggs').innerHTML=p.eggs.map(egg=>{const ready=eggReadiness.has(egg.uid)?eggReadiness.get(egg.uid):egg.hatchAt<=Date.now();return`<button class="pen-egg ${ready?'ready':''}" data-egg="${egg.uid}" ${ready?'':'disabled'}>Egg</button>`;}).join('');
         const stock=s.items?.['belue-berry']||0;
-        root.insertAdjacentHTML('beforeend',`<div id="pen-berries"><button data-myrte ${stock>0&&!p.bx?'':'disabled'}><span class="bag-qty">×${stock}</span></button></div>`);
-        q('[data-myrte]').onclick=()=>{s.items['belue-berry']--;p.bx=1;save();pension();};
-        for(const button of root.querySelectorAll('[data-egg]'))button.onclick=()=>{hatchClicks++;const commit=()=>{const egg=p.eggs.find(x=>x.uid===button.dataset.egg);p.eggs=p.eggs.filter(x=>x!==egg);s.stats.hatched=(s.stats.hatched||0)+1;save();pension();
+        root.insertAdjacentHTML('beforeend',`<div id="pen-berries"><button data-myrte ${stock>0&&(p.bx||0)<4?'':'disabled'}><span class="bag-qty">×${stock}</span></button></div>`);
+        q('[data-myrte]').onclick=()=>{s.items['belue-berry']--;p.bx=(p.bx||0)+1;save();pension();};
+        for(const button of root.querySelectorAll('[data-egg]'))button.onclick=()=>{hatchClicks++;const commit=()=>{const egg=p.eggs.find(x=>x.uid===button.dataset.egg);p.eggs=p.eggs.filter(x=>x!==egg);s.stats.hatched=(s.stats.hatched||0)+1;onEggSlotFreed?.(p);save();pension();
             if(eggPresentation==='duplicate'){const fx=document.createElement('div');fx.className='rc-fx lk-fx lk-hatch';fx.innerHTML='<button class="rc-tap">Family XP</button>';fx.querySelector('.rc-tap').onpointerdown=()=>fx.remove();document.body.appendChild(fx);}
             else modal('dexcard-modal',eggPresentation==='plain'?'<b>Hatched</b>':'<b class="dc-new">Hatched</b>');};if(eggPresentation==='delayed')hatchCommit=commit;else commit();};
     }
@@ -472,11 +472,9 @@
             delete s.pension.bx;
             do{s.pension.laid++;}while(!(fixtureNursery.nurseryFixedRoll(s,s.pension.laid)>=1/16&&fixtureNursery.nurseryFixedRoll(s,s.pension.laid)<1/8));
             save();engine.settings.useBudget=0;engine.start();
-            for(let i=0;i<4;i++)await tick();
-            assert(!s.pension.bx&&s.items['belue-berry']===1,'old-rule feeding also respects a zero foreground use budget');
-            engine.settings.useBudget=1;await until(()=>s.pension.bx===1&&engine.nurseryAssist.feed===null,14);
-            assert(s.items['belue-berry']===0&&engine.budget.used===1&&engine.running,'foreground feeding uses one berry and one allowance then resumes its task');
-            for(const activity of ['raid','tower']){
+            await until(()=>s.pension.bx===1&&!engine.nurseryAssist.feed,14);
+            assert(s.items['belue-berry']===0&&engine.budget.used===1&&engine.running,'priority feeding uses one stocked berry at zero task allowance, records it once and resumes');
+            for(const activity of ['raid','tower','legend']){
                 const isRaid=activity==='raid',p=s.pension,roll=k=>fixtureNursery.nurseryFixedRoll(s,k);
                 do{s.trainer.since++;}while(roll(147)<1/8||roll(148)<1/16||roll(148)>=1/8||roll(149)<1/8);
                 p.laid=147;p.eggs=[];delete p.bx;p.egg=0;p.tick=Date.now();p.open.eggs=4;
@@ -486,23 +484,26 @@
                     engine.settings.raidMinutes=60;
                     s.adv.event={raid:true,reg:'kanto',id:68,loops:1};
                     engine.driver.raid={reg:'kanto',boss:68,started:Date.now()};
-                }else{
+                }else if(activity==='tower'){
                     engine.settings.mode='tower';s.adv.tower={kind:'tower',floor:5};
                     const monday=new Date();monday.setUTCDate(monday.getUTCDate()-(monday.getUTCDay()+6)%7);
                     s.tower={run:{floor:5,week:monday.toISOString().slice(0,10)}};
+                }else{
+                    engine.settings.mode='legend';engine.settings.legendIds=[644];engine.zoneId=644;
+                    s.adv.zone={id:644,foe:644};
                 }
                 save();await tick();
                 assert(!p.bx&&s.items['belue-berry']===2,activity+' leaves ordinary egg 147 unboosted');
                 const originalScreen=q('.screen.active').id;
                 p.eggs.push({uid:'inside-147',id:1,k:147,hatchAt:Date.now()+14400000});p.laid=148;save();
                 await until(()=>p.bx===1&&!engine.nurseryAssist.feed,18);
-                assert(engine.running&&(isRaid?s.adv.event?.raid:s.adv.tower?.floor===5)&&q('.screen.active').id===originalScreen&&
+                assert(engine.running&&(isRaid?s.adv.event?.raid:activity==='tower'?s.adv.tower?.floor===5:s.adv.zone?.id===644)&&q('.screen.active').id===originalScreen&&
                     p.bx===1&&s.items['belue-berry']===1&&engine.budget.used===before+1&&engine.nurseryAssist.note.includes('#148'),
                     activity+' stays active while the helper feeds egg 148, confirms one charge and returns to battle ('+
                     [engine.status,engine.nurseryAssist.note,engine.running,p.bx,s.items['belue-berry'],engine.budget.used,q('.screen.active')?.id,engine.driver.navigation?.screen,engine.nurseryAssist.feed?.k].join(' / ')+')');
                 p.eggs.push({uid:'inside-148',id:1,k:148,bx:p.bx,hatchAt:Date.now()+14400000});delete p.bx;p.laid=149;save();await tick();
                 assert(!p.eggs[0].bx&&p.eggs[1].bx===1&&!p.bx&&s.items['belue-berry']===1,activity+' reaches egg 149 with only egg 148 boosted');
-                s.adv.event=s.adv.tower=null;engine.driver.raid=null;save();
+                s.adv.event=s.adv.tower=s.adv.zone=null;engine.driver.raid=null;save();
             }
             engine.stop('fixture nursery complete');
             const p=s.pension,idleRoll=k=>fixtureNursery.nurseryFixedRoll(s,k);
@@ -517,6 +518,35 @@
             assert(!engine.running&&s.adv.tower.floor===7&&!p.bx&&s.items['belue-berry']===2&&hatchClicks===previousHatches&&q('#screen-adventure.active'),
                 'a late egg during tower navigation cancels the click, leaves ready eggs alone and restores the original screen');
             idlePref.click();s.adv.tower=null;save();
+            idlePref.click();
+            try{
+                for(const mode of ['idle','money','breed']){
+                    reset(mode==='idle'?'money':mode,{autoTeam:true,autoEggs:true,breedId:1,breedGoal:2,useBudget:0});
+                    if(mode==='idle')engine.stop();
+                    const nursery=s.pension;
+                    // With no open slot, hatching triggers the native lay immediately inside the same click.
+                    do{s.trainer.since++;}while(idleRoll(148)<1/16||idleRoll(148)>=1/8);
+                    nursery.mons=[{mon:{uid:'ditto',id:132}},{mon:{uid:'parent',id:1,shiny:true}}];
+                    Object.assign(nursery,{laid:148,tick:Date.now(),egg:14400000,open:{slots:2,eggs:1},
+                        eggs:[{uid:'mature-147',id:1,k:147,hatchAt:Date.now()-1000}]});
+                    s.items['belue-berry']=0;save();window.nav('pension');
+                    const hatchesBefore=hatchClicks;
+                    const advance=mode==='idle'?idle:tick;
+                    for(let i=0;i<10;i++)await advance();
+                    assert(hatchClicks===hatchesBefore&&nursery.laid===148,mode+' preserves the slot for a berry-only target when stock is empty');
+                    onEggSlotFreed=pen=>{
+                        const k=pen.laid++;
+                        pen.eggs.push({uid:'new-'+k,id:1,k,bx:pen.bx||0,hatchAt:Date.now()+14400000});
+                        delete pen.bx;
+                    };
+                    s.items['belue-berry']=1;save();pension();
+                    for(let i=0;i<24&&nursery.laid===148;i++)await advance();
+                    assert(nursery.eggs[0]?.k===148&&nursery.eggs[0]?.bx===1&&hatchClicks===hatchesBefore+1&&s.items['belue-berry']===0,
+                        mode+' feeds before freeing the slot that immediately produces egg 148');
+                    onEggSlotFreed=null;
+                }
+            }finally{onEggSlotFreed=null;}
+            idlePref.click();
             refPref.click();
             feedPref.click();
         }finally{window.BUILD=savedBuild;delete s.trainer.since;save();}

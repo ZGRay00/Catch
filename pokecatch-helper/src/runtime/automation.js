@@ -312,6 +312,7 @@
                 // The native ready control wins over wall-clock estimates when already visible.
                 choices=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
                 if(!choices.eligible.length)return false;
+                if(e.nurseryAssist?.priorityFeed(s,now,{idle,beforeHatch:true}))return !!e.nurseryAssist.feed;
                 const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=this.state.eggService={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
@@ -338,6 +339,10 @@
                 const buttonFor=egg=>buttons.find(el=>el.dataset.egg===String(egg.uid));
                 const selected=choices.shiny.find(buttonFor)||choices.eligible.find(buttonFor);
                 if(selected){
+                    if(e.nurseryAssist?.priorityFeed(s,now,{idle,beforeHatch:true})){
+                        if(!e.nurseryAssist.feed){task.returning=true;task.holdReason=e.nurseryAssist.note;}
+                        return true;
+                    }
                     const ready=buttonFor(selected);
                     task.tx={uid:ready.dataset.egg,before:s.stats?.hatched||0,at:now};persist();
                     if(d.click(ready,'自动收蛋：孵化成熟的蛋')){this.eggFX=null;this.state.eggReceiptUntil=now+15000;}
@@ -355,7 +360,7 @@
             // Exclude this side service from map measurements and preparation UI deadlines.
             const duration=Math.max(0,now-task.started),p=e.preparation;
             if(p&&!idle){for(const key of ['phaseAt','lastGrowth','candyAt'])if(p[key]!=null)p[key]+=duration;if(p.roadWait)p.roadWait.at+=duration;p.lastTick=now;}
-            e.telemetry.sample=null;e.status=idle?'待命收蛋完成，已返回原页面':'自动收蛋完成，继续原任务';persist();return true;
+            e.telemetry.sample=null;e.status=task.holdReason||(idle?'待命收蛋完成，已返回原页面':'自动收蛋完成，继续原任务');persist();return true;
         }
         serviceUnderground(s,now){
             const e=this.e,d=e.driver;let task=e.services.underground;
@@ -569,7 +574,16 @@
             const buttonFor=egg=>readyButtons.find(el=>el.dataset.egg===String(egg.uid));
             const allowed=egg=>choices.eligible.includes(egg)&&buttonFor(egg);
             const egg=confirmedShiny.find(allowed)||targetEggs.find(allowed)||choices.eligible.find(buttonFor);
-            if(egg){this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};e.persist();if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;else this.state.hatch=null;e.persist();return;}
+            if(egg){
+                if(e.nurseryAssist?.priorityFeed(s,now,{beforeHatch:true})){
+                    e.status=e.nurseryAssist.note;e.lastProgress=now;return;
+                }
+                this.state.hatch={uid:egg.uid,before:s.stats?.hatched||0,target:egg.id===cfg.breedId,at:now};
+                e.persist();
+                if(d.click(buttonFor(egg),'孵化已成熟的蛋'))this.state.eggReceiptUntil=now+15000;
+                else this.state.hatch=null;
+                e.persist();return;
+            }
             const eggTab=$('#pen-tabs [data-pen-tab="egg"]');
             if(eggs.some(x=>x.hatchAt<=now)&&enabled(eggTab)&&!eggTab.classList.contains('on')){d.click(eggTab,'打开孵化器');return;}
             const parents=p.mons?.map(slot=>slot?.mon).filter(Boolean)||[];

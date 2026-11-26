@@ -17,6 +17,6 @@
 // @updateURL    https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.meta.js
 // @downloadURL  https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js
 // @sandbox      DOM
-// @run-at       document-idle
+// @run-at       document-start
 // @noframes
 // ==/UserScript==

@@ -27,9 +27,11 @@ const hatched=JSON.parse(R.run(`JSON.stringify(${JSON.stringify(eggs)}.map(v=>{c
 for(let i=0;i<eggs.length;i++){const e=eggs[i],actual=hatched[i];assert.ok(actual.ok,`native hatch ${i}`);const prediction=M.eggOutcome({trainer:e.trainer},e.egg);assert.equal(prediction.known,true);assert.equal(prediction.shiny,actual.shiny,`egg ${i}`);assert.equal(M.nurseryEggRate(e.egg),actual.rate);comparisons+=2;}
 const eligibility=JSON.parse(R.run(`JSON.stringify(${JSON.stringify(H.DATA.mons.map(mon=>mon.id))}.map(id=>G.sandbox({...structuredClone(BASE),pension:{mons:[{mon:{id,uid:'candidate'}}],eggs:[]}},()=>G.pensionLayers().length>0)))`));
 for(let i=0;i<H.DATA.mons.length;i++){const id=H.DATA.mons[i].id,s={pension:{mons:[{mon:{id,uid:'candidate'}}]}};assert.equal(M.nurseryParentPool(s).parents.length>0,eligibility[i],`parent ${id}`);comparisons++;}
-const states=[];for(const trainer of trainers)for(const laid of [0,1,30,512])for(const bx of [0,1])states.push({trainer,mons:[],team:[],road:[],dex:{},stats:{hatched:0},pension:{laid,bx,tick:1000000000000-14400000,egg:0,mons:[{mon:{id:6,uid:'fire',shiny:false},candy:0},{mon:{id:132,uid:'ditto',shiny:true},candy:0},{mon:{id:9,uid:'water',shiny:true},candy:0},{mon:{id:490,uid:'manaphy',shiny:false},candy:0}],eggs:[],open:{eggs:4,slots:4}}});
+const maxBerries=R.run('N.CONFIG.PENSION.SHINY_BERRY_MAX||1');
+const reserveCounts=Array.from({length:maxBerries+1},(_,i)=>i);
+const states=[];for(const trainer of trainers)for(const laid of [0,1,30,512])for(const bx of reserveCounts)states.push({trainer,mons:[],team:[],road:[],dex:{},stats:{hatched:0},pension:{laid,bx,tick:1000000000000-14400000,egg:0,mons:[{mon:{id:6,uid:'fire',shiny:false},candy:0},{mon:{id:132,uid:'ditto',shiny:true},candy:0},{mon:{id:9,uid:'water',shiny:true},candy:0},{mon:{id:490,uid:'manaphy',shiny:false},candy:0}],eggs:[],open:{eggs:4,slots:4}}});
 const actualSequences=JSON.parse(R.run(`JSON.stringify(${JSON.stringify(states)}.map(input=>{const s={...structuredClone(BASE),...input},out=[];return G.sandbox(s,()=>{for(let i=0;i<12;i++){AUDIT_TIME=1000000000000+i*14400000;const k=s.pension.laid,parents=G.pensionLayers(),parent=parents[Math.floor(G.fixedRoll('egg',k,1)*parents.length)].mon;s.pension.eggs=[];G.pensionTick(AUDIT_TIME);const egg=s.pension.eggs[0];if(!egg)throw Error('Missing native synthetic egg');out.push({k:egg.k,id:egg.id,parent:parent.uid,sp:egg.sp||0,bx:!!egg.bx,rate:G.eggRate(egg),shiny:G.fixedRoll('egg',egg.k)<G.eggRate(egg)});}return out;});}))`));
-for(let i=0;i<states.length;i++){const s=states[i],f=M.nurseryForecast(s,{limit:12,count:20}),pool=f.pool;for(let j=0;j<12;j++){const actual=actualSequences[i][j],k=s.pension.laid+j,parent=pool[Math.floor(M.nurseryFixedRoll(s,k,1)*pool.length)],bx=j===0&&!!s.pension.bx;assert.equal(actual.k,k);assert.equal(actual.id,parent.eggId);assert.equal(actual.parent,parent.uid);assert.equal(actual.sp,parent.shiny?2:0);assert.equal(actual.bx,bx);assert.equal(actual.rate,M.nurseryEggRate({sp:parent.shiny?2:0,bx}));assert.equal(actual.shiny,f.hits.some(row=>row.k===k));comparisons+=7;}}
+for(let i=0;i<states.length;i++){const s=states[i],f=M.nurseryForecast(s,{build:M.NURSERY_BUILDS[applicationHash],limit:12,count:20}),pool=f.pool;for(let j=0;j<12;j++){const actual=actualSequences[i][j],k=s.pension.laid+j,parent=pool[Math.floor(M.nurseryFixedRoll(s,k,1)*pool.length)],bx=j<s.pension.bx;assert.equal(actual.k,k);assert.equal(actual.id,parent.eggId);assert.equal(actual.parent,parent.uid);assert.equal(actual.sp,parent.shiny?2:0);assert.equal(actual.bx,bx);assert.equal(actual.rate,M.nurseryEggRate({sp:parent.shiny?2:0,bx}));assert.equal(actual.shiny,f.hits.some(row=>row.k===k));comparisons+=7;}}
 const gifts=JSON.parse(R.run(`JSON.stringify(G.sandbox({...structuredClone(BASE),pension:{laid:10,bx:1,mons:[],eggs:[],open:{eggs:4}}},()=>{const egg=G.giftEgg(175,1000);return{counter:G.S.pension.laid,bx:G.S.pension.bx,k:egg.k,eggBx:!!egg.bx};}))`));
 assert.deepEqual(gifts,{counter:11,bx:1,k:10,eggBx:false});comparisons+=4;
 // First natural lay in an old save. Exercise the native initializer through the
@@ -48,6 +50,7 @@ comparisons+=4;
 // and a real hatch. A save that changes between these steps needs a new forecast.
 const interrupted=JSON.parse(R.run(`JSON.stringify((()=>{
     const s={...structuredClone(BASE),...${JSON.stringify(states.at(-1))}};
+    s.pension.bx=1;
     return G.sandbox(s,()=>{
         AUDIT_TIME=1000000000000;
         const before=structuredClone(s),gift=G.giftEgg(175,AUDIT_TIME);
@@ -83,19 +86,19 @@ const full=JSON.parse(R.run(`JSON.stringify((()=>{
     AUDIT_TIME=1000000000000;
     const s={...structuredClone(BASE),...${JSON.stringify(states[0])}},p=s.pension;
     p.open.eggs=1;p.eggs=[{id:25,uid:'occupant',laidAt:0,hatchAt:0}];
-    s.items={...s.items,'belue-berry':2};
+    s.items={...s.items,'belue-berry':${maxBerries+1}};
     return G.sandbox(s,()=>{
-        const fed=G.feedDittoBerry(),fedAgain=G.feedDittoBerry(),remaining=s.items['belue-berry'];
+        const fed=Array.from({length:${maxBerries+1}},()=>G.feedDittoBerry()),remaining=s.items['belue-berry'];
         G.pensionTick(AUDIT_TIME);
         const giftBlocked=!G.giftEgg(175,AUDIT_TIME),before={laid:p.laid,bx:!!p.bx,count:p.eggs.length,id:p.eggs[0].id};
         const hatched=G.hatchEgg('occupant');
         AUDIT_TIME+=1000;G.pensionTick(AUDIT_TIME);
-        return {fed,fedAgain,remaining,giftBlocked,before,hatched:!!hatched,egg:p.eggs[0],laid:p.laid,bx:!!p.bx};
+        return {fed,remaining,giftBlocked,before,hatched:!!hatched,egg:p.eggs[0],laid:p.laid,reserve:Number(p.bx)||0};
     });
 })())`));
-assert.equal(full.fed,true);assert.equal(full.fedAgain,false);assert.equal(full.remaining,1);assert.equal(full.giftBlocked,true);
+assert.deepEqual(full.fed,[...Array(maxBerries).fill(true),false]);assert.equal(full.remaining,1);assert.equal(full.giftBlocked,true);
 assert.deepEqual(full.before,{laid:0,bx:true,count:1,id:25});assert.equal(full.hatched,true);assert.equal(full.egg.k,0);
-assert.equal(full.egg.bx,1);assert.equal(full.laid,1);assert.equal(full.bx,false);comparisons+=10;
+assert.equal(full.egg.bx,1);assert.equal(full.laid,1);assert.equal(full.reserve,maxBerries-1);comparisons+=9;
 // Same egg number, same parent. Change only when the native berry button is used.
 for(const shinyParent of [false,true]){
     const input=structuredClone(states[0]);

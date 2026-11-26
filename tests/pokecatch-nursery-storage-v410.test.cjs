@@ -131,5 +131,19 @@ test('browser prediction requires a recognized game build while saved legacy fla
         }
         srcs=['/bundle/app.fffffffffe.js'];
         assert.equal(H.nurseryRuntimeOptions().build,'unverified:fffffffffe');
+        global.window.BUILD='824f567ed3';
+        const s={trainer:{id:'nov25',since:1234},pension:{laid:148,bx:4,mons:[{mon:{id:132}},{mon:{id:248,shiny:true}}]}};
+        srcs=['/bundle/app.f3a9382a50.js'];
+        assert.equal(H.nurseryRuntimeOptions().build,'824f567ed3');
+        assert.equal(H.nurseryForecast(s,{...H.nurseryRuntimeOptions(),limit:5}).nextUncoveredEgg.k,152);
+        srcs=[];
+        assert.deepEqual(H.nurseryRuntimeOptions(),{build:'unverified:missing-bundle',eggRollVerified:true});
+        assert.equal(H.nurseryForecast(s,H.nurseryRuntimeOptions()).active,false);
+        assert.equal(H.eggOutcome(s,{id:246,k:147},H.nurseryRuntimeOptions()).known,true);
+        srcs=['/bundle/app.fffffffffe.js'];
+        assert.deepEqual(H.nurseryRuntimeOptions(),{build:'unverified:fffffffffe'});
+        assert.equal(H.eggOutcome(s,{id:246,k:147},H.nurseryRuntimeOptions()).known,false);
+        srcs.push('/bundle/app.f3a9382a50.js');
+        assert.deepEqual(H.nurseryRuntimeOptions(),{build:'unverified:mixed-bundles'});
     }finally{if(previousDocument===undefined)delete global.document;else global.document=previousDocument;if(previousWindow===undefined)delete global.window;else global.window=previousWindow;}
 });

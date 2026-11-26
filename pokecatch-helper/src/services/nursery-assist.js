@@ -109,7 +109,7 @@
             if(!a||accountId(s)!==e.account||a.layout!==DATA.layout)return;
             if(this.priorityFeed(s,now,{idle:true}))return;
             if(e.suspended||e.checkpoint?.wanted&&e.settings.resumeOnReload||pageHidden()||now<this.manualUntil||
-                this.blocked()||a.paused||a.pending||a.event||a.zone||a.tower||a.league)return;
+                this.blocked()||a.paused||backgroundActivityBlock(a,'eggs'))return;
             const service=this.idleAutomation.state.eggService;
             const due=this.prefs.idleHatch&&!service?readyBackgroundEggs(s,now):[];
             if(!service&&(!due.length||!this.idleAutomation.hatchChoices(s,due,now).eligible.length))return;

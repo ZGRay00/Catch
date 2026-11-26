@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.2.10
+// @version      8.2.11
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.2.10', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.2.11', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -977,14 +977,23 @@
         }
         return false;
     }
+    function backgroundActivityBlock(a,service,engine){
+        const collect=service==='eggs'||service==='underCollect';
+        if(a.pending)return '等待当前游戏选择结束';
+        if(collect&&a.zone?.riddle)return '等待传说入口铭文结算';
+        if(collect&&a.zone&&engine?.running&&engine.zoneId!==a.zone.id)return '等待助手接管当前传说战';
+        if(a.event||a.tower||a.league||a.zone&&(!collect||a.zone.id===493))return '独立战斗占用前台，计时继续';
+        if(a.battle&&!collect&&service!=='underDispatch')return '等待当前战斗结束';
+        return '';
+    }
     function backgroundBlockReason(s,e,now=Date.now(),service=''){
         if(!e.running||e.suspended)return '助手未运行，原生计时仍独立继续';
         if(e.manual)return '手动控制中，等待归还页面';
         if(pageHidden())return '标签页在后台，等待回到游戏';
         const a=s?.adv||{},d=e.driver||{},auto=e.automation||{},flow=auto.state||{};
         if(a.paused)return '游戏已暂停';
-        if(a.pending||a.battle&&!['eggs','underDispatch'].includes(service))return '等待当前战斗或选择结束';
-        if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
+        const activity=backgroundActivityBlock(a,service,e);
+        if(activity)return activity;
         if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
         if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.pensionPurchase||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
         if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
@@ -1005,9 +1014,10 @@
         const underDispatch=!(c.autoUnderCollect&&returned)&&c.mode!=='underground';
         const mainComplete=mainGoalReached(s,e,now),blocked={},ready=[];
         let eggChoices;
-        const common=backgroundBlockReason(s,e,now),manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
+        const manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
         for(const id of ['eggs','underground','evolution']){
-            let reason=id==='eggs'?backgroundBlockReason(s,e,now,'eggs'):id==='underground'&&underDispatch?backgroundBlockReason(s,e,now,'underDispatch'):common;
+            const service=id==='underground'?(underDispatch?'underDispatch':'underCollect'):id;
+            let reason=backgroundBlockReason(s,e,now,service);
             if(id==='eggs'&&(!c.autoEggs||c.mode==='breed'))reason=c.mode==='breed'?'由当前繁殖任务管理':'自动收蛋已关闭';
             if(id==='underground'){
                 if(c.mode==='underground')reason='由当前地下任务管理';
@@ -1058,7 +1068,7 @@
             else if(managed){state='waiting';text+='；由当前主任务管理';}
             else if(task){state=e.running&&!paused?'running':'waiting';text+='；'+(state==='running'?'正在领取并归还页面':'事务保留，等待恢复核对');}
             else if(count&&plan.blocked[id]){state=/手动队伍/.test(plan.blocked[id])?'blocked':'waiting';text+='；'+plan.blocked[id];}
-            else if(count&&id==='eggs')text+='；成熟蛋优先，可在普通战斗期间领取';
+            else if(count&&id==='eggs')text+='；成熟蛋优先，可在普通战斗和传说战期间领取';
             entries.push({id,label:id==='eggs'?'培育屋 / 孵蛋':'地下派遣',state,detail:text,nextAt:Number.isFinite(nextAt)?nextAt:null});
         };
         const residents=(s?.pension?.mons||[]).map(slot=>slot?.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>breedableOffspring(s,mon)!=null);
@@ -2271,7 +2281,7 @@
             if(!a||accountId(s)!==e.account||a.layout!==DATA.layout)return;
             if(this.priorityFeed(s,now,{idle:true}))return;
             if(e.suspended||e.checkpoint?.wanted&&e.settings.resumeOnReload||pageHidden()||now<this.manualUntil||
-                this.blocked()||a.paused||a.pending||a.event||a.zone||a.tower||a.league)return;
+                this.blocked()||a.paused||backgroundActivityBlock(a,'eggs'))return;
             const service=this.idleAutomation.state.eggService;
             const due=this.prefs.idleHatch&&!service?readyBackgroundEggs(s,now):[];
             if(!service&&(!due.length||!this.idleAutomation.hatchChoices(s,due,now).eligible.length))return;
@@ -9327,8 +9337,7 @@
                 this.lastService=now;
                 if(!allow||!idle&&e.settings.mode==='breed'||this.state.eggRetryAt>now)return false;
                 if(e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
-                // Native ordinary adventure battles keep running on the daycare screen.
-                // Hatching does not reset that battle; real choices and owned UI still wait.
+                // Use the native daycare tab and leave the current encounter in place.
                 if(!idle&&backgroundBlockReason(s,e,now,'eggs')||this.state.evolution||visible($('#modal-root.open'))||visible($('#evt-pick')))return false;
                 if(!eggs.length)return false;
                 if($$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
@@ -9336,7 +9345,7 @@
                 choices=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
                 if(!choices.eligible.length)return false;
                 if(e.nurseryAssist?.priorityFeed(s,now,{idle,beforeHatch:true}))return !!e.nurseryAssist.feed;
-                const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
+                const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.disabled||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=this.state.eggService={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
                 e.telemetry.sample=null;e.log(idle?'待命收蛋 · 成熟蛋已就绪':'成熟蛋已就绪，领取后继续原任务');persist();
@@ -9355,7 +9364,7 @@
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
             choices??=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
             const due=choices.eligible.length>0;
-            if(!allow||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!allow||!due||backgroundActivityBlock(s.adv,'eggs',e)||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
                 const buttons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled);
@@ -9392,9 +9401,9 @@
                 if(e.settings.mode==='underground'||e.services.retryAt.underground>now)return false;
                 const status=undergroundStatus(s,now),tab=$('#tabs [data-screen="underground"]');
                 const collect=e.settings.autoUnderCollect&&status.ready.length;
-                if(backgroundBlockReason(s,e,now,collect?'':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now,status))return false;
+                if(backgroundBlockReason(s,e,now,collect?'underCollect':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now,status))return false;
                 if(collect&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
-                if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
+                if(!tab||tab.disabled||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=e.services.underground={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure',...collect?{}:{action:'dispatch'}};
                 e.telemetry.sample=null;e.log(collect?'地下队伍已归队，后台领取后继续原任务':'使用空闲成员安排地下探险，保留前台队伍');e.persist();
@@ -9410,7 +9419,7 @@
                 else{delete task.tx;task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台地下领取未获完整确认，暂缓一分钟后重新核对，期间不重复点击');e.persist();}
             }
             if(now-task.started>90000){task.returning=true;e.services.retryAt.underground=now+60000;}
-            if(!e.settings.autoUnderCollect||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!e.settings.autoUnderCollect||backgroundActivityBlock(s.adv,'underCollect',e)||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开地下派遣归队页');return true;}
@@ -16688,7 +16697,7 @@
             </section>
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
-            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋领取</td><td>优先处理，可在普通战斗期间切页领取，完成后继续原任务</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>地下归队 / 免费进化</td><td>等待安全节点，依次切页并归还原任务</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">需要选择的弹窗、独立活动、配队和消费确认仍先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
@@ -16734,7 +16743,7 @@
             <div class="hint" id="team-policy-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="activeSwitch">助手主动换人</span></label><div class="hint" id="switch-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="trainBuddy">练级 / 补练自动选择经验搭档 Buddy</span></label><div class="hint">搭档获得 1.3 倍经验。当前搭档仍需培养时会保留，更换会重置搭档的击倒计数。</div>
-            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div><div class="caption">后台服务 · 不替换当前任务</div><div class="checks background-toggles"><label title="优先领取成熟蛋，可在普通战斗期间处理，完成后返回原任务"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="进入神奥后仅用空闲队员自动组队派遣；保护主队、Buddy、培养对象与活动队员"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
+            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div><div class="caption">后台服务 · 不替换当前任务</div><div class="checks background-toggles"><label title="普通战斗和传说战期间可收成熟蛋，每次收蛋前先检查是否需要喂果"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="进入神奥后仅用空闲队员自动组队派遣；保护主队、Buddy、培养对象与活动队员"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
             ${underStartControls}<div class="hint">地下主任务和后台派遣共用起点。归队领取后按最高纪录开放 25、50、75、100 层。跳过的楼层没有经验和掉落。</div>
             <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
             <h3>孵蛋自动化</h3>

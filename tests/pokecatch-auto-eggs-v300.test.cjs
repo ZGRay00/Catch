@@ -374,7 +374,8 @@ test('a new native choice during egg navigation returns to adventure without cli
 const gates = {
     'native pending choice': f => { f.s.adv.pending = {}; },
     'raid event': f => { f.s.adv.event = { raid: true }; },
-    'legend zone': f => { f.s.adv.zone = { id: 150 }; },
+    'legend entrance riddle': f => { f.s.adv.zone = { id: 150, riddle:'door' }; },
+    'world boss capture': f => { f.s.adv.zone = { id: 493 }; },
     'tower battle': f => { f.s.adv.tower = {}; },
     'elite league': f => { f.s.adv.league = {}; },
     'raid probe': f => { f.e.raidProbe = true; },

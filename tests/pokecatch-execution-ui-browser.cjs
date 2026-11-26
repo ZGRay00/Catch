@@ -387,7 +387,11 @@ async function main(){
         await evaluate(`fixtureState.pension.eggs[0].hatchAt=Date.now()-1;fixtureState.under.slots[0].end=Date.now()-1;commitExecution()`);
         current=await state();assert.match(current.services,/待|可领|成熟|归队/);assert.ok(['ready','waiting'].includes(current.serviceStates.eggs.state));assert.ok(['ready','waiting'].includes(current.serviceStates.underground.state));assert.match(current.foreground,/刷钱/);checks.push('mature background work becomes a pending service without replacing the main goal');
         await evaluate(`fixtureState.adv.battle={steps:2,enemies:[{id:19,hp:10}]};commitExecution()`);
-        current=await state();assert.equal(current.serviceStates.eggs.state,'ready');assert.match(current.serviceStates.eggs.text,/成熟蛋优先/);assert.equal(current.serviceStates.underground.state,'waiting');checks.push('mature eggs stay eligible during ordinary combat while underground collection still waits');
+        current=await state();assert.equal(current.serviceStates.eggs.state,'ready');assert.match(current.serviceStates.eggs.text,/成熟蛋优先/);assert.equal(current.serviceStates.underground.state,'ready');
+        await evaluate(`fixtureState.adv.zone={id:643};__pcExecutionTest.engine.zoneId=643;commitExecution()`);
+        current=await state();assert.equal(current.serviceStates.eggs.state,'ready');assert.equal(current.serviceStates.underground.state,'ready');assert.match(current.foreground,/传说/);
+        await evaluate(`fixtureState.adv.zone=null;__pcExecutionTest.engine.zoneId=null;commitExecution()`);
+        checks.push('mature eggs and underground rewards are both ready during ordinary and Reshiram combat');
         await evaluate(`fixtureState.adv.battle=null;commitExecution()`);
         await evaluate(`__pcExecutionTest.engine.settings.autoTeam=false;commitExecution()`);
         current=await state();assert.equal(current.serviceStates.eggs.state,'blocked');assert.equal(current.serviceStates.underground.state,'blocked');assert.match(current.services,/手动|阵容|入队/);checks.push('a manual party with free slots explicitly blocks services that could auto-fill it');

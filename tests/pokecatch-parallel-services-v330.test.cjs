@@ -116,7 +116,7 @@ test('manual handoff, hidden pages and explicit game pause cannot start new serv
 });
 test('native choices and independent activities block opening new side pages',t=>{
     const f=fixture(t);
-    for(const field of ['pending','event','zone','tower','league']){
+    for(const field of ['pending','event','tower','league']){
         f.s.adv[field]={id:1};const p=f.plan();assert.equal(p.ready.includes('eggs'),false,field);assert.equal(p.ready.includes('underground'),false,field);delete f.s.adv[field];
     }
 });
@@ -171,10 +171,10 @@ test('mature eggs take priority over underground receipts regardless of earlier 
     delete f.e.automation.state.eggService;f.e.services.lastStarted={eggs:f.now()-20000,underground:f.now()};calls.length=0;f.service();assert.equal(calls[0],'eggs');
 });
 
-test('only mature egg collection may open a side page during ordinary native combat',t=>{
+test('mature eggs and underground receipts are ready during ordinary native combat',t=>{
     const f=fixture(t);f.s.adv.battle={steps:2,enemies:[{id:19,hp:10}]};const battle=JSON.stringify(f.s.adv.battle),plan=f.plan();
     assert.equal(plan.ready[0],'eggs');assert.equal(plan.blocked.eggs,undefined);
-    assert.ok(!plan.ready.includes('underground'));assert.ok(!plan.ready.includes('evolution'));assert.match(plan.blocked.underground,/战斗/);
+    assert.deepEqual(plan.ready,['eggs','underground']);
     assert.equal(JSON.stringify(f.s.adv.battle),battle);
 });
 test('a ready mature egg cannot be indefinitely preempted by starting more free evolutions',t=>{
@@ -223,6 +223,43 @@ test('daily routine claims mature eggs and returned expeditions before reserving
     assert.equal(e.settings.mode,'money');
     await tick();
     assert.equal(e.daily.job?.kind,'candy');
+});
+test('Reshiram battle keeps its zone and team through four guarded hatches and two confirmed underground returns',async t=>{
+    const f=fixture(t,{mode:'legend',legendId:643,legendIds:[643],autoEvolve:false}),{s,e,ui}=f;
+    s.adv.zone={id:643,foe:643,loops:2};s.adv.battle={steps:4,enemies:[{id:643,hp:90}]};
+    s.pension.eggs=Array.from({length:4},(_,i)=>({uid:'egg-'+i,id:1,hatchAt:f.now()-1}));
+    const second=f.job('second',f.now()-1,1);
+    second.team=second.team.map(uid=>uid+'-2');second.mons.forEach((mon,i)=>mon.uid=second.team[i]);
+    s.under.extra=1;s.under.slots.push(second);f.save();
+    const initial=JSON.stringify([s.adv.zone,s.adv.battle,s.team]),receipts=[],guards=[];
+    ui.deferCollection=false;e.zoneId=643;e.zoneStarted=f.now();
+    e.daily={base:{...e.settings},checking:false};e.dailyCheckAt=Infinity;
+    const click=e.driver.click;
+    e.driver.click=(el,label)=>{
+        if(el.dataset.egg){
+            assert.equal(guards.at(-1),s.pension.eggs.length);
+            receipts.push(el.dataset.egg);s.pension.eggs.shift();s.stats.hatched++;f.save();
+        }else if(el.dataset.ugTake!=null){
+            receipts.push('bay-'+el.dataset.ugTake);
+            const confirm=element({perform:()=>f.nodes.delete('#modal-root.open')});
+            const receipt=element({querySelector:selector=>selector.includes('.modal-actions')?confirm:null});
+            f.nodes.set('#modal-root.open',[element({querySelector:selector=>selector==='.ug-back'?receipt:null})]);
+        }
+        return click(el,label);
+    };
+    const feed=e.nurseryAssist.priorityFeed.bind(e.nurseryAssist);
+    e.nurseryAssist.priorityFeed=(state,now,options)=>{
+        if(options?.beforeHatch)guards.push(state.pension.eggs.length);
+        return feed(state,now,options);
+    };
+    for(let i=0;i<30&&e.services.underClaimed<2;i++){
+        await e.step(f.now());f.advance(1200);
+        assert.ok(e.running,e.status);
+        assert.equal(JSON.stringify([s.adv.zone,s.adv.battle,s.team]),initial);
+    }
+    assert.deepEqual(receipts,['egg-0','egg-1','egg-2','egg-3','bay-0','bay-1']);
+    assert.equal(e.automation.state.autoHatched,4);assert.equal(e.services.underClaimed,2);
+    assert.equal(ui.screen,'adventure');assert.equal(e.services.underDispatched,0);
 });
 test('polling readiness alone does not rewrite fair-start timestamps or main wait deadlines',t=>{
     const f=fixture(t);f.e.nextWake=f.now()+600000;const old=JSON.stringify(f.e.services.lastStarted);

@@ -148,14 +148,23 @@
         }
         return false;
     }
+    function backgroundActivityBlock(a,service,engine){
+        const collect=service==='eggs'||service==='underCollect';
+        if(a.pending)return '等待当前游戏选择结束';
+        if(collect&&a.zone?.riddle)return '等待传说入口铭文结算';
+        if(collect&&a.zone&&engine?.running&&engine.zoneId!==a.zone.id)return '等待助手接管当前传说战';
+        if(a.event||a.tower||a.league||a.zone&&(!collect||a.zone.id===493))return '独立战斗占用前台，计时继续';
+        if(a.battle&&!collect&&service!=='underDispatch')return '等待当前战斗结束';
+        return '';
+    }
     function backgroundBlockReason(s,e,now=Date.now(),service=''){
         if(!e.running||e.suspended)return '助手未运行，原生计时仍独立继续';
         if(e.manual)return '手动控制中，等待归还页面';
         if(pageHidden())return '标签页在后台，等待回到游戏';
         const a=s?.adv||{},d=e.driver||{},auto=e.automation||{},flow=auto.state||{};
         if(a.paused)return '游戏已暂停';
-        if(a.pending||a.battle&&!['eggs','underDispatch'].includes(service))return '等待当前战斗或选择结束';
-        if(a.event||a.zone||a.tower||a.league)return '独立战斗占用前台，计时继续';
+        const activity=backgroundActivityBlock(a,service,e);
+        if(activity)return activity;
         if(e.raidProbe||e.raidReturn||d.pendingMap||d.teamTask||d.ownedDialog||d.navigation||auto.owner||auto.buddyTask||auto.buffUI||e.modalWaitSince!=null)return '页面正在处理其他事务';
         if(e.preparation?.candyTx||flow.hatch||flow.resourceTx||flow.pensionPurchase||flow.autoBuffTx||flow.resourceBuffTx||flow.towerLaunch||flow.candyLaunch||flow.underLaunch||flow.underCollect||flow.waitUntil>now)return '等待领取、队伍或道具存档确认';
         if(flow.candyRun&&!s.candy?.run)return '等待糖果工厂结算';
@@ -176,9 +185,10 @@
         const underDispatch=!(c.autoUnderCollect&&returned)&&c.mode!=='underground';
         const mainComplete=mainGoalReached(s,e,now),blocked={},ready=[];
         let eggChoices;
-        const common=backgroundBlockReason(s,e,now),manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
+        const manualParty=c.autoTeam===false&&(s?.team?.length||0)<6;
         for(const id of ['eggs','underground','evolution']){
-            let reason=id==='eggs'?backgroundBlockReason(s,e,now,'eggs'):id==='underground'&&underDispatch?backgroundBlockReason(s,e,now,'underDispatch'):common;
+            const service=id==='underground'?(underDispatch?'underDispatch':'underCollect'):id;
+            let reason=backgroundBlockReason(s,e,now,service);
             if(id==='eggs'&&(!c.autoEggs||c.mode==='breed'))reason=c.mode==='breed'?'由当前繁殖任务管理':'自动收蛋已关闭';
             if(id==='underground'){
                 if(c.mode==='underground')reason='由当前地下任务管理';
@@ -229,7 +239,7 @@
             else if(managed){state='waiting';text+='；由当前主任务管理';}
             else if(task){state=e.running&&!paused?'running':'waiting';text+='；'+(state==='running'?'正在领取并归还页面':'事务保留，等待恢复核对');}
             else if(count&&plan.blocked[id]){state=/手动队伍/.test(plan.blocked[id])?'blocked':'waiting';text+='；'+plan.blocked[id];}
-            else if(count&&id==='eggs')text+='；成熟蛋优先，可在普通战斗期间领取';
+            else if(count&&id==='eggs')text+='；成熟蛋优先，可在普通战斗和传说战期间领取';
             entries.push({id,label:id==='eggs'?'培育屋 / 孵蛋':'地下派遣',state,detail:text,nextAt:Number.isFinite(nextAt)?nextAt:null});
         };
         const residents=(s?.pension?.mons||[]).map(slot=>slot?.mon).filter(Boolean),breeding=residents.some(mon=>mon.id===132)&&residents.some(mon=>breedableOffspring(s,mon)!=null);

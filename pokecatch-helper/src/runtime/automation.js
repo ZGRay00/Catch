@@ -304,8 +304,7 @@
                 this.lastService=now;
                 if(!allow||!idle&&e.settings.mode==='breed'||this.state.eggRetryAt>now)return false;
                 if(e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
-                // Native ordinary adventure battles keep running on the daycare screen.
-                // Hatching does not reset that battle; real choices and owned UI still wait.
+                // Use the native daycare tab and leave the current encounter in place.
                 if(!idle&&backgroundBlockReason(s,e,now,'eggs')||this.state.evolution||visible($('#modal-root.open'))||visible($('#evt-pick')))return false;
                 if(!eggs.length)return false;
                 if($$('.rc-fx,.lk-fx,.hatch-fx,.gift').some(visible))return false;
@@ -313,7 +312,7 @@
                 choices=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
                 if(!choices.eligible.length)return false;
                 if(e.nurseryAssist?.priorityFeed(s,now,{idle,beforeHatch:true}))return !!e.nurseryAssist.feed;
-                const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
+                const tab=$('#tabs [data-screen="pension"]');if(!tab||tab.disabled||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=this.state.eggService={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure'};
                 e.telemetry.sample=null;e.log(idle?'待命收蛋 · 成熟蛋已就绪':'成熟蛋已就绪，领取后继续原任务');persist();
@@ -332,7 +331,7 @@
             if(now-task.started>90000){task.returning=true;this.state.eggRetryAt=now+60000;}
             choices??=this.hatchChoices(s,readyBackgroundEggs(s,now),now);
             const due=choices.eligible.length>0;
-            if(!allow||!due||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!allow||!due||backgroundActivityBlock(s.adv,'eggs',e)||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('pension'))return true;
                 const buttons=$$('#pen-eggs .pen-egg.ready[data-egg]').filter(enabled);
@@ -369,9 +368,9 @@
                 if(e.settings.mode==='underground'||e.services.retryAt.underground>now)return false;
                 const status=undergroundStatus(s,now),tab=$('#tabs [data-screen="underground"]');
                 const collect=e.settings.autoUnderCollect&&status.ready.length;
-                if(backgroundBlockReason(s,e,now,collect?'':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now,status))return false;
+                if(backgroundBlockReason(s,e,now,collect?'underCollect':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now,status))return false;
                 if(collect&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
-                if(!tab||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
+                if(!tab||tab.disabled||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=e.services.underground={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure',...collect?{}:{action:'dispatch'}};
                 e.telemetry.sample=null;e.log(collect?'地下队伍已归队，后台领取后继续原任务':'使用空闲成员安排地下探险，保留前台队伍');e.persist();
@@ -387,7 +386,7 @@
                 else{delete task.tx;task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台地下领取未获完整确认，暂缓一分钟后重新核对，期间不重复点击');e.persist();}
             }
             if(now-task.started>90000){task.returning=true;e.services.retryAt.underground=now+60000;}
-            if(!e.settings.autoUnderCollect||s.adv.battle||s.adv.pending||s.adv.event||s.adv.zone||s.adv.tower||s.adv.league||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!e.settings.autoUnderCollect||backgroundActivityBlock(s.adv,'underCollect',e)||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开地下派遣归队页');return true;}

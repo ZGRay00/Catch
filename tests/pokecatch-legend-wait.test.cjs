@@ -28,6 +28,37 @@ function fixture(t,settings={}){
     return {e,s,dom,row,now,clicks,storage};
 }
 
+test('a time gate yields only after prerequisites are met and a reopened priority target safely interrupts a lower hunt',async t=>{
+    const {e,s,storage}=fixture(t,{legendIds:[643,145]});
+    const night=new Date(2026,10,25,23).getTime(),day=new Date(2026,10,26,8).getTime();
+    s.travel.to.push('unova');Object.assign(s.adv,{chapter:75,unlocked:83,badges:['Maître Unys']});
+    e.driver.pendingMap=null;
+    assert.ok(e.selectLegendTarget(s,night));assert.equal(e.settings.legendId,643,'still needs light stone');
+    let needed;e.advanceRequirements=(_s,_cfg,plan)=>{needed=plan.items;return true;};
+    e.legend(s,night);assert.ok(needed.has('light-stone'));
+    s.items['light-stone']=1;
+    assert.ok(e.selectLegendTarget(s,night));assert.equal(e.settings.legendId,145);
+    assert.match(e.legendDeferred[643].reason,/白天/);
+    const snap=e.progressSnapshot();assert.ok(snap.session.legendDeferred[643]);
+    s.adv.zone={id:145,back:75};e.zoneId=145;s.adv.battle={enemies:[{id:145,hp:1}]};
+    const saves=()=>storage.setItem('gachamon-save-v1',JSON.stringify(s));
+    const leaves=[];e.driver.map=(row,state,options)=>{assert.ok(options.leaveZone);leaves.push(row.id);return true;};
+    assert.equal(e.returnToOpenLegend(s,day),false);assert.equal(leaves.length,0);
+    s.adv.battle=null;s.adv.pending={type:'catch'};assert.equal(e.returnToOpenLegend(s,day),false);
+    s.adv.pending=null;saves();
+    await e.step(day);assert.deepEqual(leaves,[75]);
+    await e.step(day+1000);assert.deepEqual(leaves,[75],'only one exit click before save confirmation');
+    s.adv.zone=null;saves();await e.step(day+2000);
+    assert.equal(e.settings.legendId,643);assert.equal(e.legendDeferred[643],undefined);assert.ok(e.running);
+});
+
+test('the weekly form stays pending until the native UTC week changes',()=>{
+    const zone=H.DATA.zones.find(z=>z.id===386),now=Date.UTC(2026,10,29,23,59);
+    const s={dex:{386:{caught:1}},mons:[],aurora:{week:H.towerWeek(now),id:386}};
+    assert.match(H.legendWindowReason(s,zone,0,now),/下周/);
+    assert.equal(H.legendWindowReason(s,zone,0,now+60000),'');
+});
+
 test('new and unlimited legend settings survive normalization while saved time limits retain their values',()=>{
     for(const key of ['legendMinutes','roamMinutes']){
         for(const value of [undefined,'0',0,5,90,720]){

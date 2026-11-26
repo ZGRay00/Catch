@@ -1,7 +1,7 @@
     const MODE_NAMES = { dex: '补齐图鉴', money: '自动刷钱', legend: '指定传说战', roam: '游荡捕获', item: '指定道具', train: '目标练级', progress: '推进主线',
         breed:'繁殖孵蛋',shiny:'指定野生刷闪',underground:'地下通道',tower:'对战塔',candy:'糖果工厂',elite:'精英联盟',world:'世界首领',raid:'每日团体战',resource:'采购与使用' };
     const FLOW_MODES = new Set(['breed','underground','tower','candy','elite','world','resource']);
-    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','roamStarted','raidPreparation','cooldowns','routeLosses','partyOrigin','raidCooldown','nextRaid','nextLegend','teamRetryAt','teamRetryLoop','lastExplore'];
+    const SESSION_FIELDS=['started','startMoney','walletScope','startItems','sessionItemId','trainProtected','trainingSelection','startTrainingXp','trainingXpMultiplier','trainingXpRebased','oldLoops','zoneStarted','legendDeferred','roamStarted','raidPreparation','cooldowns','routeLosses','partyOrigin','raidCooldown','nextRaid','nextLegend','teamRetryAt','teamRetryLoop','lastExplore'];
     function raidIdentity(s,value=s?.adv?.event){
         if(!value?.raid)return null;
         return JSON.stringify([value.reg||currentRegion(s),value.id,value.date||parisDay()]);
@@ -104,8 +104,7 @@
         if (raw.legendId===null) out.legendId=null;
         else if (DATA.zones.some(z => z.id === +raw.legendId)) out.legendId = +raw.legendId;
         const selectedZones=new Set(Array.isArray(raw.legendIds)?raw.legendIds.map(Number):[]);
-        if(selectedZones.size)out.legendIds=DATA.regions.flatMap(region=>
-            DATA.zones.filter(zone=>zone.reg===region.key&&selectedZones.has(zone.id)).map(zone=>zone.id));
+        if(selectedZones.size)out.legendIds=[...selectedZones].filter(id=>DATA.zones.some(zone=>zone.id===id));
         if(out.legendIds.length&&!out.legendIds.includes(out.legendId))out.legendId=out.legendIds[0];
         if(out.legendIds.length<2)out.legendIds=[];
         if([243,244,245,380,381,481,641,642].includes(+raw.roamId))out.roamId=+raw.roamId;

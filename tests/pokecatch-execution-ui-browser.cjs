@@ -133,7 +133,11 @@ async function main(){
                 if(picker.open||r.activeElement!==summary||!summary.textContent.includes('基拉祈'))throw Error('Only-select should collapse and return focus');
                 summary.click();filter('关都');
                 checks.querySelector('[value="145"]').click();
-                if(e.settings.legendIds.join(',')!=='145,385')throw Error('Multiple legendary selection not saved');
+                if(e.settings.legendIds.join(',')!=='385,145')throw Error('Multiple legendary selection not saved');
+                const order=r.querySelector('#legend-order');order.open=true;
+                order.querySelector('li:nth-child(2) button').click();
+                if(e.settings.legendIds.join(',')!=='145,385'||e.settings.legendId!==145||order.querySelector('li').textContent.indexOf('闪电鸟')!==0)throw Error('Legend priority order did not update');
+                if(JSON.parse(localStorage.getItem('pokecatch-helper:v1:'+fixtureState.trainer.id)).settings.legendIds.join(',')!=='145,385')throw Error('Legend order was not saved');
                 if(!summary.textContent.includes('已选 2 项'))throw Error('The summary must show the full selected count');
                 r.querySelector('#legend-all').click();
                 if(e.settings.legendIds.length!==checks.querySelectorAll('input').length)throw Error('Select all missed a region');

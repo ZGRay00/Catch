@@ -14,6 +14,24 @@
         const ids=selectedLegendIds(cfg),owned=ids.length>1?new Set(collectionMembers(s).map(m=>m.id)):undefined;
         return ids.map(id=>legendProgress(s,cfg,id,owned));
     }
+    function legendWindowReason(s,zone,tier,now){
+        if(!tier&&zone.forms?.length){
+            const rotation=s.aurora;
+            if(rotation?.week===towerWeek(now)&&zone.forms.includes(rotation.id)&&captured(s,rotation.id))
+                return '等待下周轮换形态';
+        }
+        const moon=zone.id===488?'full':zone.id===491?'new':null;
+        if(!moon&&!zone.when)return '';
+        const night=phaseAt(s,now)==='night';
+        if(moon){
+            // The native eight-night cycle uses the Paris calendar date eight hours earlier.
+            const index=(Math.floor(Date.parse(parisDay(now-8*3600000)+'T00:00:00Z')/86400000)%8+8)%8;
+            if(!night||!(moon==='full'?index<2:index===4||index===5))return moon==='full'?'等待满月之夜':'等待新月之夜';
+        }
+        if(zone.when==='day'&&night)return '等待白天';
+        if(zone.when==='night'&&!night)return '等待夜间';
+        return '';
+    }
     function legendSelectionLabel(cfg){
         const ids=selectedLegendIds(cfg);
         if(!ids.length)return '未选择传说目标';

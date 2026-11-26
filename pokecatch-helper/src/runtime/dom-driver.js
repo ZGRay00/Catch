@@ -474,7 +474,7 @@
             }
             if (!list) return false;
             if((multiZone||options.gateElite)&&list.classList.contains('lz-closed')&&(!options.tier||options.gateElite)){
-                this.pendingMap.waiting={reason:row.condition||'入口未开放'};return false;
+                this.pendingMap.waiting={reason:'游戏显示当前时段未开放',timed:true};return false;
             }
             if (list.classList.contains('locked') && !options.zone) return false;
             if (!list.classList.contains('sel')) { this.click(list, `选择${row.name}`); return false; }
@@ -486,7 +486,7 @@
                 if (!enabled(go)) {
                     if(visible(go)&&(go.disabled||go.getAttribute('aria-disabled')==='true')){
                         const reason=go.textContent.trim()||$('#map-root .lz-cond')?.textContent.trim()||row.condition||'请在游戏中查看开放条件';
-                        if(this.pendingMap?.row===row)this.pendingMap.waiting={reason:reason.slice(0,180)};
+                        if(this.pendingMap?.row===row)this.pendingMap.waiting={reason:reason.slice(0,180),timed:list.classList.contains('lz-closed')};
                         this.e.status=`等待${row.name}开放 · ${reason.slice(0,180)}`;this.e.lastProgress=Date.now();
                     }
                     return false;

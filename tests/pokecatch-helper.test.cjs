@@ -100,7 +100,7 @@ test('legend goals distinguish ordinary captures, rotating forms and monotonic e
 });
 
 test('requested legend bypasses daily raids and selects only the next elite tier', async t => {
-    const s=state();s.dex[145]={caught:1};s.elite={145:{t:1}};s.adv.badges=['Maître'];
+    const s=state();s.dex[145]={caught:1};s.elite={145:{t:1}};s.adv.badges=['Maître','Forêt'];
     const {e,actions}=runtime(t,s,{mode:'legend',legendId:145,legendTier:3,raids:true});e.nextRaid=0;
     await e.step();assert.equal(e.driver.pendingMap.row.id,145);assert.equal(e.driver.pendingMap.options.tier,2);assert.equal(e.raidProbe,false);
     assert.ok(!actions.includes('raid'));

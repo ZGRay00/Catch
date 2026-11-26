@@ -84,4 +84,12 @@ for(const stage of [0,1,2]){
         });
     }
 }
-console.log('Verified '+zones.length+' legend gates in 3 save states, '+Object.keys(riddles).length+' riddles, '+chapters.length+' chapters, '+events+' fixed/egg/trade events, '+gifts+' gifts and '+lootEggs+' egg loot entries.');
+const timed=zones.filter(z=>z.when||z.moon),hours=16*24,start=Date.UTC(2026,9,20);
+const windows=read(`(()=>{let time=${start};G.now=()=>time;G.time=()=>time;N.Clock={now:()=>time,sure:true};
+    G.S.adv.chapter=75;G.S.adv.unlocked=83;
+    return Array.from({length:${hours}},(_,i)=>{time=${start}+i*3600000;return ${JSON.stringify(timed.map(z=>z.id))}.map(id=>L.shut(id));});})()`);
+for(let i=0;i<hours;i++)for(const [j,z] of timed.entries()){
+    const zone=H.DATA.zones.find(row=>row.id===z.id);
+    assert.equal(!!H.legendWindowReason({adv:{chapter:75,unlocked:83}},zone,0,start+i*3600000),windows[i][j],z.id+' hour '+i);
+}
+console.log('Verified '+zones.length+' legend gates in 3 save states, '+hours*timed.length+' timed entrances, '+Object.keys(riddles).length+' riddles, '+chapters.length+' chapters, '+events+' fixed/egg/trade events, '+gifts+' gifts and '+lootEggs+' egg loot entries.');

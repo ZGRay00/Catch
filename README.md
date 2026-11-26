@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.2.11**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.3.0**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.2.11.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.3.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+8.3.0 · 传说目标支持自定义挑战顺序。昼夜、月相或每周形态轮换暂未开放时先刷后续目标，优先目标开放后回头挑战。缺少前置条件时继续补齐。已核对当前游戏包的孵蛋和靛莓果规则。
 
 8.2.11 · 普通战斗和助手已接管的传说战期间可收成熟蛋、领取地下归队奖励。每次收蛋前先检查下一枚自然蛋是否需要靛莓果，领取完成后返回原页面。
 

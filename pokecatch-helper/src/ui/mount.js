@@ -114,6 +114,7 @@
                 <div data-fields="legend" class="hidden">
                     <details id="legend-picker" class="legend-picker">
                         <summary><strong>传说目标</strong><span id="legend-selection"></span></summary>
+                        <details id="legend-order"><summary>挑战顺序</summary><ol aria-label="传说挑战优先顺序"></ol></details>
                         <div class="legend-tools">
                             <input type="search" id="legend-search" placeholder="搜宝可梦、地点或地区" aria-label="搜索传说目标">
                             <button type="button" id="legend-all" title="选中所有地区的传说目标">全选</button>
@@ -123,6 +124,7 @@
                         <div id="legend-empty" class="hint" role="status" hidden>没有匹配的传说目标。</div>
                         <div class="legend-footer"><span id="legend-count" role="status"></span><span id="legend-instruction"></span></div>
                     </details>
+                    <p id="legend-window-wait" class="hint" role="status" hidden></p>
                     <div class="field"><span>完成条件</span><select data-setting="legendTier" aria-label="传说战完成条件"><option value="0">普通捕获（全部轮换形态）</option>${[1,2,3,4,5].map(t => `<option value="${t}">精英推进至 ${t} 阶</option>`).join('')}</select></div>
                     <div class="field"><span>单场时限（分钟）</span><input data-setting="legendMinutes" type="number" min="0" max="720" aria-label="传说战时限，0 为不限时"></div>
                     ${roamingBallControl('legend')}<div class="hint" id="legend-elite-team-hint" hidden></div><div class="hint">睡前挂机可填 0 持续挑战，也可填 5–720 分钟限时。助手按目标完成情况切换。游荡目标的普通捕获会转为在线追踪；精英入口仅用于挑战阶级。普通传说战与游荡目标不能刷异色。</div>
@@ -468,13 +470,15 @@
             }
             if(entries.length){legendGroups.push({section,entries});legendChecks.append(section);}
         }
-        legendChecks.onchange=()=>{
-            const ids=[...legendEntries].filter(([,entry])=>entry.input.checked).map(([id])=>id);
-            changeSetting('legendIds',ids);
+        const legendOrder=query('#legend-order'),orderList=legendOrder.querySelector('ol');
+        let pickerIds=[],orderSignature='';
+        legendChecks.onchange=event=>{
+            const id=Number(event.target.value);
+            changeSetting('legendIds',event.target.checked?[...pickerIds,id]:pickerIds.filter(value=>value!==id));
         };
         const legendAll=query('#legend-all'),legendClear=query('#legend-clear');
         legendAll.textContent='全选 '+legendEntries.size+' 项';
-        legendAll.onclick=()=>changeSetting('legendIds',[...legendEntries.keys()]);
+        legendAll.onclick=()=>changeSetting('legendIds',[...new Set([...pickerIds,...legendEntries.keys()])]);
         legendClear.onclick=()=>changeSetting('legendIds',[]);
         function filterLegendTargets(){
             const words=legendSearch.value.trim().toLowerCase().split(/\s+/);
@@ -494,7 +498,31 @@
             if(!legendPicker.open&&legendSearch.value){legendSearch.value='';filterLegendTargets();}
         };
         function syncLegendPicker(cfg,locked){
-            const selected=new Set(selectedLegendIds(cfg));
+            pickerIds=selectedLegendIds(cfg);
+            const selected=new Set(pickerIds);
+            const signature=JSON.stringify([pickerIds,locked]);
+            if(orderSignature!==signature){
+                orderSignature=signature;legendOrder.hidden=selected.size<2;
+                orderList.replaceChildren(...pickerIds.map((id,index)=>{
+                    const li=document.createElement('li'),name=document.createElement('span');
+                    name.textContent=legendEntries.get(id).name;li.append(name);
+                    for(const [delta,label] of [[-1,'上移'],[1,'下移']]){
+                        const button=document.createElement('button'),to=index+delta;
+                        button.type='button';button.textContent=label;button.disabled=locked||to<0||to>=pickerIds.length;
+                        button.setAttribute('aria-label',label+name.textContent);
+                        button.onclick=()=>{
+                            const ids=pickerIds.slice();[ids[index],ids[to]]=[ids[to],ids[index]];
+                            if(changeSetting('legendIds',ids)){
+                                const row=orderList.children[to];
+                                (row.querySelector('button:not(:disabled)')||legendOrder.querySelector('summary')).focus({preventScroll:true});
+                                row.scrollIntoView({block:'nearest'});
+                            }
+                        };
+                        li.append(button);
+                    }
+                    return li;
+                }));
+            }
             for(const [id,entry] of legendEntries){
                 const picked=selected.has(id),last=picked&&selected.size===1;
                 entry.input.checked=picked;entry.input.disabled=locked;entry.only.disabled=locked||last;
@@ -503,7 +531,7 @@
             const single=selected.size===1&&legendEntries.get(cfg.legendId);
             query('#legend-selection').textContent=single?`${single.name} · ${single.place}`:selected.size===legendEntries.size?'全部目标':`已选 ${selected.size} 项`;
             query('#legend-count').textContent=`已选 ${selected.size} / ${legendEntries.size}`;
-            query('#legend-instruction').textContent=selected.size?'按地图顺序挑战，跳过已完成目标':LEGEND_TARGET_REQUIRED;
+            query('#legend-instruction').textContent=selected.size>1?'按所选顺序挑战。限时入口开放后优先回刷。':selected.size?'已选 1 个目标':LEGEND_TARGET_REQUIRED;
             legendAll.disabled=locked||selected.size===legendEntries.size;
             legendClear.disabled=locked||selected.size===0;
         }
@@ -930,6 +958,11 @@
             const leaving=s?.adv&&(s.adv.event||s.adv.zone||s.adv.tower||s.adv.league)&&engine.activityToLeave(s,engine.settings);
             query('#start').textContent = dailyCard?'开始通关日常':leaving?'开始任务并切换活动':s?.adv?.event?.raid?'接管当前团体战':s?.adv?.zone?'接管当前传说战':'开始当前任务';
             const planned=engine.editableQueue(),pending=planned.filter(queueJobPending),nextJob=pending[0];
+            const windowNote=query('#legend-window-wait');
+            const waitingLegends=!queueForm&&engine.running&&engine.settings.mode==='legend'?selectedLegendIds(engine.settings).filter(id=>engine.legendDeferred?.[id]):[];
+            windowNote.hidden=!waitingLegends.length;
+            const windowText=waitingLegends.map(id=>legendEntries.get(id).name+' · '+engine.legendDeferred[id].reason).join('；');
+            if(windowNote.textContent!==windowText)windowNote.textContent=windowText;
             query('#queue-count').textContent=pending.length;
             query('#add-job').disabled=formLocked()||dailyCard||(!s?.adv&&!(queueForm&&engine.account))||missingLegendTarget||missingTrainees;
             query('#start-queue').disabled=locked||!!editingJob||!nextJob||!s?.adv;
@@ -1286,7 +1319,7 @@
             const previous=formSettings();
             const patch=key==='underStartChoice'?{underAutoStart:value==='auto',underFrom:value==='auto'?previous.underFrom:Number(value)}:{[key]:value};
             if(key==='trainUids')patch.trainUid='selected';
-            if(key==='legendIds'&&!value.length)patch.legendId=null;
+            if(key==='legendIds')patch.legendId=value[0]??null;
             const settings=normalizeSettings({...previous,...patch});
             if(queueForm)queueForm=settings;else engine.settings=settings;
             try {

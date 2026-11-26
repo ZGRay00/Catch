@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.2.11",
-  "scriptSha256": "d8126ba44a9fc33428ac9b9e5a0fcd1076e2fab2d81696efdb82feb992e51ce4",
-  "metadataSha256": "bc1e6aa32e998b5df1d96e5160377d1803ce3118ec8073c3efeb63ccbfcb59b4",
+  "version": "8.3.0",
+  "scriptSha256": "017d7cb2502f370e9bdc70fcd5c04cf8a911ab7909b9356e704c6242094c96c4",
+  "metadataSha256": "41690e0b4710b04e8fd10aa8dc9d0b3767b82543ebe5c6af242826dd3acf931e",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "3315c4bac02dbecc0ad060c08b2d6e21bb6c4121d9a4bbf6cccd1ea1b41579ed"
+      "sha256": "5df62c15fdf603a340af2951d9a6f3481c8d6757cc21fc9f1e0d401f675fd4ea"
     },
     {
       "file": "build.manifest.json",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "dc33c30081d1399912b12af3db640a7cc6671ac974653387f69efafbfb37831b"
+      "sha256": "696f077bcb1b69d172401d47a73f09fe509fe652fcf36c151bec91b8de1593ce"
     },
     {
       "file": "src/models/facilities.js",
@@ -74,7 +74,7 @@
     },
     {
       "file": "src/models/nursery-model.js",
-      "sha256": "0db3ad0d7e37b97a861509ffada3b647a81e4f6eb68a12baedbb61ad0f534aa0"
+      "sha256": "c09b63694a2c4479f3a68f3c5cad5d521d248f8d9de302968daf3df63c9975c1"
     },
     {
       "file": "src/models/nursery-ledger.js",
@@ -150,7 +150,7 @@
     },
     {
       "file": "src/models/collection.js",
-      "sha256": "9d8abc034fcb53f07cf3eac42abc84fe3430e966519c49a31957b10e7e55d1c2"
+      "sha256": "ad30e1eb990f66bd4034e6fb10937caf66e3da8e108d191d4ff0b53e9e36ba51"
     },
     {
       "file": "src/data/move-advice.js",
@@ -174,7 +174,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "e34536854de005f03bb631335e49f77dfc01ca9eff95a12c125c88c3b7e89860"
+      "sha256": "275de5720f9470026ba94bef85976fbdc6faf4de387d2648fb825768dfeaea6b"
     },
     {
       "file": "src/runtime/automation.js",
@@ -186,11 +186,11 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "d62a7d1ae18b574af86a1fba1907991f05a0c32ba7522f6c9a77508e3163857d"
+      "sha256": "36bbf2a9ac2268d4c4590b1f54cbf65a50751a987a8cf295882a7d740de3d90b"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "daae723cb00ddb5e6f2a282368385212a3864b3505e340c552e216a1e8af73a9"
+      "sha256": "805405ec8c30cc795685799012541a1a0dbd1e8bf8ec6192eae0d68a5e6c32e3"
     },
     {
       "file": "data/ui-icons.json",
@@ -198,7 +198,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "5073882db5ab848f77fcad44b0d271537937de382d27f356eca75a3fe009c907"
+      "sha256": "4df92421e2479a870ef562e8cf9c317fb8b934805c4af05dc668c2410e327d03"
     },
     {
       "file": "src/ui/gameplay-insights.js",
@@ -234,7 +234,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "a480f5d335fb47756fab349a3fef414f3f393eb61dd6181916ebaa065f5551c7"
+      "sha256": "b18f5457ad42815f177c9373e18a7d3442f34490e69c0fb2b4a8ee6de53f98c6"
     }
   ]
 }

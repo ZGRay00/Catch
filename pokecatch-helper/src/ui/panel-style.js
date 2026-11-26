@@ -223,6 +223,12 @@
     .legend-tools button { flex:none; min-width:52px }
     .legend-list { max-height:min(36dvh,300px); overflow:auto; padding:0 8px; scrollbar-width:thin }
     .legend-list[hidden] { display:none }
+    #legend-order { margin:0 8px 6px; border-block:1px solid #52677866 }
+    #legend-order > summary { cursor:pointer; padding:7px 2px; font-weight:600 }
+    #legend-order ol { margin:0 0 6px; padding:0 3px 0 30px; max-height:165px; overflow:auto }
+    #legend-order li { padding:3px 0; font-variant-numeric:tabular-nums }
+    #legend-order li span { display:inline-block; width:calc(100% - 92px); vertical-align:middle; overflow-wrap:anywhere }
+    #legend-order li button { min-height:30px; padding:3px 6px; margin-left:3px }
     .legend-list fieldset { min-width:0; margin:0 0 8px; padding:0; border:0 }
     .legend-list legend { padding:0 1px 3px; color:#9db6c9; font-size:11px }
     .legend-option { display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; margin:0 0 3px; border:1px solid transparent; border-radius:7px; background:#1a2a3d }

@@ -6,7 +6,7 @@
         '023c732f7b':'7d13a92510','c8584bf7ba':'7d13a92510','1146f4e4b1':'4b690e533c',
         '3b7bf428b6':'d0ed6b793f','0e9662f5f8':'d0ed6b793f','2d46018b96':'d0ed6b793f','23e94ddbef':'d0ed6b793f',
         '4ca78e3d27':'d0ed6b793f','fb58ae58aa':'d0ed6b793f','0a5492aada':'d0ed6b793f',
-        'f1ef0dd44e':'bd1d674523','f3a9382a50':'824f567ed3','65ffd40d41':'adf601dce2'
+        'f1ef0dd44e':'bd1d674523','f3a9382a50':'824f567ed3','65ffd40d41':'adf601dce2','e2eb68ec8c':'406d1bf388'
     });
     const NURSERY_RULES = Object.freeze({build:NURSERY_BUILDS['0a7dcb2280'],compatibleBuilds:Object.freeze([...new Set(Object.values(NURSERY_BUILDS))]),
         hashSalt:[24348,41597,15337,49222],baseRate:1/512,parentRate:1/16,legacyParentRate:.1,
@@ -35,7 +35,7 @@
     }
     function nurseryFlag(value){return value===true||value===false||value===1||value===0;}
     function nurseryBerryCapacity(build){
-        return build===NURSERY_BUILDS['65ffd40d41']||build===NURSERY_BUILDS['f3a9382a50']?4:1;
+        return ['adf601dce2','824f567ed3','406d1bf388'].includes(build)?4:1;
     }
     function nurseryBerryReserve(pension,build){
         if(!pension||!Object.hasOwn(pension,'bx'))return 0;

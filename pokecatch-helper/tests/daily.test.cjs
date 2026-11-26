@@ -23,14 +23,14 @@ test('routine respects daily factory evidence, Paris reset and optional facility
     delete s.candy.run;s.wb={ed:'x',caught:'x'};assert.equal(H.dailyFacility(s,cfg,{},now),null);
     assert.equal(H.dailyCaptureWindow(s,cfg,now),null);
 });
-test('multiple legend goals respect map order, closed entrances and per-target completion',()=>{
+test('multiple legend goals respect configured priority, closed entrances and per-target completion',()=>{
     const s=save(),e=engine(s);
-    e.settings=H.normalizeSettings({mode:'legend',legendIds:[385,144,145,145,999999]});
-    assert.deepEqual(e.settings.legendIds,[145,144,385]);
+    e.settings=H.normalizeSettings({mode:'legend',legendIds:[144,145,385,145,999999]});
+    assert.deepEqual(e.settings.legendIds,[144,145,385]);
     assert.deepEqual(H.normalizeSettings({legendId:385}).legendIds,[]);
-    e.cooldowns['legend:145']=now+60000;
+    e.deferLegend(H.DATA.zones.find(z=>z.id===145),'入口时间待复查',now+60000);
     assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,144);
-    s.dex[144]={caught:1};assert.equal(e.selectLegendTarget(s,now),false);
+    s.dex[144]={caught:1};assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,385);
     assert.ok(e.selectLegendTarget(s,now+60000));assert.equal(e.settings.legendId,145);
     s.dex[145]={caught:1};s.travel.to.push('hoenn');
     assert.ok(e.selectLegendTarget(s,now+60001));assert.equal(e.settings.legendId,385);
@@ -41,9 +41,9 @@ test('multi-legend elite goals require ordinary capture and the selected tier in
     const s=save(),e=engine(s);
     e.settings=H.normalizeSettings({mode:'legend',legendIds:[145,144],legendTier:2});
     s.dex[144]={caught:1};s.elite={144:{t:1}};
-    assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,144);
+    assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,145);
     s.elite[144].t=2;
-    assert.equal(e.selectLegendTarget(s,now),false);
+    assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,145);
     s.dex[145]={caught:1};
     assert.ok(e.selectLegendTarget(s,now));assert.equal(e.settings.legendId,145);
 });

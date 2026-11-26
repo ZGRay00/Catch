@@ -64,7 +64,7 @@
         const host = document.createElement('div');ownedHost=host;host.id = 'pokecatch-auto-helper';
         host.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;position:fixed;right:14px;top:86px;z-index:2147483000;max-width:calc(100vw - 20px);';
         const root = host.attachShadow({ mode: 'open' });
-        const underStartControls = `<label class="field"><span>地下探险出发层</span><select data-setting="underStartChoice"><option value="auto">最高已解锁层</option>${UNDER_START_FLOORS.map(n=>`<option value="${n}">第 ${n} 层</option>`).join('')}</select></label><div class="hint" data-under-start-note></div><label class="field"><span>地下自动配队目标</span><select data-setting="underGoal"><option value="depth">冲层 · 优先连战和守卫</option><option value="money">刷金币 · 优先每小时收益</option></select></label>`;
+        const underStartControls = `<label class="field"><span>地下探险出发层</span><select data-setting="underStartChoice"><option value="auto">最高已解锁层</option>${UNDER_START_FLOORS.map(n=>`<option value="${n}">第 ${n} 层</option>`).join('')}</select></label><div class="hint" data-under-start-note></div><label class="field"><span>地下探险配队</span><select data-setting="underGoal"><option value="depth">冲层 · 优先连战和守卫</option><option value="money">刷金币 · 优先每小时收益</option><option value="native">自动优化 · 地下探险优先（游戏推荐）</option></select></label><div class="hint">自动优化可派出主队成员，确认出发后会重新检查当前任务的队伍。</div>`;
         const purchaseToggle = `<label class="purchase-toggle">
             <strong>自动购买</strong><span data-purchase-state aria-hidden="true"></span>
             <input type="checkbox" role="switch" data-setting="autoPurchase" aria-label="自动购买">
@@ -168,7 +168,7 @@
             </section>
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
-            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>冲层和刷金币使用空闲队员，保留主队、Buddy 和任务成员；自动优化优先使用游戏推荐的地下队伍</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。地下主任务单独管理派遣次数和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
@@ -189,8 +189,6 @@
             <section id="pane-weather" aria-label="天气" hidden><div id="weather-panel" aria-label="地区天气预报"></div></section>
             <section id="pane-eggs" aria-label="孵蛋" hidden></section>
             <section id="pane-settings" aria-label="设置" hidden>
-            <label class="setting">助手外观<select id="panel-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-            <label class="setting">最小化是否显示额外信息<input type="checkbox" role="switch" id="mini-extra-info"></label>
             <section id="settings-purchase" class="purchase-card">
                 ${purchaseToggle}
                 <div class="hint">控制本账号的道具采购、主线补练买糖和寄养扩容，已入队任务也遵循此开关。</div>
@@ -208,16 +206,27 @@
                     <div class="hint">自动吃树果仅使用库存，也受道具使用上限限制。用完后继续原任务。若要购买树果，请指定采购任务。</div>
                 </details>
             </section>
-            <h3>配队与自动化</h3>
+            <details class="settings-group"><summary>配队与培养</summary>
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">自动配队 · 强度优先</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="activeSwitch">助手主动换人</span></label><div class="hint" id="switch-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="trainBuddy">练级 / 补练自动选择经验搭档 Buddy</span></label><div class="hint">搭档获得 1.3 倍经验。当前搭档仍需培养时会保留，更换会重置搭档的击倒计数。</div>
-            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div><div class="caption">后台服务 · 不替换当前任务</div><div class="checks background-toggles"><label title="普通战斗和传说战期间可收成熟蛋，每次收蛋前先检查是否需要喂果"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="进入神奥后仅用空闲队员自动组队派遣；保护主队、Buddy、培养对象与活动队员"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
-            ${underStartControls}<div class="hint">地下主任务和后台派遣共用起点。归队领取后按最高纪录开放 25、50、75、100 层。跳过的楼层没有经验和掉落。</div>
+            <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
+            <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
+            <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
+            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
+            </details>
+            <details class="settings-group"><summary>战斗与过场</summary>
+            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div>
             <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
-            <h3>孵蛋自动化</h3>
+            </details>
+            <details class="settings-group"><summary>地下探索与后台领取</summary>
+            <div class="checks background-toggles"><label title="进入神奥后按地下探险配队选项派遣"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
+            ${underStartControls}<div class="hint">地下主任务和后台派遣共用起点。归队领取后按最高纪录开放 25、50、75、100 层。跳过的楼层没有经验和掉落。</div>
+            </details>
+            <details class="settings-group"><summary>孵蛋与喂果</summary>
+            <label class="setting"><span><input type="checkbox" data-setting="autoEggs">任务中自动领取成熟蛋</span></label>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="idleHatch">待命时自动领取成熟蛋</span></label>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="autoFeed">下一枚自然蛋喂果才闪时自动喂靛莓果</span></label>
             <div class="nursery-feed-permission">
@@ -226,10 +235,11 @@
             </div>
             <div class="hint">开关按账号保存。助手优先检查下一枚自然蛋，连续几枚都需要靛莓果时会按顺序备果。下一枚需果时，确认已备果才自动收蛋。缺果时保留蛋位。喂果使用库存，任务道具额度用完后仍可喂。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
-            <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
-            <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
-            <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
-            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
+            </details>
+            <details class="settings-group"><summary>面板外观</summary>
+            <label class="setting">助手外观<select id="panel-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+            <label class="setting">最小化是否显示额外信息<input type="checkbox" role="switch" id="mini-extra-info"></label>
+            </details>
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
             <div class="row"><button id="start" class="primary">开始当前任务</button><button id="start-queue" class="primary">运行任务队列</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
             <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="open-queue" aria-controls="pane-queue">任务队列 <span id="queue-count">0</span></button><button id="cancel-job" class="hidden">取消编辑</button></div>
@@ -1103,7 +1113,7 @@
                 percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;
                 hint='请在游戏中手动寄养百变怪和目标亲本。'+(settings.breedShiny?'助手会优先孵化已确认的目标闪蛋。':'助手会按游戏确认的孵化数量记录进度。');
             }
-            else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按派遣位的主题配队，领取归队奖励后更新纪录。`;}
+            else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按所选方式配队，领取归队奖励后更新纪录。`;}
             else if(mode==='tower'){
                 const {week,cleared}=towerProgress(s,now),goal=settings.towerFloor;
                 primary=`${cleared}/${goal}`;primaryLabel='本周已过楼层';

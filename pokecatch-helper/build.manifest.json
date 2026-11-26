@@ -101,6 +101,8 @@
     },
     {"kind":"source","file":"src/data/move-advice.js"},
     {"kind":"source","file":"src/models/gameplay-insights.js"},
+    {"kind":"json","file":"data/species-ranking.json","constant":"SPECIES_RANKING_DATA"},
+    {"kind":"source","file":"src/models/species-ranking.js"},
     {"kind":"json","file":"data/geode-rules.json","constant":"GEODE_RULES"},
     {"kind":"source","file":"src/models/field-insights.js"},
     {
@@ -129,6 +131,7 @@
     },
     {"kind":"json","file":"data/ui-icons.json","constant":"GAME_UI_ICONS"},
     {"kind":"source","file":"src/ui/panel-style.js"},
+    {"kind":"source","file":"src/ui/species-ranking.js"},
     {"kind":"source","file":"src/ui/gameplay-insights.js"},
     {"kind":"source","file":"src/ui/field-insights.js"},
     {"kind":"source","file":"src/ui/dex-panel.js"},

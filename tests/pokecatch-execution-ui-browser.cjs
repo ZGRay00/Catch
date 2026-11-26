@@ -26,6 +26,33 @@ async function main(){
         const html=path.join(dir,'index.html');fs.writeFileSync(html,'<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><body><script>'+setup+'</script><script>'+source.replace(/<\/script/gi,'<\\/script')+'</script></body>');
         await send('Page.navigate',{url:pathToFileURL(html).href});for(let n=0;n<80&&!await evaluate('!!window.__pokecatchHelper?.ready');n++)await delay(50);assert.equal(await evaluate('!!window.__pokecatchHelper?.ready'),true);
         const root="document.querySelector('#pokecatch-auto-helper').shadowRoot";
+        await send('Emulation.setDeviceMetricsOverride',{width:320,height:720,deviceScaleFactor:1,mobile:true});
+        const rankingUI=await evaluate(`(()=>{
+            const r=${root},q=selector=>r.querySelector(selector),get=key=>q('[data-rank="'+key+'"]');
+            q('[data-workspace="dex"]').click();q('[data-insight-view="ranking"]').click();
+            const choose=(key,value)=>{const el=get(key);el.value=value;el.dispatchEvent(new Event('change'));};
+            const fits=[...q('#species-ranking').querySelectorAll('select,input,summary,button')].filter(el=>el.getClientRects().length).every(el=>{
+                const box=el.getBoundingClientRect();return box.right<=innerWidth+1&&box.left>=-1;
+            });
+            const first=get('results').querySelector('.ranking-name').textContent;
+            get('next').click();const second=get('page').textContent;
+            choose('type','water');choose('order','power');
+            get('search').value='#42301';get('search').dispatchEvent(new Event('input'));
+            const result=()=>get('results').querySelector('details');
+            result().querySelector('summary').click();const sheet=result().textContent;
+            choose('source','game');const game=result().textContent;
+            get('search').value='xyz987';get('search').dispatchEvent(new Event('input'));const empty=get('page').textContent;
+            q('[data-insight-view="catalog"]').click();
+            q('[data-workspace="settings"]').click();const pref=q('[data-nursery-pref="autoFeed"]'),group=pref.closest('details');
+            group.querySelector('summary').click();const visible=pref.checkVisibility()&&group.open;group.open=false;
+            q('[data-workspace="tasks"]').click();
+            return {first,second,sheet,game,empty,fits,visible};
+        })()`);
+        assert.equal(rankingUI.first,'请假王');assert.match(rankingUI.second,/^2 \//);
+        assert.match(rankingUI.sheet,/浊流（特殊）/);assert.match(rankingUI.game,/水炮（特殊）/);
+        assert.match(rankingUI.empty,/没有匹配/);assert.ok(rankingUI.fits&&rankingUI.visible);
+        checks.push('the 320px ranking view fits, pages, searches forms and switches audited move sources; nursery settings expand');
+        await send('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
         const standby=await evaluate(`(()=>{
             const r=${root},menu=r.querySelector('[data-setting="huntWeatherFallback"]');
             const choose=value=>{menu.value=value;menu.dispatchEvent(new Event('change',{bubbles:true}));};
@@ -316,9 +343,15 @@ async function main(){
             const manual=!e.settings.underAutoStart&&e.settings.underFrom===50,value=settings.value;
             settings.value='auto';settings.dispatchEvent(new Event('change',{bubbles:true}));e.onChange();
             const goals=[...r.querySelectorAll('[data-setting="underGoal"]')];
+            goals[1].value='native';goals[1].dispatchEvent(new Event('change',{bubbles:true}));
+            if(!goals.every(el=>el.value==='native')||e.settings.underGoal!=='native')throw Error('Native expedition priority must sync across both controls');
             goals[0].value='money';goals[0].dispatchEvent(new Event('change',{bubbles:true}));
             const sharedGoal=goals.length===2&&goals.every(el=>el.value==='money')&&e.settings.underGoal==='money';
-            return {before,manual,value,sharedGoal,restored:task.value==='auto'&&e.settings.underAutoStart,buddyVisible:!r.querySelector('[data-setting="trainBuddy"]').closest('details')};
+            const buddy=r.querySelector('[data-setting="trainBuddy"]');
+            r.querySelector('[data-workspace="settings"]').click();
+            const group=buddy.closest('details');group.open=true;const buddyVisible=buddy.checkVisibility();group.open=false;
+            r.querySelector('[data-workspace="activity"]').click();
+            return {before,manual,value,sharedGoal,restored:task.value==='auto'&&e.settings.underAutoStart,buddyVisible};
         })()`);
         assert.deepEqual(expedition,{before:true,manual:true,value:'50',sharedGoal:true,restored:true,buddyVisible:true});checks.push('underground task and background settings share the same starting-floor selector and preserve automatic mode');
         const raidNote=await evaluate(`(()=>{
@@ -646,7 +679,12 @@ async function main(){
             e.updateQueue([ongoing,other]);e.onChange();
             const open=()=>q('[data-workspace="queue"]').click();
             const row=id=>q('[data-queue-job="'+id+'"]');
-            const action=(id,name)=>row(id).querySelector('[data-job-action="'+name+'"]').click();
+            const action=(id,name)=>{
+                const button=row(id).querySelector('[data-job-action="'+name+'"]');
+                if(button.closest('.queue-secondary')?.hidden)row(id).querySelector('[data-queue-more]').click();
+                if(!button.checkVisibility())throw Error('Queue action not reachable: '+name);
+                button.click();
+            };
             const visible=el=>el.getClientRects().length>0;
             const setTarget=value=>{const input=q('[data-setting="moneyTarget"]');input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));};
             q('[data-workspace="tasks"]').click();

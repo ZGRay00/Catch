@@ -156,7 +156,7 @@
             }
             if(tracked)task.partySignature??=signature;
             if(b){
-                const settings=farm?.weatherTraining?e.weatherFarm?.training:e.settings;
+                const settings=farm?.weatherTraining?e.weatherFarm?.training:task.underPartyRepair?{...e.settings,autoTeam:true}:e.settings;
                 if(!settings){discard();return false;}
                 const pins=adventureTeamPins(s,task.members,settings,farm?.weatherTraining?null:e.trainProtected);
                 const destination=this.pendingMap?.row||(settings.mode!=='progress'&&e.target);
@@ -265,9 +265,9 @@
             return true;
         }
         activeTeam(s) {
-            if(!this.e.settings.optimizeRaid)return false;
             const raid=s.adv.event?.raid?s.adv.event:null,zone=s.adv.zone;if(!raid&&!zone)return false;
-            if(zone?.elite)return false;
+            const teamKey=raid?'raid:'+raid.reg:'zone:'+zone.id;
+            if(zone?.elite||!this.e.settings.optimizeRaid&&!underSpecialReview(this.e,teamKey))return false;
             const key=raid?`raid:${raid.date||parisDay()}|${raid.reg}|${raid.id}|${rosterFingerprint(s)}`:`zone:${zone.id}:${zone.elite||0}|${rosterFingerprint(s)}`;
             if(this.recent.has(key))return false;
             let edit;
@@ -285,7 +285,7 @@
                 const tab=$('#map-root [data-lz-view="zone"]:not(.on)');if(enabled(tab)){this.click(tab,'打开当前传说战');return true;}
                 edit=$(`#map-root [data-lz-team="${zone.id}"]${zone.elite?`[data-lz-tier="${zone.elite}"]`:':not([data-lz-tier])'}`);
             }
-            if(enabled(edit)){if(this.click(edit,'适配当前特殊战队伍'))this.ownedDialog={type:'team',key,optimized:false};return true;}
+            if(enabled(edit)){if(this.click(edit,'适配当前特殊战队伍'))this.ownedDialog={type:'team',key,teamKey,optimized:false};return true;}
             this.rememberTeam(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
         }
         animations(s) {
@@ -492,13 +492,14 @@
                     return false;
                 }
                 if(options.riddle)return list.classList.contains('lz-seal')&&this.click(go,'阅读'+row.name+'的铭文');
-                if(tier&&options.optimize&&this.e.settings.optimizeRaid){
+                const teamKey='zone:'+row.id,repair=underSpecialReview(this.e,teamKey);
+                if(tier&&(options.optimize&&this.e.settings.optimizeRaid||repair)){
                     const edit=$(`#map-root [data-lz-team="${row.id}"][data-lz-tier="${tier}"]`);
                     if(this.prepareEliteLegend(s,row,tier,edit,Date.now()))return false;
-                }else if (!tier&&options.optimize) {
+                }else if (!tier&&(options.optimize||repair)) {
                     const key=`zone:${row.id}:0|${rosterFingerprint(s)}`;
                     const edit = $(`#map-root [data-lz-team="${row.id}"]:not([data-lz-tier])`);
-                    if (!this.recent.has(key) && enabled(edit) && this.click(edit, '配置传说战队伍')) { this.ownedDialog = { type: 'team', key, optimized: false }; return false; }
+                    if (!this.recent.has(key) && enabled(edit) && this.click(edit, '配置传说战队伍')) { this.ownedDialog = { type: 'team', key, teamKey, optimized: false }; return false; }
                 }
                 if(this.e.ensurePrepared(s,battleContext(s,'zone',{id:row.id,reg:row.reg,level:row.level,tier}),{row:routeDescriptor(row),options},Date.now()))return false;
                 return this.click(go, `挑战${row.name}`);
@@ -541,7 +542,7 @@
                 this.legendElitePlan={...plan,key};
             }
             const {uids,estimate}=this.legendElitePlan;
-            if(uids.length===party.length&&uids.every((uid,i)=>uid===party[i]))return false;
+            if(uids.length===party.length&&uids.every((uid,i)=>uid===party[i])){finishUnderSpecialReview(e,teamKey);return false;}
             if(enabled(edit)&&this.click(edit,'配置队伍 · '+context.label)){
                 this.ownedDialog={type:'legendEliteTeam',key,teamKey,zoneId:row.id,tier,uids,estimate,started:now,openingUntil:now+5000};
             }else if(!enabled(edit))e.status='等待精英传说战的专属队伍入口 · '+context.label;
@@ -550,13 +551,14 @@
         dialog(s) {
             const own = this.ownedDialog;
             if (!own) return false;
+            if(own.type==='nativeUnderTeam')return this.e.automation.nativeUnderPicker(s,own);
             if(own.type==='ally'&&own.key&&this.e.raidProbe&&this.raid&&this.confirmRaidLaunch(s,own))return true;
             if(own.type==='backgroundUnderTeam'){
                 if(!visible($('#evt-pick'))){const task=this.e.services.underground;if(task)task.editorOpen=false;this.ownedDialog=null;return false;}
                 own.started??=Date.now();return this.factoryTeam(s,own);
             }
             const teamDialog=['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam'].includes(own.type);
-            if(teamDialog&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
+            if(teamDialog&&!this.e.settings.optimizeRaid&&!underSpecialReview(this.e,own.teamKey)){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
             const ownedRoot=teamDialog?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
             if(!visible(ownedRoot)){
                 // The native modal queue can mount the picker after the launch click.
@@ -585,7 +587,7 @@
                 }
                 if (!$('#evt-team [data-uid]')) throw new Error('没有可出战的宝可梦，请先配置队伍');
                 if (this.click($('#evt-pick [data-evt-close]'), '保存推荐队伍')) {
-                    this.rememberTeam(own.key,Date.now());
+                    this.rememberTeam(own.key,Date.now());finishUnderSpecialReview(this.e,own.teamKey);
                     this.e.log('特殊战队伍已按游戏推荐调整');this.ownedDialog = null;
                 }
                 return true;
@@ -693,7 +695,7 @@
                 if(sort&&sort.value!==own.sortBefore){sort.value=own.sortBefore;sort.dispatchEvent(new Event('change',{bubbles:true}));return true;}
                 if(eff&&eff.classList.contains('on')!==own.effBefore){this.click(eff,'恢复'+facility+'配队筛选');return true;}
                 if(this.click($('#evt-pick [data-evt-close]'),'保存'+facility+'专属队伍')){
-                    this.ownedDialog=null;
+                    this.ownedDialog=null;finishUnderSpecialReview(this.e,teamKey);
                     if(background){const task=this.e.services.underground;task.teamReady=true;task.editorOpen=false;this.e.log('后台地下安全队伍已配置，派遣前再次核对占用');this.e.persist();}
                     else if(elite)this.e.log('已确认'+this.e.automation.elitePlan.label+'专属队伍');
                     else if(legend){
@@ -790,9 +792,10 @@
             this.raid = { reg, boss, date:day, started: sameRaid ? this.raid.started : now };
             const key = `raid:${day}|${reg}|${boss}|${rosterFingerprint(s)}`;
             const edit = card.querySelector('[data-raid-edit]');
-            if (this.e.settings.optimizeRaid && !this.recent.has(key) && enabled(edit)) {
+            const teamKey='raid:'+reg,optimize=this.e.settings.optimizeRaid||underSpecialReview(this.e,teamKey);
+            if (optimize && !this.recent.has(key) && enabled(edit)) {
                 if(!this.click(edit, '按团体战对手优化队伍'))return false;
-                this.ownedDialog = { type: 'team', key, optimized: false, openingUntil:Date.now()+5000 };
+                this.ownedDialog = { type: 'team', key, teamKey, optimized: false, openingUntil:Date.now()+5000 };
                 return true;
             }
             if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},now)){
@@ -802,8 +805,8 @@
             // The game's launch control opens missing team/ally dialogs in sequence.
             if (this.click(go, '进入每日团体战')) {
                 if ($('#evt-pick')?.classList.contains('open') || visible($('#evt-pick'))) {
-                    this.ownedDialog=this.e.settings.optimizeRaid?{type:'team',key,optimized:false}:null;
-                    if(!this.e.settings.optimizeRaid)this.e.status='请手动配置团体战队伍，或开启优化特殊战队伍';
+                    this.ownedDialog=optimize?{type:'team',key,teamKey,optimized:false}:null;
+                    if(!optimize)this.e.status='请手动配置团体战队伍，或开启优化特殊战队伍';
                 }
                 else this.ownedDialog = { type: 'ally',key,openingUntil:Date.now()+5000 };
                 return true;

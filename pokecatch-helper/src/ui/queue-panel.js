@@ -34,6 +34,7 @@
                 jobs.map(job=>[job.id,job.title,job.status,job.result,!!job.progress,job.settings.mode,job.settings.moneyTarget])]);
             if(previous===signature){updateItemCounts(jobs,s,active);return;}
             previous=signature;
+            const expanded=new Set([...list.querySelectorAll('[data-queue-more][aria-expanded="true"]')].map(button=>button.dataset.queueMore));
             itemCells.clear();
             const fragment=document.createDocumentFragment();
             for(const [index,job] of jobs.entries()){
@@ -59,6 +60,15 @@
                 const detail=job.result||((job.settings.mode==='money'&&!job.settings.moneyTarget&&queueJobPending(job))?'未设置金币目标，后续任务会等待。':'');
                 if(detail){const text=document.createElement('p');text.className='queue-job-detail';text.textContent=detail;card.append(text);}
                 const actions=document.createElement('div');actions.className='queue-job-actions';
+                const more=document.createElement('button'),secondary=document.createElement('div');
+                more.type='button';more.textContent='更多';more.dataset.queueMore=job.id;
+                more.setAttribute('aria-label','更多操作：'+job.title);
+                secondary.className='queue-secondary';secondary.hidden=!expanded.has(job.id);
+                more.setAttribute('aria-expanded',String(!secondary.hidden));
+                more.onclick=()=>{
+                    secondary.hidden=!secondary.hidden;
+                    more.setAttribute('aria-expanded',String(!secondary.hidden));
+                };
                 const buttons=[['edit','编辑'],['up','上移'],['down','下移']];
                 if(queueJobPending(job))buttons.push(['skip','跳过']);
                 if(job.progress||job.status!=='pending')buttons.push(['retry','重置进度']);
@@ -68,8 +78,9 @@
                     button.textContent=text;button.setAttribute('aria-label',`${text}：${job.title}`);
                     if(action==='retry')button.title='清除该项助手进度和任务内用量，从头运行';
                     button.disabled=!canEdit||!!editingJob||action==='up'&&index===0||action==='down'&&index===jobs.length-1;
-                    actions.append(button);
+                    (['edit','up','down'].includes(action)?actions:secondary).append(button);
                 }
+                actions.append(more,secondary);
                 card.append(actions);fragment.append(card);
             }
             if(ready&&!jobs.length){

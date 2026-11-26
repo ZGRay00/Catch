@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "8.3.0",
-  "scriptSha256": "017d7cb2502f370e9bdc70fcd5c04cf8a911ab7909b9356e704c6242094c96c4",
-  "metadataSha256": "41690e0b4710b04e8fd10aa8dc9d0b3767b82543ebe5c6af242826dd3acf931e",
+  "version": "8.4.1",
+  "scriptSha256": "ee9d34158ad45dcf7265b1dbdb5d80a1a62c62fc6670356559be924375da7f80",
+  "metadataSha256": "0a6f917e72bcbebe7adf503ecf270b824a135c074e1cb3c630bf6450074fe786",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "5df62c15fdf603a340af2951d9a6f3481c8d6757cc21fc9f1e0d401f675fd4ea"
+      "sha256": "4c1283eef9122b87f6be4dfc74ce50fdd861056fb51315398c601d7831ac4e07"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "5df9a6a98ff7ff4f9f74946fa8826eb6bc309940d71dcc312b53836142aee0e2"
+      "sha256": "137651866e088780df6202e67df9a989e95ebcfd1daf6ae06db84e3e6c1be7e2"
     },
     {
       "file": "userscript.header.txt",
@@ -50,7 +50,7 @@
     },
     {
       "file": "src/core/settings-save.js",
-      "sha256": "696f077bcb1b69d172401d47a73f09fe509fe652fcf36c151bec91b8de1593ce"
+      "sha256": "e0ebe9a59775179e65d8d4e06d73161ea490f873745401a5a851c0a63cbc0e02"
     },
     {
       "file": "src/models/facilities.js",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "1775e38d66cc1ddb05b05146133b3a7e7f7755ef24e974914be921f233364fa2"
+      "sha256": "8699f6c472fd4e339edab5b1ee6d5144ee76690c3f06fed6fddb70433118a59f"
     },
     {
       "file": "src/models/farming.js",
@@ -161,6 +161,14 @@
       "sha256": "9365ffa2555f70e55d4585e188a8493a2ab098b5f6c84130cf2f62a8d986ebbc"
     },
     {
+      "file": "data/species-ranking.json",
+      "sha256": "cd80480c223ff5b8a88b1067d65aa4c39f117cac54b9d09d0da9220c5f565a08"
+    },
+    {
+      "file": "src/models/species-ranking.js",
+      "sha256": "0e12d68259dfee4f3d269e52b7be3e1dcc38dacb25df27a4374acee73e68f246"
+    },
+    {
       "file": "data/geode-rules.json",
       "sha256": "331cc9996e9e79483593478eea8b0cc3054dd839718d7c7c787025d561338165"
     },
@@ -174,11 +182,11 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "275de5720f9470026ba94bef85976fbdc6faf4de387d2648fb825768dfeaea6b"
+      "sha256": "95375f40a99593de85bdd04ceb00f811dd416253c601528cb8362b8a91efbd03"
     },
     {
       "file": "src/runtime/automation.js",
-      "sha256": "e5ca49e90721c01ec9450a5c628dbe59f1aa8a8dd8e737b2a34b8fdf9689d323"
+      "sha256": "8780720f2e3bc292fb24634384d0c68c1f1ec4d778551fa58231ec579f29aece"
     },
     {
       "file": "src/runtime/level-coach.js",
@@ -186,11 +194,11 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "36bbf2a9ac2268d4c4590b1f54cbf65a50751a987a8cf295882a7d740de3d90b"
+      "sha256": "432af76c2162854793f4bd60b1c3a4daea9232d16f06707f6eff1119bbb62cee"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "805405ec8c30cc795685799012541a1a0dbd1e8bf8ec6192eae0d68a5e6c32e3"
+      "sha256": "2cde2bb2cd50e07153f3ff3f3fc5bbd39d3165df2d6d45c836cfdae002b47696"
     },
     {
       "file": "data/ui-icons.json",
@@ -198,11 +206,15 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "4df92421e2479a870ef562e8cf9c317fb8b934805c4af05dc668c2410e327d03"
+      "sha256": "71f52c703026370c12b8f190c42390c06f62eadbe3b4130b2e91f54a1f54a145"
+    },
+    {
+      "file": "src/ui/species-ranking.js",
+      "sha256": "e3e196990abd924ab6ebb400e96c8930e1f141550537f3d99e92b90b5c7a67fd"
     },
     {
       "file": "src/ui/gameplay-insights.js",
-      "sha256": "6e7fd90018391838a375a2c00dd66fae99f128cf50bf31d6cf2c1edd23524056"
+      "sha256": "6a704e28969c1b5d1d2c6502ca508a2925c99d8fc4b5f740ad974582fb4c8c0d"
     },
     {
       "file": "src/ui/field-insights.js",
@@ -222,7 +234,7 @@
     },
     {
       "file": "src/ui/queue-panel.js",
-      "sha256": "a4f8178ec14b97522b222bea289abb3165ccd74c8ff8128e9efe842464b0860a"
+      "sha256": "a7c72a592bfc4f84ee8145f3d25b301f70013ecc49d1bbfd45b008e1347a4372"
     },
     {
       "file": "src/ui/manual-input.js",
@@ -234,7 +246,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "b18f5457ad42815f177c9373e18a7d3442f34490e69c0fb2b4a8ee6de53f98c6"
+      "sha256": "881e35ab177e501fe68fa0b203659d61db3ce08b1398786be582688d66e13f82"
     }
   ]
 }

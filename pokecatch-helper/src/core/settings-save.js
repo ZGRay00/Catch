@@ -58,7 +58,7 @@
         if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
         if(['money','xp'].includes(raw.huntWeatherFallback))out.huntWeatherFallback=raw.huntWeatherFallback;
-        out.underGoal=raw.underGoal==='money'?'money':'depth';
+        out.underGoal=['money','native'].includes(raw.underGoal)?raw.underGoal:'depth';
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
         // A missing switch belongs to a pre-switch profile. Only an explicit boolean can enable an imported switch.
         if(Object.hasOwn(raw,'autoPurchase'))out.autoPurchase=raw.autoPurchase===true;

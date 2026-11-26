@@ -369,11 +369,11 @@
                 const status=undergroundStatus(s,now),tab=$('#tabs [data-screen="underground"]');
                 const collect=e.settings.autoUnderCollect&&status.ready.length;
                 if(backgroundBlockReason(s,e,now,collect?'underCollect':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now,status))return false;
-                if(collect&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
+                if(collect&&!this.state.underWaitUids?.length&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
                 if(!tab||tab.disabled||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=e.services.underground={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure',...collect?{}:{action:'dispatch'}};
-                e.telemetry.sample=null;e.log(collect?'地下队伍已归队，后台领取后继续原任务':'使用空闲成员安排地下探险，保留前台队伍');e.persist();
+                e.telemetry.sample=null;e.log(collect?'地下队伍已归队，后台领取后继续原任务':e.settings.underGoal==='native'?'地下探险优先，打开游戏推荐配队':'使用空闲成员安排地下探险，保留前台队伍');e.persist();
             }
             if(task.action==='dispatch')return this.dispatchUnderground(s,now,task);
             e.lastProgress=now;e.status='后台地下归队 · 领取确认后返回原任务';
@@ -386,7 +386,7 @@
                 else{delete task.tx;task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台地下领取未获完整确认，暂缓一分钟后重新核对，期间不重复点击');e.persist();}
             }
             if(now-task.started>90000){task.returning=true;e.services.retryAt.underground=now+60000;}
-            if(!e.settings.autoUnderCollect||backgroundActivityBlock(s.adv,'underCollect',e)||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!e.settings.autoUnderCollect||backgroundActivityBlock(s.adv,'underCollect',e)||!this.state.underWaitUids?.length&&e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开地下派遣归队页');return true;}
@@ -449,13 +449,99 @@
             }
             return this.lastUnderPlan={key,uids:plan.uids};
         }
+        nativeUnderPicker(s,own){
+            const e=this.e,d=e.driver,holder=own.background?e.services.underground:this.state;
+            const now=Date.now(),root=$('#evt-pick');
+            if(!visible(root)){
+                if(now-own.started<3000)return true;
+                d.ownedDialog=null;return false;
+            }
+            const active=holder&&e.settings.underGoal==='native'&&(!own.background||!holder.returning&&holder.bay===own.bay&&e.settings.autoUnderDispatch);
+            const optimize=root.querySelector('#evt-opt');
+            if(active&&!own.optimized&&enabled(optimize)&&now-own.started<15000){
+                if(d.click(optimize,'使用游戏自带的地下队伍自动优化'))own.optimized=true;
+                return true;
+            }
+            const uids=s.eventTeams?.['under:'+own.bay]||[];
+            const ready=active&&own.optimized&&uids.length===DATA.automation.under.team&&new Set(uids).size===uids.length;
+            if(active&&!ready&&now-own.started<5000)return true;
+            if(d.click(root.querySelector('[data-evt-close]'),'关闭地下队伍窗口，核对推荐队员')){
+                d.ownedDialog=null;
+                if(holder){
+                    holder.editorOpen=false;
+                    if(ready)holder.nativeUnderChoice={bay:own.bay,floor:own.floor,uids:[...uids]};
+                    else if(active){
+                        if(own.background){holder.returning=true;e.services.retryAt.underground=now+60000;}
+                        else this.wait('游戏尚未推荐完整地下队伍，稍后重试',now+60000);
+                        e.log('地下自动优化未取得三名推荐队员，本次未派遣');
+                    }
+                    e.persist();
+                }
+            }
+            return true;
+        }
+        nativeUnderDeparture(s,bay,floor,go,now,background=null){
+            const e=this.e,d=e.driver,holder=background||this.state,choice=holder.nativeUnderChoice;
+            const latest=e.read(),key='under:'+bay;
+            if(!latest?.adv||accountId(latest)!==accountId(s))return;
+            const status=undergroundStatus(latest,now),actual=latest.eventTeams?.[key]||[];
+            if(!status.left||undergroundBay(latest,bay,status))return;
+            if(background&&(backgroundActivityBlock(latest.adv,'underDispatch',e)||adventureDispatchWait(latest,e,now)||mainGoalReached(latest,e,now))){
+                background.returning=true;return;
+            }
+            if(choice?.bay!==bay||choice.floor!==floor||actual.length!==DATA.automation.under.team||actual.some((uid,i)=>uid!==choice.uids[i])){
+                delete holder.nativeUnderChoice;
+                const edit=$$('[data-ug-slot]').find(el=>Number(el.dataset.ugSlot?.split('.')[0])===bay&&enabled(el));
+                if(d.click(edit,'打开地下派遣位，使用游戏自动优化')){
+                    holder.editorOpen=true;
+                    d.ownedDialog={type:'nativeUnderTeam',bay,floor,background:!!background,started:now};
+                    e.persist();
+                }
+                return;
+            }
+            const available=new Set(undergroundBayMembers(latest,bay,now,false).map(mon=>mon.uid));
+            if(!actual.every(uid=>available.has(uid))||!enabled(go)){
+                delete holder.nativeUnderChoice;
+                if(background){background.returning=true;e.services.retryAt.underground=now+60000;}
+                else this.wait('游戏暂不允许这组队员出发，稍后重新优化',now+60000);
+                return;
+            }
+            if(!background&&e.ensurePrepared(latest,battleContext(latest,'under',{slot:bay,floor}),{},now))return;
+            const party=[...(latest.team||[]),...(latest.road||[]),...(e.preparation?.uids||[])];
+            const specialKeys=Object.entries(latest.eventTeams||{}).filter(([name,uids])=>!name.startsWith('under:')&&Array.isArray(uids)&&uids.some(uid=>actual.includes(uid))).map(([name])=>name);
+            const txKey=background?'launch':'underLaunch';
+            holder[txKey]={bay,uids:[...actual],ids:status.slots.map(job=>String(job.id)),at:now,native:true,
+                partyHit:actual.some(uid=>party.includes(uid)),specialKeys};
+            if(e.persist()===false){delete holder[txKey];e.status='地下派遣等待保存出发记录';return;}
+            if(d.click(go,`派遣游戏推荐队伍 · 第 ${floor} 层出发`))delete holder.nativeUnderChoice;
+            else delete holder[txKey];
+            e.persist();
+        }
+        afterUnderDeparture(s,launch){
+            if(!launch.native)return;
+            const e=this.e;
+            const required=e.settings.mode==='train'?trainingUids(s,e.settings,e.trainProtected):
+                e.settings.mode==='resource'&&e.settings.resourceAction!=='buy'?[e.settings.useUid]:[];
+            const away=launch.uids.filter(uid=>required.includes(uid));
+            if(away.length)this.state.underWaitUids=[...new Set([...(this.state.underWaitUids||[]),...away])];
+            if(launch.specialKeys?.length)this.state.underSpecialKeys=[...new Set([...(this.state.underSpecialKeys||[]),...launch.specialKeys])];
+            if(!launch.partyHit&&!launch.specialKeys?.length){e.log('地下派遣后已核对，任务队伍未被占用');return;}
+            e.teamCheck=null;e.teamRetryAt=0;e.driver.recent.clear();
+            e.cancelTeamSearch(undefined,false,'地下探险已派出任务队员');
+            e.cancelRouteRankings();e.coach.checked=null;e.coach.ready=null;
+            if(e.preparation?.uids?.some(uid=>launch.uids.includes(uid)))e.preparation=null;
+            const roamLegend=e.settings.mode==='legend'&&!e.settings.legendTier&&DATA.zones.some(z=>z.id===e.settings.legendId&&z.eliteOnly);
+            if(launch.partyHit&&!FLOW_MODES.has(e.settings.mode)&&(roamLegend||!['raid','legend'].includes(e.settings.mode)))
+                this.state.underPartyReview=true;
+            e.log('地下派遣占用任务队员，按剩余成员重新评估当前任务配队');
+        }
         dispatchUnderground(s,now,task){
             const e=this.e,d=e.driver,status=undergroundStatus(s,now);
-            e.lastProgress=now;e.telemetry.sample=null;e.status='后台地下派遣 · 仅使用空闲成员';
+            e.lastProgress=now;e.telemetry.sample=null;e.status=e.settings.underGoal==='native'?'后台地下派遣 · 游戏自动优化':'后台地下派遣 · 仅使用空闲成员';
             const launch=task.launch;
             if(launch){
                 const job=status.slots.find(job=>!launch.ids.includes(String(job.id))&&Number(job.bay)===launch.bay&&launch.uids.every(uid=>(job.team||[]).includes(uid)||(job.mons||[]).some(mon=>mon.uid===uid)));
-                if(job&&launch.uids.every(uid=>!(s.mons||[]).some(mon=>mon.uid===uid))){e.services.underDispatched++;delete task.launch;task.returning=true;e.log(`后台地下派遣已确认 · 从第 ${job.from||1} 层出发，继续原任务`);e.persist();}
+                if(job&&launch.uids.every(uid=>!(s.mons||[]).some(mon=>mon.uid===uid))){e.services.underDispatched++;delete task.launch;task.returning=true;this.afterUnderDeparture(s,launch);e.log(`后台地下派遣已确认 · 从第 ${job.from||1} 层出发，继续原任务`);e.persist();}
                 else if(now-launch.at<120000){e.status='后台地下派遣 · 等待原生准备与存档确认';return true;}
                 else{
                     // A late async native launch must never be reissued after a timeout.
@@ -476,14 +562,20 @@
                 else{
                     const controls=$$('#ug-root [data-ug-go]');
                     if(task.bay==null){
-                        const free=controls.find(el=>!undergroundBay(s,Number(el.dataset.ugGo),status));
+                        const free=controls.find(el=>{
+                            const bay=Number(el.dataset.ugGo);
+                            return !undergroundBay(s,bay,status)&&(e.settings.underGoal!=='native'||canFillUndergroundTeam(undergroundBayMembers(s,bay,now,false)));
+                        });
                         if(!free){e.services.retryAt.underground=now+60000;task.returning=true;}
                         else{task.bay=Number(free.dataset.ugGo);e.persist();}
                     }
                     if(task.bay!=null&&undergroundBay(s,task.bay,status))task.returning=true;
                     if(!task.returning){
-                        const idle=undergroundIdleMembers(s,e,now);
                         const floor=this.selectUndergroundStart(task.bay,status);if(!floor)return true;
+                        if(e.settings.underGoal==='native'){
+                            this.nativeUnderDeparture(s,task.bay,floor,controls.find(el=>Number(el.dataset.ugGo)===task.bay),now,task);return true;
+                        }
+                        const idle=undergroundIdleMembers(s,e,now);
                         if(!task.uids?.length||task.planKey!==this.undergroundPlanKey(s,task.bay,floor,idle)){
                             const plan=this.undergroundPlan(s,task.bay,floor,idle,now);
                             if(!plan)return true;
@@ -627,7 +719,7 @@
             const status=undergroundStatus(s,now),launch=this.state.underLaunch,collect=this.state.underCollect;
             if(launch){
                 const job=status.slots.find(slot=>!launch.ids.includes(String(slot.id))&&String(slot.bay)===String(launch.bay)&&(!launch.uids?.length||launch.uids.every(uid=>slot.team?.includes(uid)||slot.mons?.some(mon=>mon.uid===uid))));
-                if(job){delete this.state.underLaunch;e.log(`地下通道第 ${Number(launch.bay)+1} 队派遣已确认 · 从第 ${job.from||1} 层出发`);e.persist();}
+                if(job){delete this.state.underLaunch;this.afterUnderDeparture(s,launch);e.log(`地下通道第 ${Number(launch.bay)+1} 队派遣已确认 · 从第 ${job.from||1} 层出发`);e.persist();}
                 else if(now-launch.at<120000){this.wait('等待地下通道派遣准备与存档确认',now+2000);return;}
                 else{this.fail('地下通道派遣未获存档确认，已暂停以免重复派遣；请检查游戏后继续');return;}
             }
@@ -658,12 +750,14 @@
             }
             if(status.ready.length){this.wait('地下通道已归队，等待领取按钮刷新',now+2000);return;}
             const ownedFx=$('.gd-fx .gd-ok:not([hidden])')||$('.gd-fx .gd-skip');if(enabled(ownedFx)){d.click(ownedFx,'完成晶洞奖励动画');return;}
-            if(cfg.optimizeRaid&&undergroundMembers(s,now).length<DATA.automation.under.team){this.wait('可派遣队员不足，等待归队或巴黎时间次日恢复',running?untilReturn:status.nextReset);return;}
+            if((cfg.optimizeRaid||cfg.underGoal==='native')&&undergroundMembers(s,now).length<DATA.automation.under.team){this.wait('可派遣队员不足，等待归队或巴黎时间次日恢复',running?untilReturn:status.nextReset);return;}
             const controls=$$('#ug-root [data-ug-go]');
             for(const go of controls){
                 const slot=Number(go.dataset.ugGo),teamKey='under:'+slot;
-                if(undergroundBay(s,slot,status)||!cfg.optimizeRaid&&!enabled(go))continue;
+                if(undergroundBay(s,slot,status)||cfg.underGoal!=='native'&&!cfg.optimizeRaid&&!enabled(go))continue;
+                if(cfg.underGoal==='native'&&!canFillUndergroundTeam(undergroundBayMembers(s,slot,now,false)))continue;
                 const floor=this.selectUndergroundStart(slot,status);if(!floor)return;
+                if(cfg.underGoal==='native'){this.nativeUnderDeparture(s,slot,floor,go,now);return;}
                 const configured=s.eventTeams?.[teamKey]||[];
                 let plan;
                 if(cfg.optimizeRaid){
@@ -825,7 +919,7 @@
             const type=$('#candy-root .cr-type [data-type]')?.dataset.type;
             if(!type||!DATA.types[type]){this.wait('等待糖果工厂今日主题加载；请确认活动已解锁并登录');return;}
             const context=candyGoalContext(s,cfg,type);
-            if(cfg.optimizeRaid){
+            if(cfg.optimizeRaid||underSpecialReview(e,'candy')){
                 const key=JSON.stringify([context.key,parisDay(now),rosterFingerprint(s),s.autoSwitch!==false,adventureTeamWeatherKey(s,[s.adv.chapter],now)]);
                 const party=s.eventTeams?.candy||[],confirmed=d.recent.get(key);
                 if(!Array.isArray(confirmed)||confirmed.length!==party.length||confirmed.some((uid,i)=>party[i]!==uid)){
@@ -835,7 +929,7 @@
                     const plan=sliced?e.evaluateTeamSearch(JSON.stringify([key,party]),search):search.next().value;
                     if(!plan){this.wait('正在评估糖果工厂专属队伍');return;}
                     if(!plan.uids.length){this.wait('糖果工厂没有可用的已关联地区成员');return;}
-                    if(d.click(edit,'按糖果工厂今日主题配置队伍'))d.ownedDialog={type:'factoryTeam',key,uids:plan.uids,started:now};
+                    if(d.click(edit,'按糖果工厂今日主题配置队伍'))d.ownedDialog={type:'factoryTeam',key,teamKey:'candy',uids:plan.uids,started:now};
                     return;
                 }
             }
@@ -913,7 +1007,7 @@
             const tab=$('#map-root [data-lg-view="elite"]:not(.on)');if(enabled(tab)){d.click(tab,'切换精英联盟');return;}
             const go=$(`#map-root [data-league="${reg}"][data-tier="${best+1}"]`);
             const context=battleContext(s,'elite',{reg,tier:best+1,now}),edit=$(`#map-root [data-lg-team="${reg}"]`);
-            if(cfg.optimizeRaid&&(enabled(edit)||enabled(go))){
+            if((cfg.optimizeRaid||underSpecialReview(e,'league:'+reg))&&(enabled(edit)||enabled(go))){
                 const teamKey='league:'+reg,party=s.eventTeams?.[teamKey]||[];
                 const key=this.elitePartyKey(s,context,now);
                 let desired=this.elitePlan?.key===key?this.elitePlan.uids:null;
@@ -931,6 +1025,7 @@
                     return;
                 }
             }
+            finishUnderSpecialReview(e,'league:'+reg);
             if(enabled(go)&&e.ensurePrepared(s,context,{},now))return;
             if(enabled(go)){
                 if(d.click(go,'挑战下一阶精英联盟')&&e.daily?.job?.kind==='elite'){
@@ -971,7 +1066,7 @@
             if(enabled(recap)){d.click(recap,'确认世界首领攻击结果');return;}
             if(resultVisible||settling){this.wait('等待世界首领攻击结算与结果确认');return;}
             const capture=$('[data-wbz-go]');if(cfg.worldCapture&&enabled(capture)){
-                const key=`world:493|${rosterFingerprint(s)}`,edit=$('[data-wbz-team]');if(cfg.optimizeRaid&&!d.recent.has(key)&&enabled(edit)){if(d.click(edit,'配置世界首领捕获队伍'))d.ownedDialog={type:'team',key,optimized:false};return;}
+                const key=`world:493|${rosterFingerprint(s)}`,edit=$('[data-wbz-team]');if((cfg.optimizeRaid||underSpecialReview(e,'zone:493'))&&!d.recent.has(key)&&enabled(edit)){if(d.click(edit,'配置世界首领捕获队伍'))d.ownedDialog={type:'team',key,teamKey:'zone:493',optimized:false};return;}
                 if(e.ensurePrepared(s,battleContext(s,'worldCapture',{id:493}),{},now))return;
                 if(d.click(capture,'进入世界首领捕获'))this.state.worldCaptureStarted=true;return;
             }

@@ -95,7 +95,9 @@
     .queue-item-counts { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:7px 0 0 }
     .queue-item-counts dt {font-size:11px}
     .queue-item-counts dd {margin:2px 0 0;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-    .queue-job-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px }
+    .queue-job-actions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:8px }
+    .queue-secondary { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:5px }
+    .queue-secondary[hidden] { display:none }
     .queue-job-actions button { min-height:32px; padding:5px 7px; font-size:11px }
     .queue-job-actions button[data-job-action=remove] { color:#f1b3bc }
     .lookup-page .commandbar .lookup-task { display:block; flex:1; color:#b4cbd4; font-size:12px; overflow-wrap:anywhere }
@@ -103,7 +105,24 @@
     .dex-searchbar { display:flex; align-items:center; gap:6px; margin:2px 0 12px }
     .dex-searchbar input { flex:1; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #465b70; border-radius:8px; background:#0f1927; color:#edf4f8 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
-    .insight-nav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; margin:0 0 12px; padding:3px; border:1px solid #36485c; border-radius:11px; background:#101a29 }
+    .insight-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; margin:0 0 12px; padding:3px; border:1px solid #36485c; border-radius:11px; background:#101a29 }
+    .ranking-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 12px }
+    .ranking-filters label { display:grid; gap:4px; color:#c2d3df; font-size:12px }
+    .ranking-filters select,.ranking-filters input { width:100%; min-width:0; min-height:36px }
+    .ranking-wide { grid-column:1 / -1 }
+    #species-ranking p { margin:5px 0 6px; font-size:12px; line-height:1.55; overflow-wrap:anywhere }
+    #species-ranking details { margin:0; padding:0; border-top:0; border-bottom:1px solid #34495d }
+    #species-ranking .ranking-rules { margin:8px 0 }
+    #species-ranking summary,.settings-group>summary { padding:10px 0; font-weight:600 }
+    #species-ranking [data-rank=results] summary { display:grid; grid-template-columns:2.1em minmax(0,1fr) auto; gap:6px; align-items:center; min-height:42px; list-style:none }
+    #species-ranking [data-rank=results] summary::-webkit-details-marker { display:none }
+    .ranking-position,.ranking-score { color:#98d9c1; font-variant-numeric:tabular-nums }
+    .ranking-name { overflow-wrap:anywhere }
+    .ranking-name::after { content:'▸'; margin-left:6px; color:#9fb7d4 }
+    details[open]>summary .ranking-name::after { content:'▾' }
+    .ranking-pages { margin-top:10px }
+    .settings-group[open]>summary { border-bottom:1px solid #34495d; margin-bottom:8px }
+    @media(max-width:370px){ .insight-nav { grid-template-columns:repeat(2,minmax(0,1fr)) } }
     .insight-nav button { min-width:0; min-height:36px; padding:4px 2px; border:1px solid transparent; background:transparent; color:#b7c8d7; font-weight:600; border-radius:8px }
     .insight-nav button[aria-pressed=true] { background:#213d42; color:#b4f3df; border-color:#47716b }
     #dex-panel [hidden] { display:none!important }

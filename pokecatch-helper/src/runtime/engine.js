@@ -366,7 +366,7 @@
             const raid=this.driver.raid;
             const special=this.driver.ownedDialog;
             const flowOwner=this.services.underground&&this.automation.owner?.kind==='receipt'&&this.automation.owner.selector==='.ug-back'?null:this.automation.snapshotOwner();
-            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...['factoryTeam','eliteTeam','underTeam'].includes(special.type)?{bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
+            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,teamKey:special.teamKey,optimized:!!special.optimized,...['factoryTeam','eliteTeam','underTeam','nativeUnderTeam'].includes(special.type)?{background:special.background,bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
                 activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null,
                     exit:this.startActivityExit?{kind:this.startActivityExit.kind,key:this.startActivityExit.key}:null},
                 budget:{spent:this.budget.spent,used:this.budget.used}};
@@ -701,7 +701,7 @@
             if(this.manual)return;
             // Older breeding runs could leave a pending confirmation to withdraw a parent.
             if(!(cfg.mode==='breed'&&cp.flowOwner?.kind==='confirm'&&cp.flowOwner.match?.includes('取回')))this.automation.restoreOwner(cp.flowOwner);
-            if(['team','ally','factoryTeam','eliteTeam','underTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
+            if(['team','ally','factoryTeam','eliteTeam','underTeam','nativeUnderTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
             if((cp.raidProbe||this.raidReturn)&&!s.adv.event?.raid){
                 this.raidProbe=true;
                 this.raidProbeStarted=now;
@@ -1154,7 +1154,7 @@
                 const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
                 this.interruptedPicker=null;
                 if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
-                else if(['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
+                else if(['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam','backgroundUnderTeam','nativeUnderTeam'].includes(own?.type)){
                     const close=$('#evt-pick [data-evt-close]');
                     if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
                 }
@@ -1683,6 +1683,31 @@
                 reserved.waitingForBattle=false;reserved.started=now;this.persist();
             }
             if(inActivity&&this.daily?.job&&this.daily.job.kind!=='window')this.daily.job.started=now;
+            // Settle departure before checking a goal whose named member may now be away.
+            if(this.services.underground?.launch?.native&&this.serviceBackground(s,now))return;
+            const underFlow=this.automation.state;
+            if(underFlow.underWaitUids?.length&&!inActivity){
+                const away=new Set((s.under?.slots||[]).flatMap(slot=>[...(slot.team||[]),...(slot.mons||[]).map(mon=>mon.uid)]));
+                if(underFlow.underWaitUids.some(uid=>away.has(uid))){
+                    if(this.serviceBackground(s,now))return;
+                    this.lastProgress=now;this.status='指定任务成员正在地下探险，等待归队后继续';return;
+                }
+                delete underFlow.underWaitUids;this.persist();
+            }
+            if(underFlow.underPartyReview&&!inActivity&&!this.services.underground&&!this.preparation){
+                if(this.driver.teamTask){
+                    if(this.driver.adventureTeam(s,now))return;
+                }
+                const cfg=this.weatherFarm?.training||this.settings;
+                const policy=cfg.autoTeam?cfg:{...cfg,autoTeam:true};
+                if(this.fitTeam(s,now,null,null,policy,true)){
+                    if(this.driver.teamTask&&!cfg.autoTeam)this.driver.teamTask.underPartyRepair=true;
+                    return;
+                }
+                if(!this.teamSearch&&(this.teamCheck||this.strictPlanning&&!localRulesKnown()&&globalThis.window?.BUILD!=='406d1bf388')){
+                    delete underFlow.underPartyReview;if(!this.teamCheck)this.log(this.teamValidationNote);this.persist();
+                }
+            }
             const outcome=inActivity?null:this.preparation?.terminalGoal||adventureTaskOutcome(s,this,now);
             if(!outcome&&!this.adoptManualPreparation(s,now))return;
             const startingBattle = !!this.startBattle && this.startBattle === this.ordinaryBattleKey(s);
@@ -2191,8 +2216,9 @@
                 s.link&&(row.reg===s.link.to)!==(s.link.side==='to')||s.adv.event||s.adv.zone||s.adv.league||s.adv.tower)return;
             this.fitTeam(s,now,null,row);
         }
-        fitTeam(s,now,trackedRoamer,preview=null,settings=this.settings) {
-            if(this.strictPlanning&&!localRulesKnown()){
+        fitTeam(s,now,trackedRoamer,preview=null,settings=this.settings,underRepair=false) {
+            const auditedExpedition=underRepair&&globalThis.window?.BUILD==='406d1bf388';
+            if(this.strictPlanning&&!localRulesKnown()&&!auditedExpedition){
                 this.teamValidationNote='当前游戏构建待核对，保留现有冒险队伍';
                 if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch',false,'游戏构建待核对');
                 return false;

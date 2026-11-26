@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.3.0
+// @version      8.4.1
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.3.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.4.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -493,7 +493,7 @@
         if(base!==DEFAULTS)raw={...base,...raw};
         const out = { ...DEFAULTS };
         if(['money','xp'].includes(raw.huntWeatherFallback))out.huntWeatherFallback=raw.huntWeatherFallback;
-        out.underGoal=raw.underGoal==='money'?'money':'depth';
+        out.underGoal=['money','native'].includes(raw.underGoal)?raw.underGoal:'depth';
         for (const k of Object.keys(DEFAULTS)) if (typeof DEFAULTS[k] === 'boolean' && typeof raw[k] === 'boolean') out[k] = raw[k];
         // A missing switch belongs to a pre-switch profile. Only an explicit boolean can enable an imported switch.
         if(Object.hasOwn(raw,'autoPurchase'))out.autoPurchase=raw.autoPurchase===true;
@@ -859,16 +859,25 @@
         }
         return false;
     }
-    function undergroundBayMembers(s,bay,now){
+    function undergroundBayMembers(s,bay,now,preferReserves=true){
         const reserved=new Set();
         for(const [key,uids] of Object.entries(s.eventTeams||{})){
             if(key.startsWith('under:')&&key!=='under:'+bay&&!undergroundBay(s,Number(key.slice(6))))
                 for(const uid of uids||[])reserved.add(uid);
         }
         const available=undergroundMembers(s,now).filter(m=>!reserved.has(m.uid));
+        if(!preferReserves)return available;
         const adventure=new Set([...(s.team||[]),...(s.road||[]),s.buddy?.uid]);
         const reserves=available.filter(mon=>!adventure.has(mon.uid));
         return canFillUndergroundTeam(reserves)?reserves:available;
+    }
+    function underSpecialReview(e,key){
+        return !!key&&!!e.automation?.state?.underSpecialKeys?.includes(key);
+    }
+    function finishUnderSpecialReview(e,key){
+        if(!underSpecialReview(e,key))return;
+        e.automation.state.underSpecialKeys=e.automation.state.underSpecialKeys.filter(item=>item!==key);
+        e.persist();
     }
     function undergroundBackgroundUnlocked(s){
         if(!s?.adv)return false;
@@ -894,6 +903,9 @@
         return undergroundMembers(s,now).filter(mon=>!protectedUids.has(mon.uid)&&!seen.has(mon.uid)&&seen.add(mon.uid));
     }
     function adventureDispatchWait(s,e,now){
+        if(e.automation?.state?.underWaitUids?.length)return '等待当前任务指定的成员归队';
+        if(e.automation?.state?.underPartyReview)return '等待派遣后的任务配队复核';
+        if(e.settings.underGoal==='native')return '';
         if(!e.settings.autoTeam)return '';
         const p=e.preparation, party=s.team||[], road=s.road||[];
         const mode=e.settings.mode, roamLegend=mode==='legend'&&!e.settings.legendTier&&DATA.zones.some(z=>z.id===e.settings.legendId&&z.eliteOnly);
@@ -923,8 +935,9 @@
         if(status.slots.length>=status.capacity)return '派遣位置已满，等待归队';
         const wait=adventureDispatchWait(s,e,now);
         if(wait)return wait;
-        const idle=undergroundIdleMembers(s,e,now);
-        if(!canFillUndergroundTeam(idle))return '空闲成员不足三只可同时出战的宝可梦，保留主队、Buddy及任务阵容';
+        if(e.settings.underGoal==='native'){
+            if(undergroundMembers(s,now).length<DATA.automation.under.team)return '游戏可派遣队员不足三只';
+        }else if(!canFillUndergroundTeam(undergroundIdleMembers(s,e,now)))return '空闲成员不足三只可同时出战的宝可梦，保留主队、Buddy及任务阵容';
         const tab=typeof document==='undefined'?null:$('#tabs [data-screen="underground"]');
         if(tab&&(tab.classList.contains('locked')||tab.classList.contains('hold')))return tab.dataset.why||'地下通道入口尚未开放';
         return '';
@@ -949,6 +962,8 @@
                 const launch=task.launch;
                 if(launch&&Number.isInteger(launch.bay)&&launch.bay>=0&&launch.bay<4&&Array.isArray(launch.uids)&&launch.uids.length===3&&new Set(launch.uids).size===3&&launch.uids.every(uid=>typeof uid==='string'&&uid.length<=120)&&Number.isFinite(launch.at)&&launch.at>=0){
                     out.underground.launch={bay:launch.bay,uids:[...launch.uids],ids:(Array.isArray(launch.ids)?launch.ids:[]).map(String).slice(0,8),at:launch.at};
+                    if(launch.native===true)Object.assign(out.underground.launch,{native:true,partyHit:launch.partyHit===true,
+                        specialKeys:(Array.isArray(launch.specialKeys)?launch.specialKeys:[]).filter(key=>typeof key==='string'&&key.length<=120)});
                 }
             }
             const tx=task.tx,uids=Array.isArray(tx?.uids)?[...new Set(tx.uids.filter(uid=>typeof uid==='string'&&uid.length>0&&uid.length<=120))].slice(0,6):[];
@@ -959,6 +974,7 @@
     function mainGoalReached(s,e,now=Date.now()){
         if(!s?.adv)return false;
         const c=e.settings||{},mode=c.mode,flow=e.automation?.state||{};
+        if(flow.underWaitUids?.length)return false;
         if(!FLOW_MODES.has(mode))return !!adventureTaskOutcome(s,e,now);
         if(mode==='breed')return c.breedShiny?shinyOwned(s,c.breedId):(flow.hatched||0)>=c.breedGoal;
         if(mode==='underground')return(flow.underDone||0)>=c.underRuns;
@@ -1025,7 +1041,7 @@
             }
             if(id==='evolution'&&!c.autoEvolve)reason='自动免费进化已关闭';
             if(mainComplete&&!active)reason='主任务已达标，先完成或切换队列';
-            if(!reason&&(id==='eggs'||id==='underground'&&!underDispatch)&&manualParty)reason='手动队伍未满六人，原生领取可能自动入队';
+            if(!reason&&(id==='eggs'||id==='underground'&&!underDispatch&&!flow.underWaitUids?.length)&&manualParty)reason='手动队伍未满六人，原生领取可能自动入队';
             const retry=id==='eggs'?Math.max(flow.eggRetryAt||0,services.retryAt?.eggs||0):id==='evolution'?flow.evolutionRetryAt||0:services.retryAt?.underground||0;
             if(!reason&&retry>now)reason='等待服务重试时间';
             if(id==='eggs'&&!reason&&eggs.length){
@@ -1085,7 +1101,7 @@
         if(underTask){
             underState=e.running&&!paused?'running':'waiting';
             underLabel=underState==='running'?(underTask.action==='dispatch'?'派遣中':'领取中'):'等待恢复';
-            underText+='；'+(underState==='running'?(underTask.action==='dispatch'?'仅用空闲队员派遣，确认后返回原任务':'领取归队奖励，确认后返回原任务'):'事务保留，恢复后先核对存档');
+            underText+='；'+(underState==='running'?(underTask.action==='dispatch'?(c.underGoal==='native'?'游戏推荐队伍优先派遣，确认后复核任务配队':'仅用空闲队员派遣，确认后返回原任务'):'领取归队奖励，确认后返回原任务'):'事务保留，恢复后先核对存档');
         }else if(c.mode==='underground'){
             underState='waiting';underLabel='主任务管理';underText+='；由地下主任务管理配队、派遣和领取';
         }else if(under.ready.length&&collectOn){
@@ -1095,7 +1111,10 @@
             if(!unlocked){underState=under.slots.length?'timing':'waiting';underLabel=under.slots.length?'探险中':'待神奥';underText+='；进入神奥后自动派遣';}
             else if(under.slots.length>=under.capacity&&under.slots.length){underState=under.ready.length?'waiting':'timing';underLabel=under.ready.length?'待归队领取':'探险中';underText+='；派遣位已占用，等待归队'+(under.ready.length&&!collectOn?'或手动领取':'');}
             else if(!under.left){underState=under.running.length?'timing':'waiting';underLabel=under.running.length?'探险中':'等待次日';underText+='；今日派遣额度已用完，等待巴黎次日';underAt=Math.min(underAt??Infinity,under.nextReset);}
-            else{
+            else if(c.underGoal==='native'){
+                const why=plan.blocked.underground;
+                underState=why?'waiting':'ready';underLabel=why?'等待派遣':'待派遣';underText+='；地下优先 · '+(why||'使用游戏自动优化');
+            }else{
                 const idle=undergroundIdleMembers(s,e,now).length,required=DATA.automation.under.team||3,why=plan.blocked.underground;
                 if(why){underState=/手动队伍/.test(why)?'blocked':'waiting';underLabel=/冒险阵容|冒险配队|补练阵容/.test(why)?'等待冒险配队':/不足|空闲.*队员/.test(why)?'等空闲队员':'等待前台';underText+=`；空闲可派遣 ${idle} 只，${why}`;}
                 else if(idle<required){underState=under.slots.length?'timing':'waiting';underLabel='等空闲队员';underText+=`；空闲可派遣 ${idle}/${required}，保护主队、Buddy及培养对象`;}
@@ -7851,6 +7870,42 @@
             return{...row,action,reason};
         });
     }
+    const SPECIES_RANKING_DATA = {"version":"1.113","bundle":"e2eb68ec8c","rarity":["常见","少见","稀有","传说","独一无二"],"moves":{"百万吨重踢":["phys",120],"捏碎":["phys",100],"大闹一番":["phys",120],"舍身冲撞":["phys",120],"火箭头锤":["phys",130],"爆炸头突击":["phys",120],"吵闹":["spec",90],"制裁光砾":["spec",100],"爆音波":["spec",140],"巨声":["spec",90],"猛撞":["phys",90],"破坏光线":["spec",90],"秘密之力":["phys",70],"怪力":["phys",80],"泰山压顶":["phys",85],"硬撑":["phys",70],"头锤":["phys",70],"必杀门牙":["phys",80],"青焰":["spec",140],"过热":["spec",130],"Ｖ热焰":["phys",180],"闪焰冲锋":["phys",120],"喷火":["spec",150],"大字爆炎":["spec",110],"喷水":["spec",150],"水炮":["spec",110],"蟹钳锤":["phys",100],"波动冲":["phys",120],"水流尾":["phys",90],"水流裂破":["phys",85],"冲浪":["spec",90],"浊流":["spec",90],"攀瀑":["phys",80],"潜水":["phys",80],"飞叶风暴":["spec",130],"日光刃":["phys",125],"强力鞭打":["phys",120],"日光束":["spec",120],"种子炸弹":["phys",80],"叶刃":["phys",90],"落英缤纷":["phys",90],"种子机关枪":["phys",77.5],"雷击":["phys",130],"打雷":["spec",110],"电磁炮":["spec",120],"闪电强袭":["phys",100],"疯狂伏特":["phys",90],"电光":["phys",65],"冰冻伏特":["phys",140],"极寒冷焰":["spec",140],"暴风雪":["spec",110],"三旋击":["phys",120],"冰柱坠击":["phys",85],"冰锥":["phys",77.5],"蛮力":["phys",120],"飞膝踢":["phys",130],"近身战":["phys",120],"真气弹":["spec",120],"劈瓦":["phys",75],"污泥波":["spec",95],"垃圾射击":["phys",120],"污泥炸弹":["spec",90],"毒击":["phys",80],"十字毒刃":["phys",70],"毒针":["phys",15],"断崖之剑":["phys",120],"地震":["phys",100],"突飞猛扑":["phys",120],"大地之力":["spec",90],"骨头回力镖":["phys",100],"挖洞":["phys",80],"画龙点睛":["phys",120],"神鸟猛击":["phys",140],"勇鸟猛攻":["phys",120],"暴风":["spec",110],"飞翔":["phys",90],"弹跳":["phys",85],"空气斩":["spec",75],"双翼":["phys",80],"空气利刃":["spec",60],"喋喋不休":["spec",65],"燕返":["phys",60],"起风":["spec",40],"精神突进":["spec",140],"预知未来":["spec",120],"精神之牙":["phys",85],"精神强念":["spec",90],"意念头锤":["phys",80],"超级角击":["phys",120],"虫鸣":["spec",90],"十字剪":["phys",80],"猛扑":["phys",80],"吸血":["phys",80],"攻击指令":["phys",90],"飞弹针":["phys",77.5],"虫咬":["phys",60],"双刃头锤":["phys",150],"尖石攻击":["phys",100],"岩石炮":["phys",100],"流星光束":["spec",120],"力量宝石":["spec",80],"岩石爆击":["phys",77.5],"原始之力":["spec",60],"岩崩":["phys",75],"暗影潜袭":["phys",120],"灵骚":["phys",110],"暗影球":["spec",80],"潜灵奇袭":["phys",90],"流星群":["spec",130],"逆鳞":["phys",120],"欺诈":["phys",95],"恶之波动":["spec",80],"暗黑爆破":["spec",85],"咬碎":["phys",80],"地狱突刺":["phys",80],"破灭之愿":["spec",140],"加农光炮":["spec",80],"彗星拳":["phys",90],"铁头":["phys",80],"铁尾":["phys",100],"齿轮飞盘":["phys",100],"重磅冲撞":["phys",80],"月亮之力":["spec",95],"嬉闹":["phys",90],"魔法闪耀":["spec",80],"魅诱之声":["spec",80]},"nameAliases":{"585":"四季鹿","586":"萌芽鹿","35101":"飘浮泡泡（太阳的样子）","35102":"飘浮泡泡（雨水的样子）","35103":"飘浮泡泡（雪云的样子）","38601":"代欧奇希斯（攻击形态）","38602":"代欧奇希斯（防御形态）","38603":"代欧奇希斯（速度形态）","41201":"结草儿（砂土蓑衣）","41202":"结草儿（垃圾蓑衣）","41301":"结草贵妇（砂土蓑衣）","41302":"结草贵妇（垃圾蓑衣）","42201":"无壳海兔（东海）","42301":"海兔兽（东海）","47901":"洛托姆（加热形态）","47902":"洛托姆（清洗形态）","47903":"洛托姆（结冰形态）","47904":"洛托姆（旋转形态）","47905":"洛托姆（切割形态）","48701":"骑拉帝纳（起源形态）","49201":"谢米（天空形态）","49301":"阿尔宙斯（火）","49302":"阿尔宙斯（水）","49303":"阿尔宙斯（草）","49304":"阿尔宙斯（电）","49305":"阿尔宙斯（冰）","49306":"阿尔宙斯（格斗）","49307":"阿尔宙斯（毒）","49308":"阿尔宙斯（地面）","49309":"阿尔宙斯（飞行）","49310":"阿尔宙斯（超能）","49311":"阿尔宙斯（虫）","49312":"阿尔宙斯（岩石）","49313":"阿尔宙斯（幽灵）","49314":"阿尔宙斯（龙）","49315":"阿尔宙斯（恶）","49316":"阿尔宙斯（钢）","64101":"龙卷云（灵兽形态）","64201":"雷电云（灵兽形态）","64501":"土地云（灵兽形态）","64801":"美洛耶塔（舞步形态）","64901":"盖诺赛克特（水流卡带）","64902":"盖诺赛克特（闪电卡带）","64903":"盖诺赛克特（火焰卡带）","64904":"盖诺赛克特（冰冻卡带）"},"groups":{"normal":[[289,"百万吨重踢",2],[486,"捏碎",3],[217,"大闹一番",2],[628,"大闹一番",2],[398,"舍身冲撞",2],[85,"火箭头锤",2],[335,"舍身冲撞",1],[143,"舍身冲撞",2],[626,"爆炸头突击",2],[474,"吵闹",2],[493,"制裁光砾",3],[295,"爆音波",2],[648,"巨声",3],[115,"火箭头锤",2],[128,"大闹一番",2],[424,"舍身冲撞",2],[586,"舍身冲撞",1],[83,"火箭头锤",2],[234,"舍身冲撞",2],[573,"舍身冲撞",1],[84,"火箭头锤",0],[463,"火箭头锤",2],[22,"舍身冲撞",1],[508,"猛撞",2],[20,"火箭头锤",1],[446,"百万吨重踢",1],[233,"破坏光线",2],[627,"大闹一番",0],[18,"舍身冲撞",2],[203,"舍身冲撞",1],[216,"大闹一番",1],[241,"百万吨重踢",2],[288,"舍身冲撞",1],[162,"舍身冲撞",1],[428,"百万吨重踢",1],[397,"舍身冲撞",1],[40,"火箭头锤",1],[53,"火箭头锤",1],[521,"秘密之力",2],[441,"巨声",2],[294,"百万吨重踢",1],[190,"舍身冲撞",2],[206,"舍身冲撞",0],[264,"舍身冲撞",1],[164,"吵闹",1],[137,"破坏光线",2],[400,"猛撞",1],[427,"百万吨重踢",0],[301,"舍身冲撞",1],[352,"怪力",0],[507,"猛撞",1],[432,"泰山压顶",1],[64801,"巨声",3],[505,"怪力",1],[17,"舍身冲撞",1],[21,"舍身冲撞",0],[327,"舍身冲撞",0],[531,"舍身冲撞",0],[585,"舍身冲撞",0],[19,"火箭头锤",0],[242,"吵闹",2],[108,"火箭头锤",2],[133,"火箭头锤",2],[396,"舍身冲撞",0],[277,"硬撑",2],[293,"百万吨重踢",0],[520,"秘密之力",1],[39,"火箭头锤",0],[52,"火箭头锤",0],[287,"猛撞",0],[506,"猛撞",0],[161,"舍身冲撞",0],[16,"舍身冲撞",0],[300,"舍身冲撞",0],[351,"头锤",2],[572,"猛撞",0],[504,"必杀门牙",0],[399,"猛撞",0],[276,"硬撑",0],[431,"硬撑",0],[519,"秘密之力",0],[174,"吵闹",0],[333,"猛撞",0],[263,"舍身冲撞",0],[163,"吵闹",0],[113,"吵闹",2],[298,"猛撞",0],[440,"吵闹",0]],"fire":[[643,"青焰",3],[609,"过热",2],[637,"过热",2],[494,"Ｖ热焰",3],[555,"闪焰冲锋",1],[485,"过热",3],[146,"过热",3],[467,"过热",2],[136,"闪焰冲锋",2],[250,"闪焰冲锋",3],[157,"喷火",2],[323,"喷火",1],[500,"闪焰冲锋",2],[257,"闪焰冲锋",2],[229,"过热",2],[6,"过热",2],[244,"闪焰冲锋",3],[631,"过热",1],[47901,"过热",2],[392,"过热",2],[59,"闪焰冲锋",2],[126,"过热",2],[514,"过热",1],[49301,"制裁光砾",3],[608,"过热",1],[78,"闪焰冲锋",2],[324,"喷火",1],[219,"过热",1],[156,"喷火",2],[499,"闪焰冲锋",2],[256,"过热",2],[554,"闪焰冲锋",1],[38,"过热",2],[77,"闪焰冲锋",0],[636,"闪焰冲锋",2],[5,"过热",2],[228,"过热",1],[391,"过热",2],[240,"闪焰冲锋",2],[58,"过热",0],[218,"过热",0],[255,"过热",2],[155,"喷火",2],[322,"过热",0],[607,"过热",0],[35101,"大字爆炎",2],[4,"过热",2],[498,"闪焰冲锋",2],[390,"过热",2],[513,"过热",0],[37,"过热",0]],"water":[[382,"喷水",3],[484,"水炮",3],[647,"水炮",3],[99,"蟹钳锤",1],[139,"水炮",2],[368,"水炮",1],[321,"喷水",2],[419,"波动冲",1],[342,"蟹钳锤",1],[49302,"制裁光砾",3],[395,"水炮",2],[134,"水炮",2],[503,"水炮",2],[593,"喷水",1],[130,"水流尾",2],[224,"水炮",1],[47902,"水炮",2],[230,"波动冲",2],[80,"水炮",1],[121,"水炮",2],[199,"水炮",1],[350,"水炮",2],[490,"水炮",3],[550,"波动冲",2],[98,"蟹钳锤",0],[319,"水流裂破",1],[55,"水炮",2],[117,"水炮",1],[279,"水炮",2],[365,"水炮",2],[367,"水炮",1],[141,"水流裂破",2],[423,"水炮",1],[565,"水流尾",2],[138,"水炮",2],[186,"水炮",2],[245,"水炮",3],[272,"水炮",2],[160,"水流尾",2],[260,"水流裂破",2],[9,"波动冲",2],[320,"喷水",0],[581,"水炮",2],[91,"水炮",2],[131,"水炮",2],[537,"水炮",2],[516,"冲浪",1],[502,"水炮",2],[592,"喷水",0],[394,"水炮",2],[211,"水流尾",2],[73,"水炮",2],[226,"水炮",2],[489,"水炮",3],[42301,"浊流",1],[62,"水流裂破",2],[369,"水流尾",2],[171,"水炮",1],[340,"水炮",1],[341,"蟹钳锤",0],[318,"水流裂破",0],[195,"水流尾",1],[119,"攀瀑",1],[87,"水炮",1],[116,"水炮",0],[120,"水炮",0],[35102,"水炮",2],[418,"波动冲",0],[457,"水炮",1],[259,"水流裂破",2],[159,"水流尾",2],[8,"波动冲",2],[564,"水流尾",2],[400,"攀瀑",1],[54,"水炮",0],[222,"水炮",1],[223,"水炮",0],[536,"水炮",1],[140,"水流裂破",2],[364,"冲浪",1],[501,"水炮",2],[366,"冲浪",0],[393,"水炮",2],[594,"水流裂破",1],[184,"水炮",1],[271,"水炮",1],[458,"水炮",2],[422,"水炮",0],[42201,"水炮",0],[258,"水流裂破",2],[170,"水炮",0],[158,"水流尾",2],[278,"水炮",0],[61,"水流裂破",1],[79,"水流裂破",0],[90,"水流裂破",0],[7,"波动冲",2],[118,"潜水",0],[72,"水炮",0],[283,"水炮",1],[535,"水炮",0],[456,"水炮",0],[363,"冲浪",0],[339,"水炮",0],[86,"水炮",0],[515,"冲浪",0],[60,"水炮",0],[370,"水炮",0],[194,"水流尾",0],[580,"冲浪",0],[270,"冲浪",0],[183,"水炮",0],[129,"水炮",0],[349,"攀瀑",1]],"grass":[[103,"飞叶风暴",2],[407,"飞叶风暴",2],[49201,"飞叶风暴",3],[332,"飞叶风暴",1],[45,"飞叶风暴",2],[465,"飞叶风暴",2],[549,"飞叶风暴",1],[470,"日光刃",2],[556,"飞叶风暴",1],[192,"飞叶风暴",1],[254,"飞叶风暴",2],[47905,"飞叶风暴",2],[3,"飞叶风暴",2],[71,"飞叶风暴",2],[114,"飞叶风暴",2],[251,"飞叶风暴",3],[315,"飞叶风暴",0],[492,"飞叶风暴",3],[49303,"制裁光砾",3],[275,"日光刃",2],[455,"强力鞭打",1],[512,"日光束",1],[460,"飞叶风暴",1],[182,"飞叶风暴",2],[272,"飞叶风暴",2],[640,"飞叶风暴",3],[598,"强力鞭打",1],[286,"种子炸弹",1],[44,"飞叶风暴",1],[70,"飞叶风暴",1],[253,"飞叶风暴",2],[331,"飞叶风暴",0],[591,"飞叶风暴",1],[154,"飞叶风暴",2],[421,"日光束",1],[2,"飞叶风暴",2],[413,"飞叶风暴",2],[542,"叶刃",2],[346,"日光束",2],[43,"飞叶风暴",0],[389,"飞叶风暴",2],[497,"飞叶风暴",2],[586,"落英缤纷",1],[547,"日光束",1],[357,"飞叶风暴",1],[69,"强力鞭打",0],[548,"飞叶风暴",0],[274,"日光刃",1],[1,"飞叶风暴",2],[252,"飞叶风暴",2],[153,"飞叶风暴",2],[47,"种子机关枪",1],[459,"飞叶风暴",1],[102,"飞叶风暴",1],[496,"飞叶风暴",2],[388,"种子炸弹",2],[420,"日光束",0],[345,"日光束",2],[271,"日光束",1],[189,"飞叶风暴",2],[590,"飞叶风暴",0],[406,"飞叶风暴",0],[511,"日光束",0],[152,"飞叶风暴",2],[541,"日光束",1],[46,"种子机关枪",0],[387,"种子炸弹",2],[188,"飞叶风暴",1],[495,"飞叶风暴",2],[585,"种子炸弹",0],[270,"日光束",0],[285,"日光束",0],[540,"日光束",0],[187,"飞叶风暴",0],[546,"日光束",0],[597,"种子炸弹",0],[191,"飞叶风暴",0],[273,"飞叶风暴",0]],"electric":[[644,"雷击",3],[64201,"打雷",3],[462,"电磁炮",2],[145,"电磁炮",3],[82,"电磁炮",1],[642,"打雷",3],[181,"电磁炮",2],[243,"电磁炮",3],[135,"电磁炮",2],[466,"闪电强袭",2],[604,"电磁炮",2],[405,"闪电强袭",2],[49304,"制裁光砾",3],[310,"打雷",2],[47901,"打雷",2],[47902,"打雷",2],[47903,"打雷",2],[47904,"打雷",2],[47905,"打雷",2],[81,"电磁炮",0],[125,"电磁炮",2],[596,"打雷",1],[26,"电磁炮",1],[479,"打雷",2],[523,"闪电强袭",1],[101,"电磁炮",1],[180,"电磁炮",1],[311,"打雷",0],[171,"电磁炮",1],[618,"打雷",1],[603,"电磁炮",1],[312,"打雷",0],[587,"打雷",0],[404,"疯狂伏特",1],[179,"电磁炮",0],[239,"电磁炮",2],[309,"打雷",1],[170,"电磁炮",0],[100,"电磁炮",0],[595,"打雷",0],[522,"闪电强袭",0],[403,"疯狂伏特",0],[25,"电磁炮",0],[417,"打雷",0],[172,"电磁炮",0],[602,"电光",0]],"ice":[[64601,"冰冻伏特",3],[64602,"极寒冷焰",3],[471,"暴风雪",2],[646,"暴风雪",3],[461,"三旋击",2],[124,"暴风雪",2],[49305,"制裁光砾",3],[584,"暴风雪",2],[614,"冰柱坠击",2],[47903,"暴风雪",2],[215,"三旋击",1],[378,"暴风雪",3],[473,"冰锥",2],[144,"暴风雪",3],[365,"暴风雪",2],[615,"暴风雪",2],[460,"暴风雪",1],[478,"三旋击",1],[91,"暴风雪",2],[131,"暴风雪",2],[238,"暴风雪",2],[362,"暴风雪",1],[583,"暴风雪",1],[364,"暴风雪",1],[87,"三旋击",1],[221,"冰锥",1],[35103,"暴风雪",2],[225,"暴风雪",2],[582,"暴风雪",0],[459,"暴风雪",1],[613,"暴风雪",1],[363,"暴风雪",0],[361,"暴风雪",0],[220,"冰锥",0]],"fighting":[[534,"蛮力",2],[620,"飞膝踢",2],[68,"蛮力",2],[286,"近身战",1],[639,"近身战",3],[647,"真气弹",3],[64801,"近身战",3],[106,"飞膝踢",2],[214,"近身战",2],[475,"近身战",2],[539,"近身战",2],[500,"近身战",2],[257,"近身战",2],[297,"近身战",1],[448,"真气弹",2],[454,"近身战",1],[57,"近身战",1],[107,"近身战",2],[533,"蛮力",1],[392,"近身战",2],[49306,"制裁光砾",3],[67,"蛮力",1],[538,"蛮力",2],[560,"飞膝踢",1],[62,"蛮力",2],[237,"近身战",2],[499,"近身战",2],[619,"飞膝踢",0],[638,"近身战",3],[640,"近身战",3],[256,"近身战",2],[56,"近身战",0],[66,"蛮力",0],[532,"蛮力",0],[559,"飞膝踢",0],[391,"近身战",2],[447,"近身战",1],[308,"飞膝踢",1],[453,"真气弹",0],[296,"近身战",0],[307,"飞膝踢",0],[236,"劈瓦",1]],"poison":[[94,"污泥波",2],[454,"垃圾射击",1],[89,"垃圾射击",2],[49307,"制裁光砾",3],[336,"垃圾射击",1],[407,"污泥炸弹",2],[93,"污泥波",1],[24,"垃圾射击",1],[211,"垃圾射击",2],[569,"垃圾射击",1],[435,"垃圾射击",1],[45,"污泥波",2],[110,"垃圾射击",1],[71,"污泥波",2],[92,"污泥波",0],[88,"垃圾射击",0],[3,"污泥炸弹",2],[315,"污泥炸弹",0],[49,"污泥波",1],[34,"毒击",2],[317,"垃圾射击",1],[545,"毒击",2],[70,"污泥波",1],[73,"垃圾射击",2],[44,"污泥炸弹",1],[591,"污泥炸弹",1],[31,"毒击",2],[109,"垃圾射击",0],[15,"毒击",2],[168,"毒击",1],[452,"毒击",2],[2,"污泥炸弹",2],[434,"垃圾射击",0],[453,"垃圾射击",0],[23,"垃圾射击",0],[43,"污泥炸弹",0],[69,"污泥波",0],[169,"十字毒刃",2],[33,"毒击",1],[1,"污泥炸弹",2],[42,"污泥炸弹",1],[568,"垃圾射击",0],[30,"毒击",1],[590,"污泥炸弹",0],[316,"垃圾射击",0],[167,"毒击",0],[72,"污泥波",0],[32,"毒击",0],[269,"污泥炸弹",2],[406,"污泥炸弹",0],[544,"毒击",1],[451,"毒击",1],[29,"毒击",0],[543,"毒击",0],[48,"污泥炸弹",0],[41,"污泥炸弹",0],[13,"毒针",0],[14,"毒针",1]],"ground":[[383,"断崖之剑",3],[64501,"地震",3],[464,"地震",2],[530,"地震",2],[112,"地震",1],[445,"地震",2],[473,"地震",2],[389,"突飞猛扑",2],[645,"地震",3],[623,"地震",1],[76,"地震",2],[232,"地震",2],[49308,"制裁光砾",3],[553,"地震",2],[450,"地震",2],[260,"地震",2],[34,"地震",2],[28,"地震",1],[51,"地震",1],[221,"地震",1],[323,"地震",1],[328,"地震",0],[330,"地震",2],[75,"地震",1],[472,"地震",2],[537,"地震",2],[31,"地震",2],[444,"地震",2],[111,"地震",1],[195,"地震",1],[208,"地震",2],[259,"地震",2],[529,"地震",1],[423,"大地之力",1],[42301,"大地之力",1],[247,"地震",2],[552,"地震",1],[74,"地震",0],[105,"骨头回力镖",1],[340,"地震",1],[27,"地震",0],[207,"地震",1],[618,"大地之力",1],[622,"地震",0],[449,"地震",0],[551,"地震",0],[329,"地震",1],[344,"地震",2],[443,"地震",2],[246,"地震",2],[231,"地震",1],[322,"地震",0],[536,"大地之力",1],[50,"地震",0],[104,"骨头回力镖",0],[220,"地震",0],[339,"地震",0],[95,"地震",2],[194,"地震",0],[343,"地震",0],[290,"挖洞",0]],"flying":[[384,"画龙点睛",3],[250,"神鸟猛击",3],[521,"神鸟猛击",2],[430,"勇鸟猛攻",2],[85,"神鸟猛击",2],[628,"勇鸟猛攻",2],[398,"勇鸟猛攻",2],[142,"神鸟猛击",2],[145,"暴风",3],[146,"暴风",3],[641,"暴风",3],[64501,"飞翔",3],[567,"飞翔",2],[373,"飞翔",2],[149,"飞翔",2],[49309,"制裁光砾",3],[64101,"暴风",3],[6,"暴风",2],[22,"神鸟猛击",1],[83,"神鸟猛击",2],[249,"神鸟猛击",3],[645,"飞翔",3],[84,"神鸟猛击",0],[144,"神鸟猛击",3],[130,"弹跳",2],[284,"暴风",1],[642,"飞翔",3],[169,"勇鸟猛攻",2],[18,"神鸟猛击",2],[279,"暴风",2],[581,"勇鸟猛攻",2],[520,"神鸟猛击",1],[198,"勇鸟猛攻",2],[277,"勇鸟猛攻",2],[566,"弹跳",2],[12,"暴风",2],[64201,"飞翔",3],[627,"勇鸟猛攻",0],[468,"空气斩",2],[49201,"空气斩",3],[164,"暴风",1],[42,"勇鸟猛攻",1],[227,"勇鸟猛攻",2],[123,"双翼",2],[469,"空气斩",2],[334,"神鸟猛击",2],[397,"勇鸟猛攻",1],[226,"暴风",2],[416,"暴风",2],[47904,"空气斩",2],[561,"空气斩",2],[472,"双翼",2],[17,"神鸟猛击",1],[21,"神鸟猛击",0],[357,"暴风",1],[630,"勇鸟猛攻",2],[178,"空气斩",1],[414,"空气斩",2],[426,"飞翔",1],[519,"神鸟猛击",0],[267,"空气利刃",2],[225,"勇鸟猛攻",2],[276,"勇鸟猛攻",0],[396,"勇鸟猛攻",0],[629,"勇鸟猛攻",0],[441,"喋喋不休",2],[207,"双翼",1],[528,"空气斩",2],[278,"暴风",0],[193,"空气斩",1],[587,"空气斩",0],[16,"神鸟猛击",0],[291,"燕返",1],[177,"空气斩",0],[41,"勇鸟猛攻",0],[580,"勇鸟猛攻",0],[189,"弹跳",2],[458,"空气斩",2],[333,"勇鸟猛攻",0],[425,"飞翔",0],[166,"空气斩",1],[527,"空气斩",0],[188,"弹跳",1],[163,"暴风",0],[176,"飞翔",1],[165,"空气斩",0],[187,"弹跳",0],[415,"起风",1]],"psychic":[[38601,"精神突进",3],[386,"精神突进",3],[150,"预知未来",3],[65,"预知未来",2],[196,"预知未来",2],[381,"预知未来",3],[103,"预知未来",2],[282,"预知未来",2],[482,"预知未来",3],[578,"预知未来",1],[579,"预知未来",2],[606,"预知未来",1],[64,"预知未来",1],[49310,"预知未来",3],[124,"预知未来",2],[380,"预知未来",3],[518,"预知未来",1],[38603,"精神突进",3],[481,"预知未来",3],[577,"预知未来",0],[561,"预知未来",2],[376,"精神之牙",2],[648,"精神强念",3],[80,"预知未来",1],[122,"预知未来",2],[151,"预知未来",3],[199,"预知未来",1],[251,"预知未来",3],[385,"预知未来",3],[494,"预知未来",3],[178,"预知未来",1],[337,"预知未来",2],[358,"预知未来",2],[576,"预知未来",2],[203,"预知未来",1],[249,"预知未来",3],[326,"预知未来",1],[475,"意念头锤",2],[63,"精神强念",0],[121,"精神强念",2],[437,"预知未来",2],[38602,"精神突进",3],[528,"预知未来",2],[480,"预知未来",3],[488,"预知未来",3],[575,"预知未来",1],[97,"预知未来",1],[177,"预知未来",0],[325,"预知未来",0],[344,"预知未来",2],[439,"预知未来",0],[338,"意念头锤",2],[238,"精神强念",2],[605,"精神强念",0],[517,"预知未来",0],[281,"预知未来",1],[433,"预知未来",1],[375,"预知未来",2],[527,"预知未来",0],[574,"预知未来",0],[102,"精神强念",1],[308,"精神强念",1],[79,"意念头锤",0],[280,"预知未来",0],[96,"预知未来",0],[374,"意念头锤",2],[307,"精神强念",0],[343,"精神强念",0],[436,"预知未来",0]],"bug":[[589,"超级角击",1],[214,"超级角击",2],[637,"虫鸣",2],[49311,"制裁光砾",3],[545,"超级角击",2],[649,"虫鸣",3],[64901,"虫鸣",3],[64902,"虫鸣",3],[64903,"虫鸣",3],[64904,"虫鸣",3],[212,"十字剪",2],[469,"虫鸣",2],[127,"十字剪",2],[348,"十字剪",2],[267,"虫鸣",2],[284,"虫鸣",1],[617,"虫鸣",1],[123,"猛扑",2],[632,"十字剪",1],[596,"虫鸣",1],[558,"十字剪",1],[588,"超级角击",0],[414,"虫鸣",2],[542,"十字剪",2],[12,"虫鸣",2],[49,"虫鸣",1],[47,"十字剪",1],[347,"十字剪",2],[15,"十字剪",2],[168,"吸血",1],[205,"猛扑",1],[291,"十字剪",1],[292,"吸血",2],[416,"攻击指令",2],[413,"虫鸣",2],[402,"吸血",2],[636,"猛扑",2],[193,"虫鸣",1],[314,"虫鸣",0],[41302,"虫鸣",2],[313,"猛扑",0],[46,"吸血",0],[41301,"虫鸣",2],[204,"猛扑",0],[557,"十字剪",0],[595,"虫鸣",0],[541,"猛扑",1],[166,"虫鸣",1],[167,"吸血",0],[269,"虫鸣",2],[283,"虫鸣",1],[48,"猛扑",0],[544,"飞弹针",1],[540,"猛扑",0],[451,"十字剪",1],[290,"吸血",0],[165,"虫鸣",0],[616,"虫鸣",0],[543,"飞弹针",0],[265,"虫咬",0],[415,"虫鸣",1],[13,"虫咬",0],[266,"虫咬",1],[268,"虫咬",1],[401,"猛扑",0],[10,"虫咬",0],[412,"虫咬",1],[41201,"虫咬",1],[41202,"虫咬",1],[14,"虫咬",1],[11,"虫咬",1],[213,"虫咬",2]],"rock":[[409,"双刃头锤",2],[408,"双刃头锤",2],[464,"尖石攻击",2],[567,"尖石攻击",2],[185,"双刃头锤",1],[526,"尖石攻击",2],[248,"尖石攻击",2],[112,"尖石攻击",1],[639,"尖石攻击",3],[348,"尖石攻击",2],[369,"双刃头锤",2],[76,"尖石攻击",2],[49312,"制裁光砾",3],[141,"尖石攻击",2],[566,"尖石攻击",2],[306,"尖石攻击",2],[565,"尖石攻击",2],[142,"尖石攻击",2],[525,"尖石攻击",1],[558,"岩石炮",1],[377,"尖石攻击",3],[75,"尖石攻击",1],[338,"尖石攻击",2],[305,"尖石攻击",1],[476,"流星光束",2],[111,"尖石攻击",1],[247,"尖石攻击",2],[346,"尖石攻击",2],[74,"尖石攻击",0],[140,"尖石攻击",2],[438,"尖石攻击",0],[337,"力量宝石",2],[564,"尖石攻击",2],[347,"岩石爆击",2],[524,"尖石攻击",0],[219,"力量宝石",1],[139,"原始之力",2],[557,"岩石炮",0],[246,"尖石攻击",2],[138,"原始之力",2],[222,"尖石攻击",1],[304,"岩崩",0],[411,"流星光束",2],[299,"流星光束",0],[95,"尖石攻击",2],[410,"尖石攻击",2],[345,"原始之力",2],[213,"尖石攻击",2]],"ghost":[[48701,"暗影潜袭",3],[623,"灵骚",1],[354,"灵骚",2],[609,"暗影球",2],[49313,"制裁光砾",3],[487,"暗影潜袭",3],[477,"灵骚",2],[94,"暗影球",2],[442,"灵骚",1],[93,"暗影球",1],[429,"暗影球",2],[478,"灵骚",1],[92,"暗影球",0],[292,"潜灵奇袭",2],[302,"灵骚",2],[353,"灵骚",0],[622,"灵骚",0],[479,"暗影球",2],[563,"暗影球",1],[608,"暗影球",1],[356,"灵骚",1],[426,"暗影球",1],[200,"暗影球",2],[593,"暗影球",1],[592,"暗影球",0],[607,"暗影球",0],[425,"暗影球",0],[562,"暗影球",0],[355,"灵骚",0]],"dragon":[[64602,"流星群",3],[64601,"逆鳞",3],[384,"流星群",3],[483,"流星群",3],[484,"流星群",3],[643,"流星群",3],[644,"逆鳞",3],[612,"逆鳞",2],[381,"流星群",3],[646,"流星群",3],[373,"逆鳞",2],[149,"逆鳞",2],[635,"流星群",2],[445,"逆鳞",2],[48701,"流星群",3],[621,"逆鳞",2],[611,"逆鳞",1],[380,"流星群",3],[487,"流星群",3],[49314,"制裁光砾",3],[230,"流星群",2],[330,"逆鳞",2],[372,"逆鳞",2],[444,"逆鳞",2],[610,"逆鳞",1],[634,"逆鳞",2],[148,"逆鳞",2],[371,"逆鳞",2],[334,"流星群",2],[329,"逆鳞",1],[443,"逆鳞",2],[633,"逆鳞",2],[147,"逆鳞",2]],"dark":[[248,"欺诈",2],[359,"欺诈",2],[49315,"制裁光砾",3],[430,"欺诈",2],[625,"欺诈",2],[461,"欺诈",2],[553,"欺诈",2],[491,"恶之波动",3],[332,"欺诈",1],[571,"暗黑爆破",2],[635,"恶之波动",2],[319,"咬碎",1],[342,"咬碎",1],[275,"欺诈",2],[229,"恶之波动",2],[215,"欺诈",1],[435,"欺诈",1],[442,"欺诈",1],[262,"欺诈",1],[560,"欺诈",1],[510,"欺诈",1],[198,"欺诈",2],[624,"欺诈",1],[552,"欺诈",1],[318,"咬碎",0],[452,"地狱突刺",2],[302,"欺诈",2],[559,"欺诈",0],[634,"咬碎",2],[570,"暗黑爆破",1],[551,"欺诈",0],[274,"欺诈",1],[228,"恶之波动",1],[197,"欺诈",2],[630,"欺诈",2],[434,"欺诈",0],[633,"咬碎",2],[261,"欺诈",0],[629,"欺诈",0],[509,"欺诈",0]],"steel":[[385,"破灭之愿",3],[483,"加农光炮",3],[376,"彗星拳",2],[49316,"制裁光砾",3],[530,"铁头",2],[589,"铁头",1],[306,"铁尾",2],[448,"铁尾",2],[212,"铁头",2],[462,"加农光炮",2],[485,"加农光炮",3],[625,"铁头",2],[601,"齿轮飞盘",2],[82,"加农光炮",1],[649,"加农光炮",3],[64901,"加农光炮",3],[64902,"加农光炮",3],[64903,"加农光炮",3],[64904,"加农光炮",3],[395,"加农光炮",2],[632,"铁头",1],[305,"铁尾",1],[208,"铁尾",2],[600,"齿轮飞盘",1],[81,"加农光炮",0],[598,"铁头",1],[205,"重磅冲撞",1],[638,"加农光炮",3],[437,"铁头",2],[303,"铁头",2],[624,"铁头",1],[304,"铁尾",0],[375,"彗星拳",2],[227,"铁头",2],[379,"加农光炮",3],[476,"加农光炮",2],[599,"齿轮飞盘",0],[411,"铁尾",2],[374,"铁头",2],[410,"铁尾",2],[597,"铁头",0],[436,"加农光炮",0]],"fairy":[[282,"月亮之力",2],[210,"嬉闹",1],[468,"魔法闪耀",2],[36,"月亮之力",2],[122,"魔法闪耀",2],[303,"嬉闹",2],[547,"月亮之力",1],[209,"嬉闹",0],[40,"魔法闪耀",1],[176,"魔法闪耀",1],[439,"魔法闪耀",0],[35,"月亮之力",0],[281,"魔法闪耀",1],[184,"魅诱之声",1],[39,"嬉闹",0],[173,"魔法闪耀",0],[280,"魔法闪耀",0],[174,"魔法闪耀",0],[175,"魔法闪耀",0],[546,"魔法闪耀",0],[183,"嬉闹",0],[298,"魅诱之声",0]]},"corrected":{"fire":{"244":["神圣之火","phys",160],"250":["神圣之火","phys",160],"485":["熔岩风暴","spec",140]},"water":{"382":["根源波动","spec",160],"42301":["水炮","spec",110]},"fighting":{"638":["圣剑","phys",130],"639":["圣剑","phys",130],"640":["圣剑","phys",130],"647":["神秘之剑","spec",130]},"flying":{"249":["气旋攻击","spec",150]},"psychic":{"150":["精神击破","spec",130],"380":["薄雾球","spec",130],"381":["洁净光芒","spec",130]},"dragon":{"483":["时光咆哮","spec",140],"484":["亚空裂斩","spec",140]}}};    const speciesRankCache=new Map();
+    function speciesRankings(type,source='sheet'){
+        const data=SPECIES_RANKING_DATA;
+        const group=data.groups[type];
+        if(!Array.isArray(group))return [];
+        const game=source==='game',cacheKey=type+(game?':game':':sheet');
+        if(speciesRankCache.has(cacheKey))return speciesRankCache.get(cacheKey);
+        const rows=group.map(([id,sheetMove,tier])=>{
+            const mon=MONS.get(id),s=mon.stats;
+            const correction=data.corrected[type]?.[id];
+            const [move,category,power]=game&&correction?correction:[sheetMove,...data.moves[sheetMove]];
+            const accuracyPoints=Math.round(10000-2000*Math.max(0,Math.min(1,(power-40)/110)));
+            const attack=2*(category==='phys'?s.atk:s.spa)+5;
+            // Keep the common denominators out of sorting, including ties between forms.
+            const weight=power*accuracyPoints*attack;
+            const bulk=(2*s.hp+110)*(2*s.def+2*s.spd+10);
+            return {id,name:data.nameAliases[id]||mon.name,rarity:data.rarity[tier],move,category,power,
+                accuracy:accuracyPoints/100,attack,weight,expected:1.5*weight/10000,bulk,product:weight*bulk,
+                sheetMove,gameMove:correction?.[0]||sheetMove};
+        });
+        rows.sort((a,b)=>b.weight-a.weight||a.id-b.id);
+        const maxWeight=rows[0].weight,maxBulk=Math.max(...rows.map(row=>row.bulk));
+        rows.forEach((row,index)=>{
+            row.powerRank=index+1;
+            row.outputScore=100*row.weight/maxWeight;
+            row.bulkScore=100*row.bulk/maxBulk;
+        });
+        rows.sort((a,b)=>b.product-a.product||a.powerRank-b.powerRank);
+        const maxProduct=rows[0].product;
+        rows.forEach((row,index)=>{
+            row.overallRank=index+1;
+            row.overallScore=100*row.product/maxProduct;
+        });
+        speciesRankCache.set(cacheKey,rows);
+        return rows;
+    }
     const GEODE_RULES = {"build":"bd1d674523","bundle":"f1ef0dd44e","stepMs":2800,"maxFloors":300,"upgrade":[0.1,0.06,0.03],"regions":[{"key":"kanto","first":0,"open":true,"last":13,"badges":["Maître"],"pools":[["bug","poison","normal","flying","electric","ground","fairy","fire","grass","water","fighting","psychic","rock","steel","ghost"],["bug","poison","normal","flying","electric","ground","fairy","grass","fighting","water","psychic","rock","steel","ice","ghost"],["grass","poison","fire","flying","water","bug","normal","ground","fairy","fighting","psychic","rock","ice","ghost","electric","dragon"],["ice","flying","electric","fire","psychic"]]},{"key":"johto","first":14,"open":false,"last":29,"badges":["Maître Johto"],"pools":[["normal","flying","bug","poison","water","electric","fairy","psychic","grass","ground","fire","ice"],["normal","flying","bug","poison","water","electric","psychic","fairy","rock","grass","ground","steel","dark","ice","fire","fighting"],["grass","fire","water","poison","flying","fairy","electric","normal","psychic","dark","ghost","steel","ground","bug","rock","fighting","ice","dragon"],["electric","fire","water","psychic","flying","grass"]]},{"key":"hoenn","first":31,"open":false,"last":47,"badges":["Maître Hoenn"],"pools":[["dark","normal","bug","water","grass","flying","psychic","fairy","ground","fighting","rock","steel","electric","poison","fire","ghost","ice"],["dark","normal","bug","water","grass","psychic","fairy","flying","fighting","steel","rock","electric","poison","fire","ground","dragon","ghost","ice"],["grass","fire","fighting","water","ground","bug","flying","poison","dark","normal","psychic","fairy","ghost","steel","rock","electric","dragon","ice"],["rock","ice","steel","dragon","psychic","water","ground","flying"]]},{"key":"sinnoh","first":48,"open":false,"last":64,"badges":["Maître Sinnoh"],"pools":[["normal","flying","bug","electric","grass","poison","water","ghost","dark","steel","psychic","rock","fairy","ground","fighting"],["normal","flying","water","electric","bug","grass","ground","ghost","psychic","poison","dark","fighting","ice"],["grass","ground","fire","fighting","water","steel","normal","flying","bug","electric","poison","rock","ghost","dark","psychic","dragon","ice","fairy"],["psychic","steel","dragon","water","fire","normal","ghost","dark","grass"]]},{"key":"unova","first":66,"open":false,"last":82,"badges":["Maître Unys"],"pools":[["normal","dark","psychic","flying","electric","rock","fighting","water","bug","grass","poison","fairy","ground","ghost","ice","steel","fire"],["normal","dark","psychic","flying","electric","rock","fighting","water","ground","bug","grass","poison","fairy","fire","ghost","ice","steel"],["grass","fire","fighting","water","normal","flying","rock","psychic","ground","steel","bug","poison","dark","ice","electric","ghost","dragon"],["psychic","fire","steel","fighting","rock","grass","flying","electric","dragon","ground","ice","water","normal","bug"]]}],"plates":{"49301":["fire"],"49302":["water"],"49303":["grass"],"49304":["electric"],"49305":["ice"],"49306":["fighting"],"49307":["poison"],"49308":["ground"],"49309":["flying"],"49310":["psychic"],"49311":["bug"],"49312":["rock"],"49313":["ghost"],"49314":["dragon"],"49315":["dark"],"49316":["steel"]}};    function observeCasino(s,previous){
         const n=s.casino?.n||{},account=accountId(s);
         const spins=Number(n.spins)||0,spent=Number(n.spent)||0,won=Number(n.won)||0;
@@ -8384,7 +8439,7 @@
             }
             if(tracked)task.partySignature??=signature;
             if(b){
-                const settings=farm?.weatherTraining?e.weatherFarm?.training:e.settings;
+                const settings=farm?.weatherTraining?e.weatherFarm?.training:task.underPartyRepair?{...e.settings,autoTeam:true}:e.settings;
                 if(!settings){discard();return false;}
                 const pins=adventureTeamPins(s,task.members,settings,farm?.weatherTraining?null:e.trainProtected);
                 const destination=this.pendingMap?.row||(settings.mode!=='progress'&&e.target);
@@ -8493,9 +8548,9 @@
             return true;
         }
         activeTeam(s) {
-            if(!this.e.settings.optimizeRaid)return false;
             const raid=s.adv.event?.raid?s.adv.event:null,zone=s.adv.zone;if(!raid&&!zone)return false;
-            if(zone?.elite)return false;
+            const teamKey=raid?'raid:'+raid.reg:'zone:'+zone.id;
+            if(zone?.elite||!this.e.settings.optimizeRaid&&!underSpecialReview(this.e,teamKey))return false;
             const key=raid?`raid:${raid.date||parisDay()}|${raid.reg}|${raid.id}|${rosterFingerprint(s)}`:`zone:${zone.id}:${zone.elite||0}|${rosterFingerprint(s)}`;
             if(this.recent.has(key))return false;
             let edit;
@@ -8513,7 +8568,7 @@
                 const tab=$('#map-root [data-lz-view="zone"]:not(.on)');if(enabled(tab)){this.click(tab,'打开当前传说战');return true;}
                 edit=$(`#map-root [data-lz-team="${zone.id}"]${zone.elite?`[data-lz-tier="${zone.elite}"]`:':not([data-lz-tier])'}`);
             }
-            if(enabled(edit)){if(this.click(edit,'适配当前特殊战队伍'))this.ownedDialog={type:'team',key,optimized:false};return true;}
+            if(enabled(edit)){if(this.click(edit,'适配当前特殊战队伍'))this.ownedDialog={type:'team',key,teamKey,optimized:false};return true;}
             this.rememberTeam(key,Date.now());this.e.log('当前特殊战没有可用配队入口，保留现有队伍');return false;
         }
         animations(s) {
@@ -8720,13 +8775,14 @@
                     return false;
                 }
                 if(options.riddle)return list.classList.contains('lz-seal')&&this.click(go,'阅读'+row.name+'的铭文');
-                if(tier&&options.optimize&&this.e.settings.optimizeRaid){
+                const teamKey='zone:'+row.id,repair=underSpecialReview(this.e,teamKey);
+                if(tier&&(options.optimize&&this.e.settings.optimizeRaid||repair)){
                     const edit=$(`#map-root [data-lz-team="${row.id}"][data-lz-tier="${tier}"]`);
                     if(this.prepareEliteLegend(s,row,tier,edit,Date.now()))return false;
-                }else if (!tier&&options.optimize) {
+                }else if (!tier&&(options.optimize||repair)) {
                     const key=`zone:${row.id}:0|${rosterFingerprint(s)}`;
                     const edit = $(`#map-root [data-lz-team="${row.id}"]:not([data-lz-tier])`);
-                    if (!this.recent.has(key) && enabled(edit) && this.click(edit, '配置传说战队伍')) { this.ownedDialog = { type: 'team', key, optimized: false }; return false; }
+                    if (!this.recent.has(key) && enabled(edit) && this.click(edit, '配置传说战队伍')) { this.ownedDialog = { type: 'team', key, teamKey, optimized: false }; return false; }
                 }
                 if(this.e.ensurePrepared(s,battleContext(s,'zone',{id:row.id,reg:row.reg,level:row.level,tier}),{row:routeDescriptor(row),options},Date.now()))return false;
                 return this.click(go, `挑战${row.name}`);
@@ -8769,7 +8825,7 @@
                 this.legendElitePlan={...plan,key};
             }
             const {uids,estimate}=this.legendElitePlan;
-            if(uids.length===party.length&&uids.every((uid,i)=>uid===party[i]))return false;
+            if(uids.length===party.length&&uids.every((uid,i)=>uid===party[i])){finishUnderSpecialReview(e,teamKey);return false;}
             if(enabled(edit)&&this.click(edit,'配置队伍 · '+context.label)){
                 this.ownedDialog={type:'legendEliteTeam',key,teamKey,zoneId:row.id,tier,uids,estimate,started:now,openingUntil:now+5000};
             }else if(!enabled(edit))e.status='等待精英传说战的专属队伍入口 · '+context.label;
@@ -8778,13 +8834,14 @@
         dialog(s) {
             const own = this.ownedDialog;
             if (!own) return false;
+            if(own.type==='nativeUnderTeam')return this.e.automation.nativeUnderPicker(s,own);
             if(own.type==='ally'&&own.key&&this.e.raidProbe&&this.raid&&this.confirmRaidLaunch(s,own))return true;
             if(own.type==='backgroundUnderTeam'){
                 if(!visible($('#evt-pick'))){const task=this.e.services.underground;if(task)task.editorOpen=false;this.ownedDialog=null;return false;}
                 own.started??=Date.now();return this.factoryTeam(s,own);
             }
             const teamDialog=['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam'].includes(own.type);
-            if(teamDialog&&!this.e.settings.optimizeRaid){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
+            if(teamDialog&&!this.e.settings.optimizeRaid&&!underSpecialReview(this.e,own.teamKey)){this.ownedDialog=null;this.e.status='特殊战采用手动配队，请在游戏内完成队伍选择';return false;}
             const ownedRoot=teamDialog?$('#evt-pick'):own.type==='ally'?$('#modal-root.open .raid-dlg'):null;
             if(!visible(ownedRoot)){
                 // The native modal queue can mount the picker after the launch click.
@@ -8813,7 +8870,7 @@
                 }
                 if (!$('#evt-team [data-uid]')) throw new Error('没有可出战的宝可梦，请先配置队伍');
                 if (this.click($('#evt-pick [data-evt-close]'), '保存推荐队伍')) {
-                    this.rememberTeam(own.key,Date.now());
+                    this.rememberTeam(own.key,Date.now());finishUnderSpecialReview(this.e,own.teamKey);
                     this.e.log('特殊战队伍已按游戏推荐调整');this.ownedDialog = null;
                 }
                 return true;
@@ -8921,7 +8978,7 @@
                 if(sort&&sort.value!==own.sortBefore){sort.value=own.sortBefore;sort.dispatchEvent(new Event('change',{bubbles:true}));return true;}
                 if(eff&&eff.classList.contains('on')!==own.effBefore){this.click(eff,'恢复'+facility+'配队筛选');return true;}
                 if(this.click($('#evt-pick [data-evt-close]'),'保存'+facility+'专属队伍')){
-                    this.ownedDialog=null;
+                    this.ownedDialog=null;finishUnderSpecialReview(this.e,teamKey);
                     if(background){const task=this.e.services.underground;task.teamReady=true;task.editorOpen=false;this.e.log('后台地下安全队伍已配置，派遣前再次核对占用');this.e.persist();}
                     else if(elite)this.e.log('已确认'+this.e.automation.elitePlan.label+'专属队伍');
                     else if(legend){
@@ -9018,9 +9075,10 @@
             this.raid = { reg, boss, date:day, started: sameRaid ? this.raid.started : now };
             const key = `raid:${day}|${reg}|${boss}|${rosterFingerprint(s)}`;
             const edit = card.querySelector('[data-raid-edit]');
-            if (this.e.settings.optimizeRaid && !this.recent.has(key) && enabled(edit)) {
+            const teamKey='raid:'+reg,optimize=this.e.settings.optimizeRaid||underSpecialReview(this.e,teamKey);
+            if (optimize && !this.recent.has(key) && enabled(edit)) {
                 if(!this.click(edit, '按团体战对手优化队伍'))return false;
-                this.ownedDialog = { type: 'team', key, optimized: false, openingUntil:Date.now()+5000 };
+                this.ownedDialog = { type: 'team', key, teamKey, optimized: false, openingUntil:Date.now()+5000 };
                 return true;
             }
             if(MONS.has(boss)&&this.e.ensurePrepared(s,battleContext(s,'raid',{id:boss,reg}),{type:'raid'},now)){
@@ -9030,8 +9088,8 @@
             // The game's launch control opens missing team/ally dialogs in sequence.
             if (this.click(go, '进入每日团体战')) {
                 if ($('#evt-pick')?.classList.contains('open') || visible($('#evt-pick'))) {
-                    this.ownedDialog=this.e.settings.optimizeRaid?{type:'team',key,optimized:false}:null;
-                    if(!this.e.settings.optimizeRaid)this.e.status='请手动配置团体战队伍，或开启优化特殊战队伍';
+                    this.ownedDialog=optimize?{type:'team',key,teamKey,optimized:false}:null;
+                    if(!optimize)this.e.status='请手动配置团体战队伍，或开启优化特殊战队伍';
                 }
                 else this.ownedDialog = { type: 'ally',key,openingUntil:Date.now()+5000 };
                 return true;
@@ -9419,11 +9477,11 @@
                 const status=undergroundStatus(s,now),tab=$('#tabs [data-screen="underground"]');
                 const collect=e.settings.autoUnderCollect&&status.ready.length;
                 if(backgroundBlockReason(s,e,now,collect?'underCollect':'underDispatch')||!collect&&undergroundDispatchReason(s,e,now,status))return false;
-                if(collect&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
+                if(collect&&!this.state.underWaitUids?.length&&e.settings.autoTeam===false&&(s.team?.length||0)<6)return false;
                 if(!tab||tab.disabled||tab.classList.contains('locked')||tab.classList.contains('hold'))return false;
                 const screen=$('.screen.active[id^="screen-"]')?.id?.slice(7)||'adventure';
                 task=e.services.underground={started:now,returnScreen:/^[a-z][\w-]{0,40}$/.test(screen)?screen:'adventure',...collect?{}:{action:'dispatch'}};
-                e.telemetry.sample=null;e.log(collect?'地下队伍已归队，后台领取后继续原任务':'使用空闲成员安排地下探险，保留前台队伍');e.persist();
+                e.telemetry.sample=null;e.log(collect?'地下队伍已归队，后台领取后继续原任务':e.settings.underGoal==='native'?'地下探险优先，打开游戏推荐配队':'使用空闲成员安排地下探险，保留前台队伍');e.persist();
             }
             if(task.action==='dispatch')return this.dispatchUnderground(s,now,task);
             e.lastProgress=now;e.status='后台地下归队 · 领取确认后返回原任务';
@@ -9436,7 +9494,7 @@
                 else{delete task.tx;task.returning=true;e.services.retryAt.underground=now+60000;e.log('后台地下领取未获完整确认，暂缓一分钟后重新核对，期间不重复点击');e.persist();}
             }
             if(now-task.started>90000){task.returning=true;e.services.retryAt.underground=now+60000;}
-            if(!e.settings.autoUnderCollect||backgroundActivityBlock(s.adv,'underCollect',e)||e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
+            if(!e.settings.autoUnderCollect||backgroundActivityBlock(s.adv,'underCollect',e)||!this.state.underWaitUids?.length&&e.settings.autoTeam===false&&(s.team?.length||0)<6)task.returning=true;
             if(!task.returning){
                 if(!this.page('underground'))return true;
                 const exp=$('#ug-root [data-ug-tab="exp"]:not(.on)');if(enabled(exp)){d.click(exp,'打开地下派遣归队页');return true;}
@@ -9499,13 +9557,99 @@
             }
             return this.lastUnderPlan={key,uids:plan.uids};
         }
+        nativeUnderPicker(s,own){
+            const e=this.e,d=e.driver,holder=own.background?e.services.underground:this.state;
+            const now=Date.now(),root=$('#evt-pick');
+            if(!visible(root)){
+                if(now-own.started<3000)return true;
+                d.ownedDialog=null;return false;
+            }
+            const active=holder&&e.settings.underGoal==='native'&&(!own.background||!holder.returning&&holder.bay===own.bay&&e.settings.autoUnderDispatch);
+            const optimize=root.querySelector('#evt-opt');
+            if(active&&!own.optimized&&enabled(optimize)&&now-own.started<15000){
+                if(d.click(optimize,'使用游戏自带的地下队伍自动优化'))own.optimized=true;
+                return true;
+            }
+            const uids=s.eventTeams?.['under:'+own.bay]||[];
+            const ready=active&&own.optimized&&uids.length===DATA.automation.under.team&&new Set(uids).size===uids.length;
+            if(active&&!ready&&now-own.started<5000)return true;
+            if(d.click(root.querySelector('[data-evt-close]'),'关闭地下队伍窗口，核对推荐队员')){
+                d.ownedDialog=null;
+                if(holder){
+                    holder.editorOpen=false;
+                    if(ready)holder.nativeUnderChoice={bay:own.bay,floor:own.floor,uids:[...uids]};
+                    else if(active){
+                        if(own.background){holder.returning=true;e.services.retryAt.underground=now+60000;}
+                        else this.wait('游戏尚未推荐完整地下队伍，稍后重试',now+60000);
+                        e.log('地下自动优化未取得三名推荐队员，本次未派遣');
+                    }
+                    e.persist();
+                }
+            }
+            return true;
+        }
+        nativeUnderDeparture(s,bay,floor,go,now,background=null){
+            const e=this.e,d=e.driver,holder=background||this.state,choice=holder.nativeUnderChoice;
+            const latest=e.read(),key='under:'+bay;
+            if(!latest?.adv||accountId(latest)!==accountId(s))return;
+            const status=undergroundStatus(latest,now),actual=latest.eventTeams?.[key]||[];
+            if(!status.left||undergroundBay(latest,bay,status))return;
+            if(background&&(backgroundActivityBlock(latest.adv,'underDispatch',e)||adventureDispatchWait(latest,e,now)||mainGoalReached(latest,e,now))){
+                background.returning=true;return;
+            }
+            if(choice?.bay!==bay||choice.floor!==floor||actual.length!==DATA.automation.under.team||actual.some((uid,i)=>uid!==choice.uids[i])){
+                delete holder.nativeUnderChoice;
+                const edit=$$('[data-ug-slot]').find(el=>Number(el.dataset.ugSlot?.split('.')[0])===bay&&enabled(el));
+                if(d.click(edit,'打开地下派遣位，使用游戏自动优化')){
+                    holder.editorOpen=true;
+                    d.ownedDialog={type:'nativeUnderTeam',bay,floor,background:!!background,started:now};
+                    e.persist();
+                }
+                return;
+            }
+            const available=new Set(undergroundBayMembers(latest,bay,now,false).map(mon=>mon.uid));
+            if(!actual.every(uid=>available.has(uid))||!enabled(go)){
+                delete holder.nativeUnderChoice;
+                if(background){background.returning=true;e.services.retryAt.underground=now+60000;}
+                else this.wait('游戏暂不允许这组队员出发，稍后重新优化',now+60000);
+                return;
+            }
+            if(!background&&e.ensurePrepared(latest,battleContext(latest,'under',{slot:bay,floor}),{},now))return;
+            const party=[...(latest.team||[]),...(latest.road||[]),...(e.preparation?.uids||[])];
+            const specialKeys=Object.entries(latest.eventTeams||{}).filter(([name,uids])=>!name.startsWith('under:')&&Array.isArray(uids)&&uids.some(uid=>actual.includes(uid))).map(([name])=>name);
+            const txKey=background?'launch':'underLaunch';
+            holder[txKey]={bay,uids:[...actual],ids:status.slots.map(job=>String(job.id)),at:now,native:true,
+                partyHit:actual.some(uid=>party.includes(uid)),specialKeys};
+            if(e.persist()===false){delete holder[txKey];e.status='地下派遣等待保存出发记录';return;}
+            if(d.click(go,`派遣游戏推荐队伍 · 第 ${floor} 层出发`))delete holder.nativeUnderChoice;
+            else delete holder[txKey];
+            e.persist();
+        }
+        afterUnderDeparture(s,launch){
+            if(!launch.native)return;
+            const e=this.e;
+            const required=e.settings.mode==='train'?trainingUids(s,e.settings,e.trainProtected):
+                e.settings.mode==='resource'&&e.settings.resourceAction!=='buy'?[e.settings.useUid]:[];
+            const away=launch.uids.filter(uid=>required.includes(uid));
+            if(away.length)this.state.underWaitUids=[...new Set([...(this.state.underWaitUids||[]),...away])];
+            if(launch.specialKeys?.length)this.state.underSpecialKeys=[...new Set([...(this.state.underSpecialKeys||[]),...launch.specialKeys])];
+            if(!launch.partyHit&&!launch.specialKeys?.length){e.log('地下派遣后已核对，任务队伍未被占用');return;}
+            e.teamCheck=null;e.teamRetryAt=0;e.driver.recent.clear();
+            e.cancelTeamSearch(undefined,false,'地下探险已派出任务队员');
+            e.cancelRouteRankings();e.coach.checked=null;e.coach.ready=null;
+            if(e.preparation?.uids?.some(uid=>launch.uids.includes(uid)))e.preparation=null;
+            const roamLegend=e.settings.mode==='legend'&&!e.settings.legendTier&&DATA.zones.some(z=>z.id===e.settings.legendId&&z.eliteOnly);
+            if(launch.partyHit&&!FLOW_MODES.has(e.settings.mode)&&(roamLegend||!['raid','legend'].includes(e.settings.mode)))
+                this.state.underPartyReview=true;
+            e.log('地下派遣占用任务队员，按剩余成员重新评估当前任务配队');
+        }
         dispatchUnderground(s,now,task){
             const e=this.e,d=e.driver,status=undergroundStatus(s,now);
-            e.lastProgress=now;e.telemetry.sample=null;e.status='后台地下派遣 · 仅使用空闲成员';
+            e.lastProgress=now;e.telemetry.sample=null;e.status=e.settings.underGoal==='native'?'后台地下派遣 · 游戏自动优化':'后台地下派遣 · 仅使用空闲成员';
             const launch=task.launch;
             if(launch){
                 const job=status.slots.find(job=>!launch.ids.includes(String(job.id))&&Number(job.bay)===launch.bay&&launch.uids.every(uid=>(job.team||[]).includes(uid)||(job.mons||[]).some(mon=>mon.uid===uid)));
-                if(job&&launch.uids.every(uid=>!(s.mons||[]).some(mon=>mon.uid===uid))){e.services.underDispatched++;delete task.launch;task.returning=true;e.log(`后台地下派遣已确认 · 从第 ${job.from||1} 层出发，继续原任务`);e.persist();}
+                if(job&&launch.uids.every(uid=>!(s.mons||[]).some(mon=>mon.uid===uid))){e.services.underDispatched++;delete task.launch;task.returning=true;this.afterUnderDeparture(s,launch);e.log(`后台地下派遣已确认 · 从第 ${job.from||1} 层出发，继续原任务`);e.persist();}
                 else if(now-launch.at<120000){e.status='后台地下派遣 · 等待原生准备与存档确认';return true;}
                 else{
                     // A late async native launch must never be reissued after a timeout.
@@ -9526,14 +9670,20 @@
                 else{
                     const controls=$$('#ug-root [data-ug-go]');
                     if(task.bay==null){
-                        const free=controls.find(el=>!undergroundBay(s,Number(el.dataset.ugGo),status));
+                        const free=controls.find(el=>{
+                            const bay=Number(el.dataset.ugGo);
+                            return !undergroundBay(s,bay,status)&&(e.settings.underGoal!=='native'||canFillUndergroundTeam(undergroundBayMembers(s,bay,now,false)));
+                        });
                         if(!free){e.services.retryAt.underground=now+60000;task.returning=true;}
                         else{task.bay=Number(free.dataset.ugGo);e.persist();}
                     }
                     if(task.bay!=null&&undergroundBay(s,task.bay,status))task.returning=true;
                     if(!task.returning){
-                        const idle=undergroundIdleMembers(s,e,now);
                         const floor=this.selectUndergroundStart(task.bay,status);if(!floor)return true;
+                        if(e.settings.underGoal==='native'){
+                            this.nativeUnderDeparture(s,task.bay,floor,controls.find(el=>Number(el.dataset.ugGo)===task.bay),now,task);return true;
+                        }
+                        const idle=undergroundIdleMembers(s,e,now);
                         if(!task.uids?.length||task.planKey!==this.undergroundPlanKey(s,task.bay,floor,idle)){
                             const plan=this.undergroundPlan(s,task.bay,floor,idle,now);
                             if(!plan)return true;
@@ -9677,7 +9827,7 @@
             const status=undergroundStatus(s,now),launch=this.state.underLaunch,collect=this.state.underCollect;
             if(launch){
                 const job=status.slots.find(slot=>!launch.ids.includes(String(slot.id))&&String(slot.bay)===String(launch.bay)&&(!launch.uids?.length||launch.uids.every(uid=>slot.team?.includes(uid)||slot.mons?.some(mon=>mon.uid===uid))));
-                if(job){delete this.state.underLaunch;e.log(`地下通道第 ${Number(launch.bay)+1} 队派遣已确认 · 从第 ${job.from||1} 层出发`);e.persist();}
+                if(job){delete this.state.underLaunch;this.afterUnderDeparture(s,launch);e.log(`地下通道第 ${Number(launch.bay)+1} 队派遣已确认 · 从第 ${job.from||1} 层出发`);e.persist();}
                 else if(now-launch.at<120000){this.wait('等待地下通道派遣准备与存档确认',now+2000);return;}
                 else{this.fail('地下通道派遣未获存档确认，已暂停以免重复派遣；请检查游戏后继续');return;}
             }
@@ -9708,12 +9858,14 @@
             }
             if(status.ready.length){this.wait('地下通道已归队，等待领取按钮刷新',now+2000);return;}
             const ownedFx=$('.gd-fx .gd-ok:not([hidden])')||$('.gd-fx .gd-skip');if(enabled(ownedFx)){d.click(ownedFx,'完成晶洞奖励动画');return;}
-            if(cfg.optimizeRaid&&undergroundMembers(s,now).length<DATA.automation.under.team){this.wait('可派遣队员不足，等待归队或巴黎时间次日恢复',running?untilReturn:status.nextReset);return;}
+            if((cfg.optimizeRaid||cfg.underGoal==='native')&&undergroundMembers(s,now).length<DATA.automation.under.team){this.wait('可派遣队员不足，等待归队或巴黎时间次日恢复',running?untilReturn:status.nextReset);return;}
             const controls=$$('#ug-root [data-ug-go]');
             for(const go of controls){
                 const slot=Number(go.dataset.ugGo),teamKey='under:'+slot;
-                if(undergroundBay(s,slot,status)||!cfg.optimizeRaid&&!enabled(go))continue;
+                if(undergroundBay(s,slot,status)||cfg.underGoal!=='native'&&!cfg.optimizeRaid&&!enabled(go))continue;
+                if(cfg.underGoal==='native'&&!canFillUndergroundTeam(undergroundBayMembers(s,slot,now,false)))continue;
                 const floor=this.selectUndergroundStart(slot,status);if(!floor)return;
+                if(cfg.underGoal==='native'){this.nativeUnderDeparture(s,slot,floor,go,now);return;}
                 const configured=s.eventTeams?.[teamKey]||[];
                 let plan;
                 if(cfg.optimizeRaid){
@@ -9875,7 +10027,7 @@
             const type=$('#candy-root .cr-type [data-type]')?.dataset.type;
             if(!type||!DATA.types[type]){this.wait('等待糖果工厂今日主题加载；请确认活动已解锁并登录');return;}
             const context=candyGoalContext(s,cfg,type);
-            if(cfg.optimizeRaid){
+            if(cfg.optimizeRaid||underSpecialReview(e,'candy')){
                 const key=JSON.stringify([context.key,parisDay(now),rosterFingerprint(s),s.autoSwitch!==false,adventureTeamWeatherKey(s,[s.adv.chapter],now)]);
                 const party=s.eventTeams?.candy||[],confirmed=d.recent.get(key);
                 if(!Array.isArray(confirmed)||confirmed.length!==party.length||confirmed.some((uid,i)=>party[i]!==uid)){
@@ -9885,7 +10037,7 @@
                     const plan=sliced?e.evaluateTeamSearch(JSON.stringify([key,party]),search):search.next().value;
                     if(!plan){this.wait('正在评估糖果工厂专属队伍');return;}
                     if(!plan.uids.length){this.wait('糖果工厂没有可用的已关联地区成员');return;}
-                    if(d.click(edit,'按糖果工厂今日主题配置队伍'))d.ownedDialog={type:'factoryTeam',key,uids:plan.uids,started:now};
+                    if(d.click(edit,'按糖果工厂今日主题配置队伍'))d.ownedDialog={type:'factoryTeam',key,teamKey:'candy',uids:plan.uids,started:now};
                     return;
                 }
             }
@@ -9963,7 +10115,7 @@
             const tab=$('#map-root [data-lg-view="elite"]:not(.on)');if(enabled(tab)){d.click(tab,'切换精英联盟');return;}
             const go=$(`#map-root [data-league="${reg}"][data-tier="${best+1}"]`);
             const context=battleContext(s,'elite',{reg,tier:best+1,now}),edit=$(`#map-root [data-lg-team="${reg}"]`);
-            if(cfg.optimizeRaid&&(enabled(edit)||enabled(go))){
+            if((cfg.optimizeRaid||underSpecialReview(e,'league:'+reg))&&(enabled(edit)||enabled(go))){
                 const teamKey='league:'+reg,party=s.eventTeams?.[teamKey]||[];
                 const key=this.elitePartyKey(s,context,now);
                 let desired=this.elitePlan?.key===key?this.elitePlan.uids:null;
@@ -9981,6 +10133,7 @@
                     return;
                 }
             }
+            finishUnderSpecialReview(e,'league:'+reg);
             if(enabled(go)&&e.ensurePrepared(s,context,{},now))return;
             if(enabled(go)){
                 if(d.click(go,'挑战下一阶精英联盟')&&e.daily?.job?.kind==='elite'){
@@ -10021,7 +10174,7 @@
             if(enabled(recap)){d.click(recap,'确认世界首领攻击结果');return;}
             if(resultVisible||settling){this.wait('等待世界首领攻击结算与结果确认');return;}
             const capture=$('[data-wbz-go]');if(cfg.worldCapture&&enabled(capture)){
-                const key=`world:493|${rosterFingerprint(s)}`,edit=$('[data-wbz-team]');if(cfg.optimizeRaid&&!d.recent.has(key)&&enabled(edit)){if(d.click(edit,'配置世界首领捕获队伍'))d.ownedDialog={type:'team',key,optimized:false};return;}
+                const key=`world:493|${rosterFingerprint(s)}`,edit=$('[data-wbz-team]');if((cfg.optimizeRaid||underSpecialReview(e,'zone:493'))&&!d.recent.has(key)&&enabled(edit)){if(d.click(edit,'配置世界首领捕获队伍'))d.ownedDialog={type:'team',key,teamKey:'zone:493',optimized:false};return;}
                 if(e.ensurePrepared(s,battleContext(s,'worldCapture',{id:493}),{},now))return;
                 if(d.click(capture,'进入世界首领捕获'))this.state.worldCaptureStarted=true;return;
             }
@@ -11418,7 +11571,7 @@
             const raid=this.driver.raid;
             const special=this.driver.ownedDialog;
             const flowOwner=this.services.underground&&this.automation.owner?.kind==='receipt'&&this.automation.owner.selector==='.ug-back'?null:this.automation.snapshotOwner();
-            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,optimized:!!special.optimized,...['factoryTeam','eliteTeam','underTeam'].includes(special.type)?{bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
+            return{session,flow:{...this.automation.state},preparation:this.preparation,preparationReady:this.coach.ready,flowOwner,specialDialog:special?{type:special.type,key:special.key,teamKey:special.teamKey,optimized:!!special.optimized,...['factoryTeam','eliteTeam','underTeam','nativeUnderTeam'].includes(special.type)?{background:special.background,bay:special.bay,floor:special.floor,teamKey:special.teamKey,uids:special.uids,searchBefore:special.searchBefore,sortBefore:special.sortBefore,effBefore:special.effBefore}:{} }:null,raidProbe:this.raidProbe,raidReturn:this.raidReturn,
                 activity:{raid:raid?{reg:raid.reg,boss:raid.boss,date:raid.date,started:raid.started}:null,zone:this.zoneId?{id:this.zoneId,started:this.zoneStarted}:null,
                     exit:this.startActivityExit?{kind:this.startActivityExit.kind,key:this.startActivityExit.key}:null},
                 budget:{spent:this.budget.spent,used:this.budget.used}};
@@ -11753,7 +11906,7 @@
             if(this.manual)return;
             // Older breeding runs could leave a pending confirmation to withdraw a parent.
             if(!(cfg.mode==='breed'&&cp.flowOwner?.kind==='confirm'&&cp.flowOwner.match?.includes('取回')))this.automation.restoreOwner(cp.flowOwner);
-            if(['team','ally','factoryTeam','eliteTeam','underTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
+            if(['team','ally','factoryTeam','eliteTeam','underTeam','nativeUnderTeam'].includes(cp.specialDialog?.type))this.driver.ownedDialog={...cp.specialDialog,started:now};
             if((cp.raidProbe||this.raidReturn)&&!s.adv.event?.raid){
                 this.raidProbe=true;
                 this.raidProbeStarted=now;
@@ -12206,7 +12359,7 @@
                 const ally=own?.type==='ally'&&this.raidProbe&&this.driver.raid&&$('#modal-root.open .raid-dlg');
                 this.interruptedPicker=null;
                 if(visible(ally))this.interruptedPicker={handoff:this.manual,node:ally,raid:this.driver.raid};
-                else if(['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam','backgroundUnderTeam'].includes(own?.type)){
+                else if(['team','factoryTeam','eliteTeam','legendEliteTeam','underTeam','backgroundUnderTeam','nativeUnderTeam'].includes(own?.type)){
                     const close=$('#evt-pick [data-evt-close]');
                     if(visible(close))this.interruptedPicker={handoff:this.manual,node:close};
                 }
@@ -12735,6 +12888,31 @@
                 reserved.waitingForBattle=false;reserved.started=now;this.persist();
             }
             if(inActivity&&this.daily?.job&&this.daily.job.kind!=='window')this.daily.job.started=now;
+            // Settle departure before checking a goal whose named member may now be away.
+            if(this.services.underground?.launch?.native&&this.serviceBackground(s,now))return;
+            const underFlow=this.automation.state;
+            if(underFlow.underWaitUids?.length&&!inActivity){
+                const away=new Set((s.under?.slots||[]).flatMap(slot=>[...(slot.team||[]),...(slot.mons||[]).map(mon=>mon.uid)]));
+                if(underFlow.underWaitUids.some(uid=>away.has(uid))){
+                    if(this.serviceBackground(s,now))return;
+                    this.lastProgress=now;this.status='指定任务成员正在地下探险，等待归队后继续';return;
+                }
+                delete underFlow.underWaitUids;this.persist();
+            }
+            if(underFlow.underPartyReview&&!inActivity&&!this.services.underground&&!this.preparation){
+                if(this.driver.teamTask){
+                    if(this.driver.adventureTeam(s,now))return;
+                }
+                const cfg=this.weatherFarm?.training||this.settings;
+                const policy=cfg.autoTeam?cfg:{...cfg,autoTeam:true};
+                if(this.fitTeam(s,now,null,null,policy,true)){
+                    if(this.driver.teamTask&&!cfg.autoTeam)this.driver.teamTask.underPartyRepair=true;
+                    return;
+                }
+                if(!this.teamSearch&&(this.teamCheck||this.strictPlanning&&!localRulesKnown()&&globalThis.window?.BUILD!=='406d1bf388')){
+                    delete underFlow.underPartyReview;if(!this.teamCheck)this.log(this.teamValidationNote);this.persist();
+                }
+            }
             const outcome=inActivity?null:this.preparation?.terminalGoal||adventureTaskOutcome(s,this,now);
             if(!outcome&&!this.adoptManualPreparation(s,now))return;
             const startingBattle = !!this.startBattle && this.startBattle === this.ordinaryBattleKey(s);
@@ -13243,8 +13421,9 @@
                 s.link&&(row.reg===s.link.to)!==(s.link.side==='to')||s.adv.event||s.adv.zone||s.adv.league||s.adv.tower)return;
             this.fitTeam(s,now,null,row);
         }
-        fitTeam(s,now,trackedRoamer,preview=null,settings=this.settings) {
-            if(this.strictPlanning&&!localRulesKnown()){
+        fitTeam(s,now,trackedRoamer,preview=null,settings=this.settings,underRepair=false) {
+            const auditedExpedition=underRepair&&globalThis.window?.BUILD==='406d1bf388';
+            if(this.strictPlanning&&!localRulesKnown()&&!auditedExpedition){
                 this.teamValidationNote='当前游戏构建待核对，保留现有冒险队伍';
                 if(this.teamSearch?.signature.startsWith('["adventure",'))this.cancelTeamSearch('teamSearch',false,'游戏构建待核对');
                 return false;
@@ -14550,7 +14729,7 @@
     if (typeof module === 'object' && module.exports && typeof document === 'undefined') {
         module.exports = { DATA, DEFAULTS, MONS, ROOTS, ITEMS, MODE_NAMES, normalizeSettings, decodeSave, economicRegion, moneyFactor, accountId, captured, dexStatus, candidates, specialAvailable, dexRanking, moneyRanking, itemRanking, xpRanking, trainingCap, trainingGemTarget, trainingStatus, selectTrainingBuddy, experienceTotal, partyMons, rosterFingerprint, teamEligible, effectiveStats, expectedDamage, matchupScore, chapterThreats, chapterFoes, giftChoices, planAdventureTeam, ownedItems, itemCounter, sourceAvailable, legendProgress,legendWindowReason, estimateRate, teamFingerprint, metricsKey, activeYieldBuff, yieldFingerprint, parisDay, allyStrength, Telemetry, Engine, DOMDriver, phaseAt, encounterDataErrors,Automation,Budget,shinyOwned,shinyRanking,pensionPlan,parsePrice,normalizeJobs,undergroundTeamKey,undergroundMembers,battleContext,preparationPlan,battleRouteFit,preparationRoutes,LevelCoach,candyRegion,candyXpGap,candyChoice,teamCacheStats,clearTeamCache };
         Object.assign(module.exports,{MULTI_HIT_DATA,damageRollMean,attackTurns,chapterCombatFoes,resolveCombatWeatherNode,combatWeather,deploymentScore,matchupDetails,deployedBattle,battleSwitchCandidate,preparationCosts,preparationReadiness,rebuildPreparationContext,trainingCandidates,leagueTrainingModel});
-        Object.assign(module.exports,{LEGEND_ELITE,legendEliteContext,legendEliteCompatible,legendEliteTeamSearch});
+        Object.assign(module.exports,{LEGEND_ELITE,legendEliteContext,legendEliteCompatible,legendEliteTeamSearch,speciesRankings});
         Object.assign(module.exports,{roamingCombatFoe,routeRoamingFoes,routeCombatFoes,roamingBattle});
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,worldAttackParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
@@ -14663,7 +14842,9 @@
     .queue-item-counts { display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin:7px 0 0 }
     .queue-item-counts dt {font-size:11px}
     .queue-item-counts dd {margin:2px 0 0;font-size:14px;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
-    .queue-job-actions { display:flex; flex-wrap:wrap; gap:4px; margin-top:7px }
+    .queue-job-actions { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:5px; margin-top:8px }
+    .queue-secondary { grid-column:1/-1; display:flex; flex-wrap:wrap; gap:5px }
+    .queue-secondary[hidden] { display:none }
     .queue-job-actions button { min-height:32px; padding:5px 7px; font-size:11px }
     .queue-job-actions button[data-job-action=remove] { color:#f1b3bc }
     .lookup-page .commandbar .lookup-task { display:block; flex:1; color:#b4cbd4; font-size:12px; overflow-wrap:anywhere }
@@ -14671,7 +14852,24 @@
     .dex-searchbar { display:flex; align-items:center; gap:6px; margin:2px 0 12px }
     .dex-searchbar input { flex:1; min-width:0; min-height:38px; padding:7px 10px; border:1px solid #465b70; border-radius:8px; background:#0f1927; color:#edf4f8 }
     #pane-dex #dex-results { max-height:min(54dvh,520px) }
-    .insight-nav { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:3px; margin:0 0 12px; padding:3px; border:1px solid #36485c; border-radius:11px; background:#101a29 }
+    .insight-nav { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; margin:0 0 12px; padding:3px; border:1px solid #36485c; border-radius:11px; background:#101a29 }
+    .ranking-filters { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px 12px }
+    .ranking-filters label { display:grid; gap:4px; color:#c2d3df; font-size:12px }
+    .ranking-filters select,.ranking-filters input { width:100%; min-width:0; min-height:36px }
+    .ranking-wide { grid-column:1 / -1 }
+    #species-ranking p { margin:5px 0 6px; font-size:12px; line-height:1.55; overflow-wrap:anywhere }
+    #species-ranking details { margin:0; padding:0; border-top:0; border-bottom:1px solid #34495d }
+    #species-ranking .ranking-rules { margin:8px 0 }
+    #species-ranking summary,.settings-group>summary { padding:10px 0; font-weight:600 }
+    #species-ranking [data-rank=results] summary { display:grid; grid-template-columns:2.1em minmax(0,1fr) auto; gap:6px; align-items:center; min-height:42px; list-style:none }
+    #species-ranking [data-rank=results] summary::-webkit-details-marker { display:none }
+    .ranking-position,.ranking-score { color:#98d9c1; font-variant-numeric:tabular-nums }
+    .ranking-name { overflow-wrap:anywhere }
+    .ranking-name::after { content:'▸'; margin-left:6px; color:#9fb7d4 }
+    details[open]>summary .ranking-name::after { content:'▾' }
+    .ranking-pages { margin-top:10px }
+    .settings-group[open]>summary { border-bottom:1px solid #34495d; margin-bottom:8px }
+    @media(max-width:370px){ .insight-nav { grid-template-columns:repeat(2,minmax(0,1fr)) } }
     .insight-nav button { min-width:0; min-height:36px; padding:4px 2px; border:1px solid transparent; background:transparent; color:#b7c8d7; font-weight:600; border-radius:8px }
     .insight-nav button[aria-pressed=true] { background:#213d42; color:#b4f3df; border-color:#47716b }
     #dex-panel [hidden] { display:none!important }
@@ -14959,6 +15157,70 @@
         return dark.replace(/#[a-f\d]{8}(?![\w-])|#[a-f\d]{6}(?![\w-])|#[a-f\d]{4}(?![\w-])|#[a-f\d]{3}(?![\w-])/gi,paint)
             .replace('color-scheme:dark','color-scheme:light');
     }
+    function mountSpeciesRanking(panel){
+        const section=document.createElement('section');
+        section.id='species-ranking';
+        section.hidden=true;
+        section.innerHTML=`
+            <div class="ranking-filters">
+                <label>属性<select data-rank="type"></select></label>
+                <label>榜单<select data-rank="order"><option value="overall">综合榜</option><option value="power">威力榜</option></select></label>
+                <label class="ranking-wide">计算口径<select data-rank="source"><option value="sheet">原表 · 插件 v${SPECIES_RANKING_DATA.version}</option><option value="game">游戏默认招式 · 按相同公式复算</option></select></label>
+                <input class="ranking-wide" type="search" data-rank="search" aria-label="在此属性搜索宝可梦" placeholder="在此属性搜索名称或编号">
+            </div>
+            <details class="ranking-rules"><summary>分数怎么算？</summary>
+                <p>按 100 级、普通色、无星级及道具加成计算。双属性分别入榜，形态单列。每个属性独立计分。</p>
+                <p>期望输出 = 威力 × 命中率 × 1.5 × 攻击或特攻。命中率按威力从 40 到 150 线性降至 80%，两端分别取 100% 和 80%，先保留两位小数。</p>
+                <p>耐久 = 生命 ×（防御 + 特防）。生命取种族值 × 2 + 110，其他能力取种族值 × 2 + 5。输出、耐久及两者乘积分别除以本属性最高值，再乘 100，得到输出分、耐久分和综合分。</p>
+                <p>游戏口径按版本 ${SPECIES_RANKING_DATA.bundle} 的默认学习表与专属招式威力复算，替换期望输出有变化的选招。两种口径都只比较本系静态表现。</p>
+            </details>
+            <div data-rank="results"></div>
+            <div class="insight-pages ranking-pages"><button type="button" data-rank="prev">上一页</button><span data-rank="page" role="status"></span><button type="button" data-rank="next">下一页</button></div>`;
+        panel.append(section);
+        const get=key=>section.querySelector('[data-rank="'+key+'"]');
+        const type=get('type'),order=get('order'),source=get('source'),search=get('search'),results=get('results');
+        for(const key of Object.keys(SPECIES_RANKING_DATA.groups)){
+            const option=document.createElement('option');
+            option.value=key;option.textContent=DATA.types[key].fr;type.append(option);
+        }
+        let page=0;
+        const pageSize=10,format=value=>(Math.round(value*10)/10).toFixed(1);
+        function render(){
+            const term=search.value.trim().toLowerCase(),overall=order.value==='overall';
+            const rows=speciesRankings(type.value,source.value).filter(row=>{
+                const mon=MONS.get(row.id);
+                return !term||String(row.id)===term.replace(/^#/,'')||[row.name,mon.name,mon.key].some(name=>name?.toLowerCase().includes(term));
+            });
+            if(!overall)rows.sort((a,b)=>a.powerRank-b.powerRank);
+            const pages=Math.ceil(rows.length/pageSize);
+            page=Math.max(0,Math.min(page,pages-1));
+            const list=document.createDocumentFragment();
+            for(const row of rows.slice(page*pageSize,(page+1)*pageSize)){
+                const details=document.createElement('details'),summary=document.createElement('summary');
+                for(const [cls,value] of [['position',overall?row.overallRank:row.powerRank],['name',row.name],['score',format(overall?row.overallScore:row.outputScore)+' 分']]){
+                    const field=document.createElement('span');field.className='ranking-'+cls;field.textContent=value;summary.append(field);
+                }
+                details.append(summary);
+                const lines=['#'+row.id+' · '+row.rarity+' · '+row.move+'（'+(row.category==='phys'?'物理':'特殊')+'）',
+                    '威力 '+row.power+' · 命中 '+row.accuracy.toFixed(2)+'% · '+(row.category==='phys'?'攻击 ':'特攻 ')+row.attack,
+                    '期望输出 '+format(row.expected/1000)+' 千 · 耐久 '+format(row.bulk/1000)+' 千',
+                    '输出分 '+format(row.outputScore)+' · 耐久分 '+format(row.bulkScore)+' · 综合分 '+format(row.overallScore),
+                    '威力榜第 '+row.powerRank+' 名 · 综合榜第 '+row.overallRank+' 名'];
+                if(row.sheetMove!==row.gameMove)lines.push('原表选招为'+row.sheetMove+'，游戏默认招式复算选用'+row.gameMove+'。');
+                for(const line of lines){const p=document.createElement('p');p.textContent=line;details.append(p);}
+                list.append(details);
+            }
+            results.replaceChildren(list);
+            get('prev').disabled=page===0;get('next').disabled=page+1>=pages;
+            get('page').textContent=pages?(page+1)+' / '+pages+' 页 · '+rows.length+' 条':'此属性下没有匹配记录';
+        }
+        function reset(){page=0;render();}
+        for(const control of [type,order,source])control.onchange=reset;
+        search.oninput=reset;
+        get('prev').onclick=()=>{page--;render();};get('next').onclick=()=>{page++;render();};
+        section.render=render;
+        return section;
+    }
     function mountGameInsights(panel,refresh) {
         const catalog=panel.querySelector('[data-insight-catalog]');
         const nav=document.createElement('nav'),section=document.createElement('section');
@@ -14974,6 +15236,7 @@
             '<section data-insight="advice" hidden><h3 class="insight-title" id="insight-advice-title" tabindex="-1">禁招建议</h3><p class="insight-context" data-insight="advice-context"></p>'+
             '<p class="insight-notice" data-insight="rule-notice" role="status" hidden></p><div data-insight="moves"></div></section>';
         panel.prepend(nav);panel.append(section);
+        const ranking=mountSpeciesRanking(panel);
         const get=name=>section.querySelector('[data-insight="'+name+'"]');
         const route=get('chapter'),search=get('filter'),left=get('a'),right=get('b'),output=get('evaluation'),moves=get('moves'),ruleNotice=get('rule-notice');
         const make=(tag,value,cls)=>{const el=document.createElement(tag);if(value!=null)el.textContent=value;if(cls)el.className=cls;return el;};
@@ -14984,9 +15247,9 @@
         let selected={a:null,b:null,advice:null},pendingUid=null,routeKey='',pickerKey='',resultKey='';
         const pageSize=40;
         const catalogId=catalog.id||'insight-species';catalog.id=catalogId;
-        for(const [key,label] of [['catalog','物种图鉴'],['compare','路线对比'],['advice','禁招建议']]){
+        for(const [key,label] of [['catalog','物种图鉴'],['ranking','属性排行'],['compare','路线对比'],['advice','禁招建议']]){
             const button=make('button',label);button.type='button';button.dataset.insightView=key;
-            button.setAttribute('aria-controls',key==='catalog'?catalogId:section.id);
+            button.setAttribute('aria-controls',key==='catalog'?catalogId:key==='ranking'?ranking.id:section.id);
             button.setAttribute('aria-pressed',String(key===view));
             button.onclick=()=>{setView(key);refresh();};nav.append(button);
         }
@@ -14995,7 +15258,9 @@
             if(next==='advice'&&view==='compare')selected.advice=selected.a;
             view=next;pickerKey='';resultKey='';
             for(const button of nav.children)button.setAttribute('aria-pressed',String(button.dataset.insightView===view));
-            catalog.hidden=view!=='catalog';section.hidden=view==='catalog';
+            catalog.hidden=view!=='catalog';section.hidden=view!=='compare'&&view!=='advice';
+            ranking.hidden=view!=='ranking';
+            if(view==='ranking')ranking.render();
             get('comparison').hidden=view!=='compare';get('advice').hidden=view!=='advice';
             get('right-field').hidden=view!=='compare';
             get('left-label').textContent=view==='compare'?'个体 A':'查看个体';
@@ -15170,7 +15435,7 @@
                 if(account!==undefined){selected={a:null,b:null,advice:null};search.value='';page=0;route.value='current';}
                 account=nextAccount;priorSave=null;resultKey='';pickerKey='';routeKey='';previousAdviceUid=null;
             }
-            if(view==='catalog')return view;
+            if(view==='catalog'||view==='ranking')return view;
             updateRoute(s);updateRoster(s);
             const chapter=route.value==='current'?s.adv.chapter:Number(route.value),model=CHAPTERS.get(chapter);
             const members=(view==='advice'?[selected.advice]:[selected.a,selected.b]).map(uid=>byUid.get(uid)).filter(Boolean);
@@ -16251,6 +16516,7 @@
                 jobs.map(job=>[job.id,job.title,job.status,job.result,!!job.progress,job.settings.mode,job.settings.moneyTarget])]);
             if(previous===signature){updateItemCounts(jobs,s,active);return;}
             previous=signature;
+            const expanded=new Set([...list.querySelectorAll('[data-queue-more][aria-expanded="true"]')].map(button=>button.dataset.queueMore));
             itemCells.clear();
             const fragment=document.createDocumentFragment();
             for(const [index,job] of jobs.entries()){
@@ -16276,6 +16542,15 @@
                 const detail=job.result||((job.settings.mode==='money'&&!job.settings.moneyTarget&&queueJobPending(job))?'未设置金币目标，后续任务会等待。':'');
                 if(detail){const text=document.createElement('p');text.className='queue-job-detail';text.textContent=detail;card.append(text);}
                 const actions=document.createElement('div');actions.className='queue-job-actions';
+                const more=document.createElement('button'),secondary=document.createElement('div');
+                more.type='button';more.textContent='更多';more.dataset.queueMore=job.id;
+                more.setAttribute('aria-label','更多操作：'+job.title);
+                secondary.className='queue-secondary';secondary.hidden=!expanded.has(job.id);
+                more.setAttribute('aria-expanded',String(!secondary.hidden));
+                more.onclick=()=>{
+                    secondary.hidden=!secondary.hidden;
+                    more.setAttribute('aria-expanded',String(!secondary.hidden));
+                };
                 const buttons=[['edit','编辑'],['up','上移'],['down','下移']];
                 if(queueJobPending(job))buttons.push(['skip','跳过']);
                 if(job.progress||job.status!=='pending')buttons.push(['retry','重置进度']);
@@ -16285,8 +16560,9 @@
                     button.textContent=text;button.setAttribute('aria-label',`${text}：${job.title}`);
                     if(action==='retry')button.title='清除该项助手进度和任务内用量，从头运行';
                     button.disabled=!canEdit||!!editingJob||action==='up'&&index===0||action==='down'&&index===jobs.length-1;
-                    actions.append(button);
+                    (['edit','up','down'].includes(action)?actions:secondary).append(button);
                 }
+                actions.append(more,secondary);
                 card.append(actions);fragment.append(card);
             }
             if(ready&&!jobs.length){
@@ -16677,7 +16953,7 @@
         const host = document.createElement('div');ownedHost=host;host.id = 'pokecatch-auto-helper';
         host.style.cssText = 'display:block!important;visibility:visible!important;opacity:1!important;position:fixed;right:14px;top:86px;z-index:2147483000;max-width:calc(100vw - 20px);';
         const root = host.attachShadow({ mode: 'open' });
-        const underStartControls = `<label class="field"><span>地下探险出发层</span><select data-setting="underStartChoice"><option value="auto">最高已解锁层</option>${UNDER_START_FLOORS.map(n=>`<option value="${n}">第 ${n} 层</option>`).join('')}</select></label><div class="hint" data-under-start-note></div><label class="field"><span>地下自动配队目标</span><select data-setting="underGoal"><option value="depth">冲层 · 优先连战和守卫</option><option value="money">刷金币 · 优先每小时收益</option></select></label>`;
+        const underStartControls = `<label class="field"><span>地下探险出发层</span><select data-setting="underStartChoice"><option value="auto">最高已解锁层</option>${UNDER_START_FLOORS.map(n=>`<option value="${n}">第 ${n} 层</option>`).join('')}</select></label><div class="hint" data-under-start-note></div><label class="field"><span>地下探险配队</span><select data-setting="underGoal"><option value="depth">冲层 · 优先连战和守卫</option><option value="money">刷金币 · 优先每小时收益</option><option value="native">自动优化 · 地下探险优先（游戏推荐）</option></select></label><div class="hint">自动优化可派出主队成员，确认出发后会重新检查当前任务的队伍。</div>`;
         const purchaseToggle = `<label class="purchase-toggle">
             <strong>自动购买</strong><span data-purchase-state aria-hidden="true"></span>
             <input type="checkbox" role="switch" data-setting="autoPurchase" aria-label="自动购买">
@@ -16781,7 +17057,7 @@
             </section>
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
-            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>仅用空闲队员，保护主队、Buddy、培养对象和活动队伍；派遣后返回原任务</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。后台派遣不移走前台任务成员，也不自动开晶洞；地下主任务单独管理派遣次数、配队和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
+            <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>冲层和刷金币使用空闲队员，保留主队、Buddy 和任务成员；自动优化优先使用游戏推荐的地下队伍</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。地下主任务单独管理派遣次数和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
@@ -16802,8 +17078,6 @@
             <section id="pane-weather" aria-label="天气" hidden><div id="weather-panel" aria-label="地区天气预报"></div></section>
             <section id="pane-eggs" aria-label="孵蛋" hidden></section>
             <section id="pane-settings" aria-label="设置" hidden>
-            <label class="setting">助手外观<select id="panel-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
-            <label class="setting">最小化是否显示额外信息<input type="checkbox" role="switch" id="mini-extra-info"></label>
             <section id="settings-purchase" class="purchase-card">
                 ${purchaseToggle}
                 <div class="hint">控制本账号的道具采购、主线补练买糖和寄养扩容，已入队任务也遵循此开关。</div>
@@ -16821,16 +17095,27 @@
                     <div class="hint">自动吃树果仅使用库存，也受道具使用上限限制。用完后继续原任务。若要购买树果，请指定采购任务。</div>
                 </details>
             </section>
-            <h3>配队与自动化</h3>
+            <details class="settings-group"><summary>配队与培养</summary>
             <label class="setting">冒险配队<select data-setting="autoTeam" data-boolean="true"><option value="true">自动配队 · 强度优先</option><option value="false">用户手动配队</option></select></label>
             <label class="setting">特殊战配队<select data-setting="optimizeRaid" data-boolean="true"><option value="true">智能自动配队</option><option value="false">用户手动配队</option></select></label>
             <div class="hint" id="team-policy-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="activeSwitch">助手主动换人</span></label><div class="hint" id="switch-hint"></div>
             <label class="setting"><span><input type="checkbox" data-setting="trainBuddy">练级 / 补练自动选择经验搭档 Buddy</span></label><div class="hint">搭档获得 1.3 倍经验。当前搭档仍需培养时会保留，更换会重置搭档的击倒计数。</div>
-            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div><div class="caption">后台服务 · 不替换当前任务</div><div class="checks background-toggles"><label title="普通战斗和传说战期间可收成熟蛋，每次收蛋前先检查是否需要喂果"><input type="checkbox" data-setting="autoEggs">自动收蛋</label><label title="进入神奥后仅用空闲队员自动组队派遣；保护主队、Buddy、培养对象与活动队员"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
-            ${underStartControls}<div class="hint">地下主任务和后台派遣共用起点。归队领取后按最高纪录开放 25、50、75、100 层。跳过的楼层没有经验和掉落。</div>
+            <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
+            <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
+            <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
+            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
+            </details>
+            <details class="settings-group"><summary>战斗与过场</summary>
+            <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div>
             <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
-            <h3>孵蛋自动化</h3>
+            </details>
+            <details class="settings-group"><summary>地下探索与后台领取</summary>
+            <div class="checks background-toggles"><label title="进入神奥后按地下探险配队选项派遣"><input type="checkbox" data-setting="autoUnderDispatch">神奥后自动地下派遣</label><label title="领取已经归队的地下队伍并返回原任务；后台不自动开晶洞"><input type="checkbox" data-setting="autoUnderCollect">自动领取地下归队</label></div><div class="hint">原生计时可并行，页面操作依次处理。地下派遣和归队领取可分别开关；手动队伍不足六人时暂缓后台领取，避免原生自动加人。</div>
+            ${underStartControls}<div class="hint">地下主任务和后台派遣共用起点。归队领取后按最高纪录开放 25、50、75、100 层。跳过的楼层没有经验和掉落。</div>
+            </details>
+            <details class="settings-group"><summary>孵蛋与喂果</summary>
+            <label class="setting"><span><input type="checkbox" data-setting="autoEggs">任务中自动领取成熟蛋</span></label>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="idleHatch">待命时自动领取成熟蛋</span></label>
             <label class="setting"><span><input type="checkbox" data-nursery-pref="autoFeed">下一枚自然蛋喂果才闪时自动喂靛莓果</span></label>
             <div class="nursery-feed-permission">
@@ -16839,10 +17124,11 @@
             </div>
             <div class="hint">开关按账号保存。助手优先检查下一枚自然蛋，连续几枚都需要靛莓果时会按顺序备果。下一枚需果时，确认已备果才自动收蛋。缺果时保留蛋位。喂果使用库存，任务道具额度用完后仍可喂。</div>
             <div class="hint" id="nursery-auto-note" aria-live="polite"></div>
-            <label class="setting" id="prepare-toggle"><span><input type="checkbox" data-setting="autoPrepare"><span id="prepare-toggle-text">等级不足时先补练，再继续原任务</span></span></label>
-            <div id="progress-candy-toggle"><label class="setting"><span><input type="checkbox" data-setting="progressCandy">主线补练允许使用 / 购买 EXP Candy</span></label><div class="hint" id="candy-hint">优先使用库存，逐份补购；与资源任务共用消费预算和金币保留额，预算不足改用普通练级。</div></div>
-            <div class="hint" id="team-hint">冒险按当前地图配队，途中变更在下个治疗点生效；练级对象会保留。特殊战使用独立队伍。</div>
-            <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
+            </details>
+            <details class="settings-group"><summary>面板外观</summary>
+            <label class="setting">助手外观<select id="panel-theme"><option value="system">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label>
+            <label class="setting">最小化是否显示额外信息<input type="checkbox" role="switch" id="mini-extra-info"></label>
+            </details>
             <div class="hint hidden" id="support-info" aria-live="polite"></div>
             <div class="row"><button id="start" class="primary">开始当前任务</button><button id="start-queue" class="primary">运行任务队列</button><button id="resume" class="primary hidden">立即恢复</button><button id="stop" class="danger" disabled>停止助手</button></div>
             <div class="queue-tools"><button id="add-job">＋ 加入队列</button><button id="open-queue" aria-controls="pane-queue">任务队列 <span id="queue-count">0</span></button><button id="cancel-job" class="hidden">取消编辑</button></div>
@@ -17716,7 +18002,7 @@
                 percent=settings.breedShiny?(shinyOwned(s,settings.breedId)?100:0):(flow.hatched||0)/settings.breedGoal*100;
                 hint='请在游戏中手动寄养百变怪和目标亲本。'+(settings.breedShiny?'助手会优先孵化已确认的目标闪蛋。':'助手会按游戏确认的孵化数量记录进度。');
             }
-            else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按派遣位的主题配队，领取归队奖励后更新纪录。`;}
+            else if(mode==='underground'){const u=undergroundStatus(s,now);primary=`${engine.automation.state.underDone||0}/${settings.underRuns}`;primaryLabel='确认归队领取';goalLabel=`今日 ${u.sent}/${u.perDay} 次 · 可用 ${u.left}`;goalValue=`可领 ${u.ready.length} · 派遣中 ${u.running.length} · 槽位 ${u.slots.length}/${u.capacity}`;percent=(engine.automation.state.underDone||0)/settings.underRuns*100;hint=`下次从第 ${undergroundStartFloor(settings,u.startFloors)} 层出发 · 历史最高 ${u.best} 层。按所选方式配队，领取归队奖励后更新纪录。`;}
             else if(mode==='tower'){
                 const {week,cleared}=towerProgress(s,now),goal=settings.towerFloor;
                 primary=`${cleared}/${goal}`;primaryLabel='本周已过楼层';

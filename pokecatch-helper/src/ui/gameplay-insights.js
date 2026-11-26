@@ -13,6 +13,7 @@
             '<section data-insight="advice" hidden><h3 class="insight-title" id="insight-advice-title" tabindex="-1">禁招建议</h3><p class="insight-context" data-insight="advice-context"></p>'+
             '<p class="insight-notice" data-insight="rule-notice" role="status" hidden></p><div data-insight="moves"></div></section>';
         panel.prepend(nav);panel.append(section);
+        const ranking=mountSpeciesRanking(panel);
         const get=name=>section.querySelector('[data-insight="'+name+'"]');
         const route=get('chapter'),search=get('filter'),left=get('a'),right=get('b'),output=get('evaluation'),moves=get('moves'),ruleNotice=get('rule-notice');
         const make=(tag,value,cls)=>{const el=document.createElement(tag);if(value!=null)el.textContent=value;if(cls)el.className=cls;return el;};
@@ -23,9 +24,9 @@
         let selected={a:null,b:null,advice:null},pendingUid=null,routeKey='',pickerKey='',resultKey='';
         const pageSize=40;
         const catalogId=catalog.id||'insight-species';catalog.id=catalogId;
-        for(const [key,label] of [['catalog','物种图鉴'],['compare','路线对比'],['advice','禁招建议']]){
+        for(const [key,label] of [['catalog','物种图鉴'],['ranking','属性排行'],['compare','路线对比'],['advice','禁招建议']]){
             const button=make('button',label);button.type='button';button.dataset.insightView=key;
-            button.setAttribute('aria-controls',key==='catalog'?catalogId:section.id);
+            button.setAttribute('aria-controls',key==='catalog'?catalogId:key==='ranking'?ranking.id:section.id);
             button.setAttribute('aria-pressed',String(key===view));
             button.onclick=()=>{setView(key);refresh();};nav.append(button);
         }
@@ -34,7 +35,9 @@
             if(next==='advice'&&view==='compare')selected.advice=selected.a;
             view=next;pickerKey='';resultKey='';
             for(const button of nav.children)button.setAttribute('aria-pressed',String(button.dataset.insightView===view));
-            catalog.hidden=view!=='catalog';section.hidden=view==='catalog';
+            catalog.hidden=view!=='catalog';section.hidden=view!=='compare'&&view!=='advice';
+            ranking.hidden=view!=='ranking';
+            if(view==='ranking')ranking.render();
             get('comparison').hidden=view!=='compare';get('advice').hidden=view!=='advice';
             get('right-field').hidden=view!=='compare';
             get('left-label').textContent=view==='compare'?'个体 A':'查看个体';
@@ -209,7 +212,7 @@
                 if(account!==undefined){selected={a:null,b:null,advice:null};search.value='';page=0;route.value='current';}
                 account=nextAccount;priorSave=null;resultKey='';pickerKey='';routeKey='';previousAdviceUid=null;
             }
-            if(view==='catalog')return view;
+            if(view==='catalog'||view==='ranking')return view;
             updateRoute(s);updateRoster(s);
             const chapter=route.value==='current'?s.adv.chapter:Number(route.value),model=CHAPTERS.get(chapter);
             const members=(view==='advice'?[selected.advice]:[selected.a,selected.b]).map(uid=>byUid.get(uid)).filter(Boolean);

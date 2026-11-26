@@ -62,6 +62,42 @@ test('automatic background dispatch is on by default and has an explicit saved o
     assert.equal(H.DEFAULTS.autoUnderDispatch,true);assert.equal(H.normalizeSettings({}).autoUnderDispatch,true);
     assert.equal(H.normalizeSettings({autoUnderDispatch:false}).autoUnderDispatch,false);
 });
+for(const foreground of [false,true])test('native underground optimization uses the game picker for '+(foreground?'the main expedition':'background dispatch and repairs the task party'),async t=>{
+    const f=fixture(t,{mode:foreground?'underground':'money',underGoal:'native',optimizeRaid:false});
+    const {e,s}=f,chosen=['main-0','main-1','main-2'];
+    s.mons=s.mons.filter(mon=>s.team.includes(mon.uid));
+    s.eventTeams['under:0']=['main-3','main-4','main-5'];f.save();
+    const opt=node({perform(){s.eventTeams['under:0']=[...chosen];f.save();}});
+    const close=node({perform(){f.nodes.delete('#evt-pick');}});
+    const modal=node({querySelector:key=>key==='#evt-opt'?opt:key==='[data-evt-close]'?close:null});
+    f.ui.screen='underground';
+    const dispatch=()=>foreground?e.automation.underground(s,f.now()):f.service();
+    if(!foreground)assert.ok(f.plan().ready.includes('underground'),'can dispatch even without spare PC members');
+    dispatch();assert.equal(e.driver.ownedDialog.type,'nativeUnderTeam');
+    f.nodes.set('#evt-pick',[modal]);
+    H.DOMDriver.prototype.dialog.call(e.driver,s);H.DOMDriver.prototype.dialog.call(e.driver,s);
+    assert.equal(e.driver.ownedDialog,null);
+    e.teamCheck={at:f.now(),expectedParty:s.team.join('|')};dispatch();dispatch();
+    const launch=foreground?e.automation.state.underLaunch:e.services.underground.launch;
+    assert.deepEqual(launch.uids,chosen);assert.equal(launch.partyHit,true);
+    assert.equal(f.actions.filter(a=>a.el===opt).length,1);assert.equal(f.actions.filter(a=>a.el===f.go).length,1);
+    assert.ok(e.teamCheck,'the team is untouched until the game confirms departure');
+    if(!foreground)assert.equal(H.normalizeServiceState(e.services).underground.launch.partyHit,true);
+    f.commit('native-expedition',chosen);s.team=s.team.filter(uid=>!chosen.includes(uid));s.road=[...s.team];f.save();dispatch();
+    assert.equal(e.teamCheck,null);
+    if(!foreground){
+        assert.equal(e.automation.state.underPartyReview,true);
+        let reviewed=0;
+        e.fitTeam=(save,now,roamer,preview,policy)=>{
+            assert.ok(policy.autoTeam);assert.deepEqual(save.team,s.team);
+            assert.ok(chosen.every(uid=>!save.mons.some(mon=>mon.uid===uid)));
+            reviewed++;e.teamCheck={at:now};return false;
+        };
+        await e.step(f.now());
+        assert.ok(reviewed);assert.equal(e.automation.state.underPartyReview,undefined);
+        assert.equal(e.settings.autoTeam,false);
+    }
+});
 test('background selects the highest enabled floor even with a manual adventure party, then confirms return to the original screen',t=>{
     const f=fixture(t),ids=f.prepare();f.s.under.best=300;f.save();f.from.options=[1,25,50,75,100].map(value=>({value:String(value)}));
     f.service();assert.equal(f.from.value,'100');assert.equal(f.actions.filter(a=>a.el===f.go).length,0);
@@ -69,6 +105,20 @@ test('background selects the highest enabled floor even with a manual adventure 
     f.commit('first',ids);f.s.under.slots[0].from=100;f.save();f.service();
     assert.equal(f.e.services.underDispatched,1);assert.equal(f.e.services.underground,null);assert.equal(f.ui.screen,'adventure');
     assert.ok(f.e.logs.some(entry=>/100 层/.test(entry.text)));
+});
+
+test('after dispatch only affected teams are invalidated and named trainees wait for their receipt',t=>{
+    const f=fixture(t,{underGoal:'native',mode:'train',trainUid:'selected',trainUids:['idle-0']});
+    const {e,s}=f,chosen=['idle-0','idle-1','idle-2'];
+    const original=e.teamCheck={at:f.now()};
+    e.automation.afterUnderDeparture(s,{native:true,uids:['idle-1'],partyHit:false,specialKeys:[]});
+    assert.equal(e.teamCheck,original);assert.equal(e.automation.state.underPartyReview,undefined);
+    f.commit('selected-trainee',chosen);s.under.slots[0].end=f.now();s.team.pop();f.save();
+    e.automation.afterUnderDeparture(s,{native:true,uids:chosen,partyHit:false,specialKeys:['candy']});
+    assert.deepEqual(e.automation.state.underSpecialKeys,['candy']);
+    assert.deepEqual(e.automation.state.underWaitUids,['idle-0']);
+    assert.equal(f.plan().mainComplete,false);
+    assert.ok(f.plan().ready.includes('underground'),'the underfilled party can collect its original training target');
 });
 test('a saved manual floor limit applies to background dispatch, while a newly occupied bay returns control',t=>{
     const f=fixture(t,{underAutoStart:false,underFrom:45});f.prepare();f.from.options=[1,25,50].map(value=>({value:String(value)}));

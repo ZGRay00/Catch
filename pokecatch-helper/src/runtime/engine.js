@@ -45,6 +45,28 @@
             party.every((mon,i)=>teamEligible(s,mon,region)&&!party.slice(0,i).some(other=>teamApart(mon,other)))&&
             new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length;
     }
+    function trainingReviewBasis(s,pins,roster,goal){
+        const levels=new Map(),index=pokemonByUid(s);
+        for(const uid of pins){
+            const mon=index.get(uid);
+            if(mon&&mon.level<Math.min(goal,trainingCap(s,mon)))levels.set(uid,mon.level);
+        }
+        return {levels,latestLevels:new Map(levels),roster,latest:roster};
+    }
+    function trainingLevelsOnly(s,reg,goal,roster,basis){
+        if(!basis)return false;
+        if(roster===basis.latest)return true;
+        if(!basis.levels.size)return false;
+        const pool=eligibleRoster(s,reg),index=pokemonByUid(s);
+        for(const [uid,level] of basis.latestLevels){
+            const mon=index.get(uid);
+            if(!mon||mon.level<level||mon.level>=Math.min(goal,trainingCap(s,mon)))return false;
+        }
+        const original=pool.map(mon=>basis.levels.has(mon.uid)?{...mon,level:basis.levels.get(mon.uid)}:mon);
+        if(rosterSubsetFingerprint(s,original)+'|'+JSON.stringify([...rosterIndex(s).duplicates].sort())!==basis.roster)return false;
+        for(const uid of basis.levels.keys())basis.latestLevels.set(uid,index.get(uid).level);
+        basis.latest=roster;return true;
+    }
     function localRulesKnown(build=typeof window==='undefined'?null:window.BUILD){
         return !build||[DATA.build,DATA.combat.build,DATA.economy.build,WEATHER_DATA.build].includes(build);
     }
@@ -2277,11 +2299,20 @@
                 this.adventureReview={key:reviewKey,pass:0,checked:0,expiresAt:start+initialMs,hardStop:start+15*60000};
             }
             const context={reg,objective,dexReplay,now,verifyAll:strict,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
-            let plan;
+            let plan,growth;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:makeFoes().length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,this.searchRosterRevision('teamSearch',roster),partyKey,strict,deaths]);
+                const inputs=['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,null,partyKey,strict,deaths];
+                if(strict&&objective==='train'&&pinned.length){
+                    const review=this.adventureReview,scope=JSON.stringify(inputs);
+                    if(review.trainingScope!==scope||!trainingLevelsOnly(s,reg,settings.trainLevel,roster,review.trainingBasis)){
+                        review.trainingScope=scope;review.trainingBasis=trainingReviewBasis(s,pinned,roster,settings.trainLevel);
+                    }
+                    growth=review.trainingBasis;
+                }
+                inputs[11]=this.searchRosterRevision('teamSearch',growth?.roster??roster);
+                const signature=JSON.stringify(inputs);
                 const old=this.teamSearch;
                 let nextRoster;
                 const previous=old?.reviewInfo?old:this.lastAdventureSearch;
@@ -2301,6 +2332,17 @@
                 if(plan?.timedOut)this.logReviewChange(old,performance.now()>=this.adventureReview.hardStop?'达到单次总时限':'进度未能在时限内推进');
             }else plan=planAdventureTeam(s,settings,pinned,{...context,foes:makeFoes()});
             if(preview&&!plan?.timedOut)return false;
+            if(plan&&!plan.timedOut&&growth&&growth.roster!==roster){
+                // The full-box certificate belongs to the opening snapshot. Compare the
+                // finalist with the actual party again before issuing a live team change.
+                const live=plan.changed&&legalAdventureParty(s,plan.uids,reg,pinned)&&
+                    planAdventureTeam(s,settings,pinned,{...context,foes:makeFoes(),compareTrainingParty:plan.uids});
+                if(!live?.changed){
+                    this.adventureReview=null;this.teamValidationNote='学员已升级，按最新等级重新比较带练阵容';return false;
+                }
+                const trainingLevels=[...growth.levels].map(([uid,from])=>({uid,from,to:growth.latestLevels.get(uid)}));
+                plan={...plan,...live,verification:{...plan.verification,trainingLevels},backup:'',reason:'学员升级后已按最新等级复算，调整带练队伍'};
+            }
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
                 if(preview)return false;
@@ -2342,7 +2384,7 @@
                 mode,weatherTraining:settings===this.weatherFarm?.training,region:settings.region,side:s.link?.side,link:s.link?.to,switchEnabled:helperSwitchEnabled(s,settings),
                 trainLevel:mode==='train'?settings.trainLevel:null,pins:pinned.join('|'),
             }:null;
-            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,hazardKey,autoSwitch,policy,farming,party:partyKey,frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
+            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,trainingBasis:growth,weatherKey,hazardKey,autoSwitch,policy,farming,party:partyKey,frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
             return true;
         }
         legend(s, now) {
@@ -2695,6 +2737,7 @@
                     }
                     if(!switchRoute)this.rememberFarm(s,'xp',current,rows,now);
                 }
+                this.target=current;
                 this.status=`${label} · ${current.name} · ${current.measured?'实测':'预计'} ${Math.round(current.rate)} EXP/分钟`;
                 this.driver.nav('adventure');return;
             }

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.4.1
+// @version      8.4.3
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.4.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.4.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -4373,6 +4373,13 @@
             return scoreAfterTrainingCost(score,team);
         };
         const utility=(team,summary)=>farmPartyScore(team,encounterUtility(team,summary));
+        if(context.compareTrainingParty){
+            const selected=partyMons(s,context.compareTrainingParty),previous={},proposed={};
+            const score=utility(selected,proposed),currentScore=utility(party,previous);
+            const changed=hasLearners&&legalAdventureParty(s,context.compareTrainingParty,reg,pinned)&&
+                (selected.length>party.length||!legalAdventureParty(s,s.team,reg,pinned)||worthwhileFarmChange(score,currentScore,proposed,previous));
+            return {changed,score,currentScore,gain:currentScore>0?score/currentScore-1:1};
+        }
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
         let force=context.force;
         // Check the real party before a progressive box search can publish a replacement.
@@ -5268,11 +5275,47 @@
         const {battleFit,leagueTraining}=row,{yieldMembers,xpMult,targets,buddy}=projection;
         const base=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0),perMember=(leagueTraining?.xpPerMember??base)*xpMult;
         const experience=targets?targets.reduce((sum,t)=>sum+Math.min(t.remaining,perMember*(t.uid===buddy?1.3:1)),0):perMember*yieldMembers;
-        const model=leagueTraining?experience/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,speed)*60*battleFit.factor;
+        const seconds=leagueTraining?.seconds??estimatedRouteSeconds(row,speed),factor=leagueTraining?.riskFactor??battleFit.factor;
+        const model=experience/seconds*60*factor;
         const estimate=estimateWithHistory(model,m?.historicalRate);
         const measured=m?.xpSeconds>0,samples=m?.xpRuns||0,actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
         const trainingSafe=row.trainingSafe||measured&&samples>=2&&actualRate>0;
-        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,trainingSafe,fallback:!trainingSafe};
+        const xpShares=targets?targets.reduce((sum,t)=>sum+(t.remaining>0?(t.uid===buddy?1.3:1):0),0):yieldMembers;
+        // Route selection caps the useful XP at the current goal. The clock needs
+        // the uncapped pace of one ordinary learner, even in its final partial loop.
+        const modelMemberRate=perMember/seconds*60*factor;
+        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,trainingSafe,fallback:!trainingSafe,
+            xpShares,modelMemberRate};
+    }
+    function trainingCompletionTime(s,targets,route,targetRank=0){
+        if(!targets.length)return null;
+        const road=new Set(s.road?.length?s.road:s.team),tables=DATA.xpThresholds[economicRegion(s)];
+        let remaining=0,includingRanks=0,futureRanks=false,capped=false;
+        for(const {mon,level} of targets){
+            if(!mon)return null;
+            const cap=trainingCap(s,mon),goal=Math.min(cap,level);
+            const gap=candyXpGap(s,mon,goal);
+            if(gap==null||!road.has(mon.uid)&&gap>0)return null;
+            capped||=cap<level;
+            const share=mon.uid===s.buddy?.uid?1.3:1;
+            remaining=Math.max(remaining,gap/share);
+            let total=gap;
+            if(goal===100&&!EVOLUTION_DATA.rules[mon.id]?.length){
+                for(let rank=(mon.rank||0)+1;rank<=targetRank;rank++){
+                    const table=tables?.[rank];
+                    if(!table)return null;
+                    total+=xpAtLevel(table,100)-xpAtLevel(table,5);
+                    futureRanks=true;
+                }
+            }
+            includingRanks=Math.max(includingRanks,total/share);
+        }
+        if(!includingRanks)return {minutes:0,capped};
+        if(!route?.members?.includes(s.adv.chapter))return null;
+        const measured=route.measured&&Number.isFinite(route.actualRate)&&route.xpShares>0;
+        const rate=measured?route.actualRate/route.xpShares:route.modelMemberRate;
+        if(!(Number.isFinite(rate)&&rate>0))return null;
+        return {minutes:remaining/rate,rankMinutes:futureRanks?includingRanks/rate:null,capped,measured};
     }
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);
@@ -8449,7 +8492,7 @@
                     !legalAdventureParty(s,task.uids,region,pins));
                 // Before the first drag require an exact plan. Afterwards, a changed Box or weather
                 // must not strand the team midway through a known legal sequence of native moves.
-                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
+                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,settings,pins)||
                     b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
                     !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now)));
                 if(!settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
@@ -8457,6 +8500,17 @@
                     !task.hasDragged&&b.party!==signature||hardFarmChange||stalePlan||b.autoSwitch!==(s.autoSwitch!==false)||
                     task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
                     discard();return false;
+                }
+                if(!(farm&&task.hasDragged)){
+                    const roster=adventureRosterFingerprint(s,region);
+                    if(b.roster!==roster){
+                        if(!trainingLevelsOnly(s,region,settings.trainLevel,roster,b.trainingBasis)){discard();return false;}
+                        const row={id:task.chapter,members:task.members,reg:region};
+                        const foes=b.roamId?battleContext(s,'map',{row,roamId:b.roamId}).foes:routeCombatFoes(s,row,now);
+                        const live=planAdventureTeam(s,settings,pins,{reg:region,objective:'train',now,foes,compareTrainingParty:task.uids});
+                        if(!live.changed){discard();return false;}
+                        b.roster=roster;
+                    }
                 }
             }
             const fail=reason=>{
@@ -11250,6 +11304,28 @@
             party.every((mon,i)=>teamEligible(s,mon,region)&&!party.slice(0,i).some(other=>teamApart(mon,other)))&&
             new Set(party.map(mon=>DATA.combat.singles[mon.id]||`${mon.id}:${+!!mon.shiny}`)).size===party.length;
     }
+    function trainingReviewBasis(s,pins,roster,goal){
+        const levels=new Map(),index=pokemonByUid(s);
+        for(const uid of pins){
+            const mon=index.get(uid);
+            if(mon&&mon.level<Math.min(goal,trainingCap(s,mon)))levels.set(uid,mon.level);
+        }
+        return {levels,latestLevels:new Map(levels),roster,latest:roster};
+    }
+    function trainingLevelsOnly(s,reg,goal,roster,basis){
+        if(!basis)return false;
+        if(roster===basis.latest)return true;
+        if(!basis.levels.size)return false;
+        const pool=eligibleRoster(s,reg),index=pokemonByUid(s);
+        for(const [uid,level] of basis.latestLevels){
+            const mon=index.get(uid);
+            if(!mon||mon.level<level||mon.level>=Math.min(goal,trainingCap(s,mon)))return false;
+        }
+        const original=pool.map(mon=>basis.levels.has(mon.uid)?{...mon,level:basis.levels.get(mon.uid)}:mon);
+        if(rosterSubsetFingerprint(s,original)+'|'+JSON.stringify([...rosterIndex(s).duplicates].sort())!==basis.roster)return false;
+        for(const uid of basis.levels.keys())basis.latestLevels.set(uid,index.get(uid).level);
+        basis.latest=roster;return true;
+    }
     function localRulesKnown(build=typeof window==='undefined'?null:window.BUILD){
         return !build||[DATA.build,DATA.combat.build,DATA.economy.build,WEATHER_DATA.build].includes(build);
     }
@@ -13482,11 +13558,20 @@
                 this.adventureReview={key:reviewKey,pass:0,checked:0,expiresAt:start+initialMs,hardStop:start+15*60000};
             }
             const context={reg,objective,dexReplay,now,verifyAll:strict,lowBudget:globalThis.navigator?.hardwareConcurrency<=4||globalThis.navigator?.deviceMemory<=4};
-            let plan;
+            let plan,growth;
             if(s.mons.length===1&&s.team.length===1&&s.team[0]===s.mons[0].uid&&teamEligible(s,s.mons[0],context.reg)){
                 plan={uids:s.team,changed:false,reason:'当前地区只有一个可选成员',gain:0,opponents:makeFoes().length};
             }else if(this.running){
-                const signature=JSON.stringify(['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,this.searchRosterRevision('teamSearch',roster),partyKey,strict,deaths]);
+                const inputs=['adventure',this.localSnapshot.sourceEpoch,policy,key,members,!!dexReplay,reg,weatherKey,hazardKey,objective,autoSwitch,null,partyKey,strict,deaths];
+                if(strict&&objective==='train'&&pinned.length){
+                    const review=this.adventureReview,scope=JSON.stringify(inputs);
+                    if(review.trainingScope!==scope||!trainingLevelsOnly(s,reg,settings.trainLevel,roster,review.trainingBasis)){
+                        review.trainingScope=scope;review.trainingBasis=trainingReviewBasis(s,pinned,roster,settings.trainLevel);
+                    }
+                    growth=review.trainingBasis;
+                }
+                inputs[11]=this.searchRosterRevision('teamSearch',growth?.roster??roster);
+                const signature=JSON.stringify(inputs);
                 const old=this.teamSearch;
                 let nextRoster;
                 const previous=old?.reviewInfo?old:this.lastAdventureSearch;
@@ -13506,6 +13591,17 @@
                 if(plan?.timedOut)this.logReviewChange(old,performance.now()>=this.adventureReview.hardStop?'达到单次总时限':'进度未能在时限内推进');
             }else plan=planAdventureTeam(s,settings,pinned,{...context,foes:makeFoes()});
             if(preview&&!plan?.timedOut)return false;
+            if(plan&&!plan.timedOut&&growth&&growth.roster!==roster){
+                // The full-box certificate belongs to the opening snapshot. Compare the
+                // finalist with the actual party again before issuing a live team change.
+                const live=plan.changed&&legalAdventureParty(s,plan.uids,reg,pinned)&&
+                    planAdventureTeam(s,settings,pinned,{...context,foes:makeFoes(),compareTrainingParty:plan.uids});
+                if(!live?.changed){
+                    this.adventureReview=null;this.teamValidationNote='学员已升级，按最新等级重新比较带练阵容';return false;
+                }
+                const trainingLevels=[...growth.levels].map(([uid,from])=>({uid,from,to:growth.latestLevels.get(uid)}));
+                plan={...plan,...live,verification:{...plan.verification,trainingLevels},backup:'',reason:'学员升级后已按最新等级复算，调整带练队伍'};
+            }
             if(plan?.timedOut){
                 this.adventureReview=null;this.teamRetryAt=now+30000;this.teamRetryLoop=String(c.loop);
                 if(preview)return false;
@@ -13547,7 +13643,7 @@
                 mode,weatherTraining:settings===this.weatherFarm?.training,region:settings.region,side:s.link?.side,link:s.link?.to,switchEnabled:helperSwitchEnabled(s,settings),
                 trainLevel:mode==='train'?settings.trainLevel:null,pins:pinned.join('|'),
             }:null;
-            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,weatherKey,hazardKey,autoSwitch,policy,farming,party:partyKey,frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
+            this.driver.teamTask={chapter:c.id,members,uids:plan.uids,started:now,attempts:0,fitBasis:{roster,trainingBasis:growth,weatherKey,hazardKey,autoSwitch,policy,farming,party:partyKey,frontier:s.adv.unlocked,roamId,epoch:this.runId,sourceEpoch:this.localSnapshot.sourceEpoch}};
             return true;
         }
         legend(s, now) {
@@ -13900,6 +13996,7 @@
                     }
                     if(!switchRoute)this.rememberFarm(s,'xp',current,rows,now);
                 }
+                this.target=current;
                 this.status=`${label} · ${current.name} · ${current.measured?'实测':'预计'} ${Math.round(current.rate)} EXP/分钟`;
                 this.driver.nav('adventure');return;
             }
@@ -14736,7 +14833,7 @@
         Object.assign(module.exports,{TOWER_RULES,towerFloorProfile,raidBossFactors,raidParalysisTurns,localRulesKnown});
         Object.assign(module.exports,{shopCandyTier,boxMoneyRequest,partyHistory,partyRunCondition,observeCasino,casinoSummary});
         Object.assign(module.exports,{boxSnapshot,pokemonByUid,rosterLocations,eligibleRoster});
-        Object.assign(module.exports,{trainingXpTargets,trainingXpSuffix,routeIdentity});
+        Object.assign(module.exports,{trainingXpTargets,trainingXpSuffix,trainingCompletionTime,routeIdentity});
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution,preparationEvolutionLabel});
         Object.assign(module.exports,{regionalWeatherForecast,VERSION,UPDATE_RELEASE,UPDATE_SOURCES,updateSourceURL,allowedUpdateURL,allowedUpdateRedirect,compareUpdateVersions,parseUpdateScript,requestUpdateResource,downloadUpdateScript,UpdateChecker});
         Object.assign(module.exports,{ROAMING_DATA,roamingProgress,roamingPlan,undergroundTeamContext,undergroundStatus,undergroundStartFloor,undergroundBay,acquisitionSources,legendRequirements,prerequisiteRoutes,dexWaitAdvice,hasWildSource,WILD_SHINY_IDS});
@@ -16946,6 +17043,18 @@
     window.__pokecatchHelper=helperAPI;
     startupPhase='准备挂载面板';
 
+    function trainingEtaText(eta,now,targetRank,paused){
+        const label='预计完成时间';
+        if(paused)return label+' · 已暂停，恢复后重算';
+        if(!eta)return label+' · 等待练级路线和有效经验速度';
+        const stamp=minutes=>localCalendarTime(now+minutes*60000);
+        const minutes=Math.ceil(eta.minutes),hours=Math.floor(minutes/60);
+        const duration=hours?hours+' 小时'+(minutes%60?' '+minutes%60+' 分钟':''):minutes+' 分钟';
+        const scope=eta.rankMinutes?'（本阶）':eta.capped?'（至当前等级上限）':'';
+        const current=minutes?stamp(eta.minutes)+'（约 '+duration+'，'+(eta.measured?'本图实测':'路线估算')+'）':'已达标';
+        const ranks=eta.rankMinutes?' · 若能连续升阶，'+targetRank+' 阶满级约在 '+stamp(eta.rankMinutes):'';
+        return label+scope+' · '+current+ranks;
+    }
     function mount() {
         if(life.signal.aborted)return;
         if (!document.body){startupPhase='等待页面主体';return setTimeout(mount,500);}
@@ -16978,7 +17087,7 @@
             <button type="button" id="spirit-conditions" data-lookup="442" hidden>查看花岩怪获取条件</button>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric" title="合计当前钱包及跨地区暂存的钱包余额"><b id="money-value">0</b><span id="money-label">本次金币净增</span></div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <details id="season-calendar" class="season-calendar"><summary><span>游戏季节</span><strong></strong><span class="season-remaining"></span></summary><div class="season-period"></div><div class="season-next"></div></details>
-            <div class="target hidden" id="prepare-info"><b id="prepare-title"></b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-buddy"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
+            <div class="target hidden" id="prepare-info"><b id="prepare-title"></b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-buddy"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div><div class="sub" id="prepare-eta"></div></div>
             <section id="pane-tasks" aria-label="任务"><div id="queue-edit-note" class="queue-notice" hidden></div><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['daily','☀','通关日常','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
@@ -17049,6 +17158,7 @@
                 </section>
                 <div class="hint" id="target-hint"></div><div class="hint" id="item-route-choice" hidden></div><dl class="decision-list" id="task-decision" hidden><dt>当前目标</dt><dd></dd><dt>选择依据</dt><dd></dd><dt>下一步</dt><dd></dd></dl><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
+            <div id="training-eta" class="hint" hidden></div>
             </section>
             <section id="pane-queue" aria-label="任务队列" hidden>
                 <div class="queue-heading"><div><h2>任务队列</h2><p id="queue-summary" aria-live="polite"></p></div><button id="queue-add">配置新任务</button></div>
@@ -17891,6 +18001,8 @@
             note.hidden=!(s?.adv&&engine.running&&engine.settings.mode==='item'&&choice?.account===engine.account&&choice?.run===engine.runId&&choice.id===engine.settings.itemId&&choice.text);
             if(!note.hidden)note.textContent=choice.text;
             const decision=query('#task-decision');
+            const etaLine=query('#training-eta');
+            etaLine.hidden=!(s?.adv&&ui.workspace==='tasks'&&!queueForm&&!engine.preparation&&engine.settings.mode==='train'&&(engine.running||engine.suspended));
             decision.hidden=ui.workspace!=='tasks'||!s?.adv;
             if(ui.workspace==='settings')query('[data-setting="autoRecover"]').disabled=!formSettings().resumeOnReload||formLocked();
             if(ui.workspace==='queue'){drawQueue(s,locked,pending,editingJob,queueError,planned);return;}
@@ -17927,6 +18039,8 @@
             if(taskPage&&(trainingEntry()||formSettings().mode==='resource'))partyOptions(s);
             if(taskPage&&formSettings().mode==='breed')updateBreedingOptions(s);
             const preparation=engine.preparation;query('#prepare-info').classList.toggle('hidden',!preparation||!engine.running);
+            const canEstimateTraining=!paused&&!engine.daily?.job&&!s.adv.event&&!s.adv.zone&&!s.adv.tower&&!s.adv.league&&!engine.driver.pendingMap&&
+                (!s.road?.length||s.road.join('|')===s.team.join('|'));
             if(preparation){
                 query('#prepare-title').textContent=paused?'补练已暂停':'↑ 正在补练';
                 const levels=preparation.targets.map(target=>({...target,level:s.mons.find(m=>m.uid===target.uid)?.level||target.level}));
@@ -17937,6 +18051,10 @@
                 const fit=assessment?.fit,remaining=levels.reduce((total,target)=>{const mon=s.mons.find(mon=>mon.uid===target.uid),gap=mon&&candyXpGap(s,mon,target.goal);return gap==null?null:total==null?null:total+gap;},0);
                 query('#prepare-assessment').textContent=adaptive?[assessment?.reason||'按实际战力复查，达标可提前返回原任务',fit?`保守预计 ${fit.turns.toFixed(1)} 回合/对手`:'',remaining>0?`当前培养目标剩余 ${Math.round(remaining).toLocaleString()} EXP`:''].filter(Boolean).join(' · '):'按所选阵容完成当前补练等级目标';
                 query('#prepare-bar').style.width=`${levels.length?levels.reduce((n,m)=>n+Math.min(1,m.level/m.goal),0)/levels.length*100:100}%`;
+                const review=engine.coach.routeReview;
+                const row=preparation.phase==='train'&&review?.preparation===preparation&&review.rows?.find(r=>r.key===preparation.route?.key);
+                const goals=preparation.targets.map(t=>({mon:pokemonByUid(s).get(t.uid),level:t.goal}));
+                query('#prepare-eta').textContent=trainingEtaText(canEstimateTraining&&row&&trainingCompletionTime(s,goals,row),now,0,paused);
             }
             const settings = engine.settings, mode = settings.mode, status = dexStatus(s, settings);
             const training=!!engine.preparation||mode==='train',money=mode==='money'||mode==='dex'&&!status.missing.length&&settings.afterDex==='money';
@@ -17990,6 +18108,13 @@
                 if(taskPage)hint = eliteItemHint(item)||(item.id==='gracidea'?'白天带陆上形态谢米前往神奥花苑花田，在道具事件中领取一次。':`${itemRanking(s,settings).length} 个章节可规划。${item.sources.some(source => source.repeat) ? '按预计每小时掉落选图，实际收获可在路线表查看。' : '此道具为有限来源，已领取或已转金币的地点会排除。'} 获取数量按本次新增统计。`);
             } else if (mode === 'train') {
                 const p=trainingStatus(s,settings,engine.running?engine.trainProtected:null),xp=engine.endedTotals?engine.endedTotals.xp:experienceTotal(s,engine.trainProtected||s.team);
+                if(!etaLine.hidden){
+                    const route=engine.visit?.farmPlan?.kind==='xp'?engine.visit.farmPlan.row:engine.target;
+                    const rank=settings.trainGems&&settings.trainUid!=='team'?settings.trainRank:0;
+                    const goals=p.targets.map(mon=>({mon,level:settings.trainLevel}));
+                    const eta=canEstimateTraining&&!p.missing&&route?.key===engine.target?.key&&trainingCompletionTime(s,goals,route,rank);
+                    etaLine.textContent=trainingEtaText(eta,now,rank,paused);
+                }
                 const gained=engine.started&&engine.trainingSelection===settings.trainUid&&xp!=null&&engine.startTrainingXp!=null?Math.max(0,xp-engine.startTrainingXp):0;
                 primary = gained.toLocaleString(); primaryLabel = engine.trainingXpRebased?'恢复后新增 EXP':settings.trainUid==='team'?'本次全队 EXP':'练级对象 EXP'; goalLabel = `目标 Lv.${settings.trainLevel} · 上限 ${p.cap || '—'}`; goalValue = `${p.targets.filter(m=>m.level>=settings.trainLevel).length}/${p.targets.length} 达标`; percent = p.targets.length ? p.targets.reduce((n,m)=>n+Math.min(1,m.level/settings.trainLevel),0)/p.targets.length*100 : 0;
                 hint = p.missing ? '所选目标不在当前冒险队伍中，请重新选择。' : `当前 ${p.targets.map(m=>`${MONS.get(m.id)?.name || m.id} Lv.${m.level}`).join('、')}。按全队经验/分钟选图，达到目标或当前等级上限时停止；不使用糖果。`;

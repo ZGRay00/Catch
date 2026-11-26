@@ -166,7 +166,7 @@
                     !legalAdventureParty(s,task.uids,region,pins));
                 // Before the first drag require an exact plan. Afterwards, a changed Box or weather
                 // must not strand the team midway through a known legal sequence of native moves.
-                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,settings,pins)||b.roster!==adventureRosterFingerprint(s,region)||
+                const stalePlan=!(farm&&task.hasDragged)&&(b.policy!==adventureTeamPolicy(s,task.members,settings,pins)||
                     b.weatherKey!==adventureTeamWeatherKey(s,task.members,now)||
                     !b.roamId&&b.hazardKey!=null&&b.hazardKey!==JSON.stringify(routeRoamingFoes(s,{members:task.members},now)));
                 if(!settings.autoTeam||b.epoch!==e.runId||b.sourceEpoch!==e.localSnapshot.sourceEpoch||!task.members.includes(s.adv.chapter)||destination&&!destination.members?.includes(s.adv.chapter)||
@@ -174,6 +174,17 @@
                     !task.hasDragged&&b.party!==signature||hardFarmChange||stalePlan||b.autoSwitch!==(s.autoSwitch!==false)||
                     task.uids.some(uid=>!current.has(uid)||!teamEligible(s,current.get(uid),region))){
                     discard();return false;
+                }
+                if(!(farm&&task.hasDragged)){
+                    const roster=adventureRosterFingerprint(s,region);
+                    if(b.roster!==roster){
+                        if(!trainingLevelsOnly(s,region,settings.trainLevel,roster,b.trainingBasis)){discard();return false;}
+                        const row={id:task.chapter,members:task.members,reg:region};
+                        const foes=b.roamId?battleContext(s,'map',{row,roamId:b.roamId}).foes:routeCombatFoes(s,row,now);
+                        const live=planAdventureTeam(s,settings,pins,{reg:region,objective:'train',now,foes,compareTrainingParty:task.uids});
+                        if(!live.changed){discard();return false;}
+                        b.roster=roster;
+                    }
                 }
             }
             const fail=reason=>{

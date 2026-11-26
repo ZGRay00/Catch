@@ -47,6 +47,71 @@ test('normal adventure ticks discard stale results before applying a team change
     assert.deepEqual(e.driver.teamTask?.uids||s.team,fresh.result.uids);
 });
 
+function trainingReviewFixture(){
+    const initial=fixture(),e=engine(),uid=initial.team[1];
+    initial.adv.unlocked=83;
+    e.strictPlanning=true;
+    Object.assign(e.settings,{mode:'train',trainUid:'selected',trainUids:[uid],trainLevel:40});
+    let advance;
+    e.queueCompute=(_job,step)=>{advance=step;};
+    const snapshot=level=>({...initial,mons:initial.mons.map(mon=>mon.uid===uid?{...mon,level}:mon)});
+    function finishReview(job){
+        for(let i=0;i<10000&&!job.error&&!job.result;i++)advance();
+        if(job.error)throw job.error;
+        assert.ok(job.result);
+    }
+    return {e,uid,snapshot,finishReview};
+}
+
+test('a named learner can level during a strict review and before its first drag',()=>{
+    const {e,uid,snapshot,finishReview}=trainingReviewFixture();
+    const s=snapshot(5);
+    e.fitTeam(s,now);
+    const job=e.teamSearch;
+    for(const level of [6,7,9]){e.fitTeam(snapshot(level),now);assert.equal(e.teamSearch,job);}
+    finishReview(job);
+    e.fitTeam(snapshot(10),now);
+    const task=e.driver.teamTask;
+    assert.ok(task?.uids.includes(uid));assert.equal(e.teamCheck.verification.checked,s.mons.length);
+    assert.deepEqual(e.teamCheck.verification.trainingLevels,[{uid,from:5,to:10}]);
+    // Navigation is the first UI action. Exercise all real fit guards before it.
+    e.driver.nav=()=>false;
+    e.driver.adventureTeam(snapshot(11),now+1);
+    assert.equal(e.driver.teamTask,task);
+    const changed=snapshot(12);
+    changed.mons=changed.mons.filter(mon=>mon.uid!==task.uids.find(id=>id!==uid));
+    e.driver.adventureTeam(changed,now+2);
+    assert.equal(e.driver.teamTask,null);
+});
+
+test('rank, evolution, cap, lost levels and non-learner growth still restart a training review',()=>{
+    for(const change of ['rank','evolution','cap','regression','bench']){
+        const {e,uid,snapshot}=trainingReviewFixture();
+        e.fitTeam(snapshot(5),now);const job=e.teamSearch;
+        e.fitTeam(snapshot(9),now);assert.equal(e.teamSearch,job);
+        const s=snapshot(change==='cap'?40:change==='regression'?8:10),learner=s.mons.find(mon=>mon.uid===uid);
+        if(change==='rank')learner.rank=1;
+        if(change==='evolution')learner.id=9;
+        if(change==='bench')s.mons=s.mons.map((mon,i)=>i===12?{...mon,level:mon.level+1}:mon);
+        e.fitTeam(s,now);
+        assert.notEqual(e.teamSearch,job,change);assert.ok(e.teamSearch);
+        assert.equal(e.driver.teamTask,null);
+    }
+});
+
+test('a completed destination preview survives learner growth and gets checked on arrival',()=>{
+    const {e,uid,snapshot,finishReview}=trainingReviewFixture();
+    const row={...H.DATA.chapters[3],key:String(H.DATA.chapters[3].loop),members:[3]};
+    const before=level=>{const s=snapshot(level);s.adv={...s.adv,chapter:2};return s;};
+    e.previewDestination(before(5),row,now);const job=e.teamSearch;
+    finishReview(job);
+    e.previewDestination(before(8),row,now);
+    assert.equal(e.driver.teamTask,null);assert.equal(e.teamSearch,null);
+    e.fitTeam(snapshot(9),now);
+    assert.ok(e.driver.teamTask?.uids.includes(uid));assert.equal(e.teamSearch,null);
+    assert.deepEqual(e.teamCheck.verification.trainingLevels,[{uid,from:5,to:9}]);
+});
+
 test('adventure fills a slot after dispatch even while the road still names the absent member',async()=>{
     const s=fixture(),e=engine();e.settings.mode='money';
     const dispatched=s.team.pop();s.mons=s.mons.filter(mon=>mon.uid!==dispatched);s.road=[...s.team,dispatched];

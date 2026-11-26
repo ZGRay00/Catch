@@ -242,11 +242,47 @@
         const {battleFit,leagueTraining}=row,{yieldMembers,xpMult,targets,buddy}=projection;
         const base=row.members.reduce((n,id)=>n+(CHAPTERS.get(id).xpEstimate||0),0),perMember=(leagueTraining?.xpPerMember??base)*xpMult;
         const experience=targets?targets.reduce((sum,t)=>sum+Math.min(t.remaining,perMember*(t.uid===buddy?1.3:1)),0):perMember*yieldMembers;
-        const model=leagueTraining?experience/leagueTraining.seconds*60*leagueTraining.riskFactor:experience/estimatedRouteSeconds(row,speed)*60*battleFit.factor;
+        const seconds=leagueTraining?.seconds??estimatedRouteSeconds(row,speed),factor=leagueTraining?.riskFactor??battleFit.factor;
+        const model=experience/seconds*60*factor;
         const estimate=estimateWithHistory(model,m?.historicalRate);
         const measured=m?.xpSeconds>0,samples=m?.xpRuns||0,actualRate=measured?m.xp/m.xpSeconds*60:null,confidence=measured?Math.min(1,samples/2):0;
         const trainingSafe=row.trainingSafe||measured&&samples>=2&&actualRate>0;
-        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,trainingSafe,fallback:!trainingSafe};
+        const xpShares=targets?targets.reduce((sum,t)=>sum+(t.remaining>0?(t.uid===buddy?1.3:1):0),0):yieldMembers;
+        // Route selection caps the useful XP at the current goal. The clock needs
+        // the uncapped pace of one ordinary learner, even in its final partial loop.
+        const modelMemberRate=perMember/seconds*60*factor;
+        return{...row,rate:confidence*(actualRate||0)+(1-confidence)*estimate,estimatedRate:estimate,actualRate,measured,samples,trainingSafe,fallback:!trainingSafe,
+            xpShares,modelMemberRate};
+    }
+    function trainingCompletionTime(s,targets,route,targetRank=0){
+        if(!targets.length)return null;
+        const road=new Set(s.road?.length?s.road:s.team),tables=DATA.xpThresholds[economicRegion(s)];
+        let remaining=0,includingRanks=0,futureRanks=false,capped=false;
+        for(const {mon,level} of targets){
+            if(!mon)return null;
+            const cap=trainingCap(s,mon),goal=Math.min(cap,level);
+            const gap=candyXpGap(s,mon,goal);
+            if(gap==null||!road.has(mon.uid)&&gap>0)return null;
+            capped||=cap<level;
+            const share=mon.uid===s.buddy?.uid?1.3:1;
+            remaining=Math.max(remaining,gap/share);
+            let total=gap;
+            if(goal===100&&!EVOLUTION_DATA.rules[mon.id]?.length){
+                for(let rank=(mon.rank||0)+1;rank<=targetRank;rank++){
+                    const table=tables?.[rank];
+                    if(!table)return null;
+                    total+=xpAtLevel(table,100)-xpAtLevel(table,5);
+                    futureRanks=true;
+                }
+            }
+            includingRanks=Math.max(includingRanks,total/share);
+        }
+        if(!includingRanks)return {minutes:0,capped};
+        if(!route?.members?.includes(s.adv.chapter))return null;
+        const measured=route.measured&&Number.isFinite(route.actualRate)&&route.xpShares>0;
+        const rate=measured?route.actualRate/route.xpShares:route.modelMemberRate;
+        if(!(Number.isFinite(rate)&&rate>0))return null;
+        return {minutes:remaining/rate,rankMinutes:futureRanks?includingRanks/rate:null,capped,measured};
     }
     function xpRanking(s, settings, metrics = {}, cooldowns = {}, now = Date.now()) {
         return completeYieldRanking(yieldRankingRequest('xp',s,settings,metrics,now),cooldowns,now);

@@ -860,6 +860,13 @@
             return scoreAfterTrainingCost(score,team);
         };
         const utility=(team,summary)=>farmPartyScore(team,encounterUtility(team,summary));
+        if(context.compareTrainingParty){
+            const selected=partyMons(s,context.compareTrainingParty),previous={},proposed={};
+            const score=utility(selected,proposed),currentScore=utility(party,previous);
+            const changed=hasLearners&&legalAdventureParty(s,context.compareTrainingParty,reg,pinned)&&
+                (selected.length>party.length||!legalAdventureParty(s,s.team,reg,pinned)||worthwhileFarmChange(score,currentScore,proposed,previous));
+            return {changed,score,currentScore,gain:currentScore>0?score/currentScore-1:1};
+        }
         const identity = mon => DATA.combat.singles[mon.id] || (context.speciesUnique?`sp:${mon.id}`:`${mon.id}:${+!!mon.shiny}`);
         let force=context.force;
         // Check the real party before a progressive box search can publish a replacement.

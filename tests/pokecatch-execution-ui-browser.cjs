@@ -64,6 +64,24 @@ async function main(){
         })()`);
         assert.deepEqual(standby,['wait',true,'xp',true,'xp']);
         checks.push('weather standby is visible for a hunt and keeps its selection after switching tasks');
+        const trainingEta=await evaluate(`(()=>{
+            const r=${root},e=__pcExecutionTest.engine,line=r.querySelector('#training-eta');
+            const prior={settings:e.settings,running:e.running,target:e.target},paused=fixtureState.adv.paused;
+            try{
+                e.settings={...e.settings,mode:'train',trainUid:'team',trainLevel:80};
+                e.running=true;e.target={key:'eta',name:'测试地图',members:[0],modelMemberRate:1000};
+                e.onChange();const modeled=line.textContent,visible=line.checkVisibility();
+                Object.assign(e.target,{measured:true,actualRate:2000,xpShares:1});e.onChange();
+                const sampled=line.textContent;
+                fixtureState.adv.paused=true;commitExecution();const stopped=line.textContent;
+                fixtureState.adv.paused=false;e.target.members=[1];commitExecution();const away=line.textContent;
+                e.running=false;e.onChange();return {visible,modeled,sampled,stopped,away,hidden:line.hidden};
+            }finally{Object.assign(e,prior);fixtureState.adv.paused=paused;commitExecution();}
+        })()`);
+        assert.ok(trainingEta.visible&&trainingEta.hidden);
+        assert.match(trainingEta.modeled,/预计完成时间.*\d+月\d+日 \d\d:\d\d.*路线估算/);
+        assert.match(trainingEta.sampled,/本图实测/);assert.match(trainingEta.stopped,/已暂停/);assert.match(trainingEta.away,/等待/);
+        checks.push('training shows the local completion time, switches to measured XP and clears stale forecasts when paused or traveling');
         const roamingBalls=await evaluate(`(()=>{
             const r=${root},e=__pcExecutionTest.engine,s=fixtureState,initial={...e.settings};
             const pick=(field,value)=>{const input=r.querySelector('[data-setting="'+field+'"]');input.value=value;input.dispatchEvent(new Event('change',{bubbles:true}));};

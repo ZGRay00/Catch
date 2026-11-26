@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.4.1",
-  "scriptSha256": "ee9d34158ad45dcf7265b1dbdb5d80a1a62c62fc6670356559be924375da7f80",
-  "metadataSha256": "0a6f917e72bcbebe7adf503ecf270b824a135c074e1cb3c630bf6450074fe786",
+  "version": "8.4.3",
+  "scriptSha256": "5cce77c8a40c49d3599a4c58ea946761c99dfe460612f0525783b766ed29f862",
+  "metadataSha256": "41d5d8ef0cdce4caaa7bd52fb2d24063ef57d6e10d7e51b41b31b5be9d86308e",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "4c1283eef9122b87f6be4dfc74ce50fdd861056fb51315398c601d7831ac4e07"
+      "sha256": "858ff645b061ffc992c9351054ec7f7b9a7eb39ef96aae794d2646acf6cfc22e"
     },
     {
       "file": "build.manifest.json",
@@ -130,7 +130,7 @@
     },
     {
       "file": "src/models/combat-team.js",
-      "sha256": "24228a11c3f554e0b3a7995029a342ca7d130cca11a9076ceb76c5b56c7976dc"
+      "sha256": "613d3a1e4f01d5ce66f6ba3e0c7f8b41b9a596782e31e2d3d0063187eedd9bda"
     },
     {
       "file": "data/legend-elite.json",
@@ -142,7 +142,7 @@
     },
     {
       "file": "src/models/routes-training.js",
-      "sha256": "e382d437b78e88b285f277e8b333197376171f2c2e4db738ee8eda56d7f3e5c6"
+      "sha256": "ed00c087e168948e35b44a2038c43b5643de9d9ca662a87c6fa715c0eeefe75a"
     },
     {
       "file": "src/models/legend-requirements.js",
@@ -182,7 +182,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "95375f40a99593de85bdd04ceb00f811dd416253c601528cb8362b8a91efbd03"
+      "sha256": "4157064d8c8dfa55b42a826e358bb31401869068688df89a7c65881fe3638056"
     },
     {
       "file": "src/runtime/automation.js",
@@ -194,11 +194,11 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "432af76c2162854793f4bd60b1c3a4daea9232d16f06707f6eff1119bbb62cee"
+      "sha256": "85e2b77d4d8bf5f494b89475654e1de238e2d139f813aef8aa7d8a9a9d97ae5a"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "2cde2bb2cd50e07153f3ff3f3fc5bbd39d3165df2d6d45c836cfdae002b47696"
+      "sha256": "7f5106d6a84f9aec491116a4edcfff02b876f2ce3582352c081555e7c5b87abb"
     },
     {
       "file": "data/ui-icons.json",
@@ -246,7 +246,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "881e35ab177e501fe68fa0b203659d61db3ce08b1398786be582688d66e13f82"
+      "sha256": "5eb0241dfca521ae492cdbce8edf9c53a8e548f2df807cbaa43e8ec94f4300c2"
     }
   ]
 }

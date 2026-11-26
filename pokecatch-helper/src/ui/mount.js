@@ -57,6 +57,18 @@
     window.__pokecatchHelper=helperAPI;
     startupPhase='准备挂载面板';
 
+    function trainingEtaText(eta,now,targetRank,paused){
+        const label='预计完成时间';
+        if(paused)return label+' · 已暂停，恢复后重算';
+        if(!eta)return label+' · 等待练级路线和有效经验速度';
+        const stamp=minutes=>localCalendarTime(now+minutes*60000);
+        const minutes=Math.ceil(eta.minutes),hours=Math.floor(minutes/60);
+        const duration=hours?hours+' 小时'+(minutes%60?' '+minutes%60+' 分钟':''):minutes+' 分钟';
+        const scope=eta.rankMinutes?'（本阶）':eta.capped?'（至当前等级上限）':'';
+        const current=minutes?stamp(eta.minutes)+'（约 '+duration+'，'+(eta.measured?'本图实测':'路线估算')+'）':'已达标';
+        const ranks=eta.rankMinutes?' · 若能连续升阶，'+targetRank+' 阶满级约在 '+stamp(eta.rankMinutes):'';
+        return label+scope+' · '+current+ranks;
+    }
     function mount() {
         if(life.signal.aborted)return;
         if (!document.body){startupPhase='等待页面主体';return setTimeout(mount,500);}
@@ -89,7 +101,7 @@
             <button type="button" id="spirit-conditions" data-lookup="442" hidden>查看花岩怪获取条件</button>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric" title="合计当前钱包及跨地区暂存的钱包余额"><b id="money-value">0</b><span id="money-label">本次金币净增</span></div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
             <details id="season-calendar" class="season-calendar"><summary><span>游戏季节</span><strong></strong><span class="season-remaining"></span></summary><div class="season-period"></div><div class="season-next"></div></details>
-            <div class="target hidden" id="prepare-info"><b id="prepare-title"></b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-buddy"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div></div>
+            <div class="target hidden" id="prepare-info"><b id="prepare-title"></b><div class="sub" id="prepare-target"></div><div class="sub" id="prepare-route"></div><div class="sub" id="prepare-levels"></div><div class="sub" id="prepare-buddy"></div><div class="sub" id="prepare-assessment"></div><div class="bar"><i id="prepare-bar"></i></div><div class="sub" id="prepare-eta"></div></div>
             <section id="pane-tasks" aria-label="任务"><div id="queue-edit-note" class="queue-notice" hidden></div><div class="caption">选择任务</div><select data-setting="mode" class="sr-only" aria-label="任务模式">${Object.entries(MODE_NAMES).map(([id,name]) => `<option value="${id}">${name}</option>`).join('')}</select>
             <div class="categories" role="group" aria-label="任务分类"><button data-category="adventure" class="on">冒险</button><button data-category="collect">收集与养成</button><button data-category="battle">独立活动</button><button data-category="resource">资源</button></div>
             <div class="modes">${[['dex','◈','补齐图鉴','adventure'],['money','₽','自动刷钱','adventure'],['progress','➜','推进主线','adventure'],['daily','☀','通关日常','adventure'],['legend','✦','指定传说','collect'],['roam','⌖','游荡捕获','collect'],['shiny','✧','野生刷闪','collect'],['breed','◌','繁殖孵蛋','collect'],['train','↑','目标练级','collect'],['underground','⛏','地下通道','battle'],['tower','▥','对战塔','battle'],['candy','◬','糖果工厂','battle'],['elite','♜','精英联盟','battle'],['world','◎','世界首领','battle'],['item','▣','刷指定道具','resource'],['resource','＋','采购与使用','resource']].map(([id,icon,name,group]) => `<button data-mode="${id}" data-group="${group}" aria-pressed="false"><span>${icon}</span>${name}</button>`).join('')}</div>
@@ -160,6 +172,7 @@
                 </section>
                 <div class="hint" id="target-hint"></div><div class="hint" id="item-route-choice" hidden></div><dl class="decision-list" id="task-decision" hidden><dt>当前目标</dt><dd></dd><dt>选择依据</dt><dd></dd><dt>下一步</dt><dd></dd></dl><div class="goal"><span id="goal-label">进度</span><span id="goal-value">—</span></div><div class="bar" id="task-progress" role="progressbar" aria-label="任务进度" aria-valuemin="0" aria-valuemax="100"><i></i></div>
             </div>
+            <div id="training-eta" class="hint" hidden></div>
             </section>
             <section id="pane-queue" aria-label="任务队列" hidden>
                 <div class="queue-heading"><div><h2>任务队列</h2><p id="queue-summary" aria-live="polite"></p></div><button id="queue-add">配置新任务</button></div>
@@ -1002,6 +1015,8 @@
             note.hidden=!(s?.adv&&engine.running&&engine.settings.mode==='item'&&choice?.account===engine.account&&choice?.run===engine.runId&&choice.id===engine.settings.itemId&&choice.text);
             if(!note.hidden)note.textContent=choice.text;
             const decision=query('#task-decision');
+            const etaLine=query('#training-eta');
+            etaLine.hidden=!(s?.adv&&ui.workspace==='tasks'&&!queueForm&&!engine.preparation&&engine.settings.mode==='train'&&(engine.running||engine.suspended));
             decision.hidden=ui.workspace!=='tasks'||!s?.adv;
             if(ui.workspace==='settings')query('[data-setting="autoRecover"]').disabled=!formSettings().resumeOnReload||formLocked();
             if(ui.workspace==='queue'){drawQueue(s,locked,pending,editingJob,queueError,planned);return;}
@@ -1038,6 +1053,8 @@
             if(taskPage&&(trainingEntry()||formSettings().mode==='resource'))partyOptions(s);
             if(taskPage&&formSettings().mode==='breed')updateBreedingOptions(s);
             const preparation=engine.preparation;query('#prepare-info').classList.toggle('hidden',!preparation||!engine.running);
+            const canEstimateTraining=!paused&&!engine.daily?.job&&!s.adv.event&&!s.adv.zone&&!s.adv.tower&&!s.adv.league&&!engine.driver.pendingMap&&
+                (!s.road?.length||s.road.join('|')===s.team.join('|'));
             if(preparation){
                 query('#prepare-title').textContent=paused?'补练已暂停':'↑ 正在补练';
                 const levels=preparation.targets.map(target=>({...target,level:s.mons.find(m=>m.uid===target.uid)?.level||target.level}));
@@ -1048,6 +1065,10 @@
                 const fit=assessment?.fit,remaining=levels.reduce((total,target)=>{const mon=s.mons.find(mon=>mon.uid===target.uid),gap=mon&&candyXpGap(s,mon,target.goal);return gap==null?null:total==null?null:total+gap;},0);
                 query('#prepare-assessment').textContent=adaptive?[assessment?.reason||'按实际战力复查，达标可提前返回原任务',fit?`保守预计 ${fit.turns.toFixed(1)} 回合/对手`:'',remaining>0?`当前培养目标剩余 ${Math.round(remaining).toLocaleString()} EXP`:''].filter(Boolean).join(' · '):'按所选阵容完成当前补练等级目标';
                 query('#prepare-bar').style.width=`${levels.length?levels.reduce((n,m)=>n+Math.min(1,m.level/m.goal),0)/levels.length*100:100}%`;
+                const review=engine.coach.routeReview;
+                const row=preparation.phase==='train'&&review?.preparation===preparation&&review.rows?.find(r=>r.key===preparation.route?.key);
+                const goals=preparation.targets.map(t=>({mon:pokemonByUid(s).get(t.uid),level:t.goal}));
+                query('#prepare-eta').textContent=trainingEtaText(canEstimateTraining&&row&&trainingCompletionTime(s,goals,row),now,0,paused);
             }
             const settings = engine.settings, mode = settings.mode, status = dexStatus(s, settings);
             const training=!!engine.preparation||mode==='train',money=mode==='money'||mode==='dex'&&!status.missing.length&&settings.afterDex==='money';
@@ -1101,6 +1122,13 @@
                 if(taskPage)hint = eliteItemHint(item)||(item.id==='gracidea'?'白天带陆上形态谢米前往神奥花苑花田，在道具事件中领取一次。':`${itemRanking(s,settings).length} 个章节可规划。${item.sources.some(source => source.repeat) ? '按预计每小时掉落选图，实际收获可在路线表查看。' : '此道具为有限来源，已领取或已转金币的地点会排除。'} 获取数量按本次新增统计。`);
             } else if (mode === 'train') {
                 const p=trainingStatus(s,settings,engine.running?engine.trainProtected:null),xp=engine.endedTotals?engine.endedTotals.xp:experienceTotal(s,engine.trainProtected||s.team);
+                if(!etaLine.hidden){
+                    const route=engine.visit?.farmPlan?.kind==='xp'?engine.visit.farmPlan.row:engine.target;
+                    const rank=settings.trainGems&&settings.trainUid!=='team'?settings.trainRank:0;
+                    const goals=p.targets.map(mon=>({mon,level:settings.trainLevel}));
+                    const eta=canEstimateTraining&&!p.missing&&route?.key===engine.target?.key&&trainingCompletionTime(s,goals,route,rank);
+                    etaLine.textContent=trainingEtaText(eta,now,rank,paused);
+                }
                 const gained=engine.started&&engine.trainingSelection===settings.trainUid&&xp!=null&&engine.startTrainingXp!=null?Math.max(0,xp-engine.startTrainingXp):0;
                 primary = gained.toLocaleString(); primaryLabel = engine.trainingXpRebased?'恢复后新增 EXP':settings.trainUid==='team'?'本次全队 EXP':'练级对象 EXP'; goalLabel = `目标 Lv.${settings.trainLevel} · 上限 ${p.cap || '—'}`; goalValue = `${p.targets.filter(m=>m.level>=settings.trainLevel).length}/${p.targets.length} 达标`; percent = p.targets.length ? p.targets.reduce((n,m)=>n+Math.min(1,m.level/settings.trainLevel),0)/p.targets.length*100 : 0;
                 hint = p.missing ? '所选目标不在当前冒险队伍中，请重新选择。' : `当前 ${p.targets.map(m=>`${MONS.get(m.id)?.name || m.id} Lv.${m.level}`).join('、')}。按全队经验/分钟选图，达到目标或当前等级上限时停止；不使用糖果。`;

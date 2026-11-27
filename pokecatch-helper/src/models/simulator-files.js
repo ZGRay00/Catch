@@ -59,7 +59,18 @@
             m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:away.has(m.uid)?'地下槽位尚未归队':'导出时盒内记录'};
         };
         await Promise.all([...box.members,...(box.underground?.slots??[]).flatMap(slot=>slot.members??[])].map(complete));
-        const eliteTeams={},eliteProgress={};
+        const eliteTeams={},eliteProgress={},tasteSwitches={};
+        for(const member of box.members){
+            if(member.fieldProvenance.taste!=='raw')continue;
+            const sw=raw.get(member)?.taste?.sw;
+            if(sw===undefined){tasteSwitches[member.uid]={};continue;}
+            if(!sw||typeof sw!=='object'||Array.isArray(sw))continue;
+            const entries=Object.entries(sw);
+            if(entries.every(([k,v])=>['atk','def','spa','spd','spe'].includes(k)&&v&&Number.isSafeInteger(v.n)&&v.n>0&&v.n<=100000&&
+                Number.isSafeInteger(v.i)&&v.i>=0&&v.i<v.n&&Number.isFinite(v.e0)&&v.e0>=0&&v.e0<=.2)){
+                tasteSwitches[member.uid]=Object.fromEntries(entries.map(([k,{i,n,e0}])=>[k,{i,n,e0}]));
+            }
+        }
         for(const {id} of DATA.zones){
             const party=s.eventTeams?.['zone:'+id];
             if(Array.isArray(party)&&party.length<=6&&new Set(party).size===party.length&&party.every(uid=>aliases.has(uid))){
@@ -79,7 +90,7 @@
             capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters'],gameBuild:box.gameBuild??'unknown',
             conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
                 phase:phase==='morning'?'day':phase,observedPhase:phase,bundleBuild:bundles.size===1?[...bundles][0]:'unknown',
-                eliteTeams,eliteProgress,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
+                eliteTeams,eliteProgress,tasteSwitches,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
                 autoTeam:box.rules.autoTeam,activeSwitch:box.rules.activeSwitch},identityPersistent:!!trainer});
         if(resources){
             const count=v=>Number.isSafeInteger(v)&&v>=0;
@@ -90,7 +101,8 @@
             };
             const gem=k=>{const [type,rarity,...rest]=k.split(':');return !rest.length&&Object.hasOwn(DATA.types,type)&&/^[0-3]$/.test(rarity);};
             box.resourcesSnapshot={region:box.progress.walletRegion??'unknown',gold:count(s.money)?s.money:'unknown',
-                walletXp:'unknown',items:stock(s.items,k=>EVOLUTION_ITEMS.has(k)),gems:stock(s.under?.gems,gem)};
+                walletXp:'unknown',items:stock(s.items,k=>EVOLUTION_ITEMS.has(k)),gems:stock(s.under?.gems,gem),
+                candies:stock(s.items,k=>['mystery-candy','taste-spicy','taste-sour','taste-dry','taste-bitter','taste-sweet'].includes(k))};
         }
         return box;
     }

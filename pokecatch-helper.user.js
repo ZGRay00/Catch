@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.5.2
+// @version      8.5.3
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.5.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.5.3', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -3411,7 +3411,18 @@
             m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:away.has(m.uid)?'地下槽位尚未归队':'导出时盒内记录'};
         };
         await Promise.all([...box.members,...(box.underground?.slots??[]).flatMap(slot=>slot.members??[])].map(complete));
-        const eliteTeams={},eliteProgress={};
+        const eliteTeams={},eliteProgress={},tasteSwitches={};
+        for(const member of box.members){
+            if(member.fieldProvenance.taste!=='raw')continue;
+            const sw=raw.get(member)?.taste?.sw;
+            if(sw===undefined){tasteSwitches[member.uid]={};continue;}
+            if(!sw||typeof sw!=='object'||Array.isArray(sw))continue;
+            const entries=Object.entries(sw);
+            if(entries.every(([k,v])=>['atk','def','spa','spd','spe'].includes(k)&&v&&Number.isSafeInteger(v.n)&&v.n>0&&v.n<=100000&&
+                Number.isSafeInteger(v.i)&&v.i>=0&&v.i<v.n&&Number.isFinite(v.e0)&&v.e0>=0&&v.e0<=.2)){
+                tasteSwitches[member.uid]=Object.fromEntries(entries.map(([k,{i,n,e0}])=>[k,{i,n,e0}]));
+            }
+        }
         for(const {id} of DATA.zones){
             const party=s.eventTeams?.['zone:'+id];
             if(Array.isArray(party)&&party.length<=6&&new Set(party).size===party.length&&party.every(uid=>aliases.has(uid))){
@@ -3431,7 +3442,7 @@
             capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters'],gameBuild:box.gameBuild??'unknown',
             conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
                 phase:phase==='morning'?'day':phase,observedPhase:phase,bundleBuild:bundles.size===1?[...bundles][0]:'unknown',
-                eliteTeams,eliteProgress,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
+                eliteTeams,eliteProgress,tasteSwitches,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
                 autoTeam:box.rules.autoTeam,activeSwitch:box.rules.activeSwitch},identityPersistent:!!trainer});
         if(resources){
             const count=v=>Number.isSafeInteger(v)&&v>=0;
@@ -3442,7 +3453,8 @@
             };
             const gem=k=>{const [type,rarity,...rest]=k.split(':');return !rest.length&&Object.hasOwn(DATA.types,type)&&/^[0-3]$/.test(rarity);};
             box.resourcesSnapshot={region:box.progress.walletRegion??'unknown',gold:count(s.money)?s.money:'unknown',
-                walletXp:'unknown',items:stock(s.items,k=>EVOLUTION_ITEMS.has(k)),gems:stock(s.under?.gems,gem)};
+                walletXp:'unknown',items:stock(s.items,k=>EVOLUTION_ITEMS.has(k)),gems:stock(s.under?.gems,gem),
+                candies:stock(s.items,k=>['mystery-candy','taste-spicy','taste-sour','taste-dry','taste-bitter','taste-sweet'].includes(k))};
         }
         return box;
     }
@@ -17442,7 +17454,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石、口味糖果）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const newQueueJob=Symbol('new queue job');

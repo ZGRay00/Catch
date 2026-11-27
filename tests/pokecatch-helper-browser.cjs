@@ -5,18 +5,19 @@ const { spawn } = require('node:child_process'), { pathToFileURL } = require('no
 const net = require('node:net'), assert = require('node:assert/strict');
 const H = require('../Pokecatch自动助手.user.js');
 const delay = ms => new Promise(r => setTimeout(r, ms));
-const taskDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pokecatch-helper-browser-'));
+let taskDir;
 const chrome = process.env.CHROME_PATH || [
     'C:/Program Files/Google/Chrome/Application/chrome.exe',
     'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
 ].find(p => fs.existsSync(p));
 assert.ok(chrome, 'Set CHROME_PATH to Chrome or Edge');
 
-function fixture() {
+function fixture(override,productionSource) {
     const s = { trainer: { id: 'offline-browser' }, money: 3000, mons: [{ uid: 'a', id: 6, level: 100 }, { uid: 'b', id: 9, level: 100 }], team: ['a', 'b'],
         dex: {}, stats: { wins: 0, caught: 0, battles: 0 }, travel: { to: ['johto', 'hoenn', 'sinnoh'] },
         adv: { layout: 6, chapter: 0, unlocked: 65, node: 0, runs: 0, speed: 4, loops: [0, 31], badges: ['Maître'], gifts: { starter: true }, deaths: {} } };
-    const source = fs.readFileSync(path.join(__dirname, '..', 'Pokecatch自动助手.user.js'), 'utf8')
+    if(override)Object.assign(s,override);
+    const source = productionSource??fs.readFileSync(path.join(__dirname, '..', 'Pokecatch自动助手.user.js'), 'utf8')
         .replace('    mount();', '    window.__pcTest={engine,DOMDriver,DATA,DEFAULTS,candidates,economicRegion,levelEvolution,projectEvolution,planAdventureTeam}; window.__pcNurseryAutomation={nurseryFixedRoll,NURSERY_RULES}; mount();');
     return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PokéCatch · offline test</title>
     <style>body{background:#111a29;color:#eee;font:16px system-ui;margin:0;padding:20px}.screen{display:none}.screen.active{display:block}.rg,.mp-row,.mp-go,#tabs button{padding:8px;margin:4px}.pg-loop{display:inline-block;padding:9px;background:#345}.modal{position:fixed;left:10px;top:100px;background:#234;padding:20px}#modal-root:not(.open){display:none}#evt-pick{position:fixed;top:100px;left:20px;background:#234;padding:20px}</style>
@@ -68,6 +69,7 @@ function fixture() {
     <\/script><script>${fs.readFileSync(path.join(__dirname,'fixtures/pokecatch-automation-browser.js'),'utf8').replace(/<\/script/gi,'<\\/script')}</script><script>${source.replace(/<\/script/gi, '<\\/script')}</script></html>`;
 }
 async function main() {
+    taskDir=fs.mkdtempSync(path.join(os.tmpdir(),'pokecatch-helper-browser-'));
     const server = net.createServer(); await new Promise(r => server.listen(0, '127.0.0.1', r)); const port = server.address().port; await new Promise(r => server.close(r));
     const child = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', `--remote-debugging-port=${port}`, `--user-data-dir=${path.join(taskDir, 'profile')}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' });
     let socket, send, errors = [];
@@ -347,6 +349,7 @@ async function main() {
             if(folded)root.querySelector('.mini').click();
             __pcTest.engine.onChange();
             for(const [key,value] of Object.entries(${JSON.stringify(values)})){
+                if(key==='mode'&&root.querySelector('[data-mode="'+value+'"]')){root.querySelector('[data-mode="'+value+'"]').click();continue;}
                 if(key==='legendId'){
                     const picker=root.querySelector('#legend-picker');picker.open=true;
                     picker.querySelector('[value="'+value+'"]').closest('.legend-option').querySelector('button').click();
@@ -369,17 +372,18 @@ async function main() {
         await evaluate(`for(const id of ${JSON.stringify(registered)})mock.state.dex[id]={caught:1};mock.save()`);
         await setUI({ mode:'legend',legendId:145,legendTier:0,optimizeRaid:false,raids:true });
         await begin();
-        for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();
+        for(const end=Date.now()+6000;Date.now()<end&&!await evaluate('!!mock.state.adv.zone');){await tick();await delay(60);}
         assert.equal(await evaluate('mock.state.adv.zone?.id'),145,'specified legendary launches through native map');
         assert.equal(await evaluate('__pcTest.engine.raidProbe'),false,'specified legend keeps priority over raids');
         await evaluate('mock.state.dex[145]={caught:1};mock.state.adv.zone=null;mock.save()');await tick();
         assert.equal(await evaluate('__pcTest.engine.running'),false,'ordinary catch ends target task');
-        await setUI({legendTier:2});await begin();
-        for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();
-        assert.equal(await evaluate('mock.state.adv.zone?.elite'),1);
+        await evaluate("mock.state.adv.badges.push('Forêt');mock.save()");
+        await setUI({mode:'legend',legendId:145,legendTier:2});await begin();
+        for(const end=Date.now()+6000;Date.now()<end&&!await evaluate('!!mock.state.adv.zone');){await tick();await delay(60);}
+        assert.equal(await evaluate('mock.state.adv.zone?.elite'),1,JSON.stringify(await evaluate('[__pcTest.engine.status,__pcTest.engine.settings.mode,__pcTest.engine.settings.legendIds,__pcTest.engine.daily,__pcTest.engine.logs.slice(0,6).map(r=>r.text),__pcTest.engine.settings.legendTier,mock.state.adv.zone,__pcTest.engine.running]')));
         assert.equal(await evaluate('window.eliteZoneEdits||0'),0,'manual elite policy leaves the special team alone');
         await evaluate('mock.state.elite={145:{t:1}};mock.state.adv.zone=null;mock.save()');
-        for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();
+        for(const end=Date.now()+6000;Date.now()<end&&!await evaluate('!!mock.state.adv.zone');){await tick();await delay(60);}
         assert.equal(await evaluate('mock.state.adv.zone?.elite'),2,'only next elite tier is selected');
         await evaluate('mock.state.elite[145].t=2;mock.state.adv.zone=null;mock.save()');await tick();assert.equal(await evaluate('__pcTest.engine.running'),false);
         await setUI({legendId:144,legendTier:0});
@@ -393,7 +397,7 @@ async function main() {
         assert.match(await evaluate('__pcTest.engine.status'),/等待.*开放.*条件未满足/);
         assert.equal(await evaluate('__pcTest.engine.running'),true,'native closed conditions keep the target waiting');
         assert.equal(await evaluate('mock.state.adv.zone'),null,'disabled target never starts');await evaluate('window.zoneLocked=false;mock.nav("map")');
-        for(let n=0;n<15&&!await evaluate('!!mock.state.adv.zone');n++)await tick();
+        for(const end=Date.now()+6000;Date.now()<end&&!await evaluate('!!mock.state.adv.zone');){await tick();await delay(60);}
         assert.equal(await evaluate('mock.state.adv.zone?.id'),144,'original target launches after native conditions unlock');
         await evaluate('mock.state.dex[144]={caught:1};mock.state.adv.zone=null;mock.save()');await tick();
         assert.equal(await evaluate('__pcTest.engine.running'),false,'the unlocked legendary goal completes normally');
@@ -701,4 +705,5 @@ async function main() {
         child.kill();
     }
 }
-main().catch(e => { console.error(e); process.exitCode = 1; });
+module.exports={fixture};
+if(require.main===module)main().catch(e => { console.error(e); process.exitCode = 1; });

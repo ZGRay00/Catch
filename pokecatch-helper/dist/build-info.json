@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.5.0",
-  "scriptSha256": "d413f4cbfa1b0e65bcb71c366e81cdcedc19bcba6950d1e7efc2b2ecad3df584",
-  "metadataSha256": "44e668ef7a8f333f3d78a5f6b975233c5bc77d5e0a67785e2770db8aad487e72",
+  "version": "8.5.1",
+  "scriptSha256": "052aef95c2aed06cc1921422c84b9762368e58a2d69f20f35cfa77a74e921d5f",
+  "metadataSha256": "8c94e80c3735883b9946d101f5d15c91811c221e3bb60875410b234613a29656",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "f4790ad88cc2a9cbe3695484f13732c684c9c0c3b22db1755faf86b4203a7610"
+      "sha256": "bc2b3886a8be5310ac12853503c1f22617ff5bb7661207ccadc7dd06be8db663"
     },
     {
       "file": "build.manifest.json",
@@ -118,7 +118,7 @@
     },
     {
       "file": "src/models/simulator-files.js",
-      "sha256": "bcce285cd5974695c3361a3a248fc5adaaa08906ffdec44ef0b0568ae623e57d"
+      "sha256": "999478b26ab42f72dde5178f1970a4619ec4dcdfdbef7c8d15449641b1453421"
     },
     {
       "file": "data/evolution.json",
@@ -250,7 +250,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "d56b43566e1b34ec8a6fcc32483fe6dfc1283052211599b6e5fc2465f9a192af"
+      "sha256": "8051e1077900bddbd66258a50daefe7ddb2474b323a4aab6aed5d16b49844daf"
     }
   ]
 }

@@ -14,11 +14,11 @@
         q('#pen-res').innerHTML=p.mons.map(x=>`<button class="pen-res" data-uid="${x.mon.uid}">${x.mon.id}</button>`).join('');
         q('#pen-eggs').innerHTML=p.eggs.map(egg=>{const ready=eggReadiness.has(egg.uid)?eggReadiness.get(egg.uid):egg.hatchAt<=Date.now();return`<button class="pen-egg ${ready?'ready':''}" data-egg="${egg.uid}" ${ready?'':'disabled'}>Egg</button>`;}).join('');
         const stock=s.items?.['belue-berry']||0;
-        root.insertAdjacentHTML('beforeend',`<div id="pen-berries"><button data-myrte ${stock>0&&(p.bx||0)<4?'':'disabled'}><span class="bag-qty">×${stock}</span></button></div>`);
+        root.insertAdjacentHTML('beforeend',`<div id="pen-berries"><div class="pension-berry-slot"><div class="pension-berry-tip"><p>${p.bx||0}/4</p></div><button data-myrte ${stock>0&&(p.bx||0)<4?'':'disabled'}><span class="bag-qty">×${stock}</span></button></div></div>`);
         q('[data-myrte]').onclick=()=>{s.items['belue-berry']--;p.bx=(p.bx||0)+1;save();pension();};
         for(const button of root.querySelectorAll('[data-egg]'))button.onclick=()=>{hatchClicks++;const commit=()=>{const egg=p.eggs.find(x=>x.uid===button.dataset.egg);p.eggs=p.eggs.filter(x=>x!==egg);s.stats.hatched=(s.stats.hatched||0)+1;onEggSlotFreed?.(p);save();pension();
             if(eggPresentation==='duplicate'){const fx=document.createElement('div');fx.className='rc-fx lk-fx lk-hatch';fx.innerHTML='<button class="rc-tap">Family XP</button>';fx.querySelector('.rc-tap').onpointerdown=()=>fx.remove();document.body.appendChild(fx);}
-            else modal('dexcard-modal',eggPresentation==='plain'?'<b>Hatched</b>':'<b class="dc-new">Hatched</b>');};if(eggPresentation==='delayed')hatchCommit=commit;else commit();};
+            else modal('dexcard-modal','<div class="dexcard v2"><div class="dc-head"><span class="dc-sum"><b>'+egg.id+'</b></span></div>'+(eggPresentation==='plain'?'':'<b class="dc-new">Hatched</b>')+'</div>');};if(eggPresentation==='delayed')hatchCommit=commit;else commit();};
     }
     let shopQuantity='1';
     function shop(){
@@ -440,7 +440,7 @@
         assert(!idlePref.checked&&!feedPref.checked&&!refPref.checked&&refPref.disabled,'nursery options are off by default and the fallback requires auto-feed');
         idle();assert(s.stats.hatched===0,'stopped helper leaves mature eggs alone by default');
         idlePref.click();for(let i=0;i<12;i++)idle();
-        assert(!engine.running&&s.stats.hatched===1&&hatchClicks===1&&!!q('#screen-adventure.active'),'opt-in idle collection hatches once and restores the native page without starting a task');
+        assert(!engine.running&&s.stats.hatched===1&&hatchClicks===1&&!!q('#screen-adventure.active'),'opt-in idle collection hatches once and restores the native page without starting a task · '+JSON.stringify([s.stats.hatched,hatchClicks,engine.nurseryAssist.note,engine.nurseryAssist.manualUntil-Date.now(),q('.screen.active').id]));
         idlePref.click();
         const savedBuild=window.BUILD,fixtureNursery=window.__pcNurseryAutomation;
         try{

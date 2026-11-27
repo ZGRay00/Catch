@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.5.0
+// @version      8.5.1
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.5.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.5.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -3385,6 +3385,18 @@
             m.bannedMoves=original.ban===undefined?[]:[...new Set(original.ban)].sort();
             m.unrecognized=(m.bannedMoves??[]).filter(k=>!Object.hasOwn(DATA.combat.moves,k));
             m.fieldProvenance=Object.fromEntries(simFields.map(k=>[k,k==='bannedMoves'&&original.ban===undefined?'verified-default':m[k]!==undefined?'raw':k==='taste'&&!original.taste?'verified-default':'unknown']));
+            const taste=original.taste,stats=['atk','def','spa','spd','spe'];
+            const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
+            if(taste!==undefined){
+                const invalid=!object(taste)||Object.keys(taste).some(k=>!['up','h'].includes(k))||
+                    taste.h!==undefined&&!stats.includes(taste.h)||taste.up!==undefined&&(!object(taste.up)||
+                    Object.entries(taste.up).some(([k,v])=>!stats.includes(k)||!Number.isFinite(v)||v<0||v>100000));
+                if(invalid){m.fieldProvenance.taste='unsupported';m.fieldDiagnostics={taste:'口味含未识别的偏好、能力项或无效增量'};}
+                else if(!m.taste)m.fieldProvenance.taste='verified-default';
+            }
+            for(const k of ['level','rank','shiny','statMult','hpMult','damageMult']){
+                if(original[k]!==undefined&&m[k]===undefined){m.fieldProvenance[k]='unsupported';(m.fieldDiagnostics??={})[k]='原字段类型无效';}
+            }
             m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:'导出时盒子与已知地下派遣记录'};
         };
         await Promise.all([...box.members,...(box.underground?.slots??[]).flatMap(slot=>slot.members??[])].map(complete));
@@ -3406,7 +3418,7 @@
         scan(p,0);
         const hex=v=>typeof v==='string'&&/^[0-9a-f]{64}$/.test(v);
         if(!keys(p,['format','schema','sourceBoxHash','identityScope','target','conditions','engine','rules','policy','team','sample','confirmedAt','training'])||
-            p.format!=='pokecatch-team-plan'||p.schema!==1||!hex(p.sourceBoxHash)||!(p.identityScope===null||typeof p.identityScope==='string'&&/^[a-f0-9-]{32,64}$/i.test(p.identityScope))||
+            p.format!=='pokecatch-team-plan'||![1,2].includes(p.schema)||!hex(p.sourceBoxHash)||!(p.identityScope===null||typeof p.identityScope==='string'&&/^[a-f0-9-]{32,64}$/i.test(p.identityScope))||
             typeof p.target!=='string'||!/^\d+\/\d+\/[1-5]$/.test(p.target)||!keys(p.conditions,['weather','phase','factors','maxRounds','strategy','seed','rng'])||
             !['day','night'].includes(p.conditions.phase)||typeof p.conditions.weather!=='string'||!obj(p.conditions.factors)||Object.values(p.conditions.factors).some(x=>!Number.isFinite(x))||
             !Number.isSafeInteger(p.conditions.maxRounds)||p.conditions.maxRounds<1||p.conditions.maxRounds>200||p.conditions.strategy!=='native-priority'||
@@ -3414,11 +3426,12 @@
             !keys(p.training,['actions','resourceKnowledge'])||!Array.isArray(p.training.actions)||p.training.actions.length>6||!['xp-known','unknown'].includes(p.training.resourceKnowledge)||p.training.actions.some(a=>!keys(a,['position','from','to','xp'])||!Number.isInteger(a.position)||a.position<1||a.position>(p.team?.length??0)||!Number.isInteger(a.from)||a.from<1||!Number.isInteger(a.to)||a.to<a.from||a.to>100||!(a.xp===null||Number.isSafeInteger(a.xp)&&a.xp>=0))||
             !Array.isArray(p.team)||!p.team.length||p.team.length>6||!keys(p.sample,['wins','trials','interval'])||!Number.isSafeInteger(p.sample.wins)||!Number.isSafeInteger(p.sample.trials)||p.sample.trials<1||p.sample.trials>10000||p.sample.wins<0||p.sample.wins>p.sample.trials||
             !Array.isArray(p.sample.interval)||p.sample.interval.length!==2||!p.sample.interval.every(v=>Number.isFinite(v)&&v>=0&&v<=1)||p.sample.interval[0]>p.sample.interval[1]||p.training.resourceKnowledge==='xp-known'&&p.training.actions.some(a=>a.xp===null)||typeof p.confirmedAt!=='string'||!Number.isFinite(Date.parse(p.confirmedAt)))throw Error('挑战方案格式或版本无效');
-        for(const m of p.team){if(!keys(m,['stableId','name','profile','fingerprint'])||!(m.stableId===null||hex(m.stableId))||typeof m.name!=='string'||!hex(m.fingerprint)||
+        for(const m of p.team){if(!keys(m,['stableId','name','profile','fingerprint',...(p.schema===2?['sources']:[])])||!(m.stableId===null||hex(m.stableId))||typeof m.name!=='string'||!hex(m.fingerprint)||
             !keys(m.profile,['id','reg',...simFields])||!Number.isSafeInteger(m.profile.id)||m.profile.id<1||!Number.isInteger(m.profile.level)||m.profile.level<1||m.profile.level>100||!Number.isInteger(m.profile.rank)||m.profile.rank<0||m.profile.rank>5||
             typeof m.profile.shiny!=='boolean'||!(m.profile.reg===null||typeof m.profile.reg==='string')||!['statMult','hpMult','damageMult'].every(k=>m.profile[k]===null||Number.isFinite(m.profile[k])&&m.profile[k]>=0&&m.profile[k]<=1000)||
             !Array.isArray(m.profile.bannedMoves)||!m.profile.bannedMoves.every(k=>typeof k==='string'&&k.length<=96)||
             !(m.profile.taste===null||keys(m.profile.taste,['up','h'])&&(m.profile.taste.h===undefined||['atk','def','spa','spd','spe'].includes(m.profile.taste.h))&&(m.profile.taste.up===undefined||keys(m.profile.taste.up,['atk','def','spa','spd','spe'])&&Object.values(m.profile.taste.up).every(x=>Number.isFinite(x)&&x>=0&&x<=100000))))throw Error('成员画像无效');}
+        if(p.schema===2&&p.team.some(m=>!keys(m.sources,simFields)||simFields.some(k=>!['raw','verified-default','user-supplied','model-assumption','legacy','unused'].includes(m.sources[k]))))throw Error('方案字段来源无效');
         const ids=p.team.map(m=>m.stableId).filter(Boolean);if(new Set(ids).size!==ids.length)throw Error('方案身份重复');
         return p;
     }
@@ -18718,7 +18731,8 @@
                 const refresh=()=>{done.disabled=selected.some(a=>!a)||new Set(selected).size!==rows.length;status.textContent=done.disabled?'尚有缺失、重复或待确认成员':selected.join(',')===box.activeTeam.join(',')?'当前队及顺序一致':'当前队与推荐队不同，请手动调整。';};
                 for(const [i,r] of rows.entries()){
                     const label=(i+1)+'. '+r.m.name+(r.m.profile.shiny?' ✦ 异色':'')+' Lv.'+r.m.profile.level+' · '+r.m.profile.rank+' 阶';messages.push(label);line(label);
-                    const describe=m=>{const dif=Object.keys(r.m.profile).filter(k=>simCanonical(simProfile(m)[k])!==simCanonical(r.m.profile[k]));return (dif.length?'字段变化 '+dif.join('、'):'画像相符')+(m.availability.state==='available'?'':' · 成员被占用或状态未知');};
+                    const describe=m=>{const dif=Object.keys(r.m.profile).filter(k=>simCanonical(simProfile(m)[k])!==simCanonical(r.m.profile[k]));return (m.fieldDiagnostics?'当前存档字段异常 · '+Object.keys(m.fieldDiagnostics).join('、')+' · ':'')+(dif.length?'字段变化 '+dif.join('、'):'画像相符')+(m.availability.state==='available'?'':' · 成员被占用或状态未知');};
+                    if(r.m.sources){const supplied=Object.entries(r.m.sources).filter(([,v])=>['user-supplied','model-assumption'].includes(v));if(supplied.length)line('按模型假设或手动补充 · '+supplied.map(([k])=>k).join('、'));}
                     if(r.mon)line(describe(r.mon));else{const sel=document.createElement('select'),details=line(r.choices.length?'请选择具体个体':'存档中没有此成员');sel.add(new Option('待确认',''));for(const m of r.choices)sel.add(new Option(m.name+' '+(m.shiny?'✦ 异色 ':'')+'Lv.'+m.level+' · '+m.rank+'阶 · '+m.uid,m.uid));content.append(sel);
                         sel.onchange=()=>{selected[i]=sel.value;const m=r.choices.find(m=>m.uid===sel.value);details.textContent=m?describe(m):'待确认';refresh();};}
                 }

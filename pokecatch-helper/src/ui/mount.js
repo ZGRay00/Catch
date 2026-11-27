@@ -1615,7 +1615,8 @@
                 const refresh=()=>{done.disabled=selected.some(a=>!a)||new Set(selected).size!==rows.length;status.textContent=done.disabled?'尚有缺失、重复或待确认成员':selected.join(',')===box.activeTeam.join(',')?'当前队及顺序一致':'当前队与推荐队不同，请手动调整。';};
                 for(const [i,r] of rows.entries()){
                     const label=(i+1)+'. '+r.m.name+(r.m.profile.shiny?' ✦ 异色':'')+' Lv.'+r.m.profile.level+' · '+r.m.profile.rank+' 阶';messages.push(label);line(label);
-                    const describe=m=>{const dif=Object.keys(r.m.profile).filter(k=>simCanonical(simProfile(m)[k])!==simCanonical(r.m.profile[k]));return (dif.length?'字段变化 '+dif.join('、'):'画像相符')+(m.availability.state==='available'?'':' · 成员被占用或状态未知');};
+                    const describe=m=>{const dif=Object.keys(r.m.profile).filter(k=>simCanonical(simProfile(m)[k])!==simCanonical(r.m.profile[k]));return (m.fieldDiagnostics?'当前存档字段异常 · '+Object.keys(m.fieldDiagnostics).join('、')+' · ':'')+(dif.length?'字段变化 '+dif.join('、'):'画像相符')+(m.availability.state==='available'?'':' · 成员被占用或状态未知');};
+                    if(r.m.sources){const supplied=Object.entries(r.m.sources).filter(([,v])=>['user-supplied','model-assumption'].includes(v));if(supplied.length)line('按模型假设或手动补充 · '+supplied.map(([k])=>k).join('、'));}
                     if(r.mon)line(describe(r.mon));else{const sel=document.createElement('select'),details=line(r.choices.length?'请选择具体个体':'存档中没有此成员');sel.add(new Option('待确认',''));for(const m of r.choices)sel.add(new Option(m.name+' '+(m.shiny?'✦ 异色 ':'')+'Lv.'+m.level+' · '+m.rank+'阶 · '+m.uid,m.uid));content.append(sel);
                         sel.onchange=()=>{selected[i]=sel.value;const m=r.choices.find(m=>m.uid===sel.value);details.textContent=m?describe(m):'待确认';refresh();};}
                 }

@@ -8,7 +8,7 @@
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,worldAttackParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
         Object.assign(module.exports,{TOWER_RULES,towerFloorProfile,raidBossFactors,raidParalysisTurns,localRulesKnown});
         Object.assign(module.exports,{shopCandyTier,boxMoneyRequest,partyHistory,partyRunCondition,observeCasino,casinoSummary});
-        Object.assign(module.exports,{boxSnapshot,pokemonByUid,rosterLocations,eligibleRoster});
+        Object.assign(module.exports,{boxSnapshot,simulatorBox,readSimulatorPlan,reviewSimulatorPlan,pokemonByUid,rosterLocations,eligibleRoster});
         Object.assign(module.exports,{trainingXpTargets,trainingXpSuffix,trainingCompletionTime,routeIdentity});
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution,preparationEvolutionLabel});
         Object.assign(module.exports,{regionalWeatherForecast,VERSION,UPDATE_RELEASE,UPDATE_SOURCES,updateSourceURL,allowedUpdateURL,allowedUpdateRedirect,compareUpdateVersions,parseUpdateScript,requestUpdateResource,downloadUpdateScript,UpdateChecker});

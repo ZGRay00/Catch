@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "8.4.4",
-  "scriptSha256": "037c4d42870c018cf0e125d8fd1f23d9934c7bd9891ec78938226bd189ca8503",
-  "metadataSha256": "e39582f0eda28f23d3d64f883e4ba93738f9081e51ea1ed8d53d9c95616a553f",
+  "version": "8.5.0",
+  "scriptSha256": "d413f4cbfa1b0e65bcb71c366e81cdcedc19bcba6950d1e7efc2b2ecad3df584",
+  "metadataSha256": "44e668ef7a8f333f3d78a5f6b975233c5bc77d5e0a67785e2770db8aad487e72",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "156f5c97fd43ccdb8853b64a3cc87573d9e0c9dffb8f13d9c23f63de3f4a3364"
+      "sha256": "f4790ad88cc2a9cbe3695484f13732c684c9c0c3b22db1755faf86b4203a7610"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "137651866e088780df6202e67df9a989e95ebcfd1daf6ae06db84e3e6c1be7e2"
+      "sha256": "ad7efee9a70915afd196a959237472163c7032c28961bb03a436f0f12f65db5c"
     },
     {
       "file": "userscript.header.txt",
@@ -114,7 +114,11 @@
     },
     {
       "file": "src/models/roster.js",
-      "sha256": "fcf48c988b7c8e4eb87357e402763c715de717fb566047b86101d129dbefa7b8"
+      "sha256": "5b02b184278b1a311eea694b7f0dd70e56bfc9b90a9a923a2948d53fe0bff8ce"
+    },
+    {
+      "file": "src/models/simulator-files.js",
+      "sha256": "bcce285cd5974695c3361a3a248fc5adaaa08906ffdec44ef0b0568ae623e57d"
     },
     {
       "file": "data/evolution.json",
@@ -198,7 +202,7 @@
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "7f5106d6a84f9aec491116a4edcfff02b876f2ce3582352c081555e7c5b87abb"
+      "sha256": "4b98d40de5f60a7519196561d6fc34d589d4e55e4673448e122b9c93fca051b2"
     },
     {
       "file": "data/ui-icons.json",
@@ -246,7 +250,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "5eb0241dfca521ae492cdbce8edf9c53a8e548f2df807cbaa43e8ec94f4300c2"
+      "sha256": "d56b43566e1b34ec8a6fcc32483fe6dfc1283052211599b6e5fc2465f9a192af"
     }
   ]
 }

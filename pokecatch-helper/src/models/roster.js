@@ -119,13 +119,14 @@
         return !s.link || (reg === s.link.to) === (monRegion(mon) === s.link.to);
     }
 
-    function boxSnapshot(s,settings=DEFAULTS,now=Date.now(),gameBuild){
+    function boxSnapshot(s,settings=DEFAULTS,now=Date.now(),gameBuild,observe){
         if(!s?.adv||!Array.isArray(s.mons))throw new Error('请先进入游戏并加载盒子');
         const stats=['atk','def','spa','spd','spe'],number=value=>Number.isFinite(value)?value:undefined;
         const refs=new Map(),members=[];
         const knownUid=uid=>typeof uid==='string'&&uid.length>0;
         const exportable=mon=>knownUid(mon?.uid)&&Number.isSafeInteger(mon.id)&&mon.id>0;
         const exportMember=(mon,uid)=>{
+            observe?.(uid,mon);
             const model=MONS.get(mon.id);
             const up=Object.fromEntries(stats.filter(key=>Number.isFinite(mon.taste?.up?.[key])).map(key=>[key,mon.taste.up[key]]));
             const favoriteStat=stats.includes(mon.taste?.h)?mon.taste.h:undefined;

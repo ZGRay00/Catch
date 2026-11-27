@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.4.4
+// @version      8.5.0
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.4.4', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.5.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -3279,13 +3279,14 @@
         return !s.link || (reg === s.link.to) === (monRegion(mon) === s.link.to);
     }
 
-    function boxSnapshot(s,settings=DEFAULTS,now=Date.now(),gameBuild){
+    function boxSnapshot(s,settings=DEFAULTS,now=Date.now(),gameBuild,observe){
         if(!s?.adv||!Array.isArray(s.mons))throw new Error('请先进入游戏并加载盒子');
         const stats=['atk','def','spa','spd','spe'],number=value=>Number.isFinite(value)?value:undefined;
         const refs=new Map(),members=[];
         const knownUid=uid=>typeof uid==='string'&&uid.length>0;
         const exportable=mon=>knownUid(mon?.uid)&&Number.isSafeInteger(mon.id)&&mon.id>0;
         const exportMember=(mon,uid)=>{
+            observe?.(uid,mon);
             const model=MONS.get(mon.id);
             const up=Object.fromEntries(stats.filter(key=>Number.isFinite(mon.taste?.up?.[key])).map(key=>[key,mon.taste.up[key]]));
             const favoriteStat=stats.includes(mon.taste?.h)?mon.taste.h:undefined;
@@ -3347,6 +3348,89 @@
             rosterLink:to&&side?{from:region(link.from),to,side,storedTeam:lookup(link.stash?.team)}:null,
             team,activeTeam:road.length?road:team,buddy:refs.get(s.buddy?.uid)??null,members,underground,
         };
+    }
+    const simFields=['level','rank','shiny','bannedMoves','taste','statMult','hpMult','damageMult'];
+    const simOpaque=()=>crypto.randomUUID();
+    const simHex=b=>Array.from(new Uint8Array(b),n=>n.toString(16).padStart(2,'0')).join('');
+    const simCanonical=v=>Array.isArray(v)?'['+v.map(simCanonical).join(',')+']':v&&typeof v==='object'?'{'+Object.keys(v).sort().filter(k=>v[k]!==undefined).map(k=>JSON.stringify(k)+':'+simCanonical(v[k])).join(',')+'}':JSON.stringify(v);
+    const simDigest=async v=>simHex(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(simCanonical(v))));
+    function simIdentity(trainer,uids=[],reset=false){
+        const fresh=()=>({scope:simOpaque(),secret:simHex(crypto.getRandomValues(new Uint8Array(32)))});
+        if(!trainer)return Promise.resolve(fresh());
+        return new Promise((ok,fail)=>{
+            const req=indexedDB.open('pokecatch-simulator-identities',1);
+            req.onupgradeneeded=()=>req.result.createObjectStore('saves');
+            req.onerror=()=>fail(req.error);
+            req.onsuccess=()=>{const db=req.result,tx=db.transaction('saves','readwrite'),store=tx.objectStore('saves'),get=store.get(trainer);let value;
+                get.onsuccess=()=>{const prior=get.result,seen=new Set(prior?.uids??[]);
+                    const same=!reset&&uids.length&&uids.some(uid=>seen.has(uid));value=same?prior:fresh();
+                    store.put({...value,uids:[...new Set(uids)]},trainer);};
+                tx.oncomplete=()=>{db.close();ok(value);};tx.onabort=()=>{db.close();fail(tx.error??Error('身份空间不可读'));};
+            };
+        });
+    }
+    async function simulatorBox(s,settings,now,build,resources=false,identity=simIdentity){
+        const raw=new Map(),box=boxSnapshot(s,settings,now,build,(alias,m)=>raw.set(alias,m));
+        const trainer=s.trainer?.id;
+        const space=await identity(typeof trainer==='string'&&trainer||typeof trainer==='number'&&String(trainer)||null,[...raw.values()].map(m=>m.uid));
+        const zone=s.adv?.zone;const observedTarget=Number.isSafeInteger(zone?.id)&&Number.isSafeInteger(zone?.elite)?zone.id+'/'+(Number.isSafeInteger(zone.foe)?zone.foe:zone.id)+'/'+zone.elite:'unknown';
+        const phase=Number.isInteger(s.adv.chapter)?phaseAt(s,now,s.adv.chapter):'unknown';
+        const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(space.secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+        const away=new Set(box.underground?.used??[]);
+        const complete=async m=>{
+            const original=raw.get(m.uid);
+            m.stableId=simHex(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(original.uid)));
+            m.rank=Number.isInteger(original.rank)?original.rank:undefined;m.shiny=typeof original.shiny==='boolean'?original.shiny:undefined;
+            if(original.ban!==undefined&&(!Array.isArray(original.ban)||original.ban.length>256||original.ban.some(k=>typeof k!=='string'||!k.length||k.length>96)))throw Error('禁招字段超出协议范围');
+            m.bannedMoves=original.ban===undefined?[]:[...new Set(original.ban)].sort();
+            m.unrecognized=(m.bannedMoves??[]).filter(k=>!Object.hasOwn(DATA.combat.moves,k));
+            m.fieldProvenance=Object.fromEntries(simFields.map(k=>[k,k==='bannedMoves'&&original.ban===undefined?'verified-default':m[k]!==undefined?'raw':k==='taste'&&!original.taste?'verified-default':'unknown']));
+            m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:'导出时盒子与已知地下派遣记录'};
+        };
+        await Promise.all([...box.members,...(box.underground?.slots??[]).flatMap(slot=>slot.members??[])].map(complete));
+        Object.assign(box,{schema:2,exporter:'pokecatch-helper/2',exportId:simOpaque(),identityScope:space.scope,
+            capabilities:['stable-identity','field-provenance','conditions','raw-bans'],gameBuild:box.gameBuild??'unknown',
+            conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather:['neutral','rain','storm','sun','sand','snow','fog'].includes(zone?.weather)?zone.weather:'unknown',phase:['day','night'].includes(phase)?phase:'unknown',nativeAutoSwitch:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
+                autoTeam:box.rules.autoTeam,activeSwitch:box.rules.activeSwitch},identityPersistent:!!trainer});
+        if(resources)box.resourcesSnapshot={region:box.progress.walletRegion??'unknown',gold:Number.isFinite(s.money)?s.money:'unknown',walletXp:'unknown',items:'unknown'};
+        return box;
+    }
+    const simProfile=m=>Object.fromEntries(['id','reg',...simFields].map(k=>[k,k==='bannedMoves'&&Array.isArray(m[k])?[...m[k]].sort():m[k]??null]));
+    function readSimulatorPlan(raw){
+        if(typeof raw!=='string'||raw.length>256*1024)throw Error('方案超过 256 KiB');
+        const p=JSON.parse(raw),obj=v=>v&&typeof v==='object'&&!Array.isArray(v);
+        const keys=(v,list)=>obj(v)&&Object.keys(v).every(k=>list.includes(k));
+        let count=0;
+        function scan(v,d){if(++count>12000||d>16||typeof v==='string'&&v.length>1024||Array.isArray(v)&&v.length>256)throw Error('方案结构超限');
+            if(v&&typeof v==='object')for(const [k,x] of Object.entries(v)){if(['__proto__','constructor','prototype'].includes(k))throw Error('不支持的键');scan(x,d+1);}}
+        scan(p,0);
+        const hex=v=>typeof v==='string'&&/^[0-9a-f]{64}$/.test(v);
+        if(!keys(p,['format','schema','sourceBoxHash','identityScope','target','conditions','engine','rules','policy','team','sample','confirmedAt','training'])||
+            p.format!=='pokecatch-team-plan'||p.schema!==1||!hex(p.sourceBoxHash)||!(p.identityScope===null||typeof p.identityScope==='string'&&/^[a-f0-9-]{32,64}$/i.test(p.identityScope))||
+            typeof p.target!=='string'||!/^\d+\/\d+\/[1-5]$/.test(p.target)||!keys(p.conditions,['weather','phase','factors','maxRounds','strategy','seed','rng'])||
+            !['day','night'].includes(p.conditions.phase)||typeof p.conditions.weather!=='string'||!obj(p.conditions.factors)||Object.values(p.conditions.factors).some(x=>!Number.isFinite(x))||
+            !Number.isSafeInteger(p.conditions.maxRounds)||p.conditions.maxRounds<1||p.conditions.maxRounds>200||p.conditions.strategy!=='native-priority'||
+            !Number.isInteger(p.conditions.seed)||typeof p.conditions.rng!=='string'||typeof p.engine!=='string'||!hex(p.rules)||typeof p.policy!=='string'||
+            !keys(p.training,['actions','resourceKnowledge'])||!Array.isArray(p.training.actions)||p.training.actions.length>6||!['xp-known','unknown'].includes(p.training.resourceKnowledge)||p.training.actions.some(a=>!keys(a,['position','from','to','xp'])||!Number.isInteger(a.position)||a.position<1||a.position>(p.team?.length??0)||!Number.isInteger(a.from)||a.from<1||!Number.isInteger(a.to)||a.to<a.from||a.to>100||!(a.xp===null||Number.isSafeInteger(a.xp)&&a.xp>=0))||
+            !Array.isArray(p.team)||!p.team.length||p.team.length>6||!keys(p.sample,['wins','trials','interval'])||!Number.isSafeInteger(p.sample.wins)||!Number.isSafeInteger(p.sample.trials)||p.sample.trials<1||p.sample.trials>10000||p.sample.wins<0||p.sample.wins>p.sample.trials||
+            !Array.isArray(p.sample.interval)||p.sample.interval.length!==2||!p.sample.interval.every(v=>Number.isFinite(v)&&v>=0&&v<=1)||p.sample.interval[0]>p.sample.interval[1]||p.training.resourceKnowledge==='xp-known'&&p.training.actions.some(a=>a.xp===null)||typeof p.confirmedAt!=='string'||!Number.isFinite(Date.parse(p.confirmedAt)))throw Error('挑战方案格式或版本无效');
+        for(const m of p.team){if(!keys(m,['stableId','name','profile','fingerprint'])||!(m.stableId===null||hex(m.stableId))||typeof m.name!=='string'||!hex(m.fingerprint)||
+            !keys(m.profile,['id','reg',...simFields])||!Number.isSafeInteger(m.profile.id)||m.profile.id<1||!Number.isInteger(m.profile.level)||m.profile.level<1||m.profile.level>100||!Number.isInteger(m.profile.rank)||m.profile.rank<0||m.profile.rank>5||
+            typeof m.profile.shiny!=='boolean'||!(m.profile.reg===null||typeof m.profile.reg==='string')||!['statMult','hpMult','damageMult'].every(k=>m.profile[k]===null||Number.isFinite(m.profile[k])&&m.profile[k]>=0&&m.profile[k]<=1000)||
+            !Array.isArray(m.profile.bannedMoves)||!m.profile.bannedMoves.every(k=>typeof k==='string'&&k.length<=96)||
+            !(m.profile.taste===null||keys(m.profile.taste,['up','h'])&&(m.profile.taste.h===undefined||['atk','def','spa','spd','spe'].includes(m.profile.taste.h))&&(m.profile.taste.up===undefined||keys(m.profile.taste.up,['atk','def','spa','spd','spe'])&&Object.values(m.profile.taste.up).every(x=>Number.isFinite(x)&&x>=0&&x<=100000))))throw Error('成员画像无效');}
+        const ids=p.team.map(m=>m.stableId).filter(Boolean);if(new Set(ids).size!==ids.length)throw Error('方案身份重复');
+        return p;
+    }
+    async function reviewSimulatorPlan(plan,box){
+        const same=!!plan.identityScope&&plan.identityScope===box.identityScope,rows=[];
+        for(const m of plan.team){
+            if(await simDigest(m.profile)!==m.fingerprint)throw Error('方案个体画像指纹不符');
+            const mon=same&&m.stableId?box.members.find(p=>p.stableId===m.stableId):undefined;
+            const differences=mon?Object.keys(m.profile).filter(k=>simCanonical(simProfile(mon)[k])!==simCanonical(m.profile[k])):[];
+            rows.push({m,mon,differences,choices:mon?[]:box.members.filter(x=>x.id===m.profile.id)});
+        }
+        return {rows,same};
     }
     const EVOLUTION_DATA = {"build":"4b690e533c","checked":"2026-11-22","rules":{"1":[{"to":2,"level":16}],"2":[{"to":3,"level":32}],"4":[{"to":5,"level":16}],"5":[{"to":6,"level":36}],"7":[{"to":8,"level":16}],"8":[{"to":9,"level":36}],"10":[{"to":11,"level":7}],"11":[{"to":12,"level":10}],"13":[{"to":14,"level":7}],"14":[{"to":15,"level":10}],"16":[{"to":17,"level":18}],"17":[{"to":18,"level":36}],"19":[{"to":20,"level":20}],"21":[{"to":22,"level":20}],"23":[{"to":24,"level":22}],"25":[{"to":26,"item":"thunder-stone"}],"27":[{"to":28,"level":22}],"29":[{"to":30,"level":16}],"30":[{"to":31,"item":"moon-stone"}],"32":[{"to":33,"level":16}],"33":[{"to":34,"item":"moon-stone"}],"35":[{"to":36,"item":"moon-stone"}],"37":[{"to":38,"item":"fire-stone"}],"39":[{"to":40,"item":"moon-stone"}],"41":[{"to":42,"level":22}],"42":[{"to":169,"item":"soothe-bell"}],"43":[{"to":44,"level":21}],"44":[{"to":45,"item":"leaf-stone"},{"to":182,"item":"sun-stone"}],"46":[{"to":47,"level":24}],"48":[{"to":49,"level":31}],"50":[{"to":51,"level":26}],"52":[{"to":53,"level":28}],"54":[{"to":55,"level":33}],"56":[{"to":57,"level":28}],"58":[{"to":59,"item":"fire-stone"}],"60":[{"to":61,"level":25}],"61":[{"to":62,"item":"water-stone"},{"to":186,"item":"kings-rock"}],"63":[{"to":64,"level":16}],"64":[{"to":65,"item":"link-cable"}],"66":[{"to":67,"level":28}],"67":[{"to":68,"item":"link-cable"}],"69":[{"to":70,"level":21}],"70":[{"to":71,"item":"leaf-stone"}],"72":[{"to":73,"level":30}],"74":[{"to":75,"level":25}],"75":[{"to":76,"item":"link-cable"}],"77":[{"to":78,"level":40}],"79":[{"to":80,"level":37},{"to":199,"item":"kings-rock"}],"81":[{"to":82,"level":30}],"82":[{"to":462,"item":"thunder-stone"}],"84":[{"to":85,"level":31}],"86":[{"to":87,"level":34}],"88":[{"to":89,"level":38}],"90":[{"to":91,"item":"water-stone"}],"92":[{"to":93,"level":25}],"93":[{"to":94,"item":"link-cable"}],"95":[{"to":208,"item":"metal-coat"}],"96":[{"to":97,"level":26}],"98":[{"to":99,"level":28}],"100":[{"to":101,"level":30}],"102":[{"to":103,"item":"leaf-stone"}],"104":[{"to":105,"level":28}],"108":[{"to":463,"level":33}],"109":[{"to":110,"level":35}],"111":[{"to":112,"level":42}],"112":[{"to":464,"item":"protector"}],"113":[{"to":242,"item":"soothe-bell"}],"114":[{"to":465,"level":33}],"116":[{"to":117,"level":32}],"117":[{"to":230,"item":"dragon-scale"}],"118":[{"to":119,"level":33}],"120":[{"to":121,"item":"water-stone"}],"123":[{"to":212,"item":"metal-coat"}],"125":[{"to":466,"item":"electirizer"}],"126":[{"to":467,"item":"magmarizer"}],"129":[{"to":130,"level":20}],"133":[{"to":134,"item":"water-stone"},{"to":135,"item":"thunder-stone"},{"to":136,"item":"fire-stone"},{"to":196,"item":"soothe-bell"},{"to":197,"item":"soothe-bell"},{"to":470,"item":"leaf-stone"},{"to":471,"item":"ice-stone"}],"138":[{"to":139,"level":40}],"140":[{"to":141,"level":40}],"147":[{"to":148,"level":30}],"148":[{"to":149,"level":55}],"152":[{"to":153,"level":16}],"153":[{"to":154,"level":32}],"155":[{"to":156,"level":14}],"156":[{"to":157,"level":36}],"158":[{"to":159,"level":18}],"159":[{"to":160,"level":30}],"161":[{"to":162,"level":15}],"163":[{"to":164,"level":20}],"165":[{"to":166,"level":18}],"167":[{"to":168,"level":22}],"170":[{"to":171,"level":27}],"172":[{"to":25,"item":"soothe-bell"}],"173":[{"to":35,"item":"soothe-bell"}],"174":[{"to":39,"item":"soothe-bell"}],"175":[{"to":176,"item":"soothe-bell"}],"176":[{"to":468,"item":"shiny-stone"}],"177":[{"to":178,"level":25}],"179":[{"to":180,"level":15}],"180":[{"to":181,"level":30}],"183":[{"to":184,"level":18}],"187":[{"to":188,"level":18}],"188":[{"to":189,"level":27}],"190":[{"to":424,"level":32}],"191":[{"to":192,"item":"sun-stone"}],"193":[{"to":469,"level":33}],"194":[{"to":195,"level":20}],"198":[{"to":430,"item":"dusk-stone"}],"200":[{"to":429,"item":"dusk-stone"}],"204":[{"to":205,"level":31}],"207":[{"to":472,"item":"razor-fang"}],"209":[{"to":210,"level":23}],"215":[{"to":461,"item":"razor-claw"}],"216":[{"to":217,"level":30}],"218":[{"to":219,"level":38}],"220":[{"to":221,"level":33}],"221":[{"to":473,"level":40}],"223":[{"to":224,"level":25}],"228":[{"to":229,"level":24}],"231":[{"to":232,"level":25}],"236":[{"to":106,"level":20},{"to":107,"level":20},{"to":237,"level":20}],"238":[{"to":124,"level":30}],"239":[{"to":125,"level":30}],"240":[{"to":126,"level":30}],"246":[{"to":247,"level":30}],"247":[{"to":248,"level":55}],"252":[{"to":253,"level":16}],"253":[{"to":254,"level":36}],"255":[{"to":256,"level":16}],"256":[{"to":257,"level":36}],"258":[{"to":259,"level":16}],"259":[{"to":260,"level":36}],"261":[{"to":262,"level":18}],"263":[{"to":264,"level":20}],"265":[{"to":266,"level":7},{"to":268,"level":7}],"266":[{"to":267,"level":10}],"268":[{"to":269,"level":10}],"270":[{"to":271,"level":14}],"271":[{"to":272,"item":"water-stone"}],"273":[{"to":274,"level":14}],"274":[{"to":275,"item":"leaf-stone"}],"276":[{"to":277,"level":22}],"278":[{"to":279,"level":25}],"280":[{"to":281,"level":20}],"281":[{"to":282,"level":30},{"to":475,"item":"dawn-stone"}],"283":[{"to":284,"level":22}],"285":[{"to":286,"level":23}],"287":[{"to":288,"level":18}],"288":[{"to":289,"level":36}],"290":[{"to":291,"level":20},{"to":292,"item":"shed-shell"}],"293":[{"to":294,"level":20}],"294":[{"to":295,"level":40}],"296":[{"to":297,"level":24}],"298":[{"to":183,"item":"soothe-bell"}],"299":[{"to":476,"item":"thunder-stone"}],"300":[{"to":301,"item":"moon-stone"}],"304":[{"to":305,"level":32}],"305":[{"to":306,"level":42}],"307":[{"to":308,"level":37}],"309":[{"to":310,"level":26}],"315":[{"to":407,"item":"shiny-stone"}],"316":[{"to":317,"level":26}],"318":[{"to":319,"level":30}],"320":[{"to":321,"level":40}],"322":[{"to":323,"level":33}],"325":[{"to":326,"level":32}],"328":[{"to":329,"level":35}],"329":[{"to":330,"level":45}],"331":[{"to":332,"level":32}],"333":[{"to":334,"level":35}],"339":[{"to":340,"level":30}],"341":[{"to":342,"level":30}],"343":[{"to":344,"level":36}],"345":[{"to":346,"level":40}],"347":[{"to":348,"level":40}],"349":[{"to":350,"item":"prism-scale"}],"353":[{"to":354,"level":37}],"355":[{"to":356,"level":37}],"356":[{"to":477,"item":"reaper-cloth"}],"360":[{"to":202,"level":15}],"361":[{"to":362,"level":42},{"to":478,"item":"dawn-stone"}],"363":[{"to":364,"level":32}],"364":[{"to":365,"level":44}],"366":[{"to":367,"item":"deep-sea-tooth"},{"to":368,"item":"deep-sea-scale"}],"371":[{"to":372,"level":30}],"372":[{"to":373,"level":50}],"374":[{"to":375,"level":20}],"375":[{"to":376,"level":45}],"387":[{"to":388,"level":18}],"388":[{"to":389,"level":32}],"390":[{"to":391,"level":14}],"391":[{"to":392,"level":36}],"393":[{"to":394,"level":16}],"394":[{"to":395,"level":36}],"396":[{"to":397,"level":14}],"397":[{"to":398,"level":34}],"399":[{"to":400,"level":15}],"401":[{"to":402,"level":10}],"403":[{"to":404,"level":15}],"404":[{"to":405,"level":30}],"406":[{"to":315,"item":"soothe-bell"}],"408":[{"to":409,"level":30}],"410":[{"to":411,"level":30}],"412":[{"to":413,"level":20},{"to":414,"level":20}],"415":[{"to":416,"level":21}],"418":[{"to":419,"level":26}],"420":[{"to":421,"level":25}],"422":[{"to":423,"level":30}],"425":[{"to":426,"level":28}],"427":[{"to":428,"item":"soothe-bell"}],"431":[{"to":432,"level":38}],"433":[{"to":358,"item":"soothe-bell"}],"434":[{"to":435,"level":34}],"436":[{"to":437,"level":33}],"438":[{"to":185,"level":17}],"439":[{"to":122,"level":18}],"440":[{"to":113,"item":"oval-stone"}],"443":[{"to":444,"level":24}],"444":[{"to":445,"level":48}],"446":[{"to":143,"item":"soothe-bell"}],"447":[{"to":448,"item":"soothe-bell"}],"449":[{"to":450,"level":34}],"451":[{"to":452,"level":40}],"453":[{"to":454,"level":37}],"456":[{"to":457,"level":31}],"458":[{"to":226,"level":1,"party":223}],"459":[{"to":460,"level":40}],"495":[{"to":496,"level":17}],"496":[{"to":497,"level":36}],"498":[{"to":499,"level":17}],"499":[{"to":500,"level":36}],"501":[{"to":502,"level":17}],"502":[{"to":503,"level":36}],"504":[{"to":505,"level":20}],"506":[{"to":507,"level":16}],"507":[{"to":508,"level":32}],"509":[{"to":510,"level":20}],"511":[{"to":512,"item":"leaf-stone"}],"513":[{"to":514,"item":"fire-stone"}],"515":[{"to":516,"item":"water-stone"}],"517":[{"to":518,"item":"moon-stone"}],"519":[{"to":520,"level":21}],"520":[{"to":521,"level":32}],"522":[{"to":523,"level":27}],"524":[{"to":525,"level":25}],"525":[{"to":526,"item":"link-cable"}],"527":[{"to":528,"item":"soothe-bell"}],"529":[{"to":530,"level":31}],"532":[{"to":533,"level":25}],"533":[{"to":534,"item":"link-cable"}],"535":[{"to":536,"level":25}],"536":[{"to":537,"level":36}],"540":[{"to":541,"level":20}],"541":[{"to":542,"item":"soothe-bell"}],"543":[{"to":544,"level":22}],"544":[{"to":545,"level":30}],"546":[{"to":547,"item":"sun-stone"}],"548":[{"to":549,"item":"sun-stone"}],"551":[{"to":552,"level":29}],"552":[{"to":553,"level":40}],"554":[{"to":555,"level":35}],"557":[{"to":558,"level":34}],"559":[{"to":560,"level":39}],"562":[{"to":563,"level":34}],"564":[{"to":565,"level":37}],"566":[{"to":567,"level":37}],"568":[{"to":569,"level":36}],"570":[{"to":571,"level":30}],"572":[{"to":573,"item":"shiny-stone"}],"574":[{"to":575,"level":32}],"575":[{"to":576,"level":41}],"577":[{"to":578,"level":32}],"578":[{"to":579,"level":41}],"580":[{"to":581,"level":35}],"582":[{"to":583,"level":35}],"583":[{"to":584,"level":47}],"585":[{"to":586,"level":34}],"588":[{"to":589,"level":1,"party":616}],"590":[{"to":591,"level":39}],"592":[{"to":593,"level":40}],"595":[{"to":596,"level":36}],"597":[{"to":598,"level":40}],"599":[{"to":600,"level":38}],"600":[{"to":601,"level":49}],"602":[{"to":603,"level":39}],"603":[{"to":604,"item":"thunder-stone"}],"605":[{"to":606,"level":42}],"607":[{"to":608,"level":41}],"608":[{"to":609,"item":"dusk-stone"}],"610":[{"to":611,"level":38}],"611":[{"to":612,"level":48}],"613":[{"to":614,"level":37}],"616":[{"to":617,"level":1,"party":588}],"619":[{"to":620,"level":50}],"622":[{"to":623,"level":43}],"624":[{"to":625,"level":52}],"627":[{"to":628,"level":54}],"629":[{"to":630,"level":54}],"633":[{"to":634,"level":50}],"634":[{"to":635,"level":64}],"636":[{"to":637,"level":59}],"41201":[{"to":41301,"level":20},{"to":414,"level":20}],"41202":[{"to":41302,"level":20},{"to":414,"level":20}],"42201":[{"to":42301,"level":30}],"58501":[{"to":58601,"level":34}],"58502":[{"to":58602,"level":34}],"58503":[{"to":58603,"level":34}]},"time":{"113":"day","196":"day","197":"night","315":"day","358":"night","413":"day","414":"night","448":"day","461":"night","472":"night","41301":"day","41302":"day"}};
 
@@ -14865,7 +14949,7 @@
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,worldAttackParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
         Object.assign(module.exports,{TOWER_RULES,towerFloorProfile,raidBossFactors,raidParalysisTurns,localRulesKnown});
         Object.assign(module.exports,{shopCandyTier,boxMoneyRequest,partyHistory,partyRunCondition,observeCasino,casinoSummary});
-        Object.assign(module.exports,{boxSnapshot,pokemonByUid,rosterLocations,eligibleRoster});
+        Object.assign(module.exports,{boxSnapshot,simulatorBox,readSimulatorPlan,reviewSimulatorPlan,pokemonByUid,rosterLocations,eligibleRoster});
         Object.assign(module.exports,{trainingXpTargets,trainingXpSuffix,trainingCompletionTime,routeIdentity});
         Object.assign(module.exports,{EVOLUTION_DATA,evolutionStatus,levelEvolution,projectEvolution,preparationEvolutionLabel});
         Object.assign(module.exports,{regionalWeatherForecast,VERSION,UPDATE_RELEASE,UPDATE_SOURCES,updateSourceURL,allowedUpdateURL,allowedUpdateRedirect,compareUpdateVersions,parseUpdateScript,requestUpdateResource,downloadUpdateScript,UpdateChecker});
@@ -17301,7 +17385,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><label><input type="checkbox" id="simulator-resources">附资源摘要</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const newQueueJob=Symbol('new queue job');
@@ -18608,6 +18692,44 @@
             try{link.click();}
             finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
         }
+        const readSimBox=async()=>{
+            const s=engine.read();if(!s?.adv)throw Error('请先加载存档');
+            return simulatorBox(s,accountId(s)===engine.account?engine.settings:DEFAULTS,Date.now(),window.BUILD,query('#simulator-resources').checked);
+        };
+        query('#simulator-export').onclick=async()=>{const status=query('#box-export-result');try{const box=await readSimBox();downloadJson(box,'pokecatch-simulator-box.json');
+            status.textContent='已导出 '+box.members.length+' 只'+(box.identityPersistent?'':' · 未识别存档，本次使用新身份空间');}catch(e){status.textContent=e.message;}};
+        query('#simulator-reset-scope').onclick=async()=>{if(!confirm('重建当前存档的匿名身份空间？旧方案将需要手动核对。'))return;
+            try{const s=engine.read();if(!s?.trainer?.id)throw Error('当前存档身份未知');await simIdentity(String(s.trainer.id),(s.mons??[]).map(m=>m.uid),true);
+                query('#box-export-result').textContent='已重建身份空间，请重新导出 Box。';}catch(e){query('#box-export-result').textContent=e.message;}};
+        query('#simulator-plan-open').onclick=()=>query('#simulator-plan-file').click();
+        query('#simulator-plan-file').onchange=async event=>{
+            const file=event.target.files?.[0];event.target.value='';if(!file)return;
+            const panel=query('#simulator-review');try{
+                if(file.size>256*1024)throw Error('方案文件超过 256 KiB');
+                const plan=readSimulatorPlan(await file.text()),box=await readSimBox(),{rows,same}=await reviewSimulatorPlan(plan,box);
+                const content=document.createElement('div'),line=text=>{const p=document.createElement('p');p.textContent=text;content.append(p);return p;};
+                line('挑战方案 · '+plan.target+' · '+plan.conditions.weather+' / '+plan.conditions.phase+' · 模拟 '+plan.sample.wins+'/'+plan.sample.trials);
+                for(const a of plan.training.actions)line('手动补练 · 第 '+a.position+' 位 Lv.'+a.from+' → '+a.to+' · 经验 '+(a.xp??'未知'));
+                if(!same)line('身份空间不同或旧版 Box，请逐只手工确认。');
+                if(box.rules.autoTeam||box.rules.activeSwitch)line('助手自动配队或切换已开启，可能覆盖推荐队。');
+                for(const key of ['weather','phase'])if(plan.conditions[key]!==box.conditionsSnapshot[key])line(key+' · 当前 '+box.conditionsSnapshot[key]+'，请核对方案条件。');
+                const selected=rows.map(r=>r.mon?.uid),messages=[];
+                const status=document.createElement('p'),done=document.createElement('button');
+                const refresh=()=>{done.disabled=selected.some(a=>!a)||new Set(selected).size!==rows.length;status.textContent=done.disabled?'尚有缺失、重复或待确认成员':selected.join(',')===box.activeTeam.join(',')?'当前队及顺序一致':'当前队与推荐队不同，请手动调整。';};
+                for(const [i,r] of rows.entries()){
+                    const label=(i+1)+'. '+r.m.name+(r.m.profile.shiny?' ✦ 异色':'')+' Lv.'+r.m.profile.level+' · '+r.m.profile.rank+' 阶';messages.push(label);line(label);
+                    const describe=m=>{const dif=Object.keys(r.m.profile).filter(k=>simCanonical(simProfile(m)[k])!==simCanonical(r.m.profile[k]));return (dif.length?'字段变化 '+dif.join('、'):'画像相符')+(m.availability.state==='available'?'':' · 成员被占用或状态未知');};
+                    if(r.mon)line(describe(r.mon));else{const sel=document.createElement('select'),details=line(r.choices.length?'请选择具体个体':'存档中没有此成员');sel.add(new Option('待确认',''));for(const m of r.choices)sel.add(new Option(m.name+' '+(m.shiny?'✦ 异色 ':'')+'Lv.'+m.level+' · '+m.rank+'阶 · '+m.uid,m.uid));content.append(sel);
+                        sel.onchange=()=>{selected[i]=sel.value;const m=r.choices.find(m=>m.uid===sel.value);details.textContent=m?describe(m):'待确认';refresh();};}
+                }
+                const copy=document.createElement('button');copy.textContent='复制核对清单';copy.onclick=()=>navigator.clipboard.writeText(messages.join('\n'));
+                done.textContent='标记已核对';done.onclick=()=>{status.textContent='已由玩家核对 · '+new Date().toLocaleTimeString();};
+                const share=document.createElement('button');share.textContent='导出分享问题包';
+                share.onclick=()=>{if(confirm('分享文件包含队伍画像、条件和模拟结果，仍可能被识别。继续导出？'))downloadJson({format:'pokecatch-team-review-share',schema:1,target:plan.target,conditions:plan.conditions,
+                    team:plan.team.map(m=>({profile:m.profile})),sample:plan.sample,engine:plan.engine,rules:plan.rules},'pokecatch-review-share.json');};
+                content.append(status,copy,done,share);refresh();panel.replaceChildren(content);
+            }catch(e){panel.textContent='无法核对 · '+e.message;}
+        };
         query('#export-box').onclick=()=>{
             const result=query('#box-export-result');
             try{

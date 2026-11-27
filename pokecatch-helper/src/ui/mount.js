@@ -282,7 +282,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><label><input type="checkbox" id="simulator-resources">附资源摘要</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const newQueueJob=Symbol('new queue job');
@@ -1589,6 +1589,44 @@
             try{link.click();}
             finally{link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}
         }
+        const readSimBox=async()=>{
+            const s=engine.read();if(!s?.adv)throw Error('请先加载存档');
+            return simulatorBox(s,accountId(s)===engine.account?engine.settings:DEFAULTS,Date.now(),window.BUILD,query('#simulator-resources').checked);
+        };
+        query('#simulator-export').onclick=async()=>{const status=query('#box-export-result');try{const box=await readSimBox();downloadJson(box,'pokecatch-simulator-box.json');
+            status.textContent='已导出 '+box.members.length+' 只'+(box.identityPersistent?'':' · 未识别存档，本次使用新身份空间');}catch(e){status.textContent=e.message;}};
+        query('#simulator-reset-scope').onclick=async()=>{if(!confirm('重建当前存档的匿名身份空间？旧方案将需要手动核对。'))return;
+            try{const s=engine.read();if(!s?.trainer?.id)throw Error('当前存档身份未知');await simIdentity(String(s.trainer.id),(s.mons??[]).map(m=>m.uid),true);
+                query('#box-export-result').textContent='已重建身份空间，请重新导出 Box。';}catch(e){query('#box-export-result').textContent=e.message;}};
+        query('#simulator-plan-open').onclick=()=>query('#simulator-plan-file').click();
+        query('#simulator-plan-file').onchange=async event=>{
+            const file=event.target.files?.[0];event.target.value='';if(!file)return;
+            const panel=query('#simulator-review');try{
+                if(file.size>256*1024)throw Error('方案文件超过 256 KiB');
+                const plan=readSimulatorPlan(await file.text()),box=await readSimBox(),{rows,same}=await reviewSimulatorPlan(plan,box);
+                const content=document.createElement('div'),line=text=>{const p=document.createElement('p');p.textContent=text;content.append(p);return p;};
+                line('挑战方案 · '+plan.target+' · '+plan.conditions.weather+' / '+plan.conditions.phase+' · 模拟 '+plan.sample.wins+'/'+plan.sample.trials);
+                for(const a of plan.training.actions)line('手动补练 · 第 '+a.position+' 位 Lv.'+a.from+' → '+a.to+' · 经验 '+(a.xp??'未知'));
+                if(!same)line('身份空间不同或旧版 Box，请逐只手工确认。');
+                if(box.rules.autoTeam||box.rules.activeSwitch)line('助手自动配队或切换已开启，可能覆盖推荐队。');
+                for(const key of ['weather','phase'])if(plan.conditions[key]!==box.conditionsSnapshot[key])line(key+' · 当前 '+box.conditionsSnapshot[key]+'，请核对方案条件。');
+                const selected=rows.map(r=>r.mon?.uid),messages=[];
+                const status=document.createElement('p'),done=document.createElement('button');
+                const refresh=()=>{done.disabled=selected.some(a=>!a)||new Set(selected).size!==rows.length;status.textContent=done.disabled?'尚有缺失、重复或待确认成员':selected.join(',')===box.activeTeam.join(',')?'当前队及顺序一致':'当前队与推荐队不同，请手动调整。';};
+                for(const [i,r] of rows.entries()){
+                    const label=(i+1)+'. '+r.m.name+(r.m.profile.shiny?' ✦ 异色':'')+' Lv.'+r.m.profile.level+' · '+r.m.profile.rank+' 阶';messages.push(label);line(label);
+                    const describe=m=>{const dif=Object.keys(r.m.profile).filter(k=>simCanonical(simProfile(m)[k])!==simCanonical(r.m.profile[k]));return (dif.length?'字段变化 '+dif.join('、'):'画像相符')+(m.availability.state==='available'?'':' · 成员被占用或状态未知');};
+                    if(r.mon)line(describe(r.mon));else{const sel=document.createElement('select'),details=line(r.choices.length?'请选择具体个体':'存档中没有此成员');sel.add(new Option('待确认',''));for(const m of r.choices)sel.add(new Option(m.name+' '+(m.shiny?'✦ 异色 ':'')+'Lv.'+m.level+' · '+m.rank+'阶 · '+m.uid,m.uid));content.append(sel);
+                        sel.onchange=()=>{selected[i]=sel.value;const m=r.choices.find(m=>m.uid===sel.value);details.textContent=m?describe(m):'待确认';refresh();};}
+                }
+                const copy=document.createElement('button');copy.textContent='复制核对清单';copy.onclick=()=>navigator.clipboard.writeText(messages.join('\n'));
+                done.textContent='标记已核对';done.onclick=()=>{status.textContent='已由玩家核对 · '+new Date().toLocaleTimeString();};
+                const share=document.createElement('button');share.textContent='导出分享问题包';
+                share.onclick=()=>{if(confirm('分享文件包含队伍画像、条件和模拟结果，仍可能被识别。继续导出？'))downloadJson({format:'pokecatch-team-review-share',schema:1,target:plan.target,conditions:plan.conditions,
+                    team:plan.team.map(m=>({profile:m.profile})),sample:plan.sample,engine:plan.engine,rules:plan.rules},'pokecatch-review-share.json');};
+                content.append(status,copy,done,share);refresh();panel.replaceChildren(content);
+            }catch(e){panel.textContent='无法核对 · '+e.message;}
+        };
         query('#export-box').onclick=()=>{
             const result=query('#box-export-result');
             try{

@@ -23,8 +23,15 @@
       "kind": "source",
       "file": "src/core/catalog.js"
     },
-    {"kind":"json","file":"data/unova.json","constant":"UNOVA_ENCOUNTERS"},
-    {"kind":"source","file":"src/models/unova.js"},
+    {
+      "kind": "json",
+      "file": "data/unova.json",
+      "constant": "UNOVA_ENCOUNTERS"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/unova.js"
+    },
     {
       "kind": "source",
       "file": "src/data/candy.js"
@@ -37,8 +44,14 @@
       "kind": "source",
       "file": "src/models/facilities.js"
     },
-    {"kind":"source","file":"src/models/task-goals.js"},
-    {"kind":"source","file":"src/models/daily.js"},
+    {
+      "kind": "source",
+      "file": "src/models/task-goals.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/daily.js"
+    },
     {
       "kind": "source",
       "file": "src/services/background.js"
@@ -47,10 +60,22 @@
       "kind": "source",
       "file": "src/models/farming.js"
     },
-    {"kind":"source","file":"src/models/nursery-model.js"},
-    {"kind":"source","file":"src/models/nursery-ledger.js"},
-    {"kind":"source","file":"src/services/nursery-monitor.js"},
-    {"kind":"source","file":"src/services/nursery-assist.js"},
+    {
+      "kind": "source",
+      "file": "src/models/nursery-model.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/nursery-ledger.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/services/nursery-monitor.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/services/nursery-assist.js"
+    },
     {
       "kind": "json",
       "file": "data/weather.json",
@@ -60,16 +85,30 @@
       "kind": "source",
       "file": "src/data/weather-after.js"
     },
-    {"kind":"json","file":"data/rotom.json","constant":"ROTOM_DATA"},
+    {
+      "kind": "json",
+      "file": "data/rotom.json",
+      "constant": "ROTOM_DATA"
+    },
     {
       "kind": "source",
       "file": "src/models/rotom.js"
     },
-    {"kind":"source","file":"src/models/weather.js"},
-    {"kind":"source","file":"src/models/egg-family.js"},
+    {
+      "kind": "source",
+      "file": "src/models/weather.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/egg-family.js"
+    },
     {
       "kind": "source",
       "file": "src/models/roster.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/simulator-files.js"
     },
     {
       "kind": "json",
@@ -88,23 +127,53 @@
       "kind": "source",
       "file": "src/models/combat-team.js"
     },
-    {"kind":"json","file":"data/legend-elite.json","constant":"LEGEND_ELITE"},
-    {"kind":"source","file":"src/models/legend-elite.js"},
+    {
+      "kind": "json",
+      "file": "data/legend-elite.json",
+      "constant": "LEGEND_ELITE"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/legend-elite.js"
+    },
     {
       "kind": "source",
       "file": "src/models/routes-training.js"
     },
-    {"kind":"source","file":"src/models/legend-requirements.js"},
+    {
+      "kind": "source",
+      "file": "src/models/legend-requirements.js"
+    },
     {
       "kind": "source",
       "file": "src/models/collection.js"
     },
-    {"kind":"source","file":"src/data/move-advice.js"},
-    {"kind":"source","file":"src/models/gameplay-insights.js"},
-    {"kind":"json","file":"data/species-ranking.json","constant":"SPECIES_RANKING_DATA"},
-    {"kind":"source","file":"src/models/species-ranking.js"},
-    {"kind":"json","file":"data/geode-rules.json","constant":"GEODE_RULES"},
-    {"kind":"source","file":"src/models/field-insights.js"},
+    {
+      "kind": "source",
+      "file": "src/data/move-advice.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/gameplay-insights.js"
+    },
+    {
+      "kind": "json",
+      "file": "data/species-ranking.json",
+      "constant": "SPECIES_RANKING_DATA"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/species-ranking.js"
+    },
+    {
+      "kind": "json",
+      "file": "data/geode-rules.json",
+      "constant": "GEODE_RULES"
+    },
+    {
+      "kind": "source",
+      "file": "src/models/field-insights.js"
+    },
     {
       "kind": "source",
       "file": "src/core/telemetry.js"
@@ -129,17 +198,51 @@
       "kind": "source",
       "file": "src/runtime/node-exports.js"
     },
-    {"kind":"json","file":"data/ui-icons.json","constant":"GAME_UI_ICONS"},
-    {"kind":"source","file":"src/ui/panel-style.js"},
-    {"kind":"source","file":"src/ui/species-ranking.js"},
-    {"kind":"source","file":"src/ui/gameplay-insights.js"},
-    {"kind":"source","file":"src/ui/field-insights.js"},
-    {"kind":"source","file":"src/ui/dex-panel.js"},
-    {"kind":"source","file":"src/ui/weather-panel.js"},
-    {"kind":"source","file":"src/ui/nursery-panel.js"},
-    {"kind":"source","file":"src/ui/queue-panel.js"},
-    {"kind":"source","file":"src/ui/manual-input.js"},
-    {"kind":"source","file":"src/ui/panel-controls.js"},
+    {
+      "kind": "json",
+      "file": "data/ui-icons.json",
+      "constant": "GAME_UI_ICONS"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/panel-style.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/species-ranking.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/gameplay-insights.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/field-insights.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/dex-panel.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/weather-panel.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/nursery-panel.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/queue-panel.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/manual-input.js"
+    },
+    {
+      "kind": "source",
+      "file": "src/ui/panel-controls.js"
+    },
     {
       "kind": "source",
       "file": "src/ui/mount.js"

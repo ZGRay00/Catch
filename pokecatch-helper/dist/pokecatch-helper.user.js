@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.5.1
+// @version      8.5.2
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.5.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.5.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -3286,11 +3286,10 @@
         const knownUid=uid=>typeof uid==='string'&&uid.length>0;
         const exportable=mon=>knownUid(mon?.uid)&&Number.isSafeInteger(mon.id)&&mon.id>0;
         const exportMember=(mon,uid)=>{
-            observe?.(uid,mon);
             const model=MONS.get(mon.id);
             const up=Object.fromEntries(stats.filter(key=>Number.isFinite(mon.taste?.up?.[key])).map(key=>[key,mon.taste.up[key]]));
             const favoriteStat=stats.includes(mon.taste?.h)?mon.taste.h:undefined;
-            return {
+            const row={
                 uid,id:mon.id,name:model?.name,types:model?.types||[],reg:monRegion(mon),
                 level:number(mon.level),xp:number(mon.xp),rank:number(mon.rank)??0,shiny:!!mon.shiny,favorite:!!mon.fav,
                 statMult:number(mon.statMult),hpMult:number(mon.hpMult),damageMult:number(mon.damageMult),
@@ -3298,6 +3297,8 @@
                 bannedMoves:Array.isArray(mon.ban)?[...new Set(mon.ban.filter(key=>typeof key==='string'&&Object.hasOwn(DATA.combat.moves,key)))]:[],
                 levelCap:trainingCap(s,mon),
             };
+            observe?.(uid,mon,row);
+            return row;
         };
         for(const mon of s.mons){
             if(!exportable(mon)||refs.has(mon.uid))continue;
@@ -3370,41 +3371,79 @@
         });
     }
     async function simulatorBox(s,settings,now,build,resources=false,identity=simIdentity){
-        const raw=new Map(),box=boxSnapshot(s,settings,now,build,(alias,m)=>raw.set(alias,m));
+        const raw=new WeakMap(),aliases=new Map();
+        const box=boxSnapshot(s,settings,now,build,(alias,m,row)=>{raw.set(row,m);aliases.set(m.uid,alias);});
         const trainer=s.trainer?.id;
-        const space=await identity(typeof trainer==='string'&&trainer||typeof trainer==='number'&&String(trainer)||null,[...raw.values()].map(m=>m.uid));
-        const zone=s.adv?.zone;const observedTarget=Number.isSafeInteger(zone?.id)&&Number.isSafeInteger(zone?.elite)?zone.id+'/'+(Number.isSafeInteger(zone.foe)?zone.foe:zone.id)+'/'+zone.elite:'unknown';
+        const space=await identity(typeof trainer==='string'&&trainer||typeof trainer==='number'&&String(trainer)||null,[...aliases.keys()]);
+        const zone=s.adv?.zone;const observedTarget=Number.isSafeInteger(zone?.id)&&Number.isInteger(zone.elite)&&zone.elite>=1&&zone.elite<=5?zone.id+'/'+(Number.isSafeInteger(zone.foe)?zone.foe:zone.id)+'/'+zone.elite:'unknown';
         const phase=Number.isInteger(s.adv.chapter)?phaseAt(s,now,s.adv.chapter):'unknown';
         const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(space.secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-        const away=new Set(box.underground?.used??[]);
+        const away=new Set((box.underground?.slots??[]).flatMap(slot=>slot.team));
         const complete=async m=>{
-            const original=raw.get(m.uid);
+            const original=raw.get(m);
             m.stableId=simHex(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(original.uid)));
-            m.rank=Number.isInteger(original.rank)?original.rank:undefined;m.shiny=typeof original.shiny==='boolean'?original.shiny:undefined;
-            if(original.ban!==undefined&&(!Array.isArray(original.ban)||original.ban.length>256||original.ban.some(k=>typeof k!=='string'||!k.length||k.length>96)))throw Error('禁招字段超出协议范围');
-            m.bannedMoves=original.ban===undefined?[]:[...new Set(original.ban)].sort();
+            if(!Number.isInteger(original.level)||original.level<1||original.level>100)delete m.level;
+            m.rank=original.rank===undefined?0:Number.isInteger(original.rank)&&original.rank>=0&&original.rank<=5?original.rank:undefined;
+            m.shiny=original.shiny===undefined?false:typeof original.shiny==='boolean'?original.shiny:
+                original.shiny===0||original.shiny===1?Boolean(original.shiny):undefined;
+            for(const k of ['statMult','hpMult','damageMult']){
+                if(original[k]===undefined)m[k]=1;
+                else if(!Number.isFinite(original[k])||original[k]<0||original[k]>1000)delete m[k];
+            }
+            const bansValid=Array.isArray(original.ban)&&original.ban.length<=256&&original.ban.every(k=>typeof k==='string'&&k.length>0&&k.length<=96);
+            m.bannedMoves=original.ban===undefined?[]:bansValid?[...new Set(original.ban)].sort():undefined;
             m.unrecognized=(m.bannedMoves??[]).filter(k=>!Object.hasOwn(DATA.combat.moves,k));
             m.fieldProvenance=Object.fromEntries(simFields.map(k=>[k,k==='bannedMoves'&&original.ban===undefined?'verified-default':m[k]!==undefined?'raw':k==='taste'&&!original.taste?'verified-default':'unknown']));
+            for(const k of ['rank','shiny','statMult','hpMult','damageMult'])if(original[k]===undefined)m.fieldProvenance[k]='verified-default';
+            if(original.ban!==undefined&&!bansValid){m.fieldProvenance.bannedMoves='unsupported';m.fieldDiagnostics={bannedMoves:'禁招列表格式或数量无效'};}
             const taste=original.taste,stats=['atk','def','spa','spd','spe'];
             const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
             if(taste!==undefined){
-                const invalid=!object(taste)||Object.keys(taste).some(k=>!['up','h'].includes(k))||
+                const invalid=!object(taste)||Object.keys(taste).some(k=>!['up','h','n','sw'].includes(k))||
                     taste.h!==undefined&&!stats.includes(taste.h)||taste.up!==undefined&&(!object(taste.up)||
                     Object.entries(taste.up).some(([k,v])=>!stats.includes(k)||!Number.isFinite(v)||v<0||v>100000));
-                if(invalid){m.fieldProvenance.taste='unsupported';m.fieldDiagnostics={taste:'口味含未识别的偏好、能力项或无效增量'};}
+                if(invalid){m.fieldProvenance.taste='unsupported';(m.fieldDiagnostics??={}).taste='口味含未识别的偏好、能力项或无效增量';}
                 else if(!m.taste)m.fieldProvenance.taste='verified-default';
             }
             for(const k of ['level','rank','shiny','statMult','hpMult','damageMult']){
                 if(original[k]!==undefined&&m[k]===undefined){m.fieldProvenance[k]='unsupported';(m.fieldDiagnostics??={})[k]='原字段类型无效';}
             }
-            m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:'导出时盒子与已知地下派遣记录'};
+            m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:away.has(m.uid)?'地下槽位尚未归队':'导出时盒内记录'};
         };
         await Promise.all([...box.members,...(box.underground?.slots??[]).flatMap(slot=>slot.members??[])].map(complete));
+        const eliteTeams={},eliteProgress={};
+        for(const {id} of DATA.zones){
+            const party=s.eventTeams?.['zone:'+id];
+            if(Array.isArray(party)&&party.length<=6&&new Set(party).size===party.length&&party.every(uid=>aliases.has(uid))){
+                eliteTeams[id]=party.map(uid=>aliases.get(uid));
+            }
+            const cleared=s.elite?.[id]?.t;
+            if(Number.isInteger(cleared)&&cleared>=0&&cleared<=5)eliteProgress[id]=cleared;
+        }
+        const node=s.adv.nodes?.[s.adv.node];
+        // An adventure node's weather is not an observation of a separate elite encounter.
+        const sky=zone?zone.weather:node?.weather;
+        const weather=sky==='neutral'||Object.hasOwn(WEATHER_DATA.types,sky)?sky:
+            sky===null||(!zone&&node?.indoor)?'neutral':'unknown';
+        const sources=typeof document==='undefined'?[]:[...document.querySelectorAll('script[src*="bundle/app."]')];
+        const bundles=new Set(sources.map(el=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/i.exec(el.getAttribute('src')||'')?.[1]?.toLowerCase()).filter(Boolean));
         Object.assign(box,{schema:2,exporter:'pokecatch-helper/2',exportId:simOpaque(),identityScope:space.scope,
-            capabilities:['stable-identity','field-provenance','conditions','raw-bans'],gameBuild:box.gameBuild??'unknown',
-            conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather:['neutral','rain','storm','sun','sand','snow','fog'].includes(zone?.weather)?zone.weather:'unknown',phase:['day','night'].includes(phase)?phase:'unknown',nativeAutoSwitch:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
+            capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters'],gameBuild:box.gameBuild??'unknown',
+            conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
+                phase:phase==='morning'?'day':phase,observedPhase:phase,bundleBuild:bundles.size===1?[...bundles][0]:'unknown',
+                eliteTeams,eliteProgress,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
                 autoTeam:box.rules.autoTeam,activeSwitch:box.rules.activeSwitch},identityPersistent:!!trainer});
-        if(resources)box.resourcesSnapshot={region:box.progress.walletRegion??'unknown',gold:Number.isFinite(s.money)?s.money:'unknown',walletXp:'unknown',items:'unknown'};
+        if(resources){
+            const count=v=>Number.isSafeInteger(v)&&v>=0;
+            const stock=(bag,allowed)=>{
+                if(!bag||typeof bag!=='object'||Array.isArray(bag))return 'unknown';
+                const values=Object.entries(bag).filter(([k])=>allowed(k));
+                return values.every(([,v])=>count(v))?Object.fromEntries(values):'unknown';
+            };
+            const gem=k=>{const [type,rarity,...rest]=k.split(':');return !rest.length&&Object.hasOwn(DATA.types,type)&&/^[0-3]$/.test(rarity);};
+            box.resourcesSnapshot={region:box.progress.walletRegion??'unknown',gold:count(s.money)?s.money:'unknown',
+                walletXp:'unknown',items:stock(s.items,k=>EVOLUTION_ITEMS.has(k)),gems:stock(s.under?.gems,gem)};
+        }
         return box;
     }
     const simProfile=m=>Object.fromEntries(['id','reg',...simFields].map(k=>[k,k==='bannedMoves'&&Array.isArray(m[k])?[...m[k]].sort():m[k]??null]));
@@ -3440,7 +3479,12 @@
         for(const m of plan.team){
             if(await simDigest(m.profile)!==m.fingerprint)throw Error('方案个体画像指纹不符');
             const mon=same&&m.stableId?box.members.find(p=>p.stableId===m.stableId):undefined;
-            const differences=mon?Object.keys(m.profile).filter(k=>simCanonical(simProfile(mon)[k])!==simCanonical(m.profile[k])):[];
+            const actual=mon&&simProfile(mon);
+            const differences=mon?Object.keys(m.profile).filter(k=>{
+                // Older plans omitted neutral multipliers. Only equate them when the new Box confirms the native default.
+                if(m.profile[k]===null&&['statMult','hpMult','damageMult'].includes(k)&&actual[k]===1&&mon.fieldProvenance?.[k]==='verified-default')return false;
+                return simCanonical(actual[k])!==simCanonical(m.profile[k]);
+            }):[];
             rows.push({m,mon,differences,choices:mon?[]:box.members.filter(x=>x.id===m.profile.id)});
         }
         return {rows,same};
@@ -17398,7 +17442,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><label><input type="checkbox" id="simulator-resources">附资源摘要</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const newQueueJob=Symbol('new queue job');
@@ -18710,7 +18754,8 @@
             return simulatorBox(s,accountId(s)===engine.account?engine.settings:DEFAULTS,Date.now(),window.BUILD,query('#simulator-resources').checked);
         };
         query('#simulator-export').onclick=async()=>{const status=query('#box-export-result');try{const box=await readSimBox();downloadJson(box,'pokecatch-simulator-box.json');
-            status.textContent='已导出 '+box.members.length+' 只'+(box.identityPersistent?'':' · 未识别存档，本次使用新身份空间');}catch(e){status.textContent=e.message;}};
+            const flagged=box.members.filter(m=>m.fieldDiagnostics).length;
+            status.textContent='已导出 '+box.members.length+' 只'+(flagged?' · '+flagged+' 只含待核对字段':'')+(box.resourcesSnapshot?' · 已附培养资源':'')+(box.identityPersistent?'':' · 未识别存档，本次使用新身份空间');}catch(e){status.textContent=e.message;}};
         query('#simulator-reset-scope').onclick=async()=>{if(!confirm('重建当前存档的匿名身份空间？旧方案将需要手动核对。'))return;
             try{const s=engine.read();if(!s?.trainer?.id)throw Error('当前存档身份未知');await simIdentity(String(s.trainer.id),(s.mons??[]).map(m=>m.uid),true);
                 query('#box-export-result').textContent='已重建身份空间，请重新导出 Box。';}catch(e){query('#box-export-result').textContent=e.message;}};

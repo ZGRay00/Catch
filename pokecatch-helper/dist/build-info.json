@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.5.1",
-  "scriptSha256": "052aef95c2aed06cc1921422c84b9762368e58a2d69f20f35cfa77a74e921d5f",
-  "metadataSha256": "8c94e80c3735883b9946d101f5d15c91811c221e3bb60875410b234613a29656",
+  "version": "8.5.2",
+  "scriptSha256": "2ad5d96a1183a0653e138aa1bc0a7ad8d853e046530ec3a4b86f8a60ed87f232",
+  "metadataSha256": "1689e7ccf21817a8a93b226b3fb75cde00692bf35ab8c04e95f5e9f4263267d1",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "bc2b3886a8be5310ac12853503c1f22617ff5bb7661207ccadc7dd06be8db663"
+      "sha256": "b4fa0af5ad71c643a1d8ddec197d91f72e38def7a6acc6b1f8b53f7f27edbd67"
     },
     {
       "file": "build.manifest.json",
@@ -114,11 +114,11 @@
     },
     {
       "file": "src/models/roster.js",
-      "sha256": "5b02b184278b1a311eea694b7f0dd70e56bfc9b90a9a923a2948d53fe0bff8ce"
+      "sha256": "4b74b1f474b1dee4e9c9c8a9d0c7999820d80743edc5ffbe9023a0d187b35726"
     },
     {
       "file": "src/models/simulator-files.js",
-      "sha256": "999478b26ab42f72dde5178f1970a4619ec4dcdfdbef7c8d15449641b1453421"
+      "sha256": "07fc28a0b609368d8581217de4ee71ffb6838b9367c307688d4e22197cb14aa7"
     },
     {
       "file": "data/evolution.json",
@@ -250,7 +250,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "8051e1077900bddbd66258a50daefe7ddb2474b323a4aab6aed5d16b49844daf"
+      "sha256": "6e5f55956de40fe021824e962f96640d2aebcaa185133f2219047df196c3fee1"
     }
   ]
 }

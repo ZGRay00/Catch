@@ -19,41 +19,79 @@
         });
     }
     async function simulatorBox(s,settings,now,build,resources=false,identity=simIdentity){
-        const raw=new Map(),box=boxSnapshot(s,settings,now,build,(alias,m)=>raw.set(alias,m));
+        const raw=new WeakMap(),aliases=new Map();
+        const box=boxSnapshot(s,settings,now,build,(alias,m,row)=>{raw.set(row,m);aliases.set(m.uid,alias);});
         const trainer=s.trainer?.id;
-        const space=await identity(typeof trainer==='string'&&trainer||typeof trainer==='number'&&String(trainer)||null,[...raw.values()].map(m=>m.uid));
-        const zone=s.adv?.zone;const observedTarget=Number.isSafeInteger(zone?.id)&&Number.isSafeInteger(zone?.elite)?zone.id+'/'+(Number.isSafeInteger(zone.foe)?zone.foe:zone.id)+'/'+zone.elite:'unknown';
+        const space=await identity(typeof trainer==='string'&&trainer||typeof trainer==='number'&&String(trainer)||null,[...aliases.keys()]);
+        const zone=s.adv?.zone;const observedTarget=Number.isSafeInteger(zone?.id)&&Number.isInteger(zone.elite)&&zone.elite>=1&&zone.elite<=5?zone.id+'/'+(Number.isSafeInteger(zone.foe)?zone.foe:zone.id)+'/'+zone.elite:'unknown';
         const phase=Number.isInteger(s.adv.chapter)?phaseAt(s,now,s.adv.chapter):'unknown';
         const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(space.secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);
-        const away=new Set(box.underground?.used??[]);
+        const away=new Set((box.underground?.slots??[]).flatMap(slot=>slot.team));
         const complete=async m=>{
-            const original=raw.get(m.uid);
+            const original=raw.get(m);
             m.stableId=simHex(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(original.uid)));
-            m.rank=Number.isInteger(original.rank)?original.rank:undefined;m.shiny=typeof original.shiny==='boolean'?original.shiny:undefined;
-            if(original.ban!==undefined&&(!Array.isArray(original.ban)||original.ban.length>256||original.ban.some(k=>typeof k!=='string'||!k.length||k.length>96)))throw Error('禁招字段超出协议范围');
-            m.bannedMoves=original.ban===undefined?[]:[...new Set(original.ban)].sort();
+            if(!Number.isInteger(original.level)||original.level<1||original.level>100)delete m.level;
+            m.rank=original.rank===undefined?0:Number.isInteger(original.rank)&&original.rank>=0&&original.rank<=5?original.rank:undefined;
+            m.shiny=original.shiny===undefined?false:typeof original.shiny==='boolean'?original.shiny:
+                original.shiny===0||original.shiny===1?Boolean(original.shiny):undefined;
+            for(const k of ['statMult','hpMult','damageMult']){
+                if(original[k]===undefined)m[k]=1;
+                else if(!Number.isFinite(original[k])||original[k]<0||original[k]>1000)delete m[k];
+            }
+            const bansValid=Array.isArray(original.ban)&&original.ban.length<=256&&original.ban.every(k=>typeof k==='string'&&k.length>0&&k.length<=96);
+            m.bannedMoves=original.ban===undefined?[]:bansValid?[...new Set(original.ban)].sort():undefined;
             m.unrecognized=(m.bannedMoves??[]).filter(k=>!Object.hasOwn(DATA.combat.moves,k));
             m.fieldProvenance=Object.fromEntries(simFields.map(k=>[k,k==='bannedMoves'&&original.ban===undefined?'verified-default':m[k]!==undefined?'raw':k==='taste'&&!original.taste?'verified-default':'unknown']));
+            for(const k of ['rank','shiny','statMult','hpMult','damageMult'])if(original[k]===undefined)m.fieldProvenance[k]='verified-default';
+            if(original.ban!==undefined&&!bansValid){m.fieldProvenance.bannedMoves='unsupported';m.fieldDiagnostics={bannedMoves:'禁招列表格式或数量无效'};}
             const taste=original.taste,stats=['atk','def','spa','spd','spe'];
             const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
             if(taste!==undefined){
-                const invalid=!object(taste)||Object.keys(taste).some(k=>!['up','h'].includes(k))||
+                const invalid=!object(taste)||Object.keys(taste).some(k=>!['up','h','n','sw'].includes(k))||
                     taste.h!==undefined&&!stats.includes(taste.h)||taste.up!==undefined&&(!object(taste.up)||
                     Object.entries(taste.up).some(([k,v])=>!stats.includes(k)||!Number.isFinite(v)||v<0||v>100000));
-                if(invalid){m.fieldProvenance.taste='unsupported';m.fieldDiagnostics={taste:'口味含未识别的偏好、能力项或无效增量'};}
+                if(invalid){m.fieldProvenance.taste='unsupported';(m.fieldDiagnostics??={}).taste='口味含未识别的偏好、能力项或无效增量';}
                 else if(!m.taste)m.fieldProvenance.taste='verified-default';
             }
             for(const k of ['level','rank','shiny','statMult','hpMult','damageMult']){
                 if(original[k]!==undefined&&m[k]===undefined){m.fieldProvenance[k]='unsupported';(m.fieldDiagnostics??={})[k]='原字段类型无效';}
             }
-            m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:'导出时盒子与已知地下派遣记录'};
+            m.availability={state:away.has(m.uid)||m.uid.startsWith('under-')?'occupied':'available',reason:away.has(m.uid)?'地下槽位尚未归队':'导出时盒内记录'};
         };
         await Promise.all([...box.members,...(box.underground?.slots??[]).flatMap(slot=>slot.members??[])].map(complete));
+        const eliteTeams={},eliteProgress={};
+        for(const {id} of DATA.zones){
+            const party=s.eventTeams?.['zone:'+id];
+            if(Array.isArray(party)&&party.length<=6&&new Set(party).size===party.length&&party.every(uid=>aliases.has(uid))){
+                eliteTeams[id]=party.map(uid=>aliases.get(uid));
+            }
+            const cleared=s.elite?.[id]?.t;
+            if(Number.isInteger(cleared)&&cleared>=0&&cleared<=5)eliteProgress[id]=cleared;
+        }
+        const node=s.adv.nodes?.[s.adv.node];
+        // An adventure node's weather is not an observation of a separate elite encounter.
+        const sky=zone?zone.weather:node?.weather;
+        const weather=sky==='neutral'||Object.hasOwn(WEATHER_DATA.types,sky)?sky:
+            sky===null||(!zone&&node?.indoor)?'neutral':'unknown';
+        const sources=typeof document==='undefined'?[]:[...document.querySelectorAll('script[src*="bundle/app."]')];
+        const bundles=new Set(sources.map(el=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/i.exec(el.getAttribute('src')||'')?.[1]?.toLowerCase()).filter(Boolean));
         Object.assign(box,{schema:2,exporter:'pokecatch-helper/2',exportId:simOpaque(),identityScope:space.scope,
-            capabilities:['stable-identity','field-provenance','conditions','raw-bans'],gameBuild:box.gameBuild??'unknown',
-            conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather:['neutral','rain','storm','sun','sand','snow','fog'].includes(zone?.weather)?zone.weather:'unknown',phase:['day','night'].includes(phase)?phase:'unknown',nativeAutoSwitch:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
+            capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters'],gameBuild:box.gameBuild??'unknown',
+            conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
+                phase:phase==='morning'?'day':phase,observedPhase:phase,bundleBuild:bundles.size===1?[...bundles][0]:'unknown',
+                eliteTeams,eliteProgress,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
                 autoTeam:box.rules.autoTeam,activeSwitch:box.rules.activeSwitch},identityPersistent:!!trainer});
-        if(resources)box.resourcesSnapshot={region:box.progress.walletRegion??'unknown',gold:Number.isFinite(s.money)?s.money:'unknown',walletXp:'unknown',items:'unknown'};
+        if(resources){
+            const count=v=>Number.isSafeInteger(v)&&v>=0;
+            const stock=(bag,allowed)=>{
+                if(!bag||typeof bag!=='object'||Array.isArray(bag))return 'unknown';
+                const values=Object.entries(bag).filter(([k])=>allowed(k));
+                return values.every(([,v])=>count(v))?Object.fromEntries(values):'unknown';
+            };
+            const gem=k=>{const [type,rarity,...rest]=k.split(':');return !rest.length&&Object.hasOwn(DATA.types,type)&&/^[0-3]$/.test(rarity);};
+            box.resourcesSnapshot={region:box.progress.walletRegion??'unknown',gold:count(s.money)?s.money:'unknown',
+                walletXp:'unknown',items:stock(s.items,k=>EVOLUTION_ITEMS.has(k)),gems:stock(s.under?.gems,gem)};
+        }
         return box;
     }
     const simProfile=m=>Object.fromEntries(['id','reg',...simFields].map(k=>[k,k==='bannedMoves'&&Array.isArray(m[k])?[...m[k]].sort():m[k]??null]));
@@ -89,7 +127,12 @@
         for(const m of plan.team){
             if(await simDigest(m.profile)!==m.fingerprint)throw Error('方案个体画像指纹不符');
             const mon=same&&m.stableId?box.members.find(p=>p.stableId===m.stableId):undefined;
-            const differences=mon?Object.keys(m.profile).filter(k=>simCanonical(simProfile(mon)[k])!==simCanonical(m.profile[k])):[];
+            const actual=mon&&simProfile(mon);
+            const differences=mon?Object.keys(m.profile).filter(k=>{
+                // Older plans omitted neutral multipliers. Only equate them when the new Box confirms the native default.
+                if(m.profile[k]===null&&['statMult','hpMult','damageMult'].includes(k)&&actual[k]===1&&mon.fieldProvenance?.[k]==='verified-default')return false;
+                return simCanonical(actual[k])!==simCanonical(m.profile[k]);
+            }):[];
             rows.push({m,mon,differences,choices:mon?[]:box.members.filter(x=>x.id===m.profile.id)});
         }
         return {rows,same};

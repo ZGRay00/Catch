@@ -126,11 +126,10 @@
         const knownUid=uid=>typeof uid==='string'&&uid.length>0;
         const exportable=mon=>knownUid(mon?.uid)&&Number.isSafeInteger(mon.id)&&mon.id>0;
         const exportMember=(mon,uid)=>{
-            observe?.(uid,mon);
             const model=MONS.get(mon.id);
             const up=Object.fromEntries(stats.filter(key=>Number.isFinite(mon.taste?.up?.[key])).map(key=>[key,mon.taste.up[key]]));
             const favoriteStat=stats.includes(mon.taste?.h)?mon.taste.h:undefined;
-            return {
+            const row={
                 uid,id:mon.id,name:model?.name,types:model?.types||[],reg:monRegion(mon),
                 level:number(mon.level),xp:number(mon.xp),rank:number(mon.rank)??0,shiny:!!mon.shiny,favorite:!!mon.fav,
                 statMult:number(mon.statMult),hpMult:number(mon.hpMult),damageMult:number(mon.damageMult),
@@ -138,6 +137,8 @@
                 bannedMoves:Array.isArray(mon.ban)?[...new Set(mon.ban.filter(key=>typeof key==='string'&&Object.hasOwn(DATA.combat.moves,key)))]:[],
                 levelCap:trainingCap(s,mon),
             };
+            observe?.(uid,mon,row);
+            return row;
         };
         for(const mon of s.mons){
             if(!exportable(mon)||refs.has(mon.uid))continue;

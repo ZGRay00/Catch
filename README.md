@@ -1,8 +1,8 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.8.1**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.8.2**。
 
-[国内 / COS 安装](https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.user.js) · [全球 / GitHub 安装](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [8.8.1 正式发行与校验文件](https://github.com/ZGRay00/Catch/releases/tag/helper-v8.8.1) · [使用说明](./使用说明.txt) · [双渠道发布与维护](./pokecatch-helper/docs/dual-release.md)
+[国内 / COS 安装](https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.user.js) · [全球 / GitHub 安装](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [8.8.2 正式发行与校验文件](https://github.com/ZGRay00/Catch/releases/tag/helper-v8.8.2) · [使用说明](./使用说明.txt) · [双渠道发布与维护](./pokecatch-helper/docs/dual-release.md)
 
 8.8.0 · 可导出方块首领、口味、方块队和战果。国内与全球助手共用正文，在「在线更新」中查看检查结果和切换安装渠道。
 

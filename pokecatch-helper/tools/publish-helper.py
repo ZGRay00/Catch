@@ -69,7 +69,14 @@ def publish(args):
         # A GitHub ref is atomically created for both CI and local recovery writers.
         api('/git/refs','POST',{'ref':'refs/heads/helper-publish-lock','sha':args.commit});locked=True
         head=api('/git/ref/heads/main')['object']['sha']
-        if head not in (args.commit,m['sourceCommit']):raise ValueError('main changed; re-freeze before promotion')
+        advance=head==m['sourceCommit']
+        if head!=args.commit and not advance:
+            if api('/compare/'+args.commit+'...'+head+'?per_page=1')['status']!='ahead':raise ValueError('main changed; re-freeze before promotion')
+            tree={r['path']:r['sha'] for r in api('/git/trees/'+head)['tree']}
+            for name,src in aliases.items():
+                b=(root/src).read_bytes();oid=hashlib.sha1(('blob '+str(len(b))+'\0').encode()+b).hexdigest()
+                if tree.get(name)!=oid:raise ValueError('main now serves a different stable helper')
+
         old=http(COS+PREFIX+'pokecatch-helper.meta.js')
         current=re.search(rb'^//\s*@version\s+([\d.]+)',old,re.M)
         if not current:raise ValueError('Missing COS version')
@@ -93,7 +100,7 @@ def publish(args):
         receipt['cos']='prepared';save()
         if release['draft']:api('/releases/'+str(release['id']),'PATCH',{'draft':False})
         if api('/git/ref/tags/'+tag)['object']['sha']!=args.commit:raise ValueError('Release tag mismatch')
-        if head!=args.commit:api('/git/refs/heads/main','PATCH',{'sha':args.commit,'force':False})
+        if advance:api('/git/refs/heads/main','PATCH',{'sha':args.commit,'force':False})
         receipt['github']='published';save()
         for n in ['user','meta']:cos_put('pokecatch-helper.'+n+'.js',(root/('pokecatch-helper-cn.'+n+'.js')).read_bytes(),False)
         cos_put('helper-release.json',(root/'helper-release.json').read_bytes(),False);receipt['cos']='verified';save()

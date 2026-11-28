@@ -59,7 +59,7 @@
     header { padding:10px 13px; background:#1b2c3a }
     header b { font-size:15px }
     .logo { padding:2px 8px; border-radius:7px }
-    .workspace-nav { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.45fr) repeat(3,minmax(0,1fr)) minmax(0,1.45fr) minmax(0,1fr); border-bottom:1px solid #324858 }
+    .workspace-nav { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) repeat(4,minmax(0,1fr)) minmax(0,1.6fr) minmax(0,1fr); border-bottom:1px solid #324858 }
     .workspace-nav button {
         min-height:42px; padding:4px 2px; white-space:nowrap; border:0; border-radius:0; background:transparent;
         color:#acbecb; font-weight:600;
@@ -163,7 +163,12 @@
     @media(pointer:coarse) {
         .insight-nav button,.insight-field select,.insight-field input,.insight-actions button,.insight-pages button,.dex-owned-actions button,.dex-owned-tools select,#game-insights details>summary { min-height:44px }
     }
-    #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
+    #pane-eggs h3, #pane-wild h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
+    .wild-targets { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(124px,100%),1fr)); gap:8px; margin-top:12px }
+    .wild-targets h4 { font-size:12px; margin:0 0 6px }
+    .wild-targets strong { font-size:16px; font-variant-numeric:tabular-nums }
+    .wild-targets > :nth-child(2) { border-inline-start-color:#c4a6e8 }
+    #pane-wild details { margin-top:12px }
     .roam-ball-control:not([hidden]) { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:8px 0; padding:7px 8px; border:1px solid #3b4e63; border-radius:8px }
     .roam-ball-control > strong { margin-inline-start:auto; color:#b1e6d6; font-size:11px; font-variant-numeric:tabular-nums }
     .roam-ball-control > .hint { flex-basis:100%; margin:0 }

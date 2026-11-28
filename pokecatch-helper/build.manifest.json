@@ -237,6 +237,10 @@
     },
     {
       "kind": "source",
+      "file": "src/ui/wild-forecast-panel.js"
+    },
+    {
+      "kind": "source",
       "file": "src/ui/queue-panel.js"
     },
     {

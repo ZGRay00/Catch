@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "8.6.0",
-  "scriptSha256": "fa98fcbc8c29ab437a789a08e04fdbc3198fa7f48d8d90efe642a8f937595331",
-  "metadataSha256": "527488c9d61c34666df51bb701aa4e6d0341158cce952db4ea6c5f0d97ab24bc",
+  "version": "8.6.1",
+  "scriptSha256": "f0815f34e9f3616fe2b0e579fe1979e4df321fa756df710fabc3615a32def9f7",
+  "metadataSha256": "4b1a4b9843892c4f9fa842be4f5d04ec3ad0b6a539f8f0f4c03a039e4e60a9c9",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "c9e965945209c659b8c7dae0ccc010f143749f64676d2c6a6219b193fddaaef8"
+      "sha256": "8a68db981d41e962b2ffef907119bbc9f94005bf3eef70283474dbe5d109b056"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "67d73a30b13dbd0987a6f9e5179d91f4508a1ce4cf25d3495a32632076c82a12"
+      "sha256": "91fe4c17c8dac9aebc0156e1e3120f37eaf51910643ced0450210e52079b9154"
     },
     {
       "file": "userscript.header.txt",
@@ -214,7 +214,7 @@
     },
     {
       "file": "src/ui/panel-style.js",
-      "sha256": "71f52c703026370c12b8f190c42390c06f62eadbe3b4130b2e91f54a1f54a145"
+      "sha256": "412a41dab252dc001cf27663935fd0fdfa4fdfdea55a69b3837d3a65bc45baf0"
     },
     {
       "file": "src/ui/species-ranking.js",
@@ -226,7 +226,7 @@
     },
     {
       "file": "src/ui/field-insights.js",
-      "sha256": "01897c2e1268abb04577384583b66b02ed998913bff98fec1bd4f37cb1c5284b"
+      "sha256": "b39524f90c2a82a1edca463b15e9da0d5554c24748e6bef2be46b2260143a72e"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -239,6 +239,10 @@
     {
       "file": "src/ui/nursery-panel.js",
       "sha256": "0b4340237b3d525994933fa6d168d5d71059de04868afb28a2332f0adcae7fd2"
+    },
+    {
+      "file": "src/ui/wild-forecast-panel.js",
+      "sha256": "14d64e1503222e9371f1dcb40bba4da4480915c5ee5883fc3050c4700224a427"
     },
     {
       "file": "src/ui/queue-panel.js",
@@ -254,7 +258,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "dc7fd422ca3f2d02d53a1a0ad30ac9afee37bbd815c3a101caa60350586f2c1c"
+      "sha256": "4cf0811e70bdb0c3be302feb63cab170b41e148104f0d63131471e934068c723"
     }
   ]
 }

@@ -94,6 +94,7 @@
                 <button data-workspace="dex" aria-controls="pane-dex">图鉴</button>
                 <button data-workspace="weather" aria-controls="pane-weather">天气</button>
                 <button data-workspace="eggs" aria-controls="pane-eggs">孵蛋</button>
+                <button data-workspace="wild" aria-controls="pane-wild">路闪</button>
                 <button data-workspace="activity" aria-controls="pane-activity">运行实况</button>
                 <button data-workspace="settings" aria-controls="pane-settings">设置</button>
             </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
@@ -182,7 +183,6 @@
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>冲层和刷金币使用空闲队员，保留主队、Buddy 和任务成员；自动优化优先使用游戏推荐的地下队伍</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。地下主任务单独管理派遣次数和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
-            <details id="wild-forecast"><summary>路闪预测</summary><div class="sub"></div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
@@ -202,6 +202,7 @@
             <section id="pane-dex" aria-label="图鉴" hidden><p id="dex-waiting" class="hint" hidden>载入游戏存档后，可查看图鉴、比较路线和预览持有个体的禁招建议。</p><div id="dex-panel"></div></section>
             <section id="pane-weather" aria-label="天气" hidden><div id="weather-panel" aria-label="地区天气预报"></div></section>
             <section id="pane-eggs" aria-label="孵蛋" hidden></section>
+            <section id="pane-wild" aria-label="路闪预测" hidden></section>
             <section id="pane-settings" aria-label="设置" hidden>
             <section id="settings-purchase" class="purchase-card">
                 ${purchaseToggle}
@@ -334,6 +335,7 @@
         }
         selectYieldView(ui.yieldView);
         const workspaces = [...root.querySelectorAll('[data-workspace]')];
+        const lookupWorkspaces=new Set(['dex','weather','eggs','wild']);
         const content=query('.content');
         const workspaceScroll=ui.scroll&&typeof ui.scroll==='object'?ui.scroll:{};
         ui.scroll=workspaceScroll;
@@ -347,7 +349,7 @@
                 query('#' + button.getAttribute('aria-controls')).hidden = !selected;
             }
             ui.workspace = active.dataset.workspace;
-            query('.panel').classList.toggle('lookup-page', ['dex','weather','eggs'].includes(ui.workspace));
+            query('.panel').classList.toggle('lookup-page',lookupWorkspaces.has(ui.workspace));
             query('.panel').classList.toggle('queue-page', ui.workspace==='queue');
             if (refresh) {
                 render();place();content.scrollTop=Number(workspaceScroll[ui.workspace])||0;
@@ -387,7 +389,10 @@
         const dexPanel=mountDexPanel(root,render,()=>{if(ui.folded)fold(false);selectWorkspace('dex');});
         const weatherPanel=mountWeatherPanel(query('#weather-panel'),ui,saveUI,render);
         const renderSeason=mountSeasonCalendar(query('#season-calendar'));
-        query('#hunt-wild-forecast').onclick=()=>jumpTo('activity','#wild-forecast');
+        const renderWildForecast=mountWildForecastPanel(query('#pane-wild'));
+        query('#hunt-wild-forecast').onclick=()=>{
+            selectWorkspace('wild');query('[data-workspace="wild"]').focus({preventScroll:true});
+        };
         query('#hunt-forecast').onclick=()=>{
             const selected=formSettings()[formSettings().mode+'Weather'];
             if(selected?.length)weatherPanel.selectSkies(selected);
@@ -898,7 +903,7 @@
             }
             const activeLabel=dailyPhase||MODE_NAMES[engine.settings.mode];
             commandbar.classList.toggle('has-task',locked);
-            if(locked&&['dex','weather','eggs'].includes(ui.workspace)){
+            if(locked&&lookupWorkspaces.has(ui.workspace)){
                 const label=(resumable||nativePaused?'已暂停 · ':'运行中 · ')+activeLabel;
                 if(lookupTask.textContent!==label)lookupTask.textContent=label;
             }
@@ -1009,8 +1014,9 @@
                 lastLockState=locked;
             }
             query('[data-mode="daily"]').disabled=formLocked()||!!queueForm;
-            const lookup = ['dex','weather','eggs'].includes(ui.workspace);
-            query('#lookup-empty').hidden = !lookup || !!s?.adv;
+            const lookup = lookupWorkspaces.has(ui.workspace);
+            if(ui.workspace==='wild')renderWildForecast(s?.adv&&accountId(s)===engine.account?s:null,now);
+            query('#lookup-empty').hidden = !lookup || ui.workspace==='wild' || !!s?.adv;
             logPanel.controls(ui.workspace==='activity'&&tab==='logs');
             metricGroup.hidden = !s?.adv || tab!=='maps';
             const note=query('#item-route-choice'),choice=engine.itemRouteDecision;
@@ -1033,7 +1039,7 @@
                 return;
             }
             if (lookup) {
-                if(ui.workspace==='eggs')return;
+                if(ui.workspace==='eggs'||ui.workspace==='wild')return;
                 if (ui.workspace === 'dex') {
                     query('#dex-waiting').hidden = true;
                     query('#dex-panel').hidden = false;

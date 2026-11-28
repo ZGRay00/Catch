@@ -234,17 +234,24 @@ module.exports=async function verifyGameInsights({send,evaluate}){
                 if(shortcut.hidden)throw Error('Missing shiny hunting shortcut');
                 shortcut.click();
                 await new Promise(resolve=>setTimeout(resolve,50));
-                return [get('#wild-forecast').open,get('#wild-forecast .sub').textContent];
+                const pane=get('#pane-wild'),value=key=>get('[data-wild="'+key+'"]').textContent;
+                const first={visible:!pane.hidden,selected:get('[data-workspace="wild"]').getAttribute('aria-pressed'),
+                    distances:[value('natural'),value('berry')],times:[value('natural-time'),value('berry-time')],
+                    fits:pane.scrollWidth<=pane.clientWidth+1};
+                mock.state.adv.event={raid:true};mock.save();
+                get('[data-workspace="eggs"]').click();get('[data-workspace="wild"]').click();
+                return {...first,unavailable:value('error'),resultsHidden:get('[data-wild="results"]').hidden};
             }finally{
                 Object.assign(mock.state,before);
                 if(!Object.hasOwn(before,'wildN'))delete mock.state.wildN;
-                mock.save();get('#wild-forecast').open=false;
+                mock.save();
                 get('[data-workspace="tasks"]').click();get('[data-mode="'+mode+'"]').click();
             }
         });
-        assert.equal(forecast[0],true);
-        assert.match(forecast[1],/自然路闪.*2,308 次.*分钟/);
-        assert.match(forecast[1],/星桃果生效.*下次遭遇.*分钟/);
+        assert.ok(forecast.visible&&forecast.fits);assert.equal(forecast.selected,'true');
+        assert.deepEqual(forecast.distances,['再遇 2,308 次','下次遭遇']);
+        assert.ok(forecast.times.every(value=>value.includes('分钟')));
+        assert.ok(forecast.resultsHidden);assert.match(forecast.unavailable,/普通冒险路线/);
     }finally{
         await viewport(1280);
         await visit(()=>{

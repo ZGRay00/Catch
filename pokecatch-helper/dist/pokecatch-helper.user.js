@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.6.0
+// @version      8.6.1
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.6.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.6.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -15154,7 +15154,7 @@
     header { padding:10px 13px; background:#1b2c3a }
     header b { font-size:15px }
     .logo { padding:2px 8px; border-radius:7px }
-    .workspace-nav { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.45fr) repeat(3,minmax(0,1fr)) minmax(0,1.45fr) minmax(0,1fr); border-bottom:1px solid #324858 }
+    .workspace-nav { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1.6fr) repeat(4,minmax(0,1fr)) minmax(0,1.6fr) minmax(0,1fr); border-bottom:1px solid #324858 }
     .workspace-nav button {
         min-height:42px; padding:4px 2px; white-space:nowrap; border:0; border-radius:0; background:transparent;
         color:#acbecb; font-weight:600;
@@ -15258,7 +15258,12 @@
     @media(pointer:coarse) {
         .insight-nav button,.insight-field select,.insight-field input,.insight-actions button,.insight-pages button,.dex-owned-actions button,.dex-owned-tools select,#game-insights details>summary { min-height:44px }
     }
-    #pane-eggs h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
+    #pane-eggs h3, #pane-wild h3 { margin:14px 0 6px; font-size:13px; color:#def1eb }
+    .wild-targets { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(124px,100%),1fr)); gap:8px; margin-top:12px }
+    .wild-targets h4 { font-size:12px; margin:0 0 6px }
+    .wild-targets strong { font-size:16px; font-variant-numeric:tabular-nums }
+    .wild-targets > :nth-child(2) { border-inline-start-color:#c4a6e8 }
+    #pane-wild details { margin-top:12px }
     .roam-ball-control:not([hidden]) { display:flex; flex-wrap:wrap; align-items:center; gap:4px 8px; margin:8px 0; padding:7px 8px; border:1px solid #3b4e63; border-radius:8px }
     .roam-ball-control > strong { margin-inline-start:auto; color:#b1e6d6; font-size:11px; font-variant-numeric:tabular-nums }
     .roam-ball-control > .hint { flex-basis:100%; margin:0 }
@@ -16035,33 +16040,6 @@
         item.append(roundTitle,roundNote,roundRows);
         let last,slotKey,targetKey,underKey,geodeKey,raidKey,roundKey,previousAccount;
         const nameOf=reg=>DATA.regions.find(r=>r.key===reg)?.name||reg;
-        const wildPanel=root.querySelector('#wild-forecast'),wildCache={};
-        let wildView=null;
-        function showWildForecast(s,now){
-            const hashes=gameBundleHashes(),bundle=hashes.size===1?[...hashes][0]:null;
-            const f=wildShinyForecast(s,bundle,now,wildCache);
-            const lines=[];
-            if(f.error)lines.push(f.error);
-            else{
-                const estimate=n=>{
-                    if(f.seconds===null)return '';
-                    const minutes=n*f.seconds/60;
-                    return minutes<0.1?' · 不足 0.1 分钟':' · 约 '+minutes.toLocaleString('zh-CN',{maximumFractionDigits:1})+' 分钟';
-                };
-                const target=n=>n===null?'未来 30,000 次内未找到':(n===1?'下次遭遇':'再遇 '+n.toLocaleString('zh-CN')+' 次')+estimate(n);
-                lines.push('自然路闪　'+target(f.natural),'星桃果生效　'+target(f.berry));
-                if(f.natural!==null&&f.natural===f.berry)lines.push('上述目标自然就会闪。仅吃果才闪的下一次为　'+target(f.berryOnly));
-                const berry=f.remainingMs?'星桃果剩 '+Math.ceil(f.remainingMs/60000)+' 分钟':'星桃果未生效';
-                lines.push(nameOf(f.region)+' · '+(f.complete?'完整图鉴加成 ×2':'基础闪率')+' · '+berry);
-                if(f.remainingMs&&f.berry===f.berryOnly&&f.berry!==null&&f.seconds!==null&&f.berry*f.seconds*1000>=f.remainingMs)
-                    lines.push('按当前速度，目标遭遇前这次果效预计会结束。');
-                lines.push(f.seconds===null?'此路线缺少可估速的普通野生遭遇。':
-                    '按本图 '+s.adv.speed+' 档速度连续挂机、每只一击击倒，平均 '+f.seconds.toFixed(1)+' 秒遇敌一次。');
-                lines.push('只计普通野生遭遇。吃果目标要求遇敌时果效仍在。');
-            }
-            const view=lines.join('\n');
-            if(view!==wildView){wildView=view;wildPanel.querySelector('.sub').replaceChildren(...lines.map(line=>element('p',line)));}
-        }
         const rewardText=values=>values.map(([name,n])=>name+' ×'+n).join('、')||'暂无掉落';
         function options(menu,rows){
             const selected=menu.value;
@@ -16119,7 +16097,6 @@
                 }
             }
             if(!ui.folded&&ui.workspace==='activity'){
-                if(wildPanel?.open)showWildForecast(ok?s:null,now);
                 for(const id of ['casino-insight','party-history']){
                     const detail=root.querySelector('#'+id);
                     if(!detail?.open)continue;
@@ -16168,7 +16145,7 @@
         function repaint(){if(last)update(last.s,Date.now(),last.ui);}
         window.addEventListener('storage',event=>{if(event.key===ledger.key){ledger.signature=null;repaint();}},{signal});
         for(const control of [slotMenu,targetMenu,tier,range])control.select.addEventListener('change',repaint);
-        for(const detail of [under.closest('details'),raid.closest('details'),root.querySelector('#casino-insight'),root.querySelector('#party-history'),wildPanel,geodes])detail?.addEventListener('toggle',repaint);
+        for(const detail of [under.closest('details'),raid.closest('details'),root.querySelector('#casino-insight'),root.querySelector('#party-history'),geodes])detail?.addEventListener('toggle',repaint);
         return {update};
     }
     function mountDexPanel(root,refresh,showDex=refresh){
@@ -16856,6 +16833,50 @@
             const events=query('#nursery-events');events.replaceChildren();for(const event of eventsRows){const item=document.createElement('div');item.className='nursery-event';item.textContent=new Date(event.at).toLocaleTimeString('zh-CN',{hour12:false})+' '+event.text;events.appendChild(item);}return snap;
         }};
     }
+    function mountWildForecastPanel(panel){
+        panel.innerHTML=`<div class="nursery-card">
+            <div class="nursery-heading"><h3>路闪预测</h3><span class="sub" data-wild="location"></span></div>
+            <p role="status" data-wild="error"></p>
+            <div data-wild="results" hidden>
+                <div class="wild-targets">
+                    <div class="nursery-next-card"><h4>自然路闪</h4><strong data-wild="natural"></strong><div class="sub" data-wild="natural-time"></div></div>
+                    <div class="nursery-next-card"><h4>星桃果路闪</h4><strong data-wild="berry"></strong><div class="sub" data-wild="berry-time"></div></div>
+                </div>
+                <p data-wild="overlap" hidden></p>
+                <div class="nursery-section-heading"><h3>当前条件</h3></div>
+                <dl class="decision-list"><dt>星桃果</dt><dd data-wild="buff"></dd><dt>地区闪率</dt><dd data-wild="odds"></dd><dt>遇敌速度</dt><dd data-wild="pace"></dd></dl>
+                <p class="warn" data-wild="expiry" hidden>按当前速度，这次果效预计会在目标遭遇前结束。</p>
+                <details><summary>预测依据</summary><p class="hint">从下一次普通野生遭遇起算。星桃果须在目标遭遇生成时生效。时间按当前地图持续循环、每只对手一击击倒估算，包含沿途训练家和其他节点。</p></details>
+            </div></div>`;
+        const nodes=Object.fromEntries([...panel.querySelectorAll('[data-wild]')].map(el=>[el.dataset.wild,el]));
+        const cache={};
+        function write(key,value){if(nodes[key].textContent!==value)nodes[key].textContent=value;}
+        function distance(n){return n===null?'30,000 次内未找到':n===1?'下次遭遇':'再遇 '+n.toLocaleString('zh-CN')+' 次';}
+        function estimate(n,seconds){
+            if(n===null)return '';
+            if(seconds===null)return '用时待估';
+            const minutes=n*seconds/60;
+            return minutes<0.1?'不足 0.1 分钟':'约 '+minutes.toLocaleString('zh-CN',{maximumFractionDigits:1})+' 分钟';
+        }
+        return (s,now)=>{
+            const hashes=gameBundleHashes();
+            const f=wildShinyForecast(s,hashes.size===1?[...hashes][0]:null,now,cache);
+            nodes.results.hidden=!!f.error;nodes.error.hidden=!f.error;
+            write('error',f.error||'');
+            write('location',f.error?'':(DATA.regions.find(r=>r.key===f.region)?.name||f.region)+' · '+CHAPTERS.get(s.adv.chapter).name);
+            if(f.error)return;
+            for(const key of ['natural','berry']){
+                write(key,distance(f[key]));write(key+'-time',estimate(f[key],f.seconds));
+            }
+            const overlap=f.natural!==null&&f.natural===f.berry;
+            nodes.overlap.hidden=!overlap;
+            if(overlap)write('overlap','本次自然就会闪。下一次仅吃果才闪　'+[distance(f.berryOnly),estimate(f.berryOnly,f.seconds)].filter(Boolean).join(' · '));
+            write('buff',f.remainingMs?'剩余 '+Math.ceil(f.remainingMs/60000)+' 分钟':'未生效');
+            write('odds',f.complete?'完整图鉴加成 ×2':'基础闪率');
+            write('pace',f.seconds===null?'等待可估速的路线':s.adv.speed+' 档 · 平均 '+f.seconds.toFixed(1)+' 秒 / 次');
+            nodes.expiry.hidden=!(f.remainingMs&&f.berryOnly!==null&&f.seconds!==null&&f.berryOnly*f.seconds*1000>=f.remainingMs);
+        };
+    }
     function mountQueuePanel(root,engine){
         const list=root.querySelector('#queue-list'),summary=root.querySelector('#queue-summary');
         const notice=root.querySelector('#queue-notice'),add=root.querySelector('#queue-add');
@@ -17359,6 +17380,7 @@
                 <button data-workspace="dex" aria-controls="pane-dex">图鉴</button>
                 <button data-workspace="weather" aria-controls="pane-weather">天气</button>
                 <button data-workspace="eggs" aria-controls="pane-eggs">孵蛋</button>
+                <button data-workspace="wild" aria-controls="pane-wild">路闪</button>
                 <button data-workspace="activity" aria-controls="pane-activity">运行实况</button>
                 <button data-workspace="settings" aria-controls="pane-settings">设置</button>
             </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
@@ -17447,7 +17469,6 @@
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>冲层和刷金币使用空闲队员，保留主队、Buddy 和任务成员；自动优化优先使用游戏推荐的地下队伍</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。地下主任务单独管理派遣次数和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
-            <details id="wild-forecast"><summary>路闪预测</summary><div class="sub"></div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
@@ -17467,6 +17488,7 @@
             <section id="pane-dex" aria-label="图鉴" hidden><p id="dex-waiting" class="hint" hidden>载入游戏存档后，可查看图鉴、比较路线和预览持有个体的禁招建议。</p><div id="dex-panel"></div></section>
             <section id="pane-weather" aria-label="天气" hidden><div id="weather-panel" aria-label="地区天气预报"></div></section>
             <section id="pane-eggs" aria-label="孵蛋" hidden></section>
+            <section id="pane-wild" aria-label="路闪预测" hidden></section>
             <section id="pane-settings" aria-label="设置" hidden>
             <section id="settings-purchase" class="purchase-card">
                 ${purchaseToggle}
@@ -17599,6 +17621,7 @@
         }
         selectYieldView(ui.yieldView);
         const workspaces = [...root.querySelectorAll('[data-workspace]')];
+        const lookupWorkspaces=new Set(['dex','weather','eggs','wild']);
         const content=query('.content');
         const workspaceScroll=ui.scroll&&typeof ui.scroll==='object'?ui.scroll:{};
         ui.scroll=workspaceScroll;
@@ -17612,7 +17635,7 @@
                 query('#' + button.getAttribute('aria-controls')).hidden = !selected;
             }
             ui.workspace = active.dataset.workspace;
-            query('.panel').classList.toggle('lookup-page', ['dex','weather','eggs'].includes(ui.workspace));
+            query('.panel').classList.toggle('lookup-page',lookupWorkspaces.has(ui.workspace));
             query('.panel').classList.toggle('queue-page', ui.workspace==='queue');
             if (refresh) {
                 render();place();content.scrollTop=Number(workspaceScroll[ui.workspace])||0;
@@ -17652,7 +17675,10 @@
         const dexPanel=mountDexPanel(root,render,()=>{if(ui.folded)fold(false);selectWorkspace('dex');});
         const weatherPanel=mountWeatherPanel(query('#weather-panel'),ui,saveUI,render);
         const renderSeason=mountSeasonCalendar(query('#season-calendar'));
-        query('#hunt-wild-forecast').onclick=()=>jumpTo('activity','#wild-forecast');
+        const renderWildForecast=mountWildForecastPanel(query('#pane-wild'));
+        query('#hunt-wild-forecast').onclick=()=>{
+            selectWorkspace('wild');query('[data-workspace="wild"]').focus({preventScroll:true});
+        };
         query('#hunt-forecast').onclick=()=>{
             const selected=formSettings()[formSettings().mode+'Weather'];
             if(selected?.length)weatherPanel.selectSkies(selected);
@@ -18163,7 +18189,7 @@
             }
             const activeLabel=dailyPhase||MODE_NAMES[engine.settings.mode];
             commandbar.classList.toggle('has-task',locked);
-            if(locked&&['dex','weather','eggs'].includes(ui.workspace)){
+            if(locked&&lookupWorkspaces.has(ui.workspace)){
                 const label=(resumable||nativePaused?'已暂停 · ':'运行中 · ')+activeLabel;
                 if(lookupTask.textContent!==label)lookupTask.textContent=label;
             }
@@ -18274,8 +18300,9 @@
                 lastLockState=locked;
             }
             query('[data-mode="daily"]').disabled=formLocked()||!!queueForm;
-            const lookup = ['dex','weather','eggs'].includes(ui.workspace);
-            query('#lookup-empty').hidden = !lookup || !!s?.adv;
+            const lookup = lookupWorkspaces.has(ui.workspace);
+            if(ui.workspace==='wild')renderWildForecast(s?.adv&&accountId(s)===engine.account?s:null,now);
+            query('#lookup-empty').hidden = !lookup || ui.workspace==='wild' || !!s?.adv;
             logPanel.controls(ui.workspace==='activity'&&tab==='logs');
             metricGroup.hidden = !s?.adv || tab!=='maps';
             const note=query('#item-route-choice'),choice=engine.itemRouteDecision;
@@ -18298,7 +18325,7 @@
                 return;
             }
             if (lookup) {
-                if(ui.workspace==='eggs')return;
+                if(ui.workspace==='eggs'||ui.workspace==='wild')return;
                 if (ui.workspace === 'dex') {
                     query('#dex-waiting').hidden = true;
                     query('#dex-panel').hidden = false;

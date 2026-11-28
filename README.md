@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.7.0**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.8.0**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.7.0.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[国内 / COS 安装](https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.user.js) · [全球 / GitHub 安装](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [8.8.0 正式发行与校验文件](https://github.com/ZGRay00/Catch/releases/tag/helper-v8.8.0) · [使用说明](./使用说明.txt) · [双渠道发布与维护](./pokecatch-helper/docs/dual-release.md)
+
+8.8.0 · 可导出方块首领、口味、方块队和战果。国内与全球助手共用正文，在「在线更新」中查看检查结果和切换安装渠道。
 
 8.7.0 · 在「设置 → 战斗与过场」可输入密码开启传说战和精英战自动切招。功能默认关闭，会按对手异常状态选择攻击，战后恢复原禁招。路闪预测现分别显示当前地图用时和纯野战用时，游戏规则待核对时显示参考预测。
 

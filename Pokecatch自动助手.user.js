@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.7.0
+// @version      8.8.0
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -9,6 +9,7 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        GM_openInTab
+// @connect      catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com
 // @connect      raw.githubusercontent.com
 // @connect      api.github.com
 // @connect      cdn.jsdelivr.net
@@ -24,7 +25,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.7.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.8.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -87,21 +88,21 @@
 
     const UPDATE_RELEASE=Object.freeze({repository:'ZGRay00/Catch',name:'PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战',namespace:'local.pokecatch.auto-helper',
         file:'pokecatch-helper.user.js',head:'https://api.github.com/repos/ZGRay00/Catch/git/ref/heads/main',
-        download:'https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js'});
-    const UPDATE_SOURCES=Object.freeze([
-        {id:'github',name:'GitHub Raw',base:'https://raw.githubusercontent.com/ZGRay00/Catch/'},
-        {id:'jsdelivr',name:'jsDelivr',base:'https://cdn.jsdelivr.net/gh/ZGRay00/Catch@'},
-        {id:'fastly',name:'jsDelivr Fastly',base:'https://fastly.jsdelivr.net/gh/ZGRay00/Catch@'},
-        {id:'gcore',name:'jsDelivr Gcore',base:'https://gcore.jsdelivr.net/gh/ZGRay00/Catch@'},
-        {id:'contents',name:'GitHub 文件 API',base:'https://api.github.com/repos/ZGRay00/Catch/contents/pokecatch-helper.user.js'}
-    ].map(source=>Object.freeze(source)));
-    function updateSourceURL(sourceId,ref='main',fresh=null){
-        const source=UPDATE_SOURCES.find(row=>row.id===sourceId);
-        if(!source||!/^(?:main|[a-f0-9]{40})$/.test(ref))throw new Error('未知更新来源或提交');
-        const url=new URL(source.id==='contents'?source.base:source.base+ref+'/'+UPDATE_RELEASE.file);
-        if(source.id==='contents')url.searchParams.set('ref',ref);
-        if(fresh!=null)url.searchParams.set('_pokecatch_check',String(fresh));
-        return url.href;
+        download:'https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.user.js'});
+    const helperCos=UPDATE_RELEASE.download.slice(0,UPDATE_RELEASE.download.lastIndexOf('/')+1);
+    const helperRaw='https://raw.githubusercontent.com/ZGRay00/Catch/';
+    const UPDATE_SOURCES=Object.freeze([{id:'cos',name:'国内 / COS'},{id:'github',name:'全球 / GitHub Raw'},{id:'jsdelivr',name:'jsDelivr 镜像'}]);
+    const helperPublicKey='MCowBQYDK2VwAyEAsyJJaZWan0xmCgBZGG7gBiQs0e4vX6NvPJIkQ8+Q/bk=';
+    function installedHelperChannel(){
+        const url=typeof GM_info==='undefined'?'':GM_info.script?.downloadURL||GM_info.script?.updateURL||GM_info.scriptMetaStr||'';
+        return url.includes(helperCos)?'cn':url.includes(helperRaw)?'global':null;
+    }
+    function updateSourceURL(id,version){
+        if(!UPDATE_SOURCES.some(s=>s.id===id)||version!==undefined&&!/^\d+\.\d+\.\d+$/.test(version))throw Error('更新源或版本无效');
+        const tag='helper-v'+version,file='pokecatch-helper-'+(id==='cos'?'cn':'global')+'.user.js';
+        if(id==='cos')return helperCos+(version?'releases/'+version+'/'+file:'helper-release.json');
+        const base=id==='github'?helperRaw:'https://cdn.jsdelivr.net/gh/ZGRay00/Catch@';
+        return base+(version?tag+'/releases/'+tag+'/'+file:'main/helper-release.json');
     }
     function updateVersionParts(value){
         const text=String(value??'').trim(),match=/^(\d+(?:\.\d+){0,7})(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/.exec(text);
@@ -123,18 +124,15 @@
     }
     function allowedUpdateURL(value){
         let url;try{url=new URL(value);}catch{throw new Error('更新源地址无效');}
-        const api=url.hostname==='api.github.com'&&url.pathname==='/repos/ZGRay00/Catch/git/ref/heads/main';
-        const raw=url.hostname==='raw.githubusercontent.com'&&/^\/ZGRay00\/Catch\/(?:main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.test(url.pathname);
-        const cdn=['cdn.jsdelivr.net','fastly.jsdelivr.net','gcore.jsdelivr.net'].includes(url.hostname)&&/^\/gh\/ZGRay00\/Catch@(?:main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.test(url.pathname);
-        const contents=url.origin+url.pathname===UPDATE_SOURCES.find(source=>source.id==='contents').base&&url.searchParams.getAll('ref').length===1&&/^(?:main|[a-f0-9]{40})$/.test(url.searchParams.get('ref'))&&[...url.searchParams.keys()].every(key=>['ref','_pokecatch_check'].includes(key));
-        if(url.protocol!=='https:'||url.port||url.username||url.password||!api&&!raw&&!cdn&&!contents)throw new Error('更新请求仅允许指定 Catch 仓库的 HTTPS 地址');
-        url.hash='';return url.href;
+        const exact=url.origin+url.pathname,version=/helper-v(\d+\.\d+\.\d+)|releases\/(\d+\.\d+\.\d+)/.exec(url.pathname);
+        const valid=[UPDATE_RELEASE.download,helperRaw+'main/pokecatch-helper.user.js',...UPDATE_SOURCES.map(s=>updateSourceURL(s.id))];
+        if(version)valid.push(...UPDATE_SOURCES.map(s=>updateSourceURL(s.id,version[1]||version[2])));
+        if(!valid.includes(exact)||url.username||url.password||url.search||url.hash)throw Error('更新地址超出发行范围');
+        return url.href;
     }
     function allowedUpdateRedirect(requested,actual){
-        const from=new URL(allowedUpdateURL(requested)),to=new URL(allowedUpdateURL(actual));
-        const identity=url=>url.hostname==='api.github.com'?(url.pathname.includes('/contents/')?url.searchParams.get('ref'):'head'):/\/(?:Catch\/|Catch@)(main|[a-f0-9]{40})\/pokecatch-helper\.user\.js$/.exec(url.pathname)?.[1];
-        if(identity(from)!==identity(to))throw new Error('更新响应跳转到了不同提交或文件');
-        return to.href;
+        if(allowedUpdateURL(requested)!==allowedUpdateURL(actual))throw Error('更新文件被重定向');
+        return actual;
     }
     function parseUpdateScript(text){
         if(typeof text!=='string'||text.length>4*1024*1024)throw new Error('更新文件为空或超过大小限制');
@@ -175,7 +173,7 @@
                 finish(null,{text:result.text,url:result.url||url});
             }catch(error){finish(error);}};
             try{
-                const headers=url.startsWith(UPDATE_SOURCES.find(source=>source.id==='contents').base)?{Accept:'application/vnd.github.raw+json'}:{};
+                const headers={};
                 if(typeof GM_xmlhttpRequest==='function')handle=GM_xmlhttpRequest({method:'GET',url,anonymous:true,timeout:ms,responseType:'text',headers:{...headers,'Cache-Control':'no-cache'},
                     onload:result=>loaded({status:result.status,text:result.responseText,url:result.finalUrl}),
                     onerror:()=>finish(new Error('无法连接更新源，请检查网络或油猴域名授权')),
@@ -210,9 +208,22 @@
         if(typeof GM_openInTab==='function'){const tab=GM_openInTab(url,{active:true,insert:true,setParent:true});return tab!==null&&tab!==false;}
         const page=window.open(url,'_blank');if(!page)return false;try{page.opener=null;}catch{}return true;
     }
+    const helperDigest=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),v=>v.toString(16).padStart(2,'0')).join('');
+    async function verifyHelperManifest(text){
+        if(typeof text!=='string'||text.length>16384)throw Error('发行清单大小无效');
+        const env=JSON.parse(text),decode=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+        const data=decode(env.data),key=await crypto.subtle.importKey('spki',decode(helperPublicKey),'Ed25519',false,['verify']);
+        if(!await crypto.subtle.verify('Ed25519',key,decode(env.sig),data))throw Error('发行签名无效');
+        const m=JSON.parse(new TextDecoder().decode(data)),hash=/^[a-f0-9]{64}$/;
+        if(m.channel!=='stable'||m.kind!=='pokecatch-helper-release'||!/^\d+\.\d+\.\d+$/.test(m.version)||m.releaseId!=='helper-v'+m.version||!hash.test(m.bodyHash)||!/^[a-f0-9]{40}$/.test(m.sourceCommit))throw Error('正式发行身份无效');
+        for(const channel of ['cn','global'])for(const kind of ['meta','user']){
+            const f=m.files?.['pokecatch-helper-'+channel+'.'+kind+'.js'];if(!f||!hash.test(f.sha256)||!Number.isInteger(f.size)||f.size<1||f.size>4194304)throw Error('发行文件记录无效');
+        }
+        return m;
+    }
     class UpdateChecker{
         constructor({request=requestUpdateResource,open=openUpdateInstaller,download=downloadUpdateScript,currentVersion=VERSION,onChange=()=>{},now=Date.now,headTimeout=4000,sourceTimeout=9000}={}){
-            this.request=request;this.open=open;this.currentVersion=currentVersion;this.onChange=onChange;this.now=now;
+            this.identities=new Map();this.verifyManifest=verifyHelperManifest;this.request=request;this.open=open;this.currentVersion=currentVersion;this.onChange=onChange;this.now=now;
             this.downloadFile=download;this.headTimeout=Math.max(1,Math.min(4000,Number(headTimeout)||4000));this.sourceTimeout=Math.max(1,Math.min(9000,Number(sourceTimeout)||9000));
             this.epoch=0;this.controller=null;this.sourceId='auto';this.phase='idle';this.sourceResults=[];
             this.busy=false;this.pending=null;this.checkedAt=0;this.message=`当前 v${currentVersion} · 更新来源 ZGRay00/Catch`;
@@ -220,69 +231,47 @@
         changed(){try{this.onChange(this);}catch(error){console.warn('[PokéCatch 更新]',error);}}
         async check({sourceId='auto'}={}){
             if(this.busy)return null;
-            if(sourceId!=='auto'&&!UPDATE_SOURCES.some(source=>source.id===sourceId)){this.message='检查失败：未知更新来源';this.changed();return null;}
-            this.busy=true;this.pending=null;this.sourceId=sourceId;this.phase='head';this.controller=new AbortController();
-            const epoch=++this.epoch,signal=this.controller.signal,current=()=>epoch===this.epoch&&!signal.aborted;
-            const sources=UPDATE_SOURCES.filter(source=>sourceId==='auto'||source.id===sourceId);
-            this.sourceResults=[{id:'head',name:'GitHub HEAD',state:'waiting',version:'',ms:0,error:''},...UPDATE_SOURCES.map(source=>({id:source.id,name:source.name,state:sources.includes(source)?'waiting':'skipped',version:'',ms:0,error:''}))];
-            const progress=(id,patch)=>{if(!current())return;this.sourceResults=this.sourceResults.map(row=>row.id===id?{...row,...patch}:row);this.changed();};
-            this.message=`正在检查在线更新 · 本地 v${this.currentVersion}`;this.changed();
+            const first=sourceId==='auto'?(installedHelperChannel()==='global'?'github':'cos'):sourceId;
+            if(!UPDATE_SOURCES.some(s=>s.id===first))return null;
+            const order=[first,...['cos','github','jsdelivr'].filter(s=>s!==first)];
+            const controller=new AbortController(),epoch=++this.epoch;
+            this.controller=controller;this.busy=true;this.pending=null;this.phase='checking';this.sourceId=sourceId;
+            this.sourceResults=order.map(id=>({id,name:UPDATE_SOURCES.find(s=>s.id===id).name,state:'waiting'}));
+            const stop=Date.now()+18000;
+            const fetchText=async url=>{
+                const remaining=stop-Date.now();if(remaining<1)throw Error('检查超时');
+                const reply=await updateRequestWithDeadline(this.request,url,{signal:controller.signal,timeout:Math.min(remaining,this.sourceTimeout, url.endsWith('.json')?3000:9000)});
+                if(reply?.url)allowedUpdateRedirect(url,reply.url);
+                return typeof reply==='string'?reply:reply.text;
+            };
+            this.message='正在核对正式发行清单';this.changed();
             try{
-                const fresh=String(this.now()),headURL=UPDATE_RELEASE.head+'?_pokecatch_check='+encodeURIComponent(fresh);let commit=null;
-                const headAt=this.now();progress('head',{state:'checking'});
-                try{
-                    const reply=await updateRequestWithDeadline(this.request,headURL,{signal,timeout:this.headTimeout});
-                    if(reply?.url)allowedUpdateRedirect(headURL,reply.url);
-                    const head=JSON.parse(typeof reply==='string'?reply:reply.text);
-                    if(!/^[a-f0-9]{40}$/.test(head?.object?.sha||''))throw new Error('最新提交信息无效');
-                    commit=head.object.sha;progress('head',{state:'success',ms:Math.max(0,this.now()-headAt),commit});
-                }catch(error){if(!current())return null;progress('head',{state:error.name==='TimeoutError'?'timeout':'error',ms:Math.max(0,this.now()-headAt),error:String(error.message||error).slice(0,240)});}
-                if(!current())return null;
-                const batch=async(ref,phase)=>{
-                    this.phase=phase;this.message=ref==='main'?'正在并行比对更新来源，跳过过期缓存':'正在并行核验同一 GitHub 提交';this.changed();
-                    const results=await Promise.all(sources.map(async source=>{
-                        const started=this.now(),url=updateSourceURL(source.id,ref,ref==='main'?fresh:null);progress(source.id,{state:'checking',version:'',error:'',phase,ms:0});
-                        const cached=this.pinnedCache;
-                        if(sourceId==='auto'&&phase==='pinned'&&cached?.commit===ref&&cached.urls.has(source.id)){
-                            progress(source.id,{state:'success',version:cached.version,cached:true});
-                            return {...cached.script,sourceId:source.id,url:cached.urls.get(source.id)};
-                        }
-                        try{
-                            const response=await updateRequestWithDeadline(this.request,url,{signal,timeout:this.sourceTimeout});
-                            if(!current())return null;
-                            const finalURL=response?.url?allowedUpdateRedirect(url,response.url):url,text=typeof response==='string'?response:response?.text;
-                            const latest=parseUpdateScript(text);
-                            progress(source.id,{state:'success',version:latest.version,ms:Math.max(0,this.now()-started)});
-                            return{...latest,text,url:finalURL,commit:ref==='main'?null:ref,sourceId:source.id};
-                        }catch(error){if(current())progress(source.id,{state:error.name==='TimeoutError'?'timeout':'error',error:String(error.message||error).slice(0,240),ms:Math.max(0,this.now()-started)});return null;}
-                    }));
-                    return results.filter(Boolean).sort((a,b)=>compareUpdateVersions(b.version,a.version));
-                };
-                let results=commit?await batch(commit,'pinned'):[];
-                if(current()&&commit&&results.length>1&&results.some(result=>result.version!==results[0].version||result.text!==results[0].text)){
-                    this.pinnedCache=null;
-                    const detail=results.map(result=>`${result.sourceId}: v${result.version}`).join('、');
-                    for(const result of results)progress(result.sourceId,{state:'conflict',error:'同一固定提交的版本或正文不一致'});
-                    throw new Error(`同一提交的更新来源内容冲突（${detail}）；请手动选择可信来源核对后重试`);
+                let cached=null;
+                for(const row of this.sourceResults){
+                    if(controller.signal.aborted||epoch!==this.epoch)return null;
+                    const started=this.now();row.state='checking';this.changed();
+                    try{
+                        const manifest=await this.verifyManifest(await fetchText(updateSourceURL(row.id)));
+                        if(controller.signal.aborted||epoch!==this.epoch)return null;
+                        const channel=row.id==='cos'?'cn':'global',version=manifest.version,entry=manifest.files['pokecatch-helper-'+channel+'.user.js'];
+                        if(this.identities.has(version)&&this.identities.get(version)!==JSON.stringify(manifest.files))throw Error('同版本签名清单内容冲突');
+                        this.identities.set(version,JSON.stringify(manifest.files));
+                        row.version=version;
+                        if(compareUpdateVersions(version,this.currentVersion)<0){row.state='skipped';cached=version;continue;}
+                        const url=updateSourceURL(row.id,version);
+                        const text=await fetchText(url);const parsed=parseUpdateScript(text);
+                        const bytes=new TextEncoder().encode(text),body=text.slice(text.indexOf('// ==/UserScript==')+'// ==/UserScript=='.length+1);
+                        if(parsed.version!==version||bytes.length!==entry.size||await helperDigest(bytes)!==entry.sha256||await helperDigest(new TextEncoder().encode(body))!==manifest.bodyHash)throw Error('正文与签名发行清单冲突');
+                        if(controller.signal.aborted||epoch!==this.epoch)return null;
+                        if(version===this.currentVersion){this.message='当前已是正式版 v'+version;row.state='success';this.phase='complete';this.checkedAt=this.now();return {version};}
+                        this.pending=Object.freeze({version,text,url,sourceId:row.id,commit:manifest.sourceCommit,hash:entry.sha256,channel});
+                        row.state='success';this.phase='complete';this.checkedAt=this.now();this.message='发现 v'+version+' · '+row.name+'，已验证正式发行签名及正文';return this.pending;
+                    }catch(error){if(controller.signal.aborted||epoch!==this.epoch)return null;row.state='error';row.error=String(error.message||error).slice(0,160);if(row.error.includes('冲突'))throw error;}
+                    finally{row.ms=Math.max(0,this.now()-started);if(epoch===this.epoch)this.changed();}
                 }
-                if(current()&&!results.length)results=await batch('main','branch');
-                if(!current())return null;
-                if(!results.length)throw new Error('所有更新来源均未返回有效脚本；可切换来源后重试');
-                const latest=results[0],comparison=compareUpdateVersions(latest.version,this.currentVersion);
-                // Keep verified mirror responses for the same immutable commit,
-                // including an update the player has not installed yet.
-                if(latest.commit){
-                    const urls=this.pinnedCache?.commit===latest.commit&&this.pinnedCache.script.text===latest.text?this.pinnedCache.urls:new Map();
-                    for(const result of results)urls.set(result.sourceId,result.url);
-                    this.pinnedCache={commit:latest.commit,version:latest.version,script:{...latest},urls};
-                }else this.pinnedCache=null;
-                this.checkedAt=this.now();
-                this.phase='complete';
-                if(comparison>0){this.pending=latest;this.message=`发现 v${latest.version} · ${UPDATE_SOURCES.find(source=>source.id===latest.sourceId).name}；${latest.commit?'已固定最新提交，可安装新版':'分支缓存尚未确认最新提交，可下载已验证快照避免安装缓存变化'}`;}
-                else this.message=comparison===0?(latest.commit?`已核对最新提交，当前为 v${this.currentVersion}`:`已比对 ${results.length} 个有效来源，与当前 v${this.currentVersion} 一致（最新提交暂未确认，CDN可能缓存）`):latest.commit?`仓库 main（${latest.commit.slice(0,7)}）发布的是 v${latest.version}，当前运行 v${this.currentVersion}，无需降级。`:`分支来源最高返回 v${latest.version}，当前运行 v${this.currentVersion}。最新提交尚未核实，镜像可能仍有缓存。`;
-                return latest;
-            }catch(error){if(current()){this.phase='error';this.message='检查失败：'+(error?.message||error);}return null;}
-            finally{if(epoch===this.epoch){this.busy=false;this.controller=null;this.changed();}}
+                throw Error(cached?'来源仍缓存 v'+cached+'，保留当前版本':'所有更新源暂不可用');
+            }catch(error){if(epoch===this.epoch){this.message='检查失败：'+error.message;this.phase='error';}return null;}
+            finally{if(epoch===this.epoch){this.controller=null;this.busy=false;this.changed();}}
         }
         cancel(){
             if(!this.busy)return false;
@@ -295,7 +284,7 @@
             const latest=parseUpdateScript(this.pending.text);
             if(latest.version!==this.pending.version||compareUpdateVersions(latest.version,this.currentVersion)<=0)throw new Error('待安装脚本版本与已验证缓存不一致');
             const url=allowedUpdateURL(this.pending.url);
-            if(this.pending.commit)allowedUpdateRedirect(updateSourceURL('github',this.pending.commit),url);
+            allowedUpdateRedirect(updateSourceURL(this.pending.sourceId,this.pending.version),url);
             return this.pending;
         }
         install(){
@@ -3458,6 +3447,34 @@
             };
         });
     }
+    const blocBossIds=[143,217,463,631,317,89,518,321,71,450,306,604,473,297,214,279];
+    const blocColors={'#ff5a4e':'atk','#ffd23f':'def','#4ea3ff':'spa','#4fd16b':'spd','#ff8ad1':'spe','#d9a8ff':'all'};
+    function simulatorBloc(s,aliases,now){
+        const day=parisDay(now),validDay=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v);
+        const teamOf=v=>Array.isArray(v)&&v.length<=10&&new Set(v).size===v.length&&v.every(id=>aliases.has(id))?v.map(id=>aliases.get(id)):null;
+        const state=s.bloc,last=state?.last,team=teamOf(s.eventTeams?.bloc);
+        const teamSeed=team?.length?[...day+'|'+s.eventTeams.bloc.join(',')].reduce((hash,ch)=>Math.imul(hash^ch.charCodeAt(0),16777619)>>>0,2166136261):null;
+        const validLast=validDay(last?.day)&&blocBossIds.includes(last.boss)&&Object.values(blocColors).includes(last.taste)&&Number.isInteger(last.step)&&last.step>=0&&last.step<(last.taste==='all'?18:14);
+        const lastBattle=validLast?{day:last.day,boss:last.boss,taste:last.taste,step:last.step,team:teamOf(last.team),
+            damage:Number.isFinite(last.dmg)?last.dmg:null,blocks:Number.isSafeInteger(last.got)?last.got:null,rainbow:Number.isSafeInteger(last.rb)?last.rb:null}:null;
+        let daily=validLast&&last.day===day?{day,boss:last.boss,taste:last.taste,source:'battle'}:null;
+        if(!daily&&typeof document!=='undefined'){
+            const panel=document.querySelector?.('#screen-raid.active #bloc-root .bb-view'),banner=document.querySelector?.('#screen-raid.active button.rh-hb.bloc');
+            const color=(panel??banner)?.style?.getPropertyValue('--tc')?.trim().toLowerCase();
+            const src=panel?.querySelector('.bb-boss img')?.getAttribute('src')??'';
+            const id=Number(/\/(\d+)\.(?:gif|png|webp)(?:[?#]|$)/i.exec(src)?.[1]);
+            const name=banner?.querySelector('.sub b')?.textContent?.trim();
+            const boss=blocBossIds.includes(id)?id:blocBossIds.find(n=>MONS.get(n)?.name===name);
+            if(boss&&blocColors[color])daily={day,boss,taste:blocColors[color],source:'screen'};
+        }
+        const lvl=s.adv?.event?.level??s.adv?.zone?.level;
+        const league=DATA.chapters.filter(c=>c.reg==='unova'&&c.league).at(-1);
+        const unlocked=state?.ignoreLock||validLast&&last.day===day?true:league&&Number.isInteger(s.adv?.unlocked)?
+            s.adv.unlocked>league.id||league.badges.some(b=>s.adv.badges?.includes(b)):null;
+        return {day,daily,team,teamSeed,lastBattle,unlocked,played:state?.played===day,best:Number.isInteger(state?.best)?state.best:null,
+            inZone:!!s.adv?.zone,levelLimit:Number.isInteger(lvl)&&lvl>=1&&lvl<=100?lvl:null,
+            learnedPower:s.mons.filter(m=>m.learn&&aliases.has(m.uid)).map(m=>aliases.get(m.uid))};
+    }
     async function simulatorBox(s,settings,now,build,resources=false,identity=simIdentity){
         const raw=new WeakMap(),aliases=new Map();
         const box=boxSnapshot(s,settings,now,build,(alias,m,row)=>{raw.set(row,m);aliases.set(m.uid,alias);});
@@ -3527,8 +3544,8 @@
         const sources=typeof document==='undefined'?[]:[...document.querySelectorAll('script[src*="bundle/app."]')];
         const bundles=new Set(sources.map(el=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/i.exec(el.getAttribute('src')||'')?.[1]?.toLowerCase()).filter(Boolean));
         Object.assign(box,{schema:2,exporter:'pokecatch-helper/2',exportId:simOpaque(),identityScope:space.scope,
-            capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters'],gameBuild:box.gameBuild??'unknown',
-            conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
+            capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters','bloc-boss'],gameBuild:box.gameBuild??'unknown',
+            conditionsSnapshot:{blocBoss:simulatorBloc(s,aliases,now),at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
                 phase:phase==='morning'?'day':phase,observedPhase:phase,bundleBuild:bundles.size===1?[...bundles][0]:'unknown',
                 eliteTeams,eliteProgress,tasteSwitches,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
                 autoTeam:box.rules.autoTeam,activeSwitch:box.rules.activeSwitch},identityPersistent:!!trainer});
@@ -17652,7 +17669,7 @@
                 <button data-workspace="wild" aria-controls="pane-wild">路闪</button>
                 <button data-workspace="activity" aria-controls="pane-activity">运行实况</button>
                 <button data-workspace="settings" aria-controls="pane-settings">设置</button>
-            </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>更新源与连接状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">取得最新提交后优先固定版本；分支缓存仅表示暂未发现更新。安装页打不开时，可下载本次校验的脚本，再用油猴导入。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
+            </nav><div class="content"><div id="update-notice" class="update-notice hidden" role="status" aria-live="polite"></div><details id="update-tools" class="hidden"><summary>安装渠道与更新状态</summary><div class="row"><select id="update-source" aria-label="选择在线更新源"><option value="auto">自动切换（推荐）</option>${UPDATE_SOURCES.map(source=>`<option value="${source.id}">${source.name}</option>`).join('')}</select><button id="recheck-update">重新检查</button></div><div id="update-source-list"></div><div class="row"><button id="download-update" disabled>下载已校验脚本</button></div><div class="hint">安装渠道：${installedHelperChannel()==='global'?'全球 / GitHub':installedHelperChannel()==='cn'?'国内 / COS':'管理器未报告'}。检查偏好只影响本面板。切换自动更新渠道，请打开 <a href="${UPDATE_RELEASE.download}" target="_blank" rel="noopener">国内版</a> 或 <a href="https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js" target="_blank" rel="noopener">全球版</a>，在脚本管理器确认覆盖后刷新。</div></details><div class="status" role="status" aria-live="polite"><div class="live"><i class="dot"></i><span id="run-state">READY · 已就绪</span></div><strong id="status"></strong><div class="sub" id="action"></div></div>
             <div id="gate-guide" class="gate-guide" hidden><div><strong id="gate-title"></strong><div class="sub" id="gate-next"></div></div><button type="button" id="gate-details">查看条件</button></div>
             <button type="button" id="spirit-conditions" data-lookup="442" hidden>查看花岩怪获取条件</button>
             <div class="metrics"><div class="metric"><b id="dex-value">—</b><span id="primary-label">进化链完成</span></div><div class="metric" title="合计当前钱包及跨地区暂存的钱包余额"><b id="money-value">0</b><span id="money-label">本次金币净增</span></div><div class="metric"><b id="time-value">0:00</b>本次运行</div></div>
@@ -17847,7 +17864,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石、口味糖果）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><span class="hint">在游戏的方块首领页导出，可带入当日首领、口味和方块队。</span><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石、口味糖果）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const newQueueJob=Symbol('new queue job');
@@ -17870,7 +17887,7 @@
         }
         async function runUpdateCheck(){updateTouched=true;query('.content').scrollTop=0;return updater.check({sourceId:query('#update-source').value});}
         query('#check-update').onclick=()=>{updateTouched=true;if(updater.busy)updater.cancel();else if(updater.pending)updater.install();else void runUpdateCheck();};
-        query('#recheck-update').onclick=()=>void runUpdateCheck();query('#update-source').onchange=()=>void runUpdateCheck();query('#download-update').onclick=()=>updater.download();
+        query('#recheck-update').onclick=()=>void runUpdateCheck();try{query('#update-source').value=localStorage.getItem('pokecatch-helper.check-source')||'auto';if(!query('#update-source').value)query('#update-source').value='auto';}catch{}query('#update-source').onchange=()=>{try{localStorage.setItem('pokecatch-helper.check-source',query('#update-source').value);}catch{}void runUpdateCheck();};query('#download-update').onclick=()=>updater.download();
         helperAPI.checkUpdate=()=>{helperAPI.show();return runUpdateCheck();};
         if(typeof GM_registerMenuCommand==='function'){try{GM_registerMenuCommand('检查助手在线更新',()=>void helperAPI.checkUpdate());}catch{}}
         renderUpdate();

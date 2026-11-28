@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.7.0
+// @version      8.8.0
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -9,6 +9,7 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        GM_openInTab
+// @connect      catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com
 // @connect      raw.githubusercontent.com
 // @connect      api.github.com
 // @connect      cdn.jsdelivr.net

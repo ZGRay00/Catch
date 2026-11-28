@@ -14,9 +14,9 @@ test('channel variants differ only in the two URLs; repeated builds give identic
  for(const p of Object.values(r.variants)){assert.equal(p.meta.match(/@updateURL/g).length,1);assert.equal(p.meta.match(/@downloadURL/g).length,1);}
 });
 for(const [name,online,first] of [['COS only','cos','auto'],['Raw only','github','auto'],['Global first','github','github'],['mirror only','jsdelivr','auto']])test(name,async()=>{
- let opened;const seen=[],checker=new H.UpdateChecker({currentVersion:'1.0.0',open:u=>{opened=u;return true;},request:async u=>{
- seen.push(u);if(u===H.updateSourceURL(online))return sign(m);if(u===H.updateSourceURL(online,r.version))return r.variants[online==='cos'?'cn':'global'].user;throw Error('offline');}});
- const result=await checker.check({sourceId:first});assert.ok(result,checker.message);assert.equal(checker.install(),true);assert.equal(opened,H.updateSourceURL(online,r.version));assert.equal(seen.filter(s=>s.endsWith('.user.js')).length,1);
+ const channel=first==='github'?'global':'cn';let opened;const seen=[],checker=new H.UpdateChecker({currentVersion:'1.0.0',open:u=>{opened=u;return true;},request:async u=>{
+ seen.push(u);if(u===H.updateSourceURL(online))return sign(m);if(u===H.updateSourceURL(online,r.version,channel))return r.variants[channel].user;throw Error('offline');}});
+ const result=await checker.check({sourceId:first});assert.ok(result,checker.message);assert.equal(checker.install(),true);assert.equal(opened,H.updateSourceURL(online,r.version,channel));assert.equal(seen.filter(s=>s.endsWith('.user.js')).length,1);
 });
 test('forged version, stale cache, corrupt payload, network loss and late completion preserve installed version',async()=>{
  for(const mode of ['forged','stale','corrupt','404','html','large']){
@@ -28,7 +28,14 @@ test('forged version, stale cache, corrupt payload, network loss and late comple
  let finish;const checker=new H.UpdateChecker({request:()=>new Promise(ok=>{finish=ok;})});const pending=checker.check();checker.cancel();finish(sign(m));await pending;assert.equal(checker.phase,'cancelled');assert.equal(checker.pending,null);
 });
 test('strict paths and source timeouts',async()=>{
- const good=H.updateSourceURL('github',r.version);for(const bad of [good+'?token=x',good.replace('ZGRay00','other'),good.replace('https:','http:'),good.replace('global','cn'),good.replace('raw.githubusercontent','rawXgithubusercontent')])assert.throws(()=>H.allowedUpdateURL(bad));
+ const good=H.updateSourceURL('github',r.version);for(const bad of [good+'?token=x',good.replace('ZGRay00','other'),good.replace('https:','http:'),good.replace('global','unknown'),good.replace('raw.githubusercontent','rawXgithubusercontent')])assert.throws(()=>H.allowedUpdateURL(bad));
  assert.throws(()=>H.allowedUpdateRedirect(good,H.updateSourceURL('cos',r.version)));
  const c=new H.UpdateChecker({sourceTimeout:2,request:()=>new Promise(()=>{})});await c.check();assert.equal(c.busy,false);assert.equal(c.pending,null);
+});
+
+test('Global installation remains Global when only COS can transport the fixed body',async t=>{
+ global.GM_info={script:{downloadURL:'https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js'}};t.after(()=>delete global.GM_info);
+ let opened;const checker=new H.UpdateChecker({currentVersion:'1.0.0',open:u=>{opened=u;return true;},request:async u=>{
+  if(u===H.updateSourceURL('cos'))return sign(m);if(u===H.updateSourceURL('cos',r.version,'global'))return r.variants.global.user;throw Error('offline');
+ }});await checker.check();assert.equal(checker.install(),true);assert.equal(opened,H.updateSourceURL('cos',r.version,'global'));assert.match(checker.pending.text,/^\/\/ @updateURL\s+https:\/\/raw\.githubusercontent/m);
 });

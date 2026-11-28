@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.8.0
+// @version      8.8.1
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -25,7 +25,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.8.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.8.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -97,9 +97,9 @@
         const url=typeof GM_info==='undefined'?'':GM_info.script?.downloadURL||GM_info.script?.updateURL||GM_info.scriptMetaStr||'';
         return url.includes(helperCos)?'cn':url.includes(helperRaw)?'global':null;
     }
-    function updateSourceURL(id,version){
-        if(!UPDATE_SOURCES.some(s=>s.id===id)||version!==undefined&&!/^\d+\.\d+\.\d+$/.test(version))throw Error('更新源或版本无效');
-        const tag='helper-v'+version,file='pokecatch-helper-'+(id==='cos'?'cn':'global')+'.user.js';
+    function updateSourceURL(id,version,channel=id==='cos'?'cn':'global'){
+        if(!['cn','global'].includes(channel)||!UPDATE_SOURCES.some(s=>s.id===id)||version!==undefined&&!/^\d+\.\d+\.\d+$/.test(version))throw Error('更新源或版本无效');
+        const tag='helper-v'+version,file='pokecatch-helper-'+channel+'.user.js';
         if(id==='cos')return helperCos+(version?'releases/'+version+'/'+file:'helper-release.json');
         const base=id==='github'?helperRaw:'https://cdn.jsdelivr.net/gh/ZGRay00/Catch@';
         return base+(version?tag+'/releases/'+tag+'/'+file:'main/helper-release.json');
@@ -126,7 +126,7 @@
         let url;try{url=new URL(value);}catch{throw new Error('更新源地址无效');}
         const exact=url.origin+url.pathname,version=/helper-v(\d+\.\d+\.\d+)|releases\/(\d+\.\d+\.\d+)/.exec(url.pathname);
         const valid=[UPDATE_RELEASE.download,helperRaw+'main/pokecatch-helper.user.js',...UPDATE_SOURCES.map(s=>updateSourceURL(s.id))];
-        if(version)valid.push(...UPDATE_SOURCES.map(s=>updateSourceURL(s.id,version[1]||version[2])));
+        if(version)valid.push(...UPDATE_SOURCES.flatMap(s=>['cn','global'].map(c=>updateSourceURL(s.id,version[1]||version[2],c))));
         if(!valid.includes(exact)||url.username||url.password||url.search||url.hash)throw Error('更新地址超出发行范围');
         return url.href;
     }
@@ -231,7 +231,8 @@
         changed(){try{this.onChange(this);}catch(error){console.warn('[PokéCatch 更新]',error);}}
         async check({sourceId='auto'}={}){
             if(this.busy)return null;
-            const first=sourceId==='auto'?(installedHelperChannel()==='global'?'github':'cos'):sourceId;
+            const installed=installedHelperChannel();
+            const first=sourceId==='auto'?(installed==='global'?'github':'cos'):sourceId;
             if(!UPDATE_SOURCES.some(s=>s.id===first))return null;
             const order=[first,...['cos','github','jsdelivr'].filter(s=>s!==first)];
             const controller=new AbortController(),epoch=++this.epoch;
@@ -253,12 +254,12 @@
                     try{
                         const manifest=await this.verifyManifest(await fetchText(updateSourceURL(row.id)));
                         if(controller.signal.aborted||epoch!==this.epoch)return null;
-                        const channel=row.id==='cos'?'cn':'global',version=manifest.version,entry=manifest.files['pokecatch-helper-'+channel+'.user.js'];
+                        const channel=installed??(first==='github'||first==='jsdelivr'?'global':'cn'),version=manifest.version,entry=manifest.files['pokecatch-helper-'+channel+'.user.js'];
                         if(this.identities.has(version)&&this.identities.get(version)!==JSON.stringify(manifest.files))throw Error('同版本签名清单内容冲突');
                         this.identities.set(version,JSON.stringify(manifest.files));
                         row.version=version;
                         if(compareUpdateVersions(version,this.currentVersion)<0){row.state='skipped';cached=version;continue;}
-                        const url=updateSourceURL(row.id,version);
+                        const url=updateSourceURL(row.id,version,channel);
                         const text=await fetchText(url);const parsed=parseUpdateScript(text);
                         const bytes=new TextEncoder().encode(text),body=text.slice(text.indexOf('// ==/UserScript==')+'// ==/UserScript=='.length+1);
                         if(parsed.version!==version||bytes.length!==entry.size||await helperDigest(bytes)!==entry.sha256||await helperDigest(new TextEncoder().encode(body))!==manifest.bodyHash)throw Error('正文与签名发行清单冲突');
@@ -284,7 +285,7 @@
             const latest=parseUpdateScript(this.pending.text);
             if(latest.version!==this.pending.version||compareUpdateVersions(latest.version,this.currentVersion)<=0)throw new Error('待安装脚本版本与已验证缓存不一致');
             const url=allowedUpdateURL(this.pending.url);
-            allowedUpdateRedirect(updateSourceURL(this.pending.sourceId,this.pending.version),url);
+            allowedUpdateRedirect(updateSourceURL(this.pending.sourceId,this.pending.version,this.pending.channel),url);
             return this.pending;
         }
         install(){

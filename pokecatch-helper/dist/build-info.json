@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.8.1",
-  "scriptSha256": "e1ae783e395213900e2d5fa395fd7546cdb4edbf6359648f03f267a745444ab5",
-  "metadataSha256": "7bb032eb5a20ec762ded8733bab8c4899b024be730106dc800fe962b5200aa59",
+  "version": "8.8.2",
+  "scriptSha256": "1bab2d3cee91e48d96fd5f891776054221aebeba159abca8f3a960e2ed71dcc6",
+  "metadataSha256": "2e3303da80c2b1cbc0378f733c332e6a7666b93311f674e28167c8fb0ec7a7e1",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "43b0b93c4b5e60adec555b4f11d1cc0827450c716ea89cbf44757df271689229"
+      "sha256": "9d6dec3ea80b6fa7f70323777132688ab57b611a8ec2d12da9dae45225d3ec4c"
     },
     {
       "file": "build.manifest.json",
@@ -110,7 +110,7 @@
     },
     {
       "file": "src/models/wild-forecast.js",
-      "sha256": "f7c98a69ad2a337e29a7c4ad932ce423c79f6532f9e3c22e184f652c7579f4a7"
+      "sha256": "ef8ecb15f5230efb869f609240505fed6428391c0e4f863449a14d31ffa3cbef"
     },
     {
       "file": "src/models/egg-family.js",
@@ -182,7 +182,7 @@
     },
     {
       "file": "src/models/field-insights.js",
-      "sha256": "9ca702b32d16ce8fbe7f8936819bbaabb699a4e2a600a7d50a16fbb94324ef2e"
+      "sha256": "d6a4fe6b8d01908f287475ee23b687cddf7a875db0e012468cbfac138b86b0dd"
     },
     {
       "file": "src/core/telemetry.js",
@@ -190,7 +190,7 @@
     },
     {
       "file": "src/runtime/dom-driver.js",
-      "sha256": "bdc26b2564973c49cf1efa7f70dbf7270bb5c4adccf2852c7f9bcfd9c2447f7f"
+      "sha256": "9cde689de4aa35b41a877663d0322352564e65c65782ce92e9d3820a6b56db75"
     },
     {
       "file": "src/runtime/automation.js",
@@ -202,7 +202,7 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "ef44a6b5b435275f5421e124f9c2bfc8e8e5c64aca81e7e24e15d528afc01e31"
+      "sha256": "6dbbde40092eeb63383ed780431446a520d1ccddc6a6805392d6d9258798fab8"
     },
     {
       "file": "src/services/boss-moves.js",
@@ -262,7 +262,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "d875ad6be66ab50a641ab8bcba4662e23d4f8010bdb33dec27441c18ec843c63"
+      "sha256": "d9a3b3f6d0429b580a2baca9b2c7e4203b9c423b6209b071da2c3ccd688cd7c1"
     }
   ]
 }

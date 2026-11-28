@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.8.1
+// @version      8.8.2
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -25,7 +25,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.8.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.8.2', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -3101,6 +3101,12 @@
     const WILD_FORECAST_LIMIT=30000;
     const WILD_COUNTER_BUNDLES=new Set(['f467030697','6e904dfeb4','a736e7726c']);
 
+    function rollsWildShiny(s,node){
+        if(node.type!=='wild')return false;
+        const group=node.roamer&&!node.event&&ROAMING_DATA.groups.find(g=>g.ids.includes(node.roamer));
+        return !group||!s.adv.badges?.includes(group.badge)||!!s.roam?.caught?.includes(node.roamer);
+    }
+
     // Estimate one repeated lap of the generated route. Entering a battle and
     // each one-hit knockout cost one action each. Other stops and the lap
     // transition also take a step. Live animation and capture time can vary.
@@ -3114,9 +3120,7 @@
             const start=actions++;
             let enemies=0;
             if(node.type==='wild'){
-                const group=node.roamer&&!node.event&&ROAMING_DATA.groups.find(g=>g.ids.includes(node.roamer));
-                const roaming=group&&s.adv.badges?.includes(group.badge)&&!s.roam?.caught?.includes(node.roamer);
-                if(!roaming)positions.push(actions);
+                if(rollsWildShiny(s,node))positions.push(actions);
                 enemies=1;
             }else if(node.type==='static')enemies=1;
             else if(node.type==='trainer'||node.type==='gym'){
@@ -8257,6 +8261,44 @@
         }
         return true;
     }
+    const farmNodeTypes=new Set(['wild','trainer','gym','static','heal','town','berry','item','gift','unlock','npcTrade','candy','riddle']);
+    function farmTailExhausted(s,row,settings,now){
+        const a=s?.adv,mode=settings.mode;
+        if(!a||!['shiny','item'].includes(mode)||row.league||row.id!==a.chapter||row.members?.length!==1||
+            a.event||a.zone||a.tower||a.league||a.pending||a.paused||!Array.isArray(a.nodes)||
+            !Number.isInteger(a.node)||a.node<0||a.node>=a.nodes.length)return false;
+        // Only ordinary trainer/gym battles can be abandoned mid-fight. A wild
+        // encounter and its capture must settle even on the last patch of grass.
+        const battle=a.battle;
+        if(battle&&(!['trainer','gym'].includes(battle.kind)||battle.kind!==a.nodes[a.node]?.type||
+            battle.raid||battle.roam||battle.boss||battle.elite||battle.pick||battle.enemies?.some(m=>m?.shiny)))return false;
+        const tail=a.nodes.slice(a.node);
+        if(tail.some(n=>!farmNodeTypes.has(n?.type)||n.shiny))return false;
+        if(mode==='shiny')return !row.marked&&!tail.some(n=>rollsWildShiny(s,n));
+
+        const id=settings.itemId,sources=ITEMS.get(id)?.sources.filter(src=>src.ch===a.chapter);
+        if(!sources?.length||sources.some(src=>!['route','stone','town','quest','find','loot'].includes(src.kind)))return false;
+        const kinds=new Set(sources.filter(src=>sourceAvailable(s,src,id,now)).map(src=>src.kind));
+        if(!kinds.size)return false;
+        return !tail.some(n=>n.gift?.items?.includes(id)||n.reward?.items?.includes(id)||n.reward?.item===id||
+            itemPointKind(s,id,kinds,n,now,true));
+    }
+    function itemPointKind(s,id,kinds,node,now,keepConditional=false){
+        const adv=s.adv;
+        if(node.type==='town'&&kinds.has('town'))return '城镇机会';
+        if(node.type!=='item')return '';
+        if(node.find)return node.find.item===id&&!adv.gifts?.[node.find.once]&&!adv.gifts?.[node.find.until]&&
+            (!node.find.upTo||chapterItemCount(s,adv.chapter,id)<node.find.upTo)?'指定掉落':'';
+        if(Object.hasOwn(node.loot||{},id)&&!adv.gifts?.[id]){
+            const rule=node.loot[id];
+            // Party, time and weather conditions may change before the player reaches this node.
+            const allowed=typeof rule==='number'?rule>0:rule&&rule.p>0&&!adv.gifts?.[rule.until]&&
+                (!rule.upTo||chapterItemCount(s,adv.chapter,id)<rule.upTo)&&
+                (keepConditional||sourceAvailable(s,{...rule,ch:adv.chapter},id,now)&&(!rule.skies||rule.skies.includes(nodeWeather(s,adv.chapter,node,now))));
+            if(allowed)return rule?.eggs?'目标掉落池（蛋数条件待确认）':'目标掉落池';
+        }
+        return kinds.has('route')||kinds.has('stone')?'普通道具池':'';
+    }
     function itemPoints(s,id){
         const adv=s.adv, nodes=adv.nodes;
         if(!Array.isArray(nodes))return null;
@@ -8265,19 +8307,7 @@
         const points=[];
         nodes.forEach((node,index)=>{
             if(!node)return;
-            let kind='';
-            if(node.type==='town'&&kinds.has('town'))kind='城镇机会';
-            if(node.type==='item'){
-                if(node.find?.item===id&&!adv.gifts?.[node.find.once]&&!adv.gifts?.[node.find.until]&&
-                    (!node.find.upTo||chapterItemCount(s,adv.chapter,id)<node.find.upTo))kind='指定掉落';
-                else if(!node.find&&Object.hasOwn(node.loot||{},id)&&!adv.gifts?.[id]){
-                    const rule=node.loot[id];
-                    const allowed=typeof rule==='number'?rule>0:rule&&rule.p>0&&
-                        sourceAvailable(s,{...rule,ch:adv.chapter},id)&&(!rule.skies||rule.skies.includes(nodeWeather(s,adv.chapter,node)));
-                    if(allowed)kind=rule?.eggs?'目标掉落池（蛋数条件待确认）':'目标掉落池';
-                }
-                else if(!node.find&&(kinds.has('route')||kinds.has('stone')))kind='普通道具池';
-            }
+            const kind=itemPointKind(s,id,kinds,node);
             if(kind)points.push({index,kind});
         });
         return points;
@@ -9040,14 +9070,23 @@
             // Clear a previous native condition wait before inspecting the current controls.
             // Missing or hidden controls must use the normal UI timeout rather than wait forever.
             if(this.pendingMap?.row===row)delete this.pendingMap.waiting;
-            const exhausted=options.restart&&(options.pickup||options.rotom),a=s.adv;
-            if(exhausted&&(a.chapter!==row.id||a.battle||a.pending||a.paused||a.event||a.zone||a.tower||a.league))return false;
+            const exhausted=options.restart&&(options.pickup||options.rotom||options.farmTail),a=s.adv;
+            if(exhausted&&(a.chapter!==row.id||a.battle&&!options.farmTail||a.pending||a.paused||a.event||a.zone||a.tower||a.league))return false;
             if (!this.nav('map')) return false;
             if(exhausted){
                 // The native control identifies its chapter directly. A visible
                 // detail panel can already be usable while its list is redrawing.
                 const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
                 if(enabled(restart)){
+                    if(options.farmTail){
+                        // Opening the map takes more than one tick. Recheck the
+                        // current lap, including captures, before clicking Restart.
+                        const live=this.e.read();
+                        if(!live?.adv||accountId(live)!==this.e.account||this.e.shinySettlement||
+                            !this.e.routeReached(live,row)||!farmTailExhausted(live,row,this.e.settings,Date.now())||
+                            this.e.farmTailProtected(live,row,Date.now()))return false;
+                        return this.click(restart,'本轮目标机会已用尽，重开'+row.name);
+                    }
                     const action=(options.pickup?'本轮目标拾取机会已用尽，重开':'本轮没有剩余目标洛托姆，重开')+row.name;
                     return this.click(restart,action);
                 }
@@ -13560,6 +13599,7 @@
                 if(safeBoundary&&rows.length&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                 const alternate=this.huntAlternate(s,current,rows,now);
                 if(current&&current.members.includes(s.adv.chapter)&&this.visit&&!alternate){
+                    if(this.restartFarmTail(s,current,now))return;
                     if(this.settings.autoTeam&&this.fitTeam(s,now))return;
                     this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;
                 }
@@ -14296,7 +14336,7 @@
             if (mode==='item'&&current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,rows[0],now,'item')) {
                 if(this.routeReached(s,current)){
                     this.target=current;
-                    if(this.restartForPickups(s,current,[this.settings.itemId],now))return;
+                    if(this.restartFarmTail(s,current,now))return;
                     if(this.settings.autoTeam&&this.fitTeam(s,now))return;
                     this.status=`${label} · ${current.name}`;
                 }
@@ -14307,6 +14347,23 @@
             if (!this.canStartRoute(s)) {this.previewDestination(s,rows[0],now);this.driver.nav('adventure');return;}
             this.travel(rows[0],now);
         }
+        farmTailProtected(s,row,now){
+            if(CHAPTERS.get(s.adv.chapter)?.name==='冠军之路')return true;
+            const settings={...this.settings,mode:'money',region:'all',moneyTarget:0};
+            const request=yieldRankingRequest('money',s,settings,this.metrics,now,{separateMoney:true});
+            request.cacheSlot='farm-tail-money';
+            const rows=this.evaluateRouteRanking(request,{},now);
+            // A partial ranking may still gain higher-earning routes. Only act on a finished comparison.
+            return !rows||routeRankings.get(request.cacheSlot)?.signature!==request.signature||
+                rows.slice(0,3).some(route=>route.members.includes(s.adv.chapter));
+        }
+        restartFarmTail(s,row,now){
+            const last=this.visit?.routeRestart;
+            if(last?.kind==='farmTail'&&s.adv.node<last.clickedAtNode)delete this.visit.routeRestart;
+            if(!farmTailExhausted(s,row,this.settings,now)||this.farmTailProtected(s,row,now))return false;
+            const reason=this.settings.mode==='shiny'?'本轮已无路闪遭遇':`本轮已无${ITEMS.get(this.settings.itemId).name}掉落机会`;
+            return this.restartExhaustedRoute(s,row,'farmTail',reason,now);
+        }
         restartForPickups(s,row,ids,now){
             if(!pickupRouteExhausted(s,row,ids,now))return false;
             return this.restartExhaustedRoute(s,row,'pickup','本轮已无'+ids.map(id=>ITEMS.get(id).name).join('、')+'拾取点',now);
@@ -14316,16 +14373,17 @@
         }
         restartExhaustedRoute(s,row,kind,reason,now){
             const visit=this.visit,a=s.adv;
-            if(!visit||!this.running||this.manual||this.preparation||this.driver.teamTask||this.driver.pendingMap||!pickupNavigationKnown(this.settings,row)||
+            if(!visit||!this.running||this.manual||this.preparation||this.driver.teamTask||this.driver.pendingMap||
+                kind!=='farmTail'&&!pickupNavigationKnown(this.settings,row)||
                 !this.routeReached(s,row))return false;
             const runs=a.runs||0;
             // Reselecting a chapter can leave both runs and node unchanged at
             // zero. Suppress repeat clicks on the same generated layout.
             const layout=JSON.stringify(a.nodes.map(n=>[n?.type,n?.name,n?.id,n?.once,n?.find,n?.loot,n?.roamer]));
             let attempt=visit.routeRestart;
-            // Two unsuccessful appliance rolls can have identical layouts at
-            // node zero. A later node provides fresh evidence to try again.
-            const advancedFromStart=kind==='rotom'&&attempt?.clickedAtNode===0&&a.node>0;
+            // A reroll of an empty route can look identical at node zero.
+            // Let it advance before trying the native control again.
+            const advancedFromStart=(kind==='rotom'||kind==='farmTail')&&attempt?.clickedAtNode===0&&a.node>0;
             if(!attempt||attempt.kind!==kind||attempt.runs!==runs||attempt.layout!==layout||attempt.clickedAtNode>a.node||advancedFromStart){
                 attempt=visit.routeRestart={kind,runs,layout,started:now};
             }
@@ -17865,7 +17923,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><span class="hint">在游戏的方块首领页导出，可带入当日首领、口味和方块队。</span><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石、口味糖果）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button type="button" id="simulator-export">导出模拟器 Box</button><span class="hint">在游戏的方块首领页导出，可带入当日首领、口味和方块队。</span><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石、口味糖果）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const newQueueJob=Symbol('new queue job');
@@ -18493,7 +18551,7 @@
             bossToggle.checked=!storageError&&bossMoves.enabled();
             bossToggle.disabled=!!storageError||!s?.adv||!engine.mayPersist();
             if(unlockAttempt&&(unlockAttempt.account!==engine.account||bossToggle.disabled||bossToggle.checked))closeBossUnlock();
-            query('#export-box').disabled=!s?.adv;
+            query('#simulator-export').disabled=!s?.adv;
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             paintedTask=taskState();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
@@ -19260,16 +19318,6 @@
                     team:plan.team.map(m=>({profile:m.profile})),sample:plan.sample,engine:plan.engine,rules:plan.rules},'pokecatch-review-share.json');};
                 content.append(status,copy,done,share);refresh();panel.replaceChildren(content);
             }catch(e){panel.textContent='无法核对 · '+e.message;}
-        };
-        query('#export-box').onclick=()=>{
-            const result=query('#box-export-result');
-            try{
-                const s=engine.read(),settings=s&&accountId(s)===engine.account?engine.settings:DEFAULTS;
-                const box=boxSnapshot(s,settings,Date.now(),window.BUILD),name='pokecatch-box.json';
-                downloadJson(box,name);
-                const expeditions=box.underground?.slots.length||0;
-                result.textContent=`已导出盒中 ${box.members.length} 只${expeditions?`及地下 ${expeditions} 队`:''} · ${name}`;
-            }catch(error){result.textContent='盒子导出失败 · '+error.message;}
         };
         query('#export').onclick=()=>{
             const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logHistory()};

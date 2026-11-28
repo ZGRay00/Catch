@@ -454,14 +454,23 @@
             // Clear a previous native condition wait before inspecting the current controls.
             // Missing or hidden controls must use the normal UI timeout rather than wait forever.
             if(this.pendingMap?.row===row)delete this.pendingMap.waiting;
-            const exhausted=options.restart&&(options.pickup||options.rotom),a=s.adv;
-            if(exhausted&&(a.chapter!==row.id||a.battle||a.pending||a.paused||a.event||a.zone||a.tower||a.league))return false;
+            const exhausted=options.restart&&(options.pickup||options.rotom||options.farmTail),a=s.adv;
+            if(exhausted&&(a.chapter!==row.id||a.battle&&!options.farmTail||a.pending||a.paused||a.event||a.zone||a.tower||a.league))return false;
             if (!this.nav('map')) return false;
             if(exhausted){
                 // The native control identifies its chapter directly. A visible
                 // detail panel can already be usable while its list is redrawing.
                 const restart=$(`#map-root .mp-restart[data-restart="${row.id}"]`);
                 if(enabled(restart)){
+                    if(options.farmTail){
+                        // Opening the map takes more than one tick. Recheck the
+                        // current lap, including captures, before clicking Restart.
+                        const live=this.e.read();
+                        if(!live?.adv||accountId(live)!==this.e.account||this.e.shinySettlement||
+                            !this.e.routeReached(live,row)||!farmTailExhausted(live,row,this.e.settings,Date.now())||
+                            this.e.farmTailProtected(live,row,Date.now()))return false;
+                        return this.click(restart,'本轮目标机会已用尽，重开'+row.name);
+                    }
                     const action=(options.pickup?'本轮目标拾取机会已用尽，重开':'本轮没有剩余目标洛托姆，重开')+row.name;
                     return this.click(restart,action);
                 }

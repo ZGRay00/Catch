@@ -815,6 +815,28 @@ async function main(){
         })()`);
         assert.deepEqual(reentry,[0,0,0,1,'本轮目标拾取机会已用尽，重开古代城']);
         checks.push('pickup farming clicks the native same-chapter restart once after passing the target node');
+        const tails=await evaluate(`(()=>{
+            const e=__pcExecutionTest.engine,s=structuredClone(fixtureState);
+            const screen=document.createElement('section');screen.id='screen-map';screen.className='active';
+            screen.innerHTML='<div id="map-root"><button class="mp-restart" data-restart="0">重开</button></div>';document.body.append(screen);
+            const initial=e.settings,read=e.read,protect=e.farmTailProtected,account=e.account,row={id:0,key:'0',members:[0],reg:'kanto',name:'测试地图'};
+            let clicks=0,live=s;screen.querySelector('button').onclick=()=>clicks++;
+            try{
+                e.running=true;e.account=s.trainer.id;e.read=()=>live;e.target=row;e.farmTailProtected=()=>false;
+                Object.assign(s.adv,{chapter:0,loops:[0],node:1,battle:{kind:'gym'},nodes:[{type:'wild'},{type:'gym'}]});
+                const steps=[];
+                for(const mode of ['shiny','item']){
+                    e.settings={...initial,mode,itemId:'berry-oran'};e.visit={};e.driver.lastClick=0;
+                    const future=mode==='shiny'?{type:'wild'}:{type:'item',town:true,find:{item:'berry-oran'}};
+                    live=structuredClone(s);live.adv.nodes.push(future);
+                    e.restartFarmTail(s,row,Date.now());steps.push(clicks);
+                    live=s;e.restartFarmTail(s,row,Date.now());e.restartFarmTail(s,row,Date.now());steps.push(clicks);
+                }
+                return steps;
+            }finally{e.running=false;e.settings=initial;e.read=read;e.farmTailProtected=protect;e.account=account;e.visit=e.target=null;screen.remove();}
+        })()`);
+        assert.deepEqual(tails,[0,1,1,2]);
+        checks.push('shiny and berry hunts can leave a gym after checking the latest generated route for a remaining target');
         const rotom=await evaluate(`(()=>{
             const r=${root},e=__pcExecutionTest.engine,initial=e.settings,s=structuredClone(fixtureState);
             const panel=document.createElement('section');panel.id='screen-map';panel.className='active';

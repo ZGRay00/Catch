@@ -46,6 +46,44 @@
         }
         return true;
     }
+    const farmNodeTypes=new Set(['wild','trainer','gym','static','heal','town','berry','item','gift','unlock','npcTrade','candy','riddle']);
+    function farmTailExhausted(s,row,settings,now){
+        const a=s?.adv,mode=settings.mode;
+        if(!a||!['shiny','item'].includes(mode)||row.league||row.id!==a.chapter||row.members?.length!==1||
+            a.event||a.zone||a.tower||a.league||a.pending||a.paused||!Array.isArray(a.nodes)||
+            !Number.isInteger(a.node)||a.node<0||a.node>=a.nodes.length)return false;
+        // Only ordinary trainer/gym battles can be abandoned mid-fight. A wild
+        // encounter and its capture must settle even on the last patch of grass.
+        const battle=a.battle;
+        if(battle&&(!['trainer','gym'].includes(battle.kind)||battle.kind!==a.nodes[a.node]?.type||
+            battle.raid||battle.roam||battle.boss||battle.elite||battle.pick||battle.enemies?.some(m=>m?.shiny)))return false;
+        const tail=a.nodes.slice(a.node);
+        if(tail.some(n=>!farmNodeTypes.has(n?.type)||n.shiny))return false;
+        if(mode==='shiny')return !row.marked&&!tail.some(n=>rollsWildShiny(s,n));
+
+        const id=settings.itemId,sources=ITEMS.get(id)?.sources.filter(src=>src.ch===a.chapter);
+        if(!sources?.length||sources.some(src=>!['route','stone','town','quest','find','loot'].includes(src.kind)))return false;
+        const kinds=new Set(sources.filter(src=>sourceAvailable(s,src,id,now)).map(src=>src.kind));
+        if(!kinds.size)return false;
+        return !tail.some(n=>n.gift?.items?.includes(id)||n.reward?.items?.includes(id)||n.reward?.item===id||
+            itemPointKind(s,id,kinds,n,now,true));
+    }
+    function itemPointKind(s,id,kinds,node,now,keepConditional=false){
+        const adv=s.adv;
+        if(node.type==='town'&&kinds.has('town'))return '城镇机会';
+        if(node.type!=='item')return '';
+        if(node.find)return node.find.item===id&&!adv.gifts?.[node.find.once]&&!adv.gifts?.[node.find.until]&&
+            (!node.find.upTo||chapterItemCount(s,adv.chapter,id)<node.find.upTo)?'指定掉落':'';
+        if(Object.hasOwn(node.loot||{},id)&&!adv.gifts?.[id]){
+            const rule=node.loot[id];
+            // Party, time and weather conditions may change before the player reaches this node.
+            const allowed=typeof rule==='number'?rule>0:rule&&rule.p>0&&!adv.gifts?.[rule.until]&&
+                (!rule.upTo||chapterItemCount(s,adv.chapter,id)<rule.upTo)&&
+                (keepConditional||sourceAvailable(s,{...rule,ch:adv.chapter},id,now)&&(!rule.skies||rule.skies.includes(nodeWeather(s,adv.chapter,node,now))));
+            if(allowed)return rule?.eggs?'目标掉落池（蛋数条件待确认）':'目标掉落池';
+        }
+        return kinds.has('route')||kinds.has('stone')?'普通道具池':'';
+    }
     function itemPoints(s,id){
         const adv=s.adv, nodes=adv.nodes;
         if(!Array.isArray(nodes))return null;
@@ -54,19 +92,7 @@
         const points=[];
         nodes.forEach((node,index)=>{
             if(!node)return;
-            let kind='';
-            if(node.type==='town'&&kinds.has('town'))kind='城镇机会';
-            if(node.type==='item'){
-                if(node.find?.item===id&&!adv.gifts?.[node.find.once]&&!adv.gifts?.[node.find.until]&&
-                    (!node.find.upTo||chapterItemCount(s,adv.chapter,id)<node.find.upTo))kind='指定掉落';
-                else if(!node.find&&Object.hasOwn(node.loot||{},id)&&!adv.gifts?.[id]){
-                    const rule=node.loot[id];
-                    const allowed=typeof rule==='number'?rule>0:rule&&rule.p>0&&
-                        sourceAvailable(s,{...rule,ch:adv.chapter},id)&&(!rule.skies||rule.skies.includes(nodeWeather(s,adv.chapter,node)));
-                    if(allowed)kind=rule?.eggs?'目标掉落池（蛋数条件待确认）':'目标掉落池';
-                }
-                else if(!node.find&&(kinds.has('route')||kinds.has('stone')))kind='普通道具池';
-            }
+            const kind=itemPointKind(s,id,kinds,node);
             if(kind)points.push({index,kind});
         });
         return points;

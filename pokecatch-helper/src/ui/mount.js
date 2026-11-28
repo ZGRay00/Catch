@@ -294,7 +294,7 @@
                 <div class="hint">默认空闲 15 秒后继续。只读信息卡可自动关闭；正在输入、需要选择的弹窗或手动活动结束前保持等待。关闭自动恢复后，手动操作会直接停止助手。</div>
                 <div class="hint">停止助手会停止规划与点击；游戏自身的战斗和地图循环仍会继续。可在停止后恢复启动前的循环。</div>
             </details>
-            <div class="actions"><button id="export-box" type="button" aria-describedby="box-export-result" disabled>导出盒子 JSON</button><button type="button" id="simulator-export">导出模拟器 Box</button><span class="hint">在游戏的方块首领页导出，可带入当日首领、口味和方块队。</span><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石、口味糖果）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
+            <div class="actions"><button type="button" id="simulator-export">导出模拟器 Box</button><span class="hint">在游戏的方块首领页导出，可带入当日首领、口味和方块队。</span><label><input type="checkbox" id="simulator-resources">附培养资源（当前钱包金币、进化道具、升阶宝石、口味糖果）</label><button type="button" id="simulator-reset-scope">重建匿名身份空间</button><button type="button" id="simulator-plan-open">核对挑战方案</button><input hidden type="file" accept=".json" id="simulator-plan-file"><section id="simulator-review"></section><button id="export">导出诊断</button><button id="reset">清除采样</button><button id="restore">恢复原循环</button><button id="export-profile">导出配置</button><button id="import-profile">导入配置</button><input id="profile-file" type="file" accept="application/json,.json" hidden></div><div class="hint" id="box-export-result" role="status"></div><div class="hint update-source">更新来源：<a href="https://github.com/ZGRay00/Catch" target="_blank" rel="noopener noreferrer">ZGRay00/Catch</a> · 安装新版后刷新游戏</div><div class="hint warn" id="build"></div></section></div></section>`;
         document.body.appendChild(host);
         const query = sel => root.querySelector(sel); let tab = 'maps', drag = null, miniDraggedAt = 0,category='adventure',lastMode='',editingJob=null,settingsViewKey='',viewSignature=null,queueSignature=null,queueError='';
         const newQueueJob=Symbol('new queue job');
@@ -922,7 +922,7 @@
             bossToggle.checked=!storageError&&bossMoves.enabled();
             bossToggle.disabled=!!storageError||!s?.adv||!engine.mayPersist();
             if(unlockAttempt&&(unlockAttempt.account!==engine.account||bossToggle.disabled||bossToggle.checked))closeBossUnlock();
-            query('#export-box').disabled=!s?.adv;
+            query('#simulator-export').disabled=!s?.adv;
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             paintedTask=taskState();
             const now=Date.now(),wait=engine.manualWaitState(s||engine.state,now),resumable=!!engine.manual||!!engine.suspended,locked=engine.running||!!engine.suspended;
@@ -1689,16 +1689,6 @@
                     team:plan.team.map(m=>({profile:m.profile})),sample:plan.sample,engine:plan.engine,rules:plan.rules},'pokecatch-review-share.json');};
                 content.append(status,copy,done,share);refresh();panel.replaceChildren(content);
             }catch(e){panel.textContent='无法核对 · '+e.message;}
-        };
-        query('#export-box').onclick=()=>{
-            const result=query('#box-export-result');
-            try{
-                const s=engine.read(),settings=s&&accountId(s)===engine.account?engine.settings:DEFAULTS;
-                const box=boxSnapshot(s,settings,Date.now(),window.BUILD),name='pokecatch-box.json';
-                downloadJson(box,name);
-                const expeditions=box.underground?.slots.length||0;
-                result.textContent=`已导出盒中 ${box.members.length} 只${expeditions?`及地下 ${expeditions} 队`:''} · ${name}`;
-            }catch(error){result.textContent='盒子导出失败 · '+error.message;}
         };
         query('#export').onclick=()=>{
             const s=engine.state,diagnostic={version:VERSION,build:window.BUILD,dataBuild:DATA.build,mechanismBuild:DATA.economy.build,mechanismChecked:DATA.economy.checked,settings:engine.settings,status:engine.status,flow:engine.automation.state,services:engine.services,execution:taskExecutionState(s,engine),preparation:engine.preparation,queue:engine.queue,budget:{spent:engine.budget.spent,used:engine.budget.used},game:s?.adv?{chapter:s.adv.chapter,unlocked:s.adv.unlocked,layout:s.adv.layout,event:s.adv.event?.raid?'raid':!!s.adv.event,zone:s.adv.zone?.id,money:s.money,teamSize:s.team?.length}:null,metrics:engine.metrics,logs:engine.logHistory()};

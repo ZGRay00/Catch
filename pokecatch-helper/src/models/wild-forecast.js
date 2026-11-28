@@ -1,6 +1,12 @@
     const WILD_FORECAST_LIMIT=30000;
     const WILD_COUNTER_BUNDLES=new Set(['f467030697','6e904dfeb4','a736e7726c']);
 
+    function rollsWildShiny(s,node){
+        if(node.type!=='wild')return false;
+        const group=node.roamer&&!node.event&&ROAMING_DATA.groups.find(g=>g.ids.includes(node.roamer));
+        return !group||!s.adv.badges?.includes(group.badge)||!!s.roam?.caught?.includes(node.roamer);
+    }
+
     // Estimate one repeated lap of the generated route. Entering a battle and
     // each one-hit knockout cost one action each. Other stops and the lap
     // transition also take a step. Live animation and capture time can vary.
@@ -14,9 +20,7 @@
             const start=actions++;
             let enemies=0;
             if(node.type==='wild'){
-                const group=node.roamer&&!node.event&&ROAMING_DATA.groups.find(g=>g.ids.includes(node.roamer));
-                const roaming=group&&s.adv.badges?.includes(group.badge)&&!s.roam?.caught?.includes(node.roamer);
-                if(!roaming)positions.push(actions);
+                if(rollsWildShiny(s,node))positions.push(actions);
                 enemies=1;
             }else if(node.type==='static')enemies=1;
             else if(node.type==='trainer'||node.type==='gym'){

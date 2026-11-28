@@ -2028,6 +2028,7 @@
                 if(safeBoundary&&rows.length&&this.automation.autoBuff(s,now)){this.telemetry.sample=null;return;}
                 const alternate=this.huntAlternate(s,current,rows,now);
                 if(current&&current.members.includes(s.adv.chapter)&&this.visit&&!alternate){
+                    if(this.restartFarmTail(s,current,now))return;
                     if(this.settings.autoTeam&&this.fitTeam(s,now))return;
                     this.status=`刷闪 · ${current.name} · 还缺 ${remaining.length} 种异色`;this.driver.nav('adventure');return;
                 }
@@ -2764,7 +2765,7 @@
             if (mode==='item'&&current&&current.members.includes(s.adv.chapter)&&!this.routeWorthSwitch(s,current,rows[0],now,'item')) {
                 if(this.routeReached(s,current)){
                     this.target=current;
-                    if(this.restartForPickups(s,current,[this.settings.itemId],now))return;
+                    if(this.restartFarmTail(s,current,now))return;
                     if(this.settings.autoTeam&&this.fitTeam(s,now))return;
                     this.status=`${label} · ${current.name}`;
                 }
@@ -2775,6 +2776,23 @@
             if (!this.canStartRoute(s)) {this.previewDestination(s,rows[0],now);this.driver.nav('adventure');return;}
             this.travel(rows[0],now);
         }
+        farmTailProtected(s,row,now){
+            if(CHAPTERS.get(s.adv.chapter)?.name==='冠军之路')return true;
+            const settings={...this.settings,mode:'money',region:'all',moneyTarget:0};
+            const request=yieldRankingRequest('money',s,settings,this.metrics,now,{separateMoney:true});
+            request.cacheSlot='farm-tail-money';
+            const rows=this.evaluateRouteRanking(request,{},now);
+            // A partial ranking may still gain higher-earning routes. Only act on a finished comparison.
+            return !rows||routeRankings.get(request.cacheSlot)?.signature!==request.signature||
+                rows.slice(0,3).some(route=>route.members.includes(s.adv.chapter));
+        }
+        restartFarmTail(s,row,now){
+            const last=this.visit?.routeRestart;
+            if(last?.kind==='farmTail'&&s.adv.node<last.clickedAtNode)delete this.visit.routeRestart;
+            if(!farmTailExhausted(s,row,this.settings,now)||this.farmTailProtected(s,row,now))return false;
+            const reason=this.settings.mode==='shiny'?'本轮已无路闪遭遇':`本轮已无${ITEMS.get(this.settings.itemId).name}掉落机会`;
+            return this.restartExhaustedRoute(s,row,'farmTail',reason,now);
+        }
         restartForPickups(s,row,ids,now){
             if(!pickupRouteExhausted(s,row,ids,now))return false;
             return this.restartExhaustedRoute(s,row,'pickup','本轮已无'+ids.map(id=>ITEMS.get(id).name).join('、')+'拾取点',now);
@@ -2784,16 +2802,17 @@
         }
         restartExhaustedRoute(s,row,kind,reason,now){
             const visit=this.visit,a=s.adv;
-            if(!visit||!this.running||this.manual||this.preparation||this.driver.teamTask||this.driver.pendingMap||!pickupNavigationKnown(this.settings,row)||
+            if(!visit||!this.running||this.manual||this.preparation||this.driver.teamTask||this.driver.pendingMap||
+                kind!=='farmTail'&&!pickupNavigationKnown(this.settings,row)||
                 !this.routeReached(s,row))return false;
             const runs=a.runs||0;
             // Reselecting a chapter can leave both runs and node unchanged at
             // zero. Suppress repeat clicks on the same generated layout.
             const layout=JSON.stringify(a.nodes.map(n=>[n?.type,n?.name,n?.id,n?.once,n?.find,n?.loot,n?.roamer]));
             let attempt=visit.routeRestart;
-            // Two unsuccessful appliance rolls can have identical layouts at
-            // node zero. A later node provides fresh evidence to try again.
-            const advancedFromStart=kind==='rotom'&&attempt?.clickedAtNode===0&&a.node>0;
+            // A reroll of an empty route can look identical at node zero.
+            // Let it advance before trying the native control again.
+            const advancedFromStart=(kind==='rotom'||kind==='farmTail')&&attempt?.clickedAtNode===0&&a.node>0;
             if(!attempt||attempt.kind!==kind||attempt.runs!==runs||attempt.layout!==layout||attempt.clickedAtNode>a.node||advancedFromStart){
                 attempt=visit.routeRestart={kind,runs,layout,started:now};
             }

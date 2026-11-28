@@ -44,6 +44,8 @@
         const memory=new Map();helperStorage={getItem:key=>memory.get(key)??null,setItem:(key,value)=>memory.set(key,String(value)),removeItem:key=>memory.delete(key)};
     }
     const engine = new Engine(helperStorage);
+    const bossMoves = new BossMoves(engine);
+    engine.bossMoves=bossMoves;
     if(storageError)engine.status=storageError;
     const helperAPI={version:VERSION,ready:false,stop:()=>engine.stop('手动停止助手')};
     const life=new AbortController();
@@ -233,6 +235,14 @@
             <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
             </details>
             <details class="settings-group"><summary>战斗与过场</summary>
+            <label class="setting"><span><input type="checkbox" id="boss-moves">传说战 / 精英战自动切招</span></label>
+            <form id="boss-unlock" class="hidden" autocomplete="off">
+                <label class="field">开启自动切招的密码<input type="password" id="boss-password" required aria-describedby="boss-unlock-error"></label>
+                <button type="submit">确认开启</button> <button type="button" id="boss-unlock-cancel">取消</button>
+                <div class="hint" role="status" id="boss-unlock-error"></div>
+            </form>
+            <div class="hint">对手无异常时选可附加异常的最高威力攻击，有异常时选最高威力的无异常攻击。只调整出战队员，原有禁招优先，战后自动恢复。</div>
+            <div class="hint" id="boss-move-state" role="status"></div>
             <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div>
             <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
             </details>
@@ -326,6 +336,46 @@
         const applyPanelAppearance=mountPanelAppearance(root,host,ui,saveUI);
         const logPanel=mountPanelLogs(root,engine,()=>{viewSignature=null;render();});
         const fieldInsights=mountFieldInsights(root,engine,life.signal);
+        const bossToggle=query('#boss-moves'),bossNote=query('#boss-move-state');
+        const unlockForm=query('#boss-unlock'),passwordField=query('#boss-password'),unlockError=query('#boss-unlock-error');
+        let unlockAttempt=null;
+        function closeBossUnlock(){
+            unlockAttempt?.controller.abort();unlockAttempt=null;
+            unlockForm.reset();unlockError.textContent='';unlockForm.classList.add('hidden');
+        }
+        function cancelBossUnlock(){closeBossUnlock();bossToggle.focus();}
+        bossToggle.onchange=async()=>{
+            const opening=bossToggle.checked;
+            bossToggle.checked=bossMoves.enabled();
+            closeBossUnlock();
+            if(!opening){
+                await bossMoves.enable(false);bossToggle.checked=bossMoves.enabled();return;
+            }
+            if(!engine.mayPersist())return;
+            unlockAttempt={account:engine.account,controller:new AbortController()};
+            unlockForm.classList.remove('hidden');passwordField.focus();
+        };
+        query('#boss-unlock-cancel').onclick=cancelBossUnlock;
+        unlockForm.onkeydown=event=>{
+            if(event.key==='Escape'){event.preventDefault();event.stopPropagation();cancelBossUnlock();}
+        };
+        unlockForm.onsubmit=async event=>{
+            event.preventDefault();
+            const attempt=unlockAttempt;
+            if(!attempt||attempt.account!==engine.account||!engine.mayPersist()){closeBossUnlock();return;}
+            let accepted;
+            try{accepted=await bossMoves.enable(true,passwordField.value,attempt.controller.signal);}
+            catch{if(attempt===unlockAttempt)unlockError.textContent='本地验证或保存失败，请重试。';return;}
+            if(attempt!==unlockAttempt)return;
+            if(accepted){bossToggle.checked=true;cancelBossUnlock();}
+            else{unlockError.textContent='密码错误，请重新输入。';passwordField.select();}
+        };
+        life.signal.addEventListener('abort',closeBossUnlock,{once:true});
+        const bossTimer=setInterval(async()=>{
+            try{if(!storageError)await bossMoves.tick();}catch(err){bossMoves.note='切招暂缓 · '+err.message;}
+            if(bossNote.textContent!==(bossMoves.note||''))bossNote.textContent=bossMoves.note||'';
+        },500);
+        life.signal.addEventListener('abort',()=>{clearInterval(bossTimer);bossMoves.retired=true;bossMoves.disconnectArena();},{once:true});
         const metricGroup=query('#yield-metric');
         function selectYieldView(value) {
             ui.yieldView=['money','train','box'].includes(value)?value:'task';
@@ -869,6 +919,9 @@
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(helperAPI.ready)dexPanel.syncNative(s);
+            bossToggle.checked=!storageError&&bossMoves.enabled();
+            bossToggle.disabled=!!storageError||!s?.adv||!engine.mayPersist();
+            if(unlockAttempt&&(unlockAttempt.account!==engine.account||bossToggle.disabled||bossToggle.checked))closeBossUnlock();
             query('#export-box').disabled=!s?.adv;
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             paintedTask=taskState();

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.6.1
+// @version      8.7.0
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*
@@ -24,7 +24,7 @@
 (function () {
     'use strict';
 
-    const VERSION = '8.6.1', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
+    const VERSION = '8.7.0', PREFIX = 'pokecatch-helper:v1:', SAVE_KEY = 'gachamon-save-v1';
     const hasGameDocument=typeof window!=='undefined'&&typeof document!=='undefined';
     function isTopGameDocument(doc){
         try{
@@ -3109,36 +3109,57 @@
         return {...row,rate,battleFit,estimatedSeconds,estimatedReward,measured,samples:m?.runs||0,seconds:m?.seconds||0};
     }
     const WILD_FORECAST_LIMIT=30000;
-    const WILD_COUNTER_BUNDLES=new Set(['f467030697','6e904dfeb4']);
+    const WILD_COUNTER_BUNDLES=new Set(['f467030697','6e904dfeb4','a736e7726c']);
 
     // Estimate one repeated lap of the generated route. Entering a battle and
     // each one-hit knockout cost one action each. Other stops and the lap
     // transition also take a step. Live animation and capture time can vary.
-    function wildEncounterSeconds(s,chapter){
-        const {nodes,speed}=s.adv;
+    function wildRouteTiming(s,chapter){
+        const {nodes,speed,node:cursor=0,battle}=s.adv;
         if(!Array.isArray(nodes)||![1,4].includes(speed))return null;
-        let wild=0,actions=1;
-        for(const node of nodes){
+        const positions=[];
+        let actions=0,elapsed=null;
+        for(const [index,node] of nodes.entries()){
             if(!node?.type)return null;
-            actions++;
+            const start=actions++;
+            let enemies=0;
             if(node.type==='wild'){
-                if(!node.roamer||s.roam?.caught?.includes(node.roamer))wild++;
-                actions++;
-            }else if(node.type==='static')actions++;
+                const group=node.roamer&&!node.event&&ROAMING_DATA.groups.find(g=>g.ids.includes(node.roamer));
+                const roaming=group&&s.adv.badges?.includes(group.badge)&&!s.roam?.caught?.includes(node.roamer);
+                if(!roaming)positions.push(actions);
+                enemies=1;
+            }else if(node.type==='static')enemies=1;
             else if(node.type==='trainer'||node.type==='gym'){
                 const typical=node.type==='gym'?chapter.gymFoes?.length:node.gymTrainer?1:
                     1+Math.min(2,Math.floor((chapter.id-(DATA.regions.find(r=>r.key===chapter.reg)?.start||0))/2)+1)/2;
-                actions+=node.team?.length||node.size||typical||1;
+                enemies=node.team?.length||node.size||typical||1;
             }
+            if(index===cursor){
+                if(battle&&battle.enemies?.length)enemies=battle.enemies.length;
+                // A live battle has already consumed its encounter roll.
+                elapsed=battle?start+1+(battle.enemies||[]).filter(e=>e?.hp===0).length:start;
+            }
+            actions+=enemies;
         }
-        return wild?actions*2.8/(speed===4?2.5:1)/wild:null;
+        if(cursor===nodes.length)elapsed=actions;
+        const step=2.8/(speed===4?2.5:1);
+        return {positions,elapsed,lap:actions+1,step};
+    }
+    function wildTargetSeconds(route,n){
+        if(!route||n===null||!route.positions.length)return null;
+        const {positions,elapsed,lap,step}=route;
+        if(elapsed===null)return n*lap*step/positions.length;
+        // Locate the Nth future spawn, including the partial current lap.
+        const index=positions.filter(at=>at<=elapsed).length+n-1;
+        return (Math.floor(index/positions.length)*lap+positions[index%positions.length]-elapsed)*step;
     }
 
     function wildShinyForecast(s,bundle,now=Date.now(),cache={}){
         const adv=s?.adv,chapter=CHAPTERS.get(adv?.chapter);
         if(!adv)return {error:'等待读取游戏存档'};
         if(!chapter||adv.event||adv.zone||adv.tower||adv.league||chapter.league)return {error:'回到普通冒险路线后可查看路闪预测'};
-        if(!WILD_COUNTER_BUNDLES.has(bundle))return {error:'当前游戏版本的野生遭遇序列尚未核对'};
+        if(bundle==='e2eb68ec8c')return {error:'此旧版游戏在遇敌时随机判定，无法按序号预测'};
+        const verified=WILD_COUNTER_BUNDLES.has(bundle);
         const seed=nurserySeed(s);
         if(seed===null||!s.dex)return {error:'等待训练家信息和地区图鉴'};
         // nextWild() reads the old counter before incrementing. The native
@@ -3165,7 +3186,10 @@
         const natural=distance(cache.natural),berryOnly=distance(cache.berryOnly);
         const berry=natural===null?berryOnly:berryOnly===null?natural:Math.min(natural,berryOnly);
         const remainingMs=activeYieldBuff(s,'shiny',now)&&s.buffs.shiny.key==='starf-berry'?s.buffs.shiny.until-now:0;
-        return {region:chapter.reg,complete:odds.complete,natural,berry,berryOnly,remainingMs,seconds:wildEncounterSeconds(s,chapter)};
+        const route=wildRouteTiming(s,chapter),wildPerLap=route?.positions.length??null;
+        const times={natural:wildTargetSeconds(route,natural),berry:wildTargetSeconds(route,berry),berryOnly:wildTargetSeconds(route,berryOnly)};
+        return {region:chapter.reg,complete:odds.complete,natural,berry,berryOnly,remainingMs,verified,legacyCounter:s.wildN==null,
+            seconds:wildPerLap?route.lap*route.step/wildPerLap:null,wildPerLap,times,wildFightSeconds:route?2*route.step:null};
     }
     const eggFamilyRoots=new Map(),eggFamilyRegions=new Map(),giftEggHomes=new Map();
     for(const mon of DATA.mons){
@@ -12610,6 +12634,7 @@
         }
         stop(reason = '已停止助手',options={}) {
             const save=options.persist!==false&&this.mayPersist();
+            if(save&&this.bossMoves)this.bossMoves.suppressed=this.bossMoves.encounter;
             this.captureStop(reason,options.level);this.shinySettlement=null;this.recoveryPending=null;
             if((this.running||this.suspended)&&this.started&&!this.endedTotals){
                 let s=this.state;
@@ -15072,11 +15097,248 @@
         }
     }
 
+    // The native picker reads each owned Pokémon's ban list on its next attack.
+    // Use its own controls for changes. Storage here belongs only to the helper.
+    function bossMoveBattle(adv){
+        const b=adv?.battle;
+        if(!b||adv.event||adv.tower||b.raid)return null;
+        const legend=adv.zone&&b.zone===adv.zone.id&&b.kind==='static';
+        const league=adv.league?.tier>0&&['trainer','gym'].includes(b.kind);
+        if(!legend&&!league)return null;
+        const foes=(b.enemies||[]).filter(m=>m?.uid&&m.hp>0&&MONS.has(m.id)&&b.foes?.includes(m.uid));
+        return foes.length&&b.allies?.length?{foes,allies:b.allies}:null;
+    }
+    function bossAttackChoice(keys,foes){
+        const attacks=keys.filter(key=>DATA.combat.moves[key]?.power>0).sort((a,b)=>{
+            const left=DATA.combat.moves[a],right=DATA.combat.moves[b];
+            return right.power-left.power||right.acc-left.acc||a.localeCompare(b);
+        });
+        // A single list applies to every target. With multiple opponents only
+        // override when the same attack is appropriate against every active foe.
+        const choices=foes.map(foe=>{
+            const model=MONS.get(foe.id),defense=defensiveTypes(model);
+            const usable=attacks.filter(k=>defense[DATA.combat.moves[k].type]!==0);
+            const canInflict=status=>{
+                if(status==='tri')return ['burn','paralysis','freeze'].some(canInflict);
+                if(['sleep','freeze'].includes(status)&&foe.lockCd>0)return false;
+                const immune={burn:['fire'],freeze:['ice'],poison:['steel','poison']};
+                return !(immune[status]||[]).some(t=>model.types.includes(t));
+            };
+            const effect=!foe.status&&!foe.confused&&usable.find(k=>RAID_ALLY.moves[k]&&canInflict(RAID_ALLY.moves[k].status));
+            return effect||usable.find(k=>!RAID_ALLY.moves[k])||usable[0]||null;
+        });
+        return choices.length&&choices.every(key=>key===choices[0])?choices[0]:null;
+    }
+    function bossMoveChanges(rows,owned,choice){
+        const changes=[];
+        // Enable first so the game's last-damaging-move protection always holds.
+        for(const row of rows)if(row.banned&&owned.includes(row.key)&&(!choice||row.key===choice))
+            changes.push({key:row.key,ban:false});
+        // Remove the strongest competitors first when initial setup spans several ticks.
+        const power=r=>DATA.combat.moves[r.key]?.power||0;
+        if(choice)for(const row of [...rows].sort((a,b)=>power(b)-power(a)))if(!row.banned&&row.key!==choice)
+            changes.push({key:row.key,ban:true});
+        return changes;
+    }
+    async function bossMoveDialog(mon,visit){
+        const q=selector=>document.querySelector(selector);
+        if(q('#modal-root.open,.mvd-root:not(.out)')||visible(q('#evt-pick'))||document.body.classList.contains('swap-mode'))return false;
+        const member=()=>Array.from(document.querySelectorAll('#adv-team .tcard[data-uid],#team-slots [data-uid],#pc-grid .pc-cell[data-uid]:not([data-out])'))
+            .find(el=>el.dataset.uid===mon.uid);
+        const tab=id=>Array.from(document.querySelectorAll('#tabs [data-screen]')).find(el=>el.dataset.screen===id);
+        const screen=q('.screen.active')?.id?.replace(/^screen-/,'');
+        let switched=false,search,priorSearch,modal,drawer,interrupted=false;
+        const interrupt=event=>{if(event.isTrusted)interrupted=true;};
+        const inputEvents=['pointerdown','keydown','wheel'];
+        const input=(el,value)=>{el.value=value;el.dispatchEvent(new Event('input',{bubbles:true}));};
+        try{
+            for(const type of inputEvents)document.addEventListener(type,interrupt,true);
+            let card=member();
+            if(!card){
+                if(!screen||!tab(screen))return false;
+                if(screen!=='team'){
+                    const team=tab('team');
+                    if(!team||team.disabled||team.matches('.locked,.hold'))return false;
+                    team.click();
+                    switched=!!q('#screen-team.active');
+                    if(!switched)return false;
+                }
+                card=member();
+                if(!card&&(search=q('#pc-search'))&&search.value!==String(mon.id)){
+                    priorSearch=search.value;input(search,String(mon.id));card=member();
+                }
+                // The native PC filters and virtual grid repaint on a later frame.
+                for(let wait=0;!card&&wait<6;wait++){
+                    await new Promise(resolve=>setTimeout(resolve,35));
+                    if(interrupted||!q('#screen-team.active')||q('#modal-root.open,.mvd-root:not(.out)'))return false;
+                    card=member();
+                }
+            }
+            if(!card)return false;
+            card.click();
+            modal=q('#modal-root.open .mon-modal .mon-card');
+            if(!modal)return false;
+            modal.querySelector('.dc-move.tap')?.click();
+            drawer=q('.mvd-root:not(.out) .mvd.own');
+            if(!drawer)return false;
+            const read=()=>Array.from(drawer.querySelectorAll('.mvd-row.done[data-k]'),el=>({key:el.dataset.k,banned:el.classList.contains('ban')}));
+            const toggle=(key,ban)=>{
+                const row=()=>Array.from(drawer.querySelectorAll('.mvd-row.done[data-k]')).find(el=>el.dataset.k===key);
+                row()?.querySelector('.mvd-mv')?.click();
+                return row()?.classList.contains('ban')===ban;
+            };
+            return visit(read(),toggle);
+        }finally{
+            if(drawer)drawer.parentElement.style.visibility='hidden';
+            drawer?.querySelector('.mvd-head .dc-x')?.click();
+            modal?.querySelector('.dc-x')?.click();
+            if(!interrupted&&priorSearch!==undefined&&search.value===String(mon.id))input(search,priorSearch);
+            if(!interrupted&&switched&&q('#screen-team.active'))tab(screen)?.click();
+            for(const type of inputEvents)document.removeEventListener(type,interrupt,true);
+        }
+    }
+    class BossMoves{
+        constructor(engine,dialog=bossMoveDialog){
+            this.e=engine;this.dialog=dialog;this.cache=new Map();this.retry=new Map();
+        }
+        key(part){return PREFIX+'boss-moves:'+part+':'+this.e.account;}
+        enabled(){return !!this.e.account&&this.e.storage.getItem(this.key('on'))==='verified-v1';}
+        async enable(value,password,signal){
+            const account=this.e.account;
+            if(!account||!this.e.mayPersist())return false;
+            if(value){
+                if(typeof password!=='string'||!password.length)return false;
+                const bytes=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(password));
+                const digest=Array.from(new Uint8Array(bytes),b=>b.toString(16).padStart(2,'0')).join('');
+                if(digest!=='7870a682eef2fb914ebb5b15a2eb8c4ea44eaee54793e04ae2b2589e68564409'||
+                    signal?.aborted||account!==this.e.account||!this.e.mayPersist())return false;
+            }
+            // A legacy '1' predates password verification. Keep its undo journal available.
+            this.e.storage.setItem(this.key('on'),value?'verified-v1':'0');
+            this.cache.clear();this.retry.clear();this.suppressed=null;return true;
+        }
+        journal(entries){
+            const storage=this.e.storage,key=this.key('undo');
+            if(entries.length)storage.setItem(key,JSON.stringify(entries));
+            else storage.removeItem(key);
+        }
+        async tick(now=Date.now()){
+            if(this.busy)return;
+            this.busy=true;
+            try{await this.step(now);}finally{this.busy=false;}
+        }
+        async step(now){
+            const e=this.e;
+            if(!e.account||e.suspended||this.retired){this.disconnectArena();return;}
+            if(this.account!==e.account){
+                this.account=e.account;this.cache.clear();this.retry.clear();this.suppressed=null;this.note='';this.encounter=null;
+            }
+            const on=this.enabled(),raw=e.storage.getItem(this.key('undo'));
+            if(!on&&!raw){this.disconnectArena();this.note='';return;}
+            if(!e.mayPersist()){this.disconnectArena();return;}
+            const s=e.read();
+            if(!s?.adv||s.adv.layout!==DATA.layout||accountId(s)!==e.account)return;
+            const entries=raw?JSON.parse(raw):[],battle=bossMoveBattle(s.adv);
+            this.encounter=battle&&battle.foes.map(m=>m.uid).join('|');
+            if(this.suppressed!==this.encounter)this.suppressed=null;
+            const active=on&&!e.manual&&battle&&this.suppressed!==this.encounter;
+            this.watchArena(active);
+            const allies=active?battle.allies:[];
+            if(!allies.length)this.cache.clear();
+            if(!entries.length&&!allies.length){this.note='';return;}
+            if(e.inputHeld||e.gameInputFocused?.()||e.driver?.teamTask||e.automation?.buddyTask||e.nurseryAssist?.feed)return;
+            const foes=active?battle.foes.map(mon=>this.liveFoe(mon)):[];
+            const members=rosterIndex(s).byUid;
+            const context=JSON.stringify(foes.map(m=>[m.id,!!m.status,!!m.confused,m.lockCd>0]));
+            this.note=active?'按当前对手状态选招':'正在恢复原禁招';
+            const ids=[...new Set([...entries.filter(x=>!allies.includes(x.uid)).map(x=>x.uid),...allies])];
+            for(const uid of ids){
+                if(this.retry.get(uid)>now)continue;
+                const mon=members.get(uid),entry=entries.find(x=>x.uid===uid);
+                if(!mon){this.retry.set(uid,now+5000);continue;}
+                const manage=allies.includes(uid);
+                const signatureFor=bans=>JSON.stringify([mon.id,mon.level,manage?context:null,[...bans].sort()]);
+                const signature=signatureFor(mon.ban||[]);
+                if(manage&&this.cache.get(uid)===signature)continue;
+                const result=await this.dialog(mon,(rows,toggle)=>{
+                    // Navigation/search can yield to the game or to another tab.
+                    if(this.retired||!e.mayPersist()||this.account!==e.account||this.enabled()!==on||e.suspended)return false;
+                    const fresh=e.read();
+                    if(!fresh?.adv||accountId(fresh)!==this.account)return false;
+                    if(manage){
+                        const next=bossMoveBattle(fresh.adv);
+                        if(e.manual||this.suppressed===this.encounter||!next?.allies.includes(uid)||
+                            next.foes.map(m=>m.uid).join('|')!==this.encounter)return false;
+                    }
+                    if(!rows.length)return false;
+                    const owned=entry?.keys||[];
+                    const choice=manage?bossAttackChoice(rows.filter(r=>!r.banned||owned.includes(r.key)).map(r=>r.key),foes):null;
+                    const changes=bossMoveChanges(rows,owned,choice);
+                    if(!changes.length){
+                        if(entry&&!rows.some(r=>r.banned&&owned.includes(r.key))){
+                            // A changed roster may temporarily hide previously learned moves.
+                            const hidden=owned.filter(k=>!rows.some(r=>r.key===k)&&(mon.ban||[]).includes(k));
+                            if(hidden.length){entry.keys=hidden;this.journal(entries);return false;}
+                            entries.splice(entries.indexOf(entry),1);this.journal(entries);
+                        }
+                        this.cache.set(uid,signature);return true;
+                    }
+                    let record=entry;
+                    if(!record){record={uid,keys:[]};entries.push(record);}
+                    const resultingBans=new Set(mon.ban||[]);
+                    // Bound initial setup and restoration. A normal status transition takes two clicks.
+                    for(const {key,ban} of changes.slice(0,4)){
+                        if(ban&&!record.keys.includes(key)){record.keys.push(key);this.journal(entries);}
+                        if(!toggle(key,ban))return false;
+                        if(ban)resultingBans.add(key);else resultingBans.delete(key);
+                        if(!ban){record.keys=record.keys.filter(k=>k!==key);this.journal(entries);}
+                    }
+                    if(!record.keys.length){entries.splice(entries.indexOf(record),1);this.journal(entries);}
+                    if(changes.length<=4)this.cache.set(uid,signatureFor(resultingBans));else this.cache.delete(uid);
+                    return true;
+                });
+                if(result)return;
+                this.retry.set(uid,now+1800);
+            }
+            if(this.retry.size&&ids.some(uid=>this.retry.get(uid)>now))this.note='等待可操作的队员详情后继续';
+        }
+        liveFoe(mon){
+            if(typeof document==='undefined'||!document.querySelector('#screen-adventure.active'))return mon;
+            const sprite=Array.from(document.querySelectorAll('#enemy-slot .enemy[data-uid]:not(.fxclone):not(.fainted)')).find(el=>el.dataset.uid===mon.uid);
+            if(!sprite)return mon;
+            return {...mon,status:['burn','sleep','poison','paralysis','freeze'].find(k=>sprite.classList.contains('st-'+k)),confused:sprite.classList.contains('st-confusion')};
+        }
+        watchArena(active){
+            const arena=active&&typeof document!=='undefined'?document.querySelector('#screen-adventure.active #enemy-slot'):null;
+            if(arena===this.arena)return;
+            this.disconnectArena();
+            if(!arena)return;
+            this.arena=arena;
+            const signature=()=>Array.from(arena.querySelectorAll('.enemy[data-uid]:not(.fxclone):not(.fainted)'),el=>
+                [el.dataset.uid,...Array.from(el.classList).filter(c=>c.startsWith('st-')).sort()].join('.')).join('|');
+            let last=signature();
+            this.observer=new MutationObserver(records=>{
+                if(!records.some(r=>r.type==='attributes'?r.target.matches('.enemy[data-uid]'):r.target===arena))return;
+                const current=signature();
+                if(current===last)return;
+                last=current;
+                if(!this.wake)this.wake=setTimeout(()=>{
+                    this.wake=null;this.tick().catch(err=>{this.note='切招暂缓 · '+err.message;});
+                },60);
+            });
+            this.observer.observe(arena,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+        }
+        disconnectArena(){
+            this.observer?.disconnect();this.observer=null;this.arena=null;
+            clearTimeout(this.wake);this.wake=null;
+        }
+    }
+
     // Node-only exports for planning, accounting and browser regression tests.
     if (typeof module === 'object' && module.exports && typeof document === 'undefined') {
         module.exports = { DATA, DEFAULTS, MONS, ROOTS, ITEMS, MODE_NAMES, normalizeSettings, decodeSave, economicRegion, moneyFactor, accountId, captured, dexStatus, candidates, specialAvailable, dexRanking, moneyRanking, itemRanking, xpRanking, trainingCap, trainingGemTarget, trainingStatus, selectTrainingBuddy, experienceTotal, partyMons, rosterFingerprint, teamEligible, effectiveStats, expectedDamage, matchupScore, chapterThreats, chapterFoes, giftChoices, planAdventureTeam, ownedItems, itemCounter, sourceAvailable, legendProgress,legendWindowReason, estimateRate, teamFingerprint, metricsKey, activeYieldBuff, yieldFingerprint, parisDay, allyStrength, Telemetry, Engine, DOMDriver, phaseAt, encounterDataErrors,Automation,Budget,shinyOwned,shinyRanking,pensionPlan,parsePrice,normalizeJobs,undergroundTeamKey,undergroundMembers,battleContext,preparationPlan,battleRouteFit,preparationRoutes,LevelCoach,candyRegion,candyXpGap,candyChoice,teamCacheStats,clearTeamCache };
         Object.assign(module.exports,{MULTI_HIT_DATA,damageRollMean,attackTurns,chapterCombatFoes,resolveCombatWeatherNode,combatWeather,deploymentScore,matchupDetails,deployedBattle,battleSwitchCandidate,preparationCosts,preparationReadiness,rebuildPreparationContext,trainingCandidates,leagueTrainingModel});
-        Object.assign(module.exports,{LEGEND_ELITE,legendEliteContext,legendEliteCompatible,legendEliteTeamSearch,speciesRankings});
+        Object.assign(module.exports,{LEGEND_ELITE,legendEliteContext,legendEliteCompatible,legendEliteTeamSearch,speciesRankings,BossMoves,bossMoveBattle,bossMoveChanges,bossAttackChoice,bossMoveDialog});
         Object.assign(module.exports,{roamingCombatFoe,routeRoamingFoes,routeCombatFoes,roamingBattle});
         Object.assign(module.exports,{WEATHER_DATA,weatherHash,weatherSeason,seasonWindow,seasonFormProgress,weatherDailySpot,chapterWeather,nodeWeather,weatherEncounterPool,nextWildWindow,wildShinyEncounter,weatherDamageContext,UNOVA_ENCOUNTERS,unovaAcquisitionSources});
         Object.assign(module.exports,{dailyCaptureWindow,dailyFacility,towerWeek,towerProgress,towerParty,worldAttackParty,nextParisReset,CANDY_DATA,candyContext,candyPlan});
@@ -16838,24 +17100,24 @@
             <div class="nursery-heading"><h3>路闪预测</h3><span class="sub" data-wild="location"></span></div>
             <p role="status" data-wild="error"></p>
             <div data-wild="results" hidden>
+                <p class="hint warn" data-wild="reference" hidden></p>
                 <div class="wild-targets">
-                    <div class="nursery-next-card"><h4>自然路闪</h4><strong data-wild="natural"></strong><div class="sub" data-wild="natural-time"></div></div>
-                    <div class="nursery-next-card"><h4>星桃果路闪</h4><strong data-wild="berry"></strong><div class="sub" data-wild="berry-time"></div></div>
+                    <div class="nursery-next-card"><h4>自然路闪</h4><strong data-wild="natural"></strong><div class="sub" data-wild="natural-time"></div><div class="sub" data-wild="natural-pure"></div></div>
+                    <div class="nursery-next-card"><h4>星桃果路闪</h4><strong data-wild="berry"></strong><div class="sub" data-wild="berry-time"></div><div class="sub" data-wild="berry-pure"></div></div>
                 </div>
                 <p data-wild="overlap" hidden></p>
                 <div class="nursery-section-heading"><h3>当前条件</h3></div>
                 <dl class="decision-list"><dt>星桃果</dt><dd data-wild="buff"></dd><dt>地区闪率</dt><dd data-wild="odds"></dd><dt>遇敌速度</dt><dd data-wild="pace"></dd></dl>
                 <p class="warn" data-wild="expiry" hidden>按当前速度，这次果效预计会在目标遭遇前结束。</p>
-                <details><summary>预测依据</summary><p class="hint">从下一次普通野生遭遇起算。星桃果须在目标遭遇生成时生效。时间按当前地图持续循环、每只对手一击击倒估算，包含沿途训练家和其他节点。</p></details>
+                <details><summary>预测依据</summary><p class="hint">只数从下一只普通野生宝可梦生成时算起。训练家、道馆、固定对手和游荡传说都不推进序号。当前地图按现有路线循环，从所在格算到目标出现。纯野战按连续遭遇、每只一击击倒估算，排除其他节点的耗时。换图后按新路线重算。</p></details>
             </div></div>`;
         const nodes=Object.fromEntries([...panel.querySelectorAll('[data-wild]')].map(el=>[el.dataset.wild,el]));
         const cache={};
         function write(key,value){if(nodes[key].textContent!==value)nodes[key].textContent=value;}
-        function distance(n){return n===null?'30,000 次内未找到':n===1?'下次遭遇':'再遇 '+n.toLocaleString('zh-CN')+' 次';}
-        function estimate(n,seconds){
-            if(n===null)return '';
+        function distance(n){return n===null?'30,000 只内未找到':'还需 '+n.toLocaleString('zh-CN')+' 只'+(n===1?'（下一只）':'');}
+        function estimate(seconds){
             if(seconds===null)return '用时待估';
-            const minutes=n*seconds/60;
+            const minutes=seconds/60;
             return minutes<0.1?'不足 0.1 分钟':'约 '+minutes.toLocaleString('zh-CN',{maximumFractionDigits:1})+' 分钟';
         }
         return (s,now)=>{
@@ -16865,16 +17127,21 @@
             write('error',f.error||'');
             write('location',f.error?'':(DATA.regions.find(r=>r.key===f.region)?.name||f.region)+' · '+CHAPTERS.get(s.adv.chapter).name);
             if(f.error)return;
+            nodes.reference.hidden=f.verified&&!f.legacyCounter;
+            write('reference',(f.verified?'':'当前版本规则待核对，以下为参考预测。')+
+                (f.legacyCounter?'野生序号尚未保存，暂按当前战斗数初始化估算；首次普通遇敌前的其他战斗可能改变结果。':''));
             for(const key of ['natural','berry']){
-                write(key,distance(f[key]));write(key+'-time',estimate(f[key],f.seconds));
+                write(key,distance(f[key]));write(key+'-time',f[key]===null?'':'当前地图 · '+estimate(f.times[key]));
+                write(key+'-pure',f[key]===null?'':'纯野战 · '+estimate(f.wildFightSeconds===null?null:(f[key]-0.5)*f.wildFightSeconds));
             }
             const overlap=f.natural!==null&&f.natural===f.berry;
             nodes.overlap.hidden=!overlap;
-            if(overlap)write('overlap','本次自然就会闪。下一次仅吃果才闪　'+[distance(f.berryOnly),estimate(f.berryOnly,f.seconds)].filter(Boolean).join(' · '));
+            if(overlap)write('overlap','本次自然就会闪。下一次仅吃果才闪　'+distance(f.berryOnly)+(f.berryOnly===null?'':' · 当前地图 '+estimate(f.times.berryOnly)));
             write('buff',f.remainingMs?'剩余 '+Math.ceil(f.remainingMs/60000)+' 分钟':'未生效');
             write('odds',f.complete?'完整图鉴加成 ×2':'基础闪率');
-            write('pace',f.seconds===null?'等待可估速的路线':s.adv.speed+' 档 · 平均 '+f.seconds.toFixed(1)+' 秒 / 次');
-            nodes.expiry.hidden=!(f.remainingMs&&f.berryOnly!==null&&f.seconds!==null&&f.berryOnly*f.seconds*1000>=f.remainingMs);
+            write('pace',f.wildPerLap===0?'本轮地图没有普通野生遭遇':f.seconds===null?'等待可估速的路线':
+                '本轮 '+f.wildPerLap+' 只 · '+s.adv.speed+' 档 · 平均 '+f.seconds.toFixed(1)+' 秒 / 只');
+            nodes.expiry.hidden=!(f.remainingMs&&f.times.berryOnly!==null&&f.times.berryOnly*1000>=f.remainingMs);
         };
     }
     function mountQueuePanel(root,engine){
@@ -17330,6 +17597,8 @@
         const memory=new Map();helperStorage={getItem:key=>memory.get(key)??null,setItem:(key,value)=>memory.set(key,String(value)),removeItem:key=>memory.delete(key)};
     }
     const engine = new Engine(helperStorage);
+    const bossMoves = new BossMoves(engine);
+    engine.bossMoves=bossMoves;
     if(storageError)engine.status=storageError;
     const helperAPI={version:VERSION,ready:false,stop:()=>engine.stop('手动停止助手')};
     const life=new AbortController();
@@ -17519,6 +17788,14 @@
             <label class="setting"><span><input type="checkbox" data-setting="autoEvolve">普通色自动执行免费等级进化</span></label><div class="hint" id="evolution-hint">普通色的培养规划考虑可达免费进化形态。异色、道具和分支进化由你手动处理。</div>
             </details>
             <details class="settings-group"><summary>战斗与过场</summary>
+            <label class="setting"><span><input type="checkbox" id="boss-moves">传说战 / 精英战自动切招</span></label>
+            <form id="boss-unlock" class="hidden" autocomplete="off">
+                <label class="field">开启自动切招的密码<input type="password" id="boss-password" required aria-describedby="boss-unlock-error"></label>
+                <button type="submit">确认开启</button> <button type="button" id="boss-unlock-cancel">取消</button>
+                <div class="hint" role="status" id="boss-unlock-error"></div>
+            </form>
+            <div class="hint">对手无异常时选可附加异常的最高威力攻击，有异常时选最高威力的无异常攻击。只调整出战队员，原有禁招优先，战后自动恢复。</div>
+            <div class="hint" id="boss-move-state" role="status"></div>
             <div class="checks"><label><input type="checkbox" data-setting="raids">每日团体战优先</label><label><input type="checkbox" data-setting="animations">继续 / 跳过过场</label><label><input type="checkbox" data-setting="gifts">自动选择赠送</label></div><div class="hint" id="raid-check"></div>
             <button type="button" data-open-raid-insight>查看团体战候选与历史</button>
             </details>
@@ -17612,6 +17889,46 @@
         const applyPanelAppearance=mountPanelAppearance(root,host,ui,saveUI);
         const logPanel=mountPanelLogs(root,engine,()=>{viewSignature=null;render();});
         const fieldInsights=mountFieldInsights(root,engine,life.signal);
+        const bossToggle=query('#boss-moves'),bossNote=query('#boss-move-state');
+        const unlockForm=query('#boss-unlock'),passwordField=query('#boss-password'),unlockError=query('#boss-unlock-error');
+        let unlockAttempt=null;
+        function closeBossUnlock(){
+            unlockAttempt?.controller.abort();unlockAttempt=null;
+            unlockForm.reset();unlockError.textContent='';unlockForm.classList.add('hidden');
+        }
+        function cancelBossUnlock(){closeBossUnlock();bossToggle.focus();}
+        bossToggle.onchange=async()=>{
+            const opening=bossToggle.checked;
+            bossToggle.checked=bossMoves.enabled();
+            closeBossUnlock();
+            if(!opening){
+                await bossMoves.enable(false);bossToggle.checked=bossMoves.enabled();return;
+            }
+            if(!engine.mayPersist())return;
+            unlockAttempt={account:engine.account,controller:new AbortController()};
+            unlockForm.classList.remove('hidden');passwordField.focus();
+        };
+        query('#boss-unlock-cancel').onclick=cancelBossUnlock;
+        unlockForm.onkeydown=event=>{
+            if(event.key==='Escape'){event.preventDefault();event.stopPropagation();cancelBossUnlock();}
+        };
+        unlockForm.onsubmit=async event=>{
+            event.preventDefault();
+            const attempt=unlockAttempt;
+            if(!attempt||attempt.account!==engine.account||!engine.mayPersist()){closeBossUnlock();return;}
+            let accepted;
+            try{accepted=await bossMoves.enable(true,passwordField.value,attempt.controller.signal);}
+            catch{if(attempt===unlockAttempt)unlockError.textContent='本地验证或保存失败，请重试。';return;}
+            if(attempt!==unlockAttempt)return;
+            if(accepted){bossToggle.checked=true;cancelBossUnlock();}
+            else{unlockError.textContent='密码错误，请重新输入。';passwordField.select();}
+        };
+        life.signal.addEventListener('abort',closeBossUnlock,{once:true});
+        const bossTimer=setInterval(async()=>{
+            try{if(!storageError)await bossMoves.tick();}catch(err){bossMoves.note='切招暂缓 · '+err.message;}
+            if(bossNote.textContent!==(bossMoves.note||''))bossNote.textContent=bossMoves.note||'';
+        },500);
+        life.signal.addEventListener('abort',()=>{clearInterval(bossTimer);bossMoves.retired=true;bossMoves.disconnectArena();},{once:true});
         const metricGroup=query('#yield-metric');
         function selectYieldView(value) {
             ui.yieldView=['money','train','box'].includes(value)?value:'task';
@@ -18155,6 +18472,9 @@
                 query('#add-job').textContent = '＋ 加入队列'; itemOptions(); syncSettings();
             } } catch (err) { engine.status = err.message; }
             if(helperAPI.ready)dexPanel.syncNative(s);
+            bossToggle.checked=!storageError&&bossMoves.enabled();
+            bossToggle.disabled=!!storageError||!s?.adv||!engine.mayPersist();
+            if(unlockAttempt&&(unlockAttempt.account!==engine.account||bossToggle.disabled||bossToggle.checked))closeBossUnlock();
             query('#export-box').disabled=!s?.adv;
             if(s?.adv&&!engine.running&&!engine.suspended&&engine.checkpoint)engine.tryResume();
             paintedTask=taskState();

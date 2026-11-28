@@ -17,8 +17,9 @@ function fixture(override,productionSource) {
         dex: {}, stats: { wins: 0, caught: 0, battles: 0 }, travel: { to: ['johto', 'hoenn', 'sinnoh'] },
         adv: { layout: 6, chapter: 0, unlocked: 65, node: 0, runs: 0, speed: 4, loops: [0, 31], badges: ['Maître'], gifts: { starter: true }, deaths: {} } };
     if(override)Object.assign(s,override);
-    const source = productionSource??fs.readFileSync(path.join(__dirname, '..', 'Pokecatch自动助手.user.js'), 'utf8')
+    let source = productionSource??fs.readFileSync(path.join(__dirname, '..', 'Pokecatch自动助手.user.js'), 'utf8')
         .replace('    mount();', '    window.__pcTest={engine,DOMDriver,DATA,DEFAULTS,candidates,economicRegion,levelEvolution,projectEvolution,planAdventureTeam}; window.__pcNurseryAutomation={nurseryFixedRoll,NURSERY_RULES}; mount();');
+    if(process.argv.includes('--boss-moves-only'))source=require('./fixtures/pokecatch-boss-test-password.cjs')(source);
     return `<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PokéCatch · offline test</title>
     <style>body{background:#111a29;color:#eee;font:16px system-ui;margin:0;padding:20px}.screen{display:none}.screen.active{display:block}.rg,.mp-row,.mp-go,#tabs button{padding:8px;margin:4px}.pg-loop{display:inline-block;padding:9px;background:#345}.modal{position:fixed;left:10px;top:100px;background:#234;padding:20px}#modal-root:not(.open){display:none}#evt-pick{position:fixed;top:100px;left:20px;background:#234;padding:20px}</style>
     <style>#tabs>[data-screen="adventure"]{display:none}@media(max-width:700px){#tabs>[data-screen="adventure"]{display:inline-block}#side-chapter{display:none}}</style>
@@ -88,6 +89,10 @@ async function main() {
         const html = path.join(taskDir, 'fixture.html'); fs.writeFileSync(html, fixture()); await send('Page.navigate', { url: pathToFileURL(html).href });
         for (let n = 0; n < 60 && !await evaluate('!!window.__pcTest'); n++) await delay(100);
         assert.equal(await evaluate('!!window.__pcTest'), true);
+        if(process.argv.includes('--boss-moves-only')){
+            await require('./fixtures/pokecatch-boss-moves-ui.cjs')(evaluate);
+            assert.deepEqual(errors,[]);console.log('PASS: boss move settings, native list redraw, status transitions and restoration.');return;
+        }
         if(!process.argv.includes('--insights-only')){
             await require('./fixtures/pokecatch-family-ui.cjs')({send,evaluate});
             if(process.argv.includes('--family-only')){

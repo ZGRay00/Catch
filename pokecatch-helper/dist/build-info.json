@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "8.6.1",
-  "scriptSha256": "f0815f34e9f3616fe2b0e579fe1979e4df321fa756df710fabc3615a32def9f7",
-  "metadataSha256": "4b1a4b9843892c4f9fa842be4f5d04ec3ad0b6a539f8f0f4c03a039e4e60a9c9",
+  "version": "8.7.0",
+  "scriptSha256": "bf4e26206677f8c3ca84e7aba232cd8af662fdc24a314ce3b83d375327a66e67",
+  "metadataSha256": "84c16437e1711c707414b8c02b37748e7b89b68afc582b29ff5f0631909a8a57",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "8a68db981d41e962b2ffef907119bbc9f94005bf3eef70283474dbe5d109b056"
+      "sha256": "66f67f8356b8ab2d7470b94afeb677fa264d5a965afdb57d8efe88c766982348"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "91fe4c17c8dac9aebc0156e1e3120f37eaf51910643ced0450210e52079b9154"
+      "sha256": "966cef99660154c8100539f6c4f8be3f6b33ace5fff6db4729d56e6b70018aa0"
     },
     {
       "file": "userscript.header.txt",
@@ -110,7 +110,7 @@
     },
     {
       "file": "src/models/wild-forecast.js",
-      "sha256": "2e307eee175f7a90a0e287e0f92e64596d03ebda7195b54bf396a407c3d549df"
+      "sha256": "f7c98a69ad2a337e29a7c4ad932ce423c79f6532f9e3c22e184f652c7579f4a7"
     },
     {
       "file": "src/models/egg-family.js",
@@ -202,11 +202,15 @@
     },
     {
       "file": "src/runtime/engine.js",
-      "sha256": "aad405254282926119188abccfe5708495bfd3343b89ffd7ad33fe2d86a6b89c"
+      "sha256": "ef44a6b5b435275f5421e124f9c2bfc8e8e5c64aca81e7e24e15d528afc01e31"
+    },
+    {
+      "file": "src/services/boss-moves.js",
+      "sha256": "9ff13dbc73cf4eefca3de921a178906c0d4d69b76e9cdf21851c588f2a27b8e6"
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "1939afe17b387ea5af10d283b4b5c0e095ce2f4252340763f6b09393217f08ca"
+      "sha256": "8857960596044d4ce72f9fdb6a15ac61239aec1f4f021cb014846dc043902bbc"
     },
     {
       "file": "data/ui-icons.json",
@@ -242,7 +246,7 @@
     },
     {
       "file": "src/ui/wild-forecast-panel.js",
-      "sha256": "14d64e1503222e9371f1dcb40bba4da4480915c5ee5883fc3050c4700224a427"
+      "sha256": "2891594f8835719687a2feda204a57a5fce02bf7503ca19d787eaa6d4700a987"
     },
     {
       "file": "src/ui/queue-panel.js",
@@ -258,7 +262,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "4cf0811e70bdb0c3be302feb63cab170b41e148104f0d63131471e934068c723"
+      "sha256": "cebe61ac3d5f8aa442688bd93c7c0047fccbc9c4dcb9474deb4b700051c7013b"
     }
   ]
 }

@@ -236,8 +236,11 @@ module.exports=async function verifyGameInsights({send,evaluate}){
                 await new Promise(resolve=>setTimeout(resolve,50));
                 const pane=get('#pane-wild'),value=key=>get('[data-wild="'+key+'"]').textContent;
                 const first={visible:!pane.hidden,selected:get('[data-workspace="wild"]').getAttribute('aria-pressed'),
-                    distances:[value('natural'),value('berry')],times:[value('natural-time'),value('berry-time')],
+                    distances:[value('natural'),value('berry')],times:[value('natural-time'),value('berry-time')],pure:value('natural-pure'),
                     fits:pane.scrollWidth<=pane.clientWidth+1};
+                reviewedBundle.src='bundle/app.abcdefabcd.js';
+                get('[data-workspace="eggs"]').click();get('[data-workspace="wild"]').click();
+                first.reference=!get('[data-wild="reference"]').hidden&&!get('[data-wild="results"]').hidden&&value('natural')===first.distances[0];
                 mock.state.adv.event={raid:true};mock.save();
                 get('[data-workspace="eggs"]').click();get('[data-workspace="wild"]').click();
                 return {...first,unavailable:value('error'),resultsHidden:get('[data-wild="results"]').hidden};
@@ -249,8 +252,10 @@ module.exports=async function verifyGameInsights({send,evaluate}){
             }
         });
         assert.ok(forecast.visible&&forecast.fits);assert.equal(forecast.selected,'true');
-        assert.deepEqual(forecast.distances,['再遇 2,308 次','下次遭遇']);
+        assert.deepEqual(forecast.distances,['还需 2,308 只','还需 1 只（下一只）']);
+        assert.ok(forecast.reference);
         assert.ok(forecast.times.every(value=>value.includes('分钟')));
+        assert.match(forecast.pure,/纯野战.*分钟/);
         assert.ok(forecast.resultsHidden);assert.match(forecast.unavailable,/普通冒险路线/);
     }finally{
         await viewport(1280);

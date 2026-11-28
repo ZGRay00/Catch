@@ -1120,6 +1120,7 @@
         }
         stop(reason = '已停止助手',options={}) {
             const save=options.persist!==false&&this.mayPersist();
+            if(save&&this.bossMoves)this.bossMoves.suppressed=this.bossMoves.encounter;
             this.captureStop(reason,options.level);this.shinySettlement=null;this.recoveryPending=null;
             if((this.running||this.suspended)&&this.started&&!this.endedTotals){
                 let s=this.state;

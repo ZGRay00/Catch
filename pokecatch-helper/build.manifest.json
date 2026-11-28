@@ -200,6 +200,10 @@
     },
     {
       "kind": "source",
+      "file": "src/services/boss-moves.js"
+    },
+    {
+      "kind": "source",
       "file": "src/runtime/node-exports.js"
     },
     {

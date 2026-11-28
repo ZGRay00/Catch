@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.5.3",
-  "scriptSha256": "a48c9ccf6ec2ca704af102a4ac17f065abb655c38502950358b5055544ae71bd",
-  "metadataSha256": "c1326c9500c577c00200d9236d13a553c62e4e8ba9351377eeafec4b722393f7",
+  "version": "8.5.4",
+  "scriptSha256": "8f595c76e3d4e97301ba6cf9645e24e88585d7ace840ddd1f17ae377288d5dcf",
+  "metadataSha256": "dcb062d4f71308d8783dc1ce0eb175ccee6f37d3ce5cd5c3957102b189fe2fde",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "266a886fde5906952cc35c07d67c572cb5b03d901c2ea5e90840b38ab3c493ce"
+      "sha256": "55d570e087546450fc76e11a203a9ed6d6568733700488fa78ca4ecf528879f0"
     },
     {
       "file": "build.manifest.json",
@@ -66,7 +66,7 @@
     },
     {
       "file": "src/services/background.js",
-      "sha256": "0e0dac38a184bde796b6e4a2e431fca62360386082a15e8abe16d2b7c9e8fde4"
+      "sha256": "23393dea7d6470b3a04cb43fba9cb50ff71e5a26c30b4f42fe8e1a6ecb5cc3a5"
     },
     {
       "file": "src/models/farming.js",

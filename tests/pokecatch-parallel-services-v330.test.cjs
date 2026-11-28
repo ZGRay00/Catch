@@ -100,7 +100,8 @@ test('UI execution state separates the serial foreground queue from passive time
 test('UI uses the actual active raid rather than calling it the planned money task',t=>{
     const f=fixture(t);f.s.adv.event={raid:true,id:25};const view=H.taskExecutionState(f.s,f.e,f.now());
     assert.match(view.foreground.label,/团体战/);assert.match(view.foreground.detail,/原任务/);
-    assert.ok(view.services.filter(service=>service.state==='waiting').length>=2);
+    assert.equal(view.services.find(service=>service.id==='eggs').state,'ready');
+    assert.equal(view.services.find(service=>service.id==='underground').state,'waiting');
     f.e.running=false;assert.equal(H.taskExecutionState(f.s,f.e,f.now()).foreground.state,'stopped');
 });
 test('UI explains why a manually chosen incomplete party blocks auto-receipts',t=>{

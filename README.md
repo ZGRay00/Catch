@@ -1,8 +1,10 @@
 # PokéCatch 自动助手
 
-适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.5.3**。
+适用于 [PokéCatch](https://pokecatch-online.app/) 的 Tampermonkey 用户脚本。当前版本 **8.5.4**。
 
-[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.5.3.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+[安装 / 更新脚本](https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js) · [CDN 备用安装](https://cdn.jsdelivr.net/gh/ZGRay00/Catch@main/pokecatch-helper.user.js) · [完整压缩包](./releases/pokecatch-helper-v8.5.4.zip) · [使用说明](./使用说明.txt) · [源码与构建](./pokecatch-helper/README.md)
+
+8.5.4 · 团体战中支持待命和任务自动收蛋。开启靛莓果自动喂养后，每次领取前先检查下一枚自然蛋，确认备果后腾出蛋位。
 
 8.5.3 · 导出模拟器 Box 时会附带盒内成员可核对的口味切换记录。勾选「附培养资源」还可导出口味糖果库存。
 

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         PokéCatch 自动助手 · 图鉴 / 刷钱 / 团体战
 // @namespace    local.pokecatch.auto-helper
-// @version      8.5.3
+// @version      8.5.4
 // @description  图鉴与队列挂机、实测掉落、配队与招式对比、闪蛋及地下预览、团体战观察、异常诊断与可选恢复，支持触屏与在线更新。
 // @match        https://pokecatch-online.app/*
 // @match        https://pokecatch-online.netlify.app/*

@@ -371,9 +371,47 @@ test('a new native choice during egg navigation returns to adventure without cli
     assert.deepEqual(f.s.adv.pending.gift.choices,[1,4,7]);assert.equal(f.s.pension.eggs.length,1);
 });
 
+for(const idle of [true,false])test('a '+(idle?'standby':'managed')+' raid feeds the next berry shiny before collecting and returning',async t=>{
+    const f=fixture(t),{s,e,ui,tabs}=f,raid={raid:true,reg:'kanto',id:25,loops:3};
+    s.adv.event=raid;s.adv.battle={raid:true,steps:2,enemies:[{id:25,hp:10}]};
+    const battle=JSON.stringify([s.adv.event,s.adv.battle,s.team]);
+    s.trainer.since=1700000000000;
+    Object.assign(s.pension,{mons:[{mon:{uid:'ditto',id:132}},{mon:{uid:'parent',id:1,shiny:true}}],
+        open:{eggs:1},laid:148,egg:H.NURSERY_RULES.eggMs,tick:f.now()});
+    while(H.nurseryFixedRoll(s,148)<1/16||H.nurseryFixedRoll(s,148)>=1/8)s.trainer.since++;
+    s.items['belue-berry']=0;f.save();ui.screen='raid';
+    e.running=!idle;
+    if(!idle)e.driver.raid={reg:'kanto',boss:25,started:f.now()};
+    e.settings.autoEggs=!idle;
+    Object.assign(e.nurseryAssist.prefs,{autoFeed:true,allowReferenceFeed:true,idleHatch:idle});
+    for(const [screen,tab] of tabs)tab.click=()=>{ui.screen=screen;};
+    const find=document.querySelector,all=document.querySelectorAll;
+    document.querySelectorAll=sel=>sel.startsWith('script[src')?[{getAttribute:()=>'/bundle/app.65ffd40d41.js'}]:all(sel);
+    const priorWindow=global.window;global.window={BUILD:'adf601dce2'};
+    t.after(()=>{if(priorWindow===undefined)delete global.window;else global.window=priorWindow;});
+    const order=[],berry=node({querySelector:()=>({textContent:'×'+s.items['belue-berry']}),click(){
+        order.push('feed');s.items['belue-berry']--;s.pension.bx=1;f.save();
+    }});
+    document.querySelector=sel=>{
+        if(ui.screen==='pension'&&sel==='#screen-pension.active #pen-eggs')return {querySelectorAll:()=>s.pension.eggs.map(egg=>({dataset:{egg:egg.uid}}))};
+        if(ui.screen==='pension'&&sel==='#screen-pension.active #pen-berries [data-myrte]')return berry;
+        return find(sel);
+    };
+    const click=e.driver.click;
+    e.driver.click=(el,...args)=>{if(el?.dataset.egg){assert.equal(s.pension.bx,1);order.push('hatch');}return click(el,...args);};
+    const tick=async()=>{if(idle)e.nurseryAssist.idleStep(f.now());else await e.step(f.now());f.advance(1200);};
+    await tick();assert.equal(f.clicks().length,0);assert.match(e.nurseryAssist.note,/库存不足/);
+    s.items['belue-berry']=1;f.save();ui.screen='raid';
+    const automation=idle?e.nurseryAssist.idleAutomation:e.automation;
+    for(let i=0;i<12&&(automation.state.autoHatched!==1||automation.state.eggService);i++)await tick();
+    assert.deepEqual(order,['feed','hatch']);assert.equal(automation.state.autoHatched,1);
+    assert.equal(ui.screen,'raid');assert.equal(e.running,!idle);
+    assert.equal(JSON.stringify([s.adv.event,s.adv.battle,s.team]),battle);
+});
+
 const gates = {
     'native pending choice': f => { f.s.adv.pending = {}; },
-    'raid event': f => { f.s.adv.event = { raid: true }; },
+    'other native event': f => { f.s.adv.event = { id: 25 }; },
     'legend entrance riddle': f => { f.s.adv.zone = { id: 150, riddle:'door' }; },
     'world boss capture': f => { f.s.adv.zone = { id: 493 }; },
     'tower battle': f => { f.s.adv.tower = {}; },

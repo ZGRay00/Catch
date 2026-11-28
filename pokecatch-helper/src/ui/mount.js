@@ -156,7 +156,7 @@
                     <details><summary id="hunt-weather-summary"></summary><div id="hunt-weather" class="checks"></div></details>
                     <label class="field"><span>等待捕捉天气时</span><select data-setting="huntWeatherFallback"><option value="wait">原地等待</option><option value="money">去刷钱</option><option value="xp">练级</option></select></label><div id="weather-train-fields"></div>
                     <div id="hunt-help" class="hint"></div>
-                </fieldset><button type="button" id="hunt-forecast">查看地区天气预报</button>
+                </fieldset><button type="button" id="hunt-forecast">查看地区天气预报</button><button type="button" id="hunt-wild-forecast">查看路闪预测</button>
                 <div data-fields="breed" class="hidden"><div class="field"><span>孵化目标</span><select data-setting="breedId" aria-label="繁殖物种"></select></div><div class="field"><span>孵化数量</span><input data-setting="breedGoal" type="number" min="1" max="9999"></div><label class="setting"><span><input type="checkbox" data-setting="breedShiny">孵到目标异色为止</span></label><label class="setting"><span><input type="checkbox" data-setting="pensionExpand">预算内购买繁殖必需的寄养位</span></label></div>
                 <div data-fields="underground" class="hidden"><div class="field"><span>领取次数</span><input data-setting="underRuns" type="number" min="1" max="999"></div>${underStartControls}<label class="setting"><span><input type="checkbox" data-setting="underOpenGeodes">领取完后开启背包中的晶洞</span></label></div>
                 <div data-fields="tower" class="hidden"><div class="field"><span>目标楼层</span><input data-setting="towerFloor" type="number" min="1" max="999"></div><div class="field"><span>尝试上限</span><input data-setting="towerRuns" type="number" min="1" max="100"></div></div>
@@ -182,6 +182,7 @@
             <section id="pane-activity" aria-label="运行实况" hidden>
             <section id="execution-info" class="execution-card" aria-label="任务执行状态" aria-live="polite"><div class="execution-top"><span>任务执行</span><span id="ui-owner"></span></div><strong id="foreground-task">未启动主任务</strong><div id="foreground-detail"></div><div id="background-services"></div><details id="decision-info"><summary>路线与配队依据</summary><div class="sub" id="execution-route"></div><div class="sub" id="execution-team"></div><div class="sub" id="execution-reason"></div><div class="sub" id="execution-environment"></div></details><div id="concurrency-note">主任务串行 · 后台计时可并行 · 页面操作依次执行</div></section>
             <details id="parallel-rules"><summary>并行与串行规则</summary><table><tbody><tr><td>推图 / 刷钱 / 练级 / 捕获</td><td>同一路线，只运行一个规划；同场自然产生多种收益</td></tr><tr><td>团体战 / 传说 / 塔 / 工厂</td><td>共享活动槽，按顺序挑战</td></tr><tr><td>寄养 / 孵蛋 / 地下探险计时</td><td>原生计时可与前台任务并行</td></tr><tr><td>成熟蛋 / 地下归队</td><td>普通战斗和传说战期间可先收成熟蛋，再领归队奖励，领取后返回原页面</td></tr><tr><td>神奥后自动地下派遣</td><td>冲层和刷金币使用空闲队员，保留主队、Buddy 和任务成员；自动优化优先使用游戏推荐的地下队伍</td></tr><tr><td>免费进化</td><td>等待战斗结束后处理</td></tr><tr><td>在线更新检查</td><td>独立网络请求，可同时检查</td></tr></tbody></table><div class="hint">入口铭文、游戏选择、配队和消费确认优先处理。地下主任务单独管理派遣次数和晶洞。世界首领护盾攻击机制上可与冒险共存；当前助手仍按独立流程提交，捕获阶段独占活动槽。</div></details>
+            <details id="wild-forecast"><summary>路闪预测</summary><div class="sub"></div></details>
             <details id="probability-info"><summary>异色概率与收集进度</summary><div class="sub" id="probability-wild"></div><div class="sub" id="probability-eggs"></div><div class="hint">概率表示遭遇或孵化机会，不代表下一次必出。图鉴加成按游戏完整图鉴判定，与助手的基础进化链进度分别计算。</div></details>
             <details id="underground-insight"><summary>地下探险 · 分槽与晶洞</summary><div id="under-field-insight"></div></details>
             <details id="raid-insight"><summary>团体战 · 地区候选与历史</summary><div id="raid-field-insight"></div></details>
@@ -386,6 +387,7 @@
         const dexPanel=mountDexPanel(root,render,()=>{if(ui.folded)fold(false);selectWorkspace('dex');});
         const weatherPanel=mountWeatherPanel(query('#weather-panel'),ui,saveUI,render);
         const renderSeason=mountSeasonCalendar(query('#season-calendar'));
+        query('#hunt-wild-forecast').onclick=()=>jumpTo('activity','#wild-forecast');
         query('#hunt-forecast').onclick=()=>{
             const selected=formSettings()[formSettings().mode+'Weather'];
             if(selected?.length)weatherPanel.selectSkies(selected);
@@ -599,7 +601,7 @@
         };
         function syncHunt(){
             const cfg=formSettings(),mode=cfg.mode,field=query('#hunt-filters');
-            field.hidden=!['dex','shiny'].includes(mode);query('#hunt-forecast').hidden=field.hidden;if(field.hidden)return;
+            field.hidden=!['dex','shiny'].includes(mode);query('#hunt-forecast').hidden=field.hidden;query('#hunt-wild-forecast').hidden=mode!=='shiny';if(field.hidden)return;
             const regions=cfg[mode+'Regions'],weather=cfg[mode+'Weather'],species=selectedSpecies(cfg);
             query('#hunt-region-controls').hidden=mode==='dex';
             query('#hunt-region-summary').textContent='搜寻地区 · '+(regions.map(id=>DATA.regions.find(r=>r.key===id).name).join('、')||'沿用规划范围');

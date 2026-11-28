@@ -222,6 +222,29 @@ module.exports=async function verifyGameInsights({send,evaluate}){
         assert.deepEqual(await visit(readAdvice),reviewed,'The single reference notice clears when the reviewed rules return');
         assert.ok(await visit(()=>insightCheck.save===localStorage.getItem('gachamon-save-v1')&&insightCheck.actions===mock.actions),
             'Reference advice does not change the game save or execute any game action');
+        const forecast=await visit(async()=>{
+            const {get,reviewedBundle}=insightCheck;
+            const before=structuredClone(mock.state),mode=__pcTest.engine.settings.mode;
+            try{
+                reviewedBundle.src='bundle/app.6e904dfeb4.js';
+                mock.state.trainer.since=123;mock.state.wildN=76;
+                mock.state.adv.nodes=[{type:'wild'}];mock.save();
+                get('[data-workspace="tasks"]').click();get('[data-mode="shiny"]').click();
+                const shortcut=get('#hunt-wild-forecast');
+                if(shortcut.hidden)throw Error('Missing shiny hunting shortcut');
+                shortcut.click();
+                await new Promise(resolve=>setTimeout(resolve,50));
+                return [get('#wild-forecast').open,get('#wild-forecast .sub').textContent];
+            }finally{
+                Object.assign(mock.state,before);
+                if(!Object.hasOwn(before,'wildN'))delete mock.state.wildN;
+                mock.save();get('#wild-forecast').open=false;
+                get('[data-workspace="tasks"]').click();get('[data-mode="'+mode+'"]').click();
+            }
+        });
+        assert.equal(forecast[0],true);
+        assert.match(forecast[1],/自然路闪.*2,308 次.*分钟/);
+        assert.match(forecast[1],/星桃果生效.*下次遭遇.*分钟/);
     }finally{
         await viewport(1280);
         await visit(()=>{

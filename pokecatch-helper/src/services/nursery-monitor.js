@@ -1,9 +1,12 @@
     const NURSERY_STORE_PREFIX='pokecatch-helper:nursery:v1:';
+    function gameBundleHashes(){
+        const scripts=typeof document==='undefined'?[]:[...(document.querySelectorAll?.('script[src*="bundle/app."]')||[])];
+        return new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
+    }
     function nurseryRuntimeOptions(){
         if(typeof document==='undefined')return{};
         const declared=typeof window!=='undefined'&&typeof window.BUILD==='string'?window.BUILD:'';
-        const scripts=[...(document.querySelectorAll?.('script[src*="bundle/app."]')||[])];
-        const hashes=new Set(scripts.map(node=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/.exec(node.getAttribute?.('src')||'')?.[1]).filter(Boolean));
+        const hashes=gameBundleHashes();
         if(hashes.size>1)return{build:'unverified:mixed-bundles'};
         if(!hashes.size){
             // A reused launcher ID alone cannot identify which application supplied the rules.

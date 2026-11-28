@@ -1,16 +1,16 @@
 {
   "schema": 1,
-  "version": "8.5.4",
-  "scriptSha256": "8f595c76e3d4e97301ba6cf9645e24e88585d7ace840ddd1f17ae377288d5dcf",
-  "metadataSha256": "dcb062d4f71308d8783dc1ce0eb175ccee6f37d3ce5cd5c3957102b189fe2fde",
+  "version": "8.6.0",
+  "scriptSha256": "fa98fcbc8c29ab437a789a08e04fdbc3198fa7f48d8d90efe642a8f937595331",
+  "metadataSha256": "527488c9d61c34666df51bb701aa4e6d0341158cce952db4ea6c5f0d97ab24bc",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "55d570e087546450fc76e11a203a9ed6d6568733700488fa78ca4ecf528879f0"
+      "sha256": "c9e965945209c659b8c7dae0ccc010f143749f64676d2c6a6219b193fddaaef8"
     },
     {
       "file": "build.manifest.json",
-      "sha256": "ad7efee9a70915afd196a959237472163c7032c28961bb03a436f0f12f65db5c"
+      "sha256": "67d73a30b13dbd0987a6f9e5179d91f4508a1ce4cf25d3495a32632076c82a12"
     },
     {
       "file": "userscript.header.txt",
@@ -70,7 +70,7 @@
     },
     {
       "file": "src/models/farming.js",
-      "sha256": "e5c53f769c4a45de4ec0467318e9e3db405fc3c982498d29b721947e701fadcf"
+      "sha256": "2d2e96d1ddfa2662a0860d41ae86d3e69d96cea6a365d9e8c908bf6a4a2d99f2"
     },
     {
       "file": "src/models/nursery-model.js",
@@ -82,7 +82,7 @@
     },
     {
       "file": "src/services/nursery-monitor.js",
-      "sha256": "8e44de3c42aa4b47620ba83b610f3c1e0b5e19b23a91eaf6da4d7a7476e7237a"
+      "sha256": "a41568c7f620e5bd19f2235d1b95b32b0038fd6ab952ee43fe5799e21d899f7a"
     },
     {
       "file": "src/services/nursery-assist.js",
@@ -107,6 +107,10 @@
     {
       "file": "src/models/weather.js",
       "sha256": "1fd723d239beb7db4bf06afebb299680ad342ec9f035ff946858f782f3fc425a"
+    },
+    {
+      "file": "src/models/wild-forecast.js",
+      "sha256": "2e307eee175f7a90a0e287e0f92e64596d03ebda7195b54bf396a407c3d549df"
     },
     {
       "file": "src/models/egg-family.js",
@@ -202,7 +206,7 @@
     },
     {
       "file": "src/runtime/node-exports.js",
-      "sha256": "4b98d40de5f60a7519196561d6fc34d589d4e55e4673448e122b9c93fca051b2"
+      "sha256": "1939afe17b387ea5af10d283b4b5c0e095ce2f4252340763f6b09393217f08ca"
     },
     {
       "file": "data/ui-icons.json",
@@ -222,7 +226,7 @@
     },
     {
       "file": "src/ui/field-insights.js",
-      "sha256": "b39524f90c2a82a1edca463b15e9da0d5554c24748e6bef2be46b2260143a72e"
+      "sha256": "01897c2e1268abb04577384583b66b02ed998913bff98fec1bd4f37cb1c5284b"
     },
     {
       "file": "src/ui/dex-panel.js",
@@ -250,7 +254,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "1d57b31833c8232ede14f0bf71b673e11493d2790625a9c0a230c6add9df9a95"
+      "sha256": "dc7fd422ca3f2d02d53a1a0ad30ac9afee37bbd815c3a101caa60350586f2c1c"
     }
   ]
 }

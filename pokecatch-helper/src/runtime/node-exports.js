@@ -16,5 +16,6 @@
         Object.assign(module.exports,{normalizeServiceState,parallelPlan,taskExecutionState,undergroundBackgroundUnlocked,undergroundIdleMembers,configurationProfile,parseConfigurationProfile,importConfigurationProfile,shinyOdds,backgroundKeepalive,pageHidden});
         Object.assign(module.exports,{NURSERY_RULES,NURSERY_LINEAGE,nurseryHash,nurserySeed,nurseryFixedRoll,nurseryEggRate,nurseryEggKey,eggOutcome,nurseryParentPool,nurseryOffspringId,nurseryForecast,nurserySnapshot,NURSERY_LEDGER_LIMITS,NurseryLedger,NURSERY_STORE_PREFIX,nurseryRuntimeOptions,NurseryMonitor,nextNurseryFeed,nurseryFeedWindow});
         Object.assign(module.exports,{ItemRoundTracker,expeditionPreview,geodePreview,RaidRerollLedger,routeMemberComparison,moveAdvice,familyMembers});
+        Object.assign(module.exports,{wildShinyForecast});
         return;
     }

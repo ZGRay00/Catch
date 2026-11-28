@@ -28,6 +28,33 @@
         item.append(roundTitle,roundNote,roundRows);
         let last,slotKey,targetKey,underKey,geodeKey,raidKey,roundKey,previousAccount;
         const nameOf=reg=>DATA.regions.find(r=>r.key===reg)?.name||reg;
+        const wildPanel=root.querySelector('#wild-forecast'),wildCache={};
+        let wildView=null;
+        function showWildForecast(s,now){
+            const hashes=gameBundleHashes(),bundle=hashes.size===1?[...hashes][0]:null;
+            const f=wildShinyForecast(s,bundle,now,wildCache);
+            const lines=[];
+            if(f.error)lines.push(f.error);
+            else{
+                const estimate=n=>{
+                    if(f.seconds===null)return '';
+                    const minutes=n*f.seconds/60;
+                    return minutes<0.1?' · 不足 0.1 分钟':' · 约 '+minutes.toLocaleString('zh-CN',{maximumFractionDigits:1})+' 分钟';
+                };
+                const target=n=>n===null?'未来 30,000 次内未找到':(n===1?'下次遭遇':'再遇 '+n.toLocaleString('zh-CN')+' 次')+estimate(n);
+                lines.push('自然路闪　'+target(f.natural),'星桃果生效　'+target(f.berry));
+                if(f.natural!==null&&f.natural===f.berry)lines.push('上述目标自然就会闪。仅吃果才闪的下一次为　'+target(f.berryOnly));
+                const berry=f.remainingMs?'星桃果剩 '+Math.ceil(f.remainingMs/60000)+' 分钟':'星桃果未生效';
+                lines.push(nameOf(f.region)+' · '+(f.complete?'完整图鉴加成 ×2':'基础闪率')+' · '+berry);
+                if(f.remainingMs&&f.berry===f.berryOnly&&f.berry!==null&&f.seconds!==null&&f.berry*f.seconds*1000>=f.remainingMs)
+                    lines.push('按当前速度，目标遭遇前这次果效预计会结束。');
+                lines.push(f.seconds===null?'此路线缺少可估速的普通野生遭遇。':
+                    '按本图 '+s.adv.speed+' 档速度连续挂机、每只一击击倒，平均 '+f.seconds.toFixed(1)+' 秒遇敌一次。');
+                lines.push('只计普通野生遭遇。吃果目标要求遇敌时果效仍在。');
+            }
+            const view=lines.join('\n');
+            if(view!==wildView){wildView=view;wildPanel.querySelector('.sub').replaceChildren(...lines.map(line=>element('p',line)));}
+        }
         const rewardText=values=>values.map(([name,n])=>name+' ×'+n).join('、')||'暂无掉落';
         function options(menu,rows){
             const selected=menu.value;
@@ -85,6 +112,7 @@
                 }
             }
             if(!ui.folded&&ui.workspace==='activity'){
+                if(wildPanel?.open)showWildForecast(ok?s:null,now);
                 for(const id of ['casino-insight','party-history']){
                     const detail=root.querySelector('#'+id);
                     if(!detail?.open)continue;
@@ -133,6 +161,6 @@
         function repaint(){if(last)update(last.s,Date.now(),last.ui);}
         window.addEventListener('storage',event=>{if(event.key===ledger.key){ledger.signature=null;repaint();}},{signal});
         for(const control of [slotMenu,targetMenu,tier,range])control.select.addEventListener('change',repaint);
-        for(const detail of [under.closest('details'),raid.closest('details'),root.querySelector('#casino-insight'),root.querySelector('#party-history'),geodes])detail?.addEventListener('toggle',repaint);
+        for(const detail of [under.closest('details'),raid.closest('details'),root.querySelector('#casino-insight'),root.querySelector('#party-history'),wildPanel,geodes])detail?.addEventListener('toggle',repaint);
         return {update};
     }

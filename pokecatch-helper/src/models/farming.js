@@ -126,8 +126,9 @@
         const region=options.region||currentRegion(s),entry=DATA.regions.find(row=>row.key===region),range=entry?.dexRange;
         const complete=!!range&&DATA.mons.filter(mon=>mon.id>=range[0]&&mon.id<=range[1]).every(mon=>!!s?.dex?.[mon.id]);
         const multiplier=activeYieldBuff(s,'shiny',now)?.mult||1;
-        const rate=Math.min(1,1/2048*(complete?2:1)*(kind==='wild'?multiplier:1));
-        return{kind,rate,known:false,region,complete,multiplier:kind==='wild'?multiplier:1,reason:kind==='underground'?'仅指地下化石结算机会，不是每一层':'野外遭遇概率，不等于最终捕获概率'};
+        const baseRate=(complete?2:1)/2048;
+        const rate=Math.min(1,baseRate*(kind==='wild'?multiplier:1));
+        return{kind,rate,baseRate,known:false,region,complete,multiplier:kind==='wild'?multiplier:1,reason:kind==='underground'?'仅指地下化石结算机会，不是每一层':'野外遭遇概率，不等于最终捕获概率'};
     }
     class Budget{
         constructor(engine,saved){

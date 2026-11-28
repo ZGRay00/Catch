@@ -8,7 +8,7 @@ function fixture(t){
   t.after(()=>fs.rmSync(workspace,{recursive:true,force:true}));
   const put=(name,content)=>{const file=path.join(project,name);fs.mkdirSync(path.dirname(file),{recursive:true});fs.writeFileSync(file,typeof content==='string'?content:JSON.stringify(content));};
   const data={layout:6,mons:[{id:1,name:'test',types:['normal'],stats:{hp:1,atk:1,def:1,spa:1,spd:1,spe:1},learn:[[1,'tackle']]}],chapters:[{id:0,name:'test'}],chart:{},combat:{}};
-  put('package.json',{version:'4.0.0'});put('userscript.header.txt','// ==UserScript==\n// @name test\n// @version {{VERSION}}\n// ==/UserScript==\n');
+  put('package.json',{version:'4.0.0'});put('userscript.header.txt','// ==UserScript==\n// @name test\n// @version {{VERSION}}\n// @updateURL https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.meta.js\n// @downloadURL https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.user.js\n// ==/UserScript==\n');
   put('src/bootstrap.js',"(function () {\n    'use strict';\n    const VERSION = '{{VERSION}}';\n");put('data/game.json',data);put('data/evolution.json',{rules:{}});
   put('src/runtime.js',"\n    if (typeof module === 'object' && module.exports && typeof document === 'undefined') { module.exports = { DATA, VERSION }; return; }\n    function mount() {}\n    mount();\n})();\n");
   const manifest={schema:1,header:'userscript.header.txt',entries:[{kind:'source',file:'src/bootstrap.js'},{kind:'json',file:'data/game.json',constant:'DATA'},{kind:'json',file:'data/evolution.json',constant:'EVOLUTION_DATA'},{kind:'source',file:'src/runtime.js'}]};

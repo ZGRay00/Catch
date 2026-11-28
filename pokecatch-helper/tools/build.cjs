@@ -86,7 +86,15 @@ function compileProject(projectRoot=DEFAULT_PROJECT){
     [path.join(project,'dist/pokecatch-helper.meta.js'),meta],
     [path.join(project,'dist/build-info.json'),info]
   ]);
-  return{project,workspace,version:pkg.version,script,meta,info,artifacts,inputs};
+  const raw='https://raw.githubusercontent.com/ZGRay00/Catch/main/';
+  const globalMeta=meta.replace(/https:\/\/catch-elite-sim-[^\s]+\/helper\/(pokecatch-helper\.(?:meta|user)\.js)/g,(_,name)=>raw+name);
+  if(globalMeta===meta||globalMeta.split(raw).length!==3)throw Error('Expected exactly two channel URLs');
+  const commonBody=script.slice(meta.length);
+  const variants={cn:{meta,user:script},global:{meta:globalMeta,user:globalMeta+commonBody}};
+  for(const [channel,files] of Object.entries(variants))for(const [kind,bytes] of Object.entries(files)){
+    artifacts.set(path.join(project,'dist','pokecatch-helper-'+channel+'.'+kind+'.js'),bytes);
+  }
+  return{project,workspace,version:pkg.version,script,meta,info,artifacts,inputs,variants,commonBody};
 }
 function build({projectRoot=DEFAULT_PROJECT,check=false,quiet=false}={}){
   const result=compileProject(projectRoot),differences=[];

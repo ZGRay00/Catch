@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "version": "8.7.0",
-  "scriptSha256": "bf4e26206677f8c3ca84e7aba232cd8af662fdc24a314ce3b83d375327a66e67",
-  "metadataSha256": "84c16437e1711c707414b8c02b37748e7b89b68afc582b29ff5f0631909a8a57",
+  "version": "8.8.0",
+  "scriptSha256": "f70a1eec0dfd3267462a41e73b51a9743ff2ffe845638f96341c9c4db6eea38e",
+  "metadataSha256": "0b703d4e63c051da05b09e67c2fe970fdb5ea00a8058e7f3e65d141a03d09089",
   "inputs": [
     {
       "file": "package.json",
-      "sha256": "66f67f8356b8ab2d7470b94afeb677fa264d5a965afdb57d8efe88c766982348"
+      "sha256": "bc3438de57e1411994166c599b98e138a0748981bffd1f1032f20be0be21f56c"
     },
     {
       "file": "build.manifest.json",
@@ -14,7 +14,7 @@
     },
     {
       "file": "userscript.header.txt",
-      "sha256": "a48f82824e6ea6383379f09e3122bb1dbcc39acdbe2feb22597a74f5a1000881"
+      "sha256": "d86b87e31e29960020106c394e63420f77b7f188b080dab5f678340da93417bd"
     },
     {
       "file": "src/00-bootstrap.js",
@@ -22,7 +22,7 @@
     },
     {
       "file": "src/core/updates.js",
-      "sha256": "70d4e53f6745fd605f4dbcb8d501e9c8c2cc9ee9e4a460f5fbece28a80c83b89"
+      "sha256": "b56b6b4edc6fbbbe60fe299c0fd53ebd897e522c7352a598704b2c7e314ae8a6"
     },
     {
       "file": "data/game.json",
@@ -122,7 +122,7 @@
     },
     {
       "file": "src/models/simulator-files.js",
-      "sha256": "a388b90438642c2fa0fd1bbd8c2ca94713cda6ec6477a6b3476dfb8db9ca270b"
+      "sha256": "2d35c6b02a37a11506f5dc3f78484882111045d99e001d0cf67e1fcf3224f3a3"
     },
     {
       "file": "data/evolution.json",
@@ -262,7 +262,7 @@
     },
     {
       "file": "src/ui/mount.js",
-      "sha256": "cebe61ac3d5f8aa442688bd93c7c0047fccbc9c4dcb9474deb4b700051c7013b"
+      "sha256": "d875ad6be66ab50a641ab8bcba4662e23d4f8010bdb33dec27441c18ec843c63"
     }
   ]
 }

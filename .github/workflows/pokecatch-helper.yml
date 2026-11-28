@@ -1,0 +1,69 @@
+name: Pokecatch helper
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Sealed stable helper version
+        required: true
+      prepared:
+        description: Full commit of the sealed promotion on helper-prepared/VERSION
+        required: true
+permissions:
+  contents: read
+jobs:
+  test:
+    if: github.repository == 'ZGRay00/Catch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - run: node pokecatch-helper/tools/build.cjs
+      - run: node --test pokecatch-helper/tests/build.test.cjs pokecatch-helper/tests/channels.test.cjs tests/pokecatch-updates.test.cjs
+  publish:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && vars.HELPER_CI_RELEASE_ENABLED == 'true'
+    needs: test
+    concurrency:
+      group: helper-stable-publisher
+      cancel-in-progress: false
+    environment: helper-production
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '24'
+      - name: Verify prepared ref and use sealed files as data
+        env:
+          VERSION: ${{ inputs.version }}
+          PREPARED: ${{ inputs.prepared }}
+        run: |
+          set -eu
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$PREPARED" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git rev-parse "refs/remotes/origin/helper-prepared/$VERSION")" = "$PREPARED"
+          git worktree add --detach "$RUNNER_TEMP/promotion" "$PREPARED"
+          node pokecatch-helper/tools/helper-release.cjs verify "$RUNNER_TEMP/promotion/releases/helper-v$VERSION"
+      - name: Promote to GitHub and COS
+        env:
+          VERSION: ${{ inputs.version }}
+          PREPARED: ${{ inputs.prepared }}
+          GH_TOKEN: ${{ github.token }}
+          COS_SECRET_ID: ${{ secrets.COS_SECRET_ID }}
+          COS_SECRET_KEY: ${{ secrets.COS_SECRET_KEY }}
+        run: |
+          test -n "$COS_SECRET_ID" && test -n "$COS_SECRET_KEY"
+          cd "$RUNNER_TEMP/promotion"
+          python -I "$GITHUB_WORKSPACE/pokecatch-helper/tools/publish-helper.py" --version "$VERSION" --commit "$PREPARED" --receipt "$RUNNER_TEMP/helper-receipt.json"
+      - if: always()
+        run: test ! -f "$RUNNER_TEMP/helper-receipt.json" || cat "$RUNNER_TEMP/helper-receipt.json" >> "$GITHUB_STEP_SUMMARY"

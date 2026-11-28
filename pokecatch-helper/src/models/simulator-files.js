@@ -18,6 +18,34 @@
             };
         });
     }
+    const blocBossIds=[143,217,463,631,317,89,518,321,71,450,306,604,473,297,214,279];
+    const blocColors={'#ff5a4e':'atk','#ffd23f':'def','#4ea3ff':'spa','#4fd16b':'spd','#ff8ad1':'spe','#d9a8ff':'all'};
+    function simulatorBloc(s,aliases,now){
+        const day=parisDay(now),validDay=v=>typeof v==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(v);
+        const teamOf=v=>Array.isArray(v)&&v.length<=10&&new Set(v).size===v.length&&v.every(id=>aliases.has(id))?v.map(id=>aliases.get(id)):null;
+        const state=s.bloc,last=state?.last,team=teamOf(s.eventTeams?.bloc);
+        const teamSeed=team?.length?[...day+'|'+s.eventTeams.bloc.join(',')].reduce((hash,ch)=>Math.imul(hash^ch.charCodeAt(0),16777619)>>>0,2166136261):null;
+        const validLast=validDay(last?.day)&&blocBossIds.includes(last.boss)&&Object.values(blocColors).includes(last.taste)&&Number.isInteger(last.step)&&last.step>=0&&last.step<(last.taste==='all'?18:14);
+        const lastBattle=validLast?{day:last.day,boss:last.boss,taste:last.taste,step:last.step,team:teamOf(last.team),
+            damage:Number.isFinite(last.dmg)?last.dmg:null,blocks:Number.isSafeInteger(last.got)?last.got:null,rainbow:Number.isSafeInteger(last.rb)?last.rb:null}:null;
+        let daily=validLast&&last.day===day?{day,boss:last.boss,taste:last.taste,source:'battle'}:null;
+        if(!daily&&typeof document!=='undefined'){
+            const panel=document.querySelector?.('#screen-raid.active #bloc-root .bb-view'),banner=document.querySelector?.('#screen-raid.active button.rh-hb.bloc');
+            const color=(panel??banner)?.style?.getPropertyValue('--tc')?.trim().toLowerCase();
+            const src=panel?.querySelector('.bb-boss img')?.getAttribute('src')??'';
+            const id=Number(/\/(\d+)\.(?:gif|png|webp)(?:[?#]|$)/i.exec(src)?.[1]);
+            const name=banner?.querySelector('.sub b')?.textContent?.trim();
+            const boss=blocBossIds.includes(id)?id:blocBossIds.find(n=>MONS.get(n)?.name===name);
+            if(boss&&blocColors[color])daily={day,boss,taste:blocColors[color],source:'screen'};
+        }
+        const lvl=s.adv?.event?.level??s.adv?.zone?.level;
+        const league=DATA.chapters.filter(c=>c.reg==='unova'&&c.league).at(-1);
+        const unlocked=state?.ignoreLock||validLast&&last.day===day?true:league&&Number.isInteger(s.adv?.unlocked)?
+            s.adv.unlocked>league.id||league.badges.some(b=>s.adv.badges?.includes(b)):null;
+        return {day,daily,team,teamSeed,lastBattle,unlocked,played:state?.played===day,best:Number.isInteger(state?.best)?state.best:null,
+            inZone:!!s.adv?.zone,levelLimit:Number.isInteger(lvl)&&lvl>=1&&lvl<=100?lvl:null,
+            learnedPower:s.mons.filter(m=>m.learn&&aliases.has(m.uid)).map(m=>aliases.get(m.uid))};
+    }
     async function simulatorBox(s,settings,now,build,resources=false,identity=simIdentity){
         const raw=new WeakMap(),aliases=new Map();
         const box=boxSnapshot(s,settings,now,build,(alias,m,row)=>{raw.set(row,m);aliases.set(m.uid,alias);});
@@ -87,8 +115,8 @@
         const sources=typeof document==='undefined'?[]:[...document.querySelectorAll('script[src*="bundle/app."]')];
         const bundles=new Set(sources.map(el=>/(?:^|\/)bundle\/app\.([a-f0-9]{10})\.js(?:[?#]|$)/i.exec(el.getAttribute('src')||'')?.[1]?.toLowerCase()).filter(Boolean));
         Object.assign(box,{schema:2,exporter:'pokecatch-helper/2',exportId:simOpaque(),identityScope:space.scope,
-            capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters'],gameBuild:box.gameBuild??'unknown',
-            conditionsSnapshot:{at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
+            capabilities:['stable-identity','field-provenance','conditions','raw-bans','explicit-combat-defaults','elite-rosters','bloc-boss'],gameBuild:box.gameBuild??'unknown',
+            conditionsSnapshot:{blocBoss:simulatorBloc(s,aliases,now),at:box.exportedAt,target:observedTarget,weather,weatherScope:zone?'zone':node?'adventure-node':'unknown',
                 phase:phase==='morning'?'day':phase,observedPhase:phase,bundleBuild:bundles.size===1?[...bundles][0]:'unknown',
                 eliteTeams,eliteProgress,tasteSwitches,nativeAutoSwitch:s.autoSwitch===undefined?true:typeof s.autoSwitch==='boolean'?s.autoSwitch:'unknown',
                 autoTeam:box.rules.autoTeam,activeSwitch:box.rules.activeSwitch},identityPersistent:!!trainer});

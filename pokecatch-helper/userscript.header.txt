@@ -9,13 +9,14 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_xmlhttpRequest
 // @grant        GM_openInTab
+// @connect      catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com
 // @connect      raw.githubusercontent.com
 // @connect      api.github.com
 // @connect      cdn.jsdelivr.net
 // @connect      fastly.jsdelivr.net
 // @connect      gcore.jsdelivr.net
-// @updateURL    https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.meta.js
-// @downloadURL  https://raw.githubusercontent.com/ZGRay00/Catch/main/pokecatch-helper.user.js
+// @updateURL    https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.meta.js
+// @downloadURL  https://catch-elite-sim-1426994854.cos.ap-guangzhou.myqcloud.com/updates/v1/helper/pokecatch-helper.user.js
 // @sandbox      DOM
 // @run-at       document-start
 // @noframes
